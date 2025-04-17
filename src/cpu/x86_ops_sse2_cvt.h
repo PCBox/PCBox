@@ -637,7 +637,7 @@ opCVTPD2PI_mm_xmm_a32(uint32_t fetchdat)
     SSE_REG  src;
     MMX_REG *dst;
     MMX_ENTER();
-    fetch_ea_32     (fetchdat);
+    fetch_ea_32(fetchdat);
 
     dst = MMX_GETREGP(cpu_reg);
     SSE_GETSRC();

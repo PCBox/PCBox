@@ -185,18 +185,14 @@ load_general(void)
     p = ini_section_get_string(cat, "language", NULL);
     if (p != NULL)
         lang_id = plat_language_code(p);
+    else
+        lang_id = plat_language_code(DEFAULT_LANGUAGE);
 
     mouse_sensitivity = ini_section_get_double(cat, "mouse_sensitivity", 1.0);
     if (mouse_sensitivity < 0.1)
         mouse_sensitivity = 0.1;
     else if (mouse_sensitivity > 2.0)
         mouse_sensitivity = 2.0;
-
-    p = ini_section_get_string(cat, "iconset", NULL);
-    if (p != NULL)
-        strcpy(icon_set, p);
-    else
-        strcpy(icon_set, "");
 
     enable_discord = !!ini_section_get_int(cat, "enable_discord", 0);
 
@@ -1846,6 +1842,8 @@ config_load(void)
         cassette_pcm          = 0;
         cassette_ui_writeprot = 0;
 
+        lang_id = plat_language_code(DEFAULT_LANGUAGE);
+
         config_log("Config file not present or invalid!\n");
     } else {
         load_general();                 /* General */
@@ -2031,17 +2029,12 @@ save_general(void)
     else
         ini_section_delete_var(cat, "mouse_sensitivity");
 
-    if (lang_id == DEFAULT_LANGUAGE)
+    if (lang_id == plat_language_code(DEFAULT_LANGUAGE))
         ini_section_delete_var(cat, "language");
     else {
         plat_language_code_r(lang_id, buffer, 511);
         ini_section_set_string(cat, "language", buffer);
     }
-
-    if (!strcmp(icon_set, ""))
-        ini_section_delete_var(cat, "iconset");
-    else
-        ini_section_set_string(cat, "iconset", icon_set);
 
     if (enable_discord)
         ini_section_set_int(cat, "enable_discord", enable_discord);

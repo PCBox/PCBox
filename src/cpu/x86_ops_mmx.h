@@ -52,6 +52,11 @@
     if (cr0 & 0x8) { \
         x86_int(7);  \
         return 1;    \
+    }                \
+    if ((cr0 & 0x4) || !(cr4 & CR4_OSFXSR)) { \
+        cpu_state.pc = cpu_state.oldpc;       \
+        x86illegal();                         \
+        return 1;                             \
     }
 
 static int
@@ -76,7 +81,7 @@ static struct softfloat_status_t mxcsr_to_softfloat_status_word(void)
     struct softfloat_status_t status;
     status.softfloat_exceptionFlags             = 0; // clear exceptions before execution
     status.softfloat_roundingMode               = (cpu_state.mxcsr >> 13) & 3;
-    status.softfloat_flush_underflow_to_zero    = (cpu_state.mxcsr >> 15) & 1;
+    status.softfloat_flush_underflow_to_zero    = ((cpu_state.mxcsr >> 15) & 1) && ((cpu_state.mxcsr >> 11) & 1);
     status.softfloat_suppressException          = 0;
     status.softfloat_exceptionMasks             = (cpu_state.mxcsr >> 7) & 0x3f;
     status.softfloat_denormals_are_zeros        = (cpu_state.mxcsr >> 6) & 1;

@@ -94,6 +94,8 @@ extern int qt_nvr_save(void);
 bool cpu_thread_running = false;
 }
 
+#include <locale.h>
+
 void qt_set_sequence_auto_mnemonic(bool b);
 
 #ifdef Q_OS_WINDOWS
@@ -192,8 +194,6 @@ win_keyboard_handle(uint32_t scancode, int up, int e0, int e1)
            it's not an invalid scan code. */
         if (scancode != 0xFFFF)
             keyboard_input(!up, scancode);
-
-        main_window->checkFullscreenHotkey();
     }
 }
 
@@ -368,8 +368,6 @@ emu_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
     else if ((lpKdhs->scanCode == 0x3e) && (lpKdhs->flags & LLKHF_ALTDOWN) &&
              !(lpKdhs->flags & (LLKHF_UP | LLKHF_EXTENDED)))
         ret = TRUE;
-    else if ((lpKdhs->scanCode == 0x49) && bCtrlDown && !(lpKdhs->flags & LLKHF_UP))
-        ret = TRUE;
     else if ((lpKdhs->scanCode >= 0x5b) && (lpKdhs->scanCode <= 0x5d) && (lpKdhs->flags & LLKHF_EXTENDED))
         ret = TRUE;
     else if (inhibit_multimedia_keys
@@ -525,6 +523,7 @@ main(int argc, char *argv[])
 
     QApplication app(argc, argv);
     QLocale::setDefault(QLocale::C);
+    setlocale(LC_NUMERIC, "C");
 
 #ifdef Q_OS_WINDOWS
     Q_INIT_RESOURCE(darkstyle);

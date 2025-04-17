@@ -123,9 +123,17 @@ opCVTTPS2PI_mm_xmm_a16(uint32_t fetchdat)
 
     dst = MMX_GETREGP(cpu_reg);
     SSE_GETSRC();
-    dst->sl[0] = trunc(src.f2[0]);
-    dst->sl[1] = trunc(src.f2[1]);
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    dst->sl[0] = f32_to_i32_round_to_zero(src.f[0], &status);
+    dst->sl[1] = f32_to_i32_round_to_zero(src.f[1], &status);
     MMX_SETEXP(cpu_reg);
+    /*softfloat_status_word_to_mxcsr(status);
+    int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
+    if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
+        if (cr4 & CR4_OSXMMEXCPT)
+            x86_int(0x13);
+        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }*/
     CLOCK_CYCLES(1);
 
     return 0;
@@ -144,9 +152,17 @@ opCVTTPS2PI_mm_xmm_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     dst = MMX_GETREGP(cpu_reg);
     SSE_GETSRC();
-    dst->sl[0] = trunc(src.f2[0]);
-    dst->sl[1] = trunc(src.f2[1]);
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    dst->sl[0] = f32_to_i32_round_to_zero(src.f[0], &status);
+    dst->sl[1] = f32_to_i32_round_to_zero(src.f[1], &status);
     MMX_SETEXP(cpu_reg);
+    /*softfloat_status_word_to_mxcsr(status);
+    int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
+    if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
+        if (cr4 & CR4_OSXMMEXCPT)
+            x86_int(0x13);
+        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }*/
     CLOCK_CYCLES(1);
 
     return 0;

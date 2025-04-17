@@ -26,12 +26,11 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
-    void  showMessage(int flags, const QString &header, const QString &message);
+    void  showMessage(int flags, const QString &header, const QString &message, bool richText);
     void  getTitle(wchar_t *title);
     void  blitToWidget(int x, int y, int w, int h, int monitor_index);
     QSize getRenderWidgetSize();
     void  setSendKeyboardInput(bool enabled);
-    void  checkFullscreenHotkey();
     void  reloadAllRenderers();
 
     std::array<std::unique_ptr<RendererStack>, 8> renderers;
@@ -56,7 +55,7 @@ signals:
     void setFullscreen(bool state);
     void setMouseCapture(bool state);
 
-    void showMessageForNonQtThread(int flags, const QString &header, const QString &message, std::atomic_bool* done);
+    void showMessageForNonQtThread(int flags, const QString &header, const QString &message, bool richText, std::atomic_bool* done);
     void getTitleForNonQtThread(wchar_t *title);
 public slots:
     void showSettings();
@@ -117,13 +116,14 @@ private slots:
     void on_actionHide_tool_bar_triggered();
     void on_actionUpdate_status_bar_icons_triggered();
     void on_actionTake_screenshot_triggered();
+    void on_actionMute_Unmute_triggered();
     void on_actionSound_gain_triggered();
     void on_actionPreferences_triggered();
     void on_actionEnable_Discord_integration_triggered(bool checked);
     void on_actionRenderer_options_triggered();
 
     void refreshMediaMenu();
-    void showMessage_(int flags, const QString &header, const QString &message, std::atomic_bool* done = nullptr);
+    void showMessage_(int flags, const QString &header, const QString &message, bool richText, std::atomic_bool* done = nullptr);
     void getTitle_(wchar_t *title);
 
     void on_actionMCA_devices_triggered();

@@ -161,6 +161,7 @@ int      window_remember;
 int      vid_resize;                                              /* (C) allow resizing */
 int      invert_display                         = 0;              /* (C) invert the display */
 int      suppress_overscan                      = 0;              /* (C) suppress overscans */
+int      lang_id                                = 0;              /* (C) language id */
 int      scale                                  = 0;              /* (C) screen scale factor */
 int      dpi_scale                              = 0;              /* (C) DPI scaling of the emulated
                                                                          screen */
@@ -278,7 +279,7 @@ void pclog_ensure_stdlog_open(void);
 #endif
 
 /* 
-    Ensures STDLOG is open for pclog_ex and pclog_ex_cyclic
+    Ensures STDLOG is open for pclog_ex
 */
 void pclog_ensure_stdlog_open(void)
 {
@@ -585,7 +586,7 @@ pc_init(int argc, char *argv[])
     uint32_t *uid;
     uint32_t *shwnd;
 #endif
-    uint32_t lang_init = 0;
+    int lang_init = 0;
 
     /* Grab the executable's full path. */
     plat_get_exe_name(exe_path, sizeof(exe_path) - 1);
@@ -1294,6 +1295,8 @@ pc_reset_hard_init(void)
      * modules that are.
      */
 
+    keyboard_init();
+
     /* Reset the IDE and SCSI presences */
     other_ide_present = other_scsi_present = 0;
 
@@ -1627,6 +1630,8 @@ set_screen_size_monitor(int x, int y, int monitor_index)
 {
     int    temp_overscan_x = monitors[monitor_index].mon_overscan_x;
     int    temp_overscan_y = monitors[monitor_index].mon_overscan_y;
+    int    is_svga         = (video_get_type_monitor(monitor_index) == VIDEO_FLAG_TYPE_SPECIAL) ||
+                             (video_get_type_monitor(monitor_index) == VIDEO_FLAG_TYPE_8514);
     double dx;
     double dy;
     double dtx;
@@ -1660,19 +1665,19 @@ set_screen_size_monitor(int x, int y, int monitor_index)
         dty = (double) temp_overscan_y;
 
         /* Account for possible overscan. */
-        if (video_get_type_monitor(monitor_index) != VIDEO_FLAG_TYPE_SPECIAL && (temp_overscan_y == 16)) {
+        if (!is_svga && (temp_overscan_y == 16)) {
             /* CGA */
             dy = (((dx - dtx) / 4.0) * 3.0) + dty;
-        } else if (video_get_type_monitor(monitor_index) != VIDEO_FLAG_TYPE_SPECIAL && (temp_overscan_y < 16)) {
+        } else if (!is_svga && (temp_overscan_y < 16)) {
             /* MDA/Hercules */
-            dy = (x / 4.0) * 3.0;
+            dy = (dx / 4.0) * 3.0;
         } else {
             if (enable_overscan) {
                 /* EGA/(S)VGA with overscan */
                 dy = (((dx - dtx) / 4.0) * 3.0) + dty;
             } else {
                 /* EGA/(S)VGA without overscan */
-                dy = (x / 4.0) * 3.0;
+                dy = (dx / 4.0) * 3.0;
             }
         }
         monitors[monitor_index].mon_unscaled_size_y = (int) dy;

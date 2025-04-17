@@ -63,12 +63,12 @@ elseif(SNDIO)
 
     pkg_check_modules(SNDIO IMPORTED_TARGET sndio)
     if(SNDIO_FOUND)
-        target_link_libraries(86Box PkgConfig::SNDIO)
+        target_link_libraries(PCBox PkgConfig::SNDIO)
     else()
         find_path(SNDIO_INCLUDE_DIR NAMES "sndio.h")
         find_library(SNDIO_LIBRARY sndio)
 
-        target_link_libraries(86Box ${SNDIO_LIBRARY})
+        target_link_libraries(PCBox ${SNDIO_LIBRARY})
     endif()
 
     include_directories(${SNDIO_INCLUDE_DIRS})
@@ -180,6 +180,9 @@ endif()
 
 add_subdirectory(ymfm)
 target_link_libraries(PCBox ymfm)
+
+add_subdirectory(saasound)
+target_link_libraries(PCBox saasound)
 
 if(GUSMAX)
     target_compile_definitions(snd PRIVATE USE_GUSMAX)

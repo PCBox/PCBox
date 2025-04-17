@@ -825,7 +825,7 @@ gdbstub_client_packet(gdbstub_client_t *client)
     int     j = 0;
     int     k = 0;
     int     l;
-    uint8_t buf[10] = { 0 };
+    uint8_t buf[16] = { 0 };
     char   *p;
 
     /* Validate checksum. */
@@ -1508,7 +1508,7 @@ gdbstub_cpu_exec(int32_t cycs)
         }
 
         /* Add register dump. */
-        uint8_t buf[10] = { 0 };
+        uint8_t buf[16] = { 0 };
         int     j;
         for (int i = 0; i < GDB_REG_MAX; i++) {
             if (i >= 0x10)

@@ -131,9 +131,12 @@ enum {
     IREG_FS_limit_high = 85,
     IREG_GS_limit_high = 86,
     IREG_SS_limit_high = 87,
-    IREG_sse_xmm = 88,
 
-    IREG_COUNT = 89,
+    IREG_eaa16 = 88,
+
+    IREG_sse_xmm = 89,
+
+    IREG_COUNT = 90,
 
     IREG_INVALID = 255,
 

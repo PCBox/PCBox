@@ -96,6 +96,7 @@ video_cards[] = {
     { .device = &genius_device,                                 .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &nga_device,                                    .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &ogc_device,                                    .flags = VIDEO_FLAG_TYPE_NONE },
+    { .device = &jvga_device,                                   .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &oti037c_device,                                .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &oti067_device,                                 .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &oti077_device,                                 .flags = VIDEO_FLAG_TYPE_NONE },
@@ -194,6 +195,7 @@ video_cards[] = {
     { .device = &tgui9680_pci_device,                           .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &voodoo_banshee_device,                         .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &creative_voodoo_banshee_device,                .flags = VIDEO_FLAG_TYPE_NONE },
+    { .device = &quantum3d_raven_device,                        .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &voodoo_3_1000_device,                          .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &voodoo_3_2000_device,                          .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &voodoo_3_3000_device,                          .flags = VIDEO_FLAG_TYPE_NONE },
@@ -250,6 +252,10 @@ video_cards[] = {
     { .device = &compaq_voodoo_3_3500_agp_device,               .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &voodoo_3_3500_se_agp_device,                   .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &voodoo_3_3500_si_agp_device,                   .flags = VIDEO_FLAG_TYPE_NONE },
+    { .device = &nv3_device_agp,                                .flags = VIDEO_FLAG_TYPE_NONE },
+    { .device = &nv3_device_pci,                                .flags = VIDEO_FLAG_TYPE_NONE },
+    { .device = &nv3t_device_agp,                               .flags = VIDEO_FLAG_TYPE_NONE },
+    { .device = &nv3t_device_pci,                               .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = NULL,                                           .flags = VIDEO_FLAG_TYPE_NONE }
   // clang-format on
 };

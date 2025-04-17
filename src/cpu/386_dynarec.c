@@ -642,6 +642,8 @@ exec386_dynarec_dyn(void)
 
                 x86_opcodes[(opcode | cpu_state.op32) & 0x3ff](fetchdat);
 
+                cpu_state.sse_xmm = 0;
+
                 if (x86_was_reset)
                     break;
             }

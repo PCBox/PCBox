@@ -374,9 +374,9 @@ static uint8_t opcode_0f_modrm[256] = {
     1, 1, 1, 1,  1, 1, 1, 1,  0, 0, 1, 1,  1, 1, 1, 1, /*b0*/
 
     1, 1, 1, 1,  1, 1, 1, 1,  0, 0, 0, 0,  0, 0, 0, 0, /*c0*/
-    0, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /*d0*/
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /*d0*/
     1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /*e0*/
-    0, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 0,  1, 1, 1, 0  /*f0*/
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 0  /*f0*/
 };
 // clang-format on
 
@@ -570,7 +570,6 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
                 op_table        = x86_dynarec_opcodes_REPNE;
                 recomp_op_table = NULL; // recomp_opcodes_REPNE;
                 is_repne = 1;
-                over = 1;
                 break;
             case 0xf3: /*REPE*/
 #ifdef DEBUG_EXTRA
@@ -579,7 +578,6 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
                 op_table        = x86_dynarec_opcodes_REPE;
                 recomp_op_table = NULL; // recomp_opcodes_REPE;
                 is_repe = 1;
-                over = 1;
                 break;
 
             default:
@@ -702,6 +700,11 @@ generate_call:
     if ((op_table == x86_dynarec_opcodes_REPNE || op_table == x86_dynarec_opcodes_REPE) && !op_table[opcode | op_32]) {
         op_table        = x86_dynarec_opcodes;
         recomp_op_table = recomp_opcodes;
+    }
+
+    if ((op_table == x86_dynarec_opcodes_REPNE_0f || op_table == x86_dynarec_opcodes_REPE_0f) && !op_table[opcode | op_32]) {
+        op_table        = x86_dynarec_opcodes_0f;
+        recomp_op_table = recomp_opcodes_0f_no_mmx;
     }
 
     op = op_table[((opcode >> opcode_shift) | op_32) & opcode_mask];

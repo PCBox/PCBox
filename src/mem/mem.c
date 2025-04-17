@@ -341,7 +341,6 @@ mmutranslatereal_normal(uint32_t addr, int rw)
 
     if ((temp & 0x80) && (cr4 & CR4_PSE)) {
         /*4MB page*/
-        uint64_t ret = temp & ~0x3fffff;
         if (((CPL == 3) && !(temp & 4) && !cpl_override) || ((rw == 1) && !cpl_override && !(temp & 2) && (((CPL == 3) && !cpl_override) || ((is486 || isibm486) && (cr0 & WP_FLAG))))) {
             cr2 = addr;
             temp &= 1;
@@ -538,7 +537,6 @@ mmutranslate_noabrt_normal(uint32_t addr, int rw)
 
     if ((temp & 0x80) && (cr4 & CR4_PSE)) {
         /*4MB page*/
-        uint64_t ret = temp & ~0x3fffff;
         if (((CPL == 3) && !(temp & 4) && !cpl_override) || ((rw == 1) && !cpl_override && !(temp & 2) && ((CPL == 3) || (cr0 & WP_FLAG))))
             return 0xffffffffffffffffULL;
 
@@ -2993,6 +2991,17 @@ mem_init_ram_mapping(mem_mapping_t *mapping, uint32_t base, uint32_t size)
     mem_add_ram_mapping(mapping, base, size);
 }
 
+void
+mem_zero(void)
+{
+#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
+    if (mem_size > 1048576)
+        memset(ram2, 0x00, ram2_size + 16);
+#endif
+
+    memset(ram, 0x00, ram_size + 16);
+}
+
 /* Reset the memory state. */
 void
 mem_reset(void)
@@ -3068,8 +3077,10 @@ mem_reset(void)
             return;
         }
         memset(ram, 0x00, ram_size + 16);
+#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
         if (mem_size > 1048576)
             ram2 = &(ram[1 << 30]);
+#endif
     }
 
     /*
@@ -3172,6 +3183,7 @@ mem_reset(void)
         else if (cpu_16bitbus && is6117 && mem_size > 65408)
             mem_init_ram_mapping(&ram_high_mapping, 0x100000, (65408 - 1024) * 1024);
         else {
+#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
             if (mem_size > 1048576) {
                 mem_init_ram_mapping(&ram_high_mapping, 0x100000, (1048576 - 1024) * 1024);
 
@@ -3184,6 +3196,9 @@ mem_reset(void)
                                 ram2, MEM_MAPPING_INTERNAL, NULL);
             } else
                 mem_init_ram_mapping(&ram_high_mapping, 0x100000, (mem_size - 1024) * 1024);
+#else
+            mem_init_ram_mapping(&ram_high_mapping, 0x100000, (mem_size - 1024) * 1024);
+#endif
         }
     }
 
