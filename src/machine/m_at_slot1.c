@@ -39,6 +39,8 @@
 #include <86box/sound.h>
 #include <86box/clock.h>
 #include <86box/snd_ac97.h>
+#include <86box/timer.h>
+#include <86box/apic.h>
 
 int
 machine_at_p65up5_cpknd_init(const machine_t *model)
@@ -599,6 +601,44 @@ machine_at_p6sba_init(const machine_t *model)
     device_add(&intel_flash_bxt_device);
     spd_register(SPD_TYPE_SDRAM, 0x7, 256);
     device_add(&w83781d_device);    /* fans: CPU1, CPU2, Thermal Control; temperatures: unused, CPU1, CPU2? */
+    hwm_values.fans[1]         = 0; /* no CPU2 fan */
+    hwm_values.temperatures[0] = 0; /* unused */
+    hwm_values.temperatures[2] = 0; /* CPU2? */
+    /* no CPU2 voltage */
+
+    return ret;
+}
+
+int
+machine_at_dfip2x_init(const machine_t *model)
+{
+    int ret;
+
+    ret = bios_load_linear("roms/machines/dfip2x/pdf0613-6415bdbf95f08834010923.bin",
+                           0x000c0000, 262144, 0);
+
+    if (bios_only || !ret)
+        return ret;
+
+    machine_at_common_init_ex(model, 2);
+
+    pci_init(PCI_CONFIG_TYPE_1);
+    pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
+    pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4);
+    pci_register_slot(0x09, PCI_CARD_NORMAL,      1, 2, 3, 4);
+    pci_register_slot(0x0B, PCI_CARD_NORMAL,      2, 3, 4, 1);
+    pci_register_slot(0x0D, PCI_CARD_NORMAL,      3, 4, 1, 2);
+    pci_register_slot(0x0F, PCI_CARD_NORMAL,      4, 1, 2, 3);
+    pci_register_slot(0x11, PCI_CARD_NORMAL,      4, 1, 2, 3);
+    pci_register_slot(0x01, PCI_CARD_AGPBRIDGE,   1, 2, 3, 4);
+    device_add(&i440bx_device);
+    device_add(&piix4e_device);
+    device_add(&w83977tf_device);
+    device_add(&keyboard_ps2_ami_pci_device);
+    device_add(&intel_flash_bxt_device);
+    spd_register(SPD_TYPE_SDRAM, 0x7, 256);
+    device_add(&w83781d_device);    /* fans: CPU1, CPU2, Thermal Control; temperatures: unused, CPU1, CPU2? */
+    device_add(&i82093aa_ioapic_device);
     hwm_values.fans[1]         = 0; /* no CPU2 fan */
     hwm_values.temperatures[0] = 0; /* unused */
     hwm_values.temperatures[2] = 0; /* CPU2? */

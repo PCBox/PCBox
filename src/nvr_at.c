@@ -488,7 +488,7 @@ timer_update(void *priv)
 
         /* Schedule the end of the update. */
         local->ecount = 1984ULL * TIMER_USEC;
-        timer_set_delay_u64(&local->update_timer, local->ecount);
+        timer_advance_u64(&local->update_timer, local->ecount);
     } else {
         /*
          * The flag and interrupt should be issued

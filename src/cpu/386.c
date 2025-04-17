@@ -383,7 +383,7 @@ block_ended:
 #else
                 nmi = 0;
 #endif
-            } else if ((cpu_state.flags & I_FLAG) && (pic.int_pending || (apic_lapic_is_irr_pending())) && !cpu_end_block_after_ins) {
+            } else if ((cpu_state.flags & I_FLAG) && (pic_pending_int()) && !cpu_end_block_after_ins) {
                 vector = picinterrupt();
                 if (vector != -1) {
                     flags_rebuild();

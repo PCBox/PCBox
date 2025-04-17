@@ -52,6 +52,7 @@
 #include <86box/sound.h>
 #include <86box/tco.h>
 #include <86box/usb.h>
+#include <86box/apic.h>
 
 #include <86box/chipset.h>
 
@@ -94,8 +95,8 @@ static void
 intel_ich2_acpi_setup(intel_ich2_t *dev)
 {
     uint32_t base     = (dev->pci_conf[0][0x41] << 8) | (dev->pci_conf[0][0x40] & 0x80);
-    int      acpi_irq = ((dev->pci_conf[0][0x44] & 7) < 3) ? (9 + (dev->pci_conf[0][0x44] & 7)) : 9; /* Under APIC you can set this even higher but */
-    int      enable   = !!(dev->pci_conf[0][0x44] & 0x10);                                           /* as we lack it we are restricted with low.   */
+    int      acpi_irq = ((dev->pci_conf[0][0x44] & 7) < 3) ? (9 + (dev->pci_conf[0][0x44] & 7)) : (20 + dev->pci_conf[0][0x44] & 3);
+    int      enable   = !!(dev->pci_conf[0][0x44] & 0x10);
 
     acpi_update_io_mapping(dev->acpi, base, enable);
     acpi_set_irq_line(dev->acpi, acpi_irq);
@@ -117,8 +118,7 @@ intel_ich2_bioswe(intel_ich2_t *dev)
 static void
 intel_ich2_tco_interrupt(intel_ich2_t *dev)
 {
-    uint16_t tco_irq = ((dev->pci_conf[0][0x54] & 7) < 3) ? (9 + (dev->pci_conf[0][0x45] & 7)) : 9; /* Under APIC you can set this even higher but */
-                                                                                                    /* as we lack it we are restricted with low.   */
+    uint16_t tco_irq = ((dev->pci_conf[0][0x45] & 7) < 3) ? (9 + (dev->pci_conf[0][0x45] & 7)) : (20 + dev->pci_conf[0][0x44] & 3);
     tco_irq_update(dev->tco, tco_irq);
 }
 
@@ -150,10 +150,10 @@ intel_ich2_pirq_update(int reset, int addr, uint8_t val)
 {
     int pirq = (addr >= 0x68) ? (addr - 0x63) : (addr - 0x5f);
 
-    if (((val & 0x80) != 0x80) && !reset) {                                            /* 86Box doesn't have an APIC yet.                          */
-        intel_ich2_log("Intel ICH2 LPC: Update PIRQ %c to IRQ %d\n", '@' + pirq, val); /* Under normal circumstances on an APIC enabled motherboard*/
-        pci_set_irq_routing(pirq, intel_ich2_pirq_table(val));                         /* this remains disabled and the IRQ are handed by the APIC */
-    } else if (reset)                                                                  /* itself.                                                  */
+    if (!reset) {
+        intel_ich2_log("Intel ICH2 LPC: Update PIRQ %c to IRQ %d\n", '@' + pirq, val);
+        pci_set_irq_routing(pirq, (val & 0x80) ? PCI_IRQ_DISABLED : intel_ich2_pirq_table(val));
+    } else if (reset)
         for (int i = 1; i <= 8; i++)
             pci_set_irq_routing(i, PCI_IRQ_DISABLED);
 }
@@ -504,11 +504,16 @@ intel_ich2_write(int func, int addr, uint8_t val, void *priv)
                 break;
 
             case 0xd0:
-                dev->pci_conf[func][addr] = val & 0x4f; /* Brute force APIC support as disabled */
+                dev->pci_conf[func][addr] = val & 0xcf;
+                if (val & 0x80)
+                    apic_ioapic_set_base(0, 0);
+                else
+                    mem_mapping_disable(&current_ioapic->ioapic_mem_window);
                 break;
 
             case 0xd1:
-                dev->pci_conf[func][addr] = val & 0x38; /* Brute force APIC support as disabled */
+                dev->pci_conf[func][addr] = val & 0x39;
+                current_ioapic->extended = val & 1;
                 break;
 
             case 0xd3:
@@ -1080,6 +1085,11 @@ intel_ich2_init(UNUSED(const device_t *info))
     dev->usb_hub[1] = device_add_inst(&usb_device, 2);
 
     intel_ich2_reset(dev);
+
+    if (!current_ioapic) {
+        device_add(&i82093aa_ioapic_device);
+        mem_mapping_disable(&current_ioapic->ioapic_mem_window);
+    }
 
     return dev;
 }

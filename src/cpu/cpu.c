@@ -3405,6 +3405,10 @@ cpu_RDMSR(void)
                 case 0x10:
                     EAX = tsc & 0xffffffff;
                     EDX = tsc >> 32;
+#ifdef USE_DYNAREC
+                    if (cpu_use_dynarec)
+                        update_tsc();
+#endif
                     break;
                 /* Performance Monitor - Control and Event Select */
                 case 0x11:
@@ -3460,6 +3464,10 @@ cpu_RDMSR(void)
                 case 0x10:
                     EAX = tsc & 0xffffffff;
                     EDX = tsc >> 32;
+#ifdef USE_DYNAREC
+                    if (cpu_use_dynarec)
+                        update_tsc();
+#endif
                     break;
                 /* EBL_CR_POWERON - Processor Hard Power-On Configuration */
                 case 0x2a:
@@ -3658,6 +3666,10 @@ cpu_RDMSR(void)
                 case 0x00000010:
                     EAX = tsc & 0xffffffff;
                     EDX = tsc >> 32;
+#ifdef USE_DYNAREC
+                    if (cpu_use_dynarec)
+                        update_tsc();
+#endif
                     break;
                 case 0x1b:
                     EAX = msr.apic_base & 0xffffffff;
@@ -4028,6 +4040,10 @@ amd_k_invalid_rdmsr:
                 case 0x80000010:
                     EAX = tsc & 0xffffffff;
                     EDX = tsc >> 32;
+#ifdef USE_DYNAREC
+                    if (cpu_use_dynarec)
+                        update_tsc();
+#endif
                     break;
                 /* Performance Monitor - Control and Event Select */
                 case 0x00000011:
@@ -4125,6 +4141,10 @@ pentium_invalid_rdmsr:
                 case 0x10:
                     EAX = tsc & 0xffffffff;
                     EDX = tsc >> 32;
+#ifdef USE_DYNAREC
+                    if (cpu_use_dynarec)
+                        update_tsc();
+#endif
                     break;
                 /* Performance Monitor - Control and Event Select */
                 case 0x11:
@@ -4164,6 +4184,10 @@ pentium_invalid_rdmsr:
                 case 0x10:
                     EAX = tsc & 0xffffffff;
                     EDX = tsc >> 32;
+#ifdef USE_DYNAREC
+                    if (cpu_use_dynarec)
+                        update_tsc();
+#endif
                     break;
                 /* IA32_PLATFORM_ID - Platform ID */
                 case 0x17:

@@ -2,33 +2,25 @@
 
 /* We only target little-endian architectures. */
 typedef struct apic_ioredtable_t {
-    uint32_t intvec     : 8;
-    uint32_t delmod     : 3;
-    uint32_t destmod    : 1;
-    uint32_t delivs     : 1;
-    uint32_t intpol     : 1;
-    uint32_t rirr       : 1;
-    uint32_t trigmode   : 1;
-    uint32_t intr_mask  : 1;
-    uint32_t timer_mode : 1;
-    uint64_t reserved   : 44;
-    uint32_t dest_mask  : 3;
+    uint8_t intvec;
+
+    uint8_t delmod     : 3;
+    uint8_t destmod    : 1;
+    uint8_t delivs     : 1;
+    uint8_t intpol     : 1;
+    uint8_t rirr       : 1;
+    uint8_t trigmode   : 1;
+
+    uint8_t intr_mask  : 1;
+    uint8_t timer_mode : 1;
+    uint8_t reserved   : 6;
+    
+    uint8_t reserved2[4];
+
+    uint8_t dest_mask;
 } apic_ioredtable_t;
 
-typedef struct apic_lapic_lvt_t
-{
-    uint32_t intvec     : 8;
-    uint32_t delmod     : 3;
-    uint32_t dummy      : 1;
-    uint32_t delivs     : 1;
-    uint32_t intpol     : 1;
-    uint32_t rirr       : 1;
-    uint32_t trigmode   : 1;
-    uint32_t intr_mask  : 1;
-    uint32_t timer_mode : 1;
-    uint32_t reserved   : 14;
-} apic_lapic_lvt_t;
-
+#pragma pack(push, 1)
 typedef struct ioapic_t
 {
     /* I/O APIC parts */
@@ -47,8 +39,14 @@ typedef struct ioapic_t
     };
     uint8_t ioapic_index;
     mem_mapping_t ioapic_mem_window;
-    uint32_t irq_value;
     uint32_t irr;
+
+    uint32_t irq_eoi[IOAPIC_RED_TABL_SIZE];
+    uint32_t irq_level;
+    
+    pc_timer_t ioapic_service;
+
+    int extended;
 } ioapic_t;
 
 typedef struct lapic_t
@@ -83,8 +81,6 @@ typedef struct lapic_t
     uint32_t lapic_dest_format;
     uint32_t lapic_local_dest;
     uint32_t lapic_tpr;
-    uint32_t lapic_extint_servicing;
-    uint32_t lapic_extint_servicing_process;
     uint64_t old_tsc;
 
     uint32_t lapic_timer_divider;
@@ -114,7 +110,10 @@ typedef struct lapic_t
     /* Common parts. */
     uint32_t lines; /* For level triggered interrupts. */
     uint32_t ref_count; /* Structure reference count. */
+
+    double bus_ticks;
 } lapic_t;
+#pragma pack(pop)
 
 /* IOREDTABL masks */
 #define IOAPIC_INTVEC_MASK    0xFF
@@ -139,7 +138,7 @@ extern void apic_ioapic_set_base(uint8_t x_base, uint8_t y_base);
 extern void apic_lapic_set_base(uint32_t base);
 extern uint8_t apic_lapic_is_irr_pending(void);
 extern void apic_ioapic_lapic_interrupt_check(ioapic_t* ioapic, uint8_t irq);
-extern void apic_ioapic_set_irq(ioapic_t* ioapic, uint8_t irq);
+extern void apic_ioapic_set_irq(ioapic_t* ioapic, uint8_t irq, int level);
 extern void apic_ioapic_clear_irq(ioapic_t* ioapic, uint8_t irq);
 extern void apic_lapic_ioapic_remote_eoi(ioapic_t* ioapic, uint8_t vector);
 extern void lapic_service_interrupt(lapic_t *lapic, apic_ioredtable_t interrupt);
@@ -148,3 +147,6 @@ extern void apic_lapic_service_nmi(void);
 extern void apic_lapic_service_extint(void);
 extern void lapic_timer_poll(void* priv);
 extern void lapic_timer_advance_ticks(uint32_t ticks);
+extern int lapic_irq_pending(lapic_t *lapic);
+extern int pic_pending_int(void);
+extern int lapic_is_pic_enabled(void);

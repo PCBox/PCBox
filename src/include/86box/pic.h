@@ -86,6 +86,7 @@ extern uint8_t pic_read_ocw(uint8_t pic_id, uint8_t ocw);
 extern int     picint_is_level(int irq);
 extern void    picint_common(uint16_t num, int level, int set, uint8_t *irq_state);
 extern int     picinterrupt(void);
+extern int     picinterrupt_common(void);
 
 #define PIC_IRQ_EDGE                    0
 #define PIC_IRQ_LEVEL                   1

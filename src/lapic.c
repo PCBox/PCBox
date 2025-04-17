@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <stdatomic.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #include <86box/86box.h>
 #include "cpu/cpu.h"
@@ -42,51 +43,128 @@ lapic_t* current_lapic;
 static __inline uint8_t
 lapic_get_bit_irr(lapic_t *lapic, uint8_t bit)
 {
-    return lapic->irr_ll[bit / 64] & (1ull << (bit & 63));
+    return lapic->irr_ll[bit / 64] & (1ull << (uint64_t)(bit & 63ull));
 }
 
 static __inline void
 lapic_set_bit_irr(lapic_t *lapic, uint8_t bit, uint8_t val)
 {
-    lapic->irr_ll[bit / 64] &= ~(1ull << (bit & 63));
-    lapic->irr_ll[bit / 64] |= (((uint64_t)!!val) << (bit & 63));
+    lapic->irr_ll[bit / 64] &= ~(1ull << (bit & 63ull));
+    lapic->irr_ll[bit / 64] |= (((uint64_t)!!val) << (uint64_t)(bit & 63ull));
 }
 
 static __inline uint8_t
 lapic_get_bit_isr(lapic_t *lapic, uint8_t bit)
 {
-    return lapic->isr_ll[bit / 64] & (1ull << (bit & 63));
+    return lapic->isr_ll[bit / 64] & (1ull << (uint64_t)(bit & 63ull));
 }
 
 static __inline void
 lapic_set_bit_isr(lapic_t *lapic, uint8_t bit, uint8_t val)
 {
     lapic->isr_ll[bit / 64] &= ~(1ull << (bit & 63));
-    lapic->isr_ll[bit / 64] |= (((uint64_t)!!val) << (bit & 63));
+    lapic->isr_ll[bit / 64] |= (((uint64_t)!!val) << (uint64_t)(bit & 63ull));
 }
 
 static __inline uint8_t
 lapic_get_bit_tmr(lapic_t *lapic, uint8_t bit)
 {
-    return lapic->tmr_ll[bit / 64] & (1ull << (bit & 63));
+    return lapic->tmr_ll[bit / 64] & (1ull << (uint64_t)(bit & 63ull));
 }
 
 static __inline void
 lapic_set_bit_tmr(lapic_t *lapic, uint8_t bit, uint8_t val)
 {
-    lapic->tmr_ll[bit / 64] &= ~(1ull << (bit & 63));
-    lapic->tmr_ll[bit / 64] |= (((uint64_t)!!val) << (bit & 63));
+    lapic->tmr_ll[bit / 64] &= ~(1ull << (uint64_t)(bit & 63ull));
+    lapic->tmr_ll[bit / 64] |= (((uint64_t)!!val) << (uint64_t)(bit & 63ull));
 }
 
-static __inline uint8_t
-lapic_get_highest_bit(lapic_t *lapic, uint8_t (*get_bit)(lapic_t*, uint8_t)) {
-    uint8_t highest_bit = 0xFF;
-    for (uint32_t bit = 0; bit < 256; bit++) {
-        if (get_bit(lapic, bit)) {
-            highest_bit = bit;
+int lapic_is_pic_enabled(void)
+{
+    if (!current_ioapic)
+        return true;
+
+    return (current_lapic->lapic_mem_window.enable == 0 || current_lapic->lapic_lvt_lvt0.intr_mask == 0 || (current_ioapic->ioredtabl_s[0].delmod == 7 && current_ioapic->ioredtabl_s[0].intr_mask == 0));
+}
+
+/* Find first bit starting from msb */
+static int apic_fls_bit(uint32_t value)
+{
+    return 31 - __builtin_clz(value);
+}
+
+/* return -1 if no bit is set */
+static int get_highest_priority_int(uint32_t *tab)
+{
+    int i;
+    for (i = 7; i >= 0; i--) {
+        if (tab[i] != 0) {
+            return i * 32 + apic_fls_bit(tab[i]);
         }
     }
-    return highest_bit;
+    return -1;
+}
+
+static int lapic_get_ppr(lapic_t *lapic)
+{
+    int tpr, isrv, ppr;
+
+    tpr = (lapic->lapic_tpr >> 4);
+    isrv = get_highest_priority_int(lapic->isr_l);
+    if (isrv < 0)
+        isrv = 0;
+    isrv >>= 4;
+    if (tpr >= isrv)
+        ppr = lapic->lapic_tpr;
+    else
+        ppr = isrv << 4;
+    return ppr;
+}
+
+static int lapic_get_apr(lapic_t *lapic)
+{
+  uint32_t tpr  = (lapic->lapic_tpr >> 4) & 0xf;
+  int first_isr = get_highest_priority_int(lapic->isr_l);
+  if (first_isr < 0) first_isr = 0;
+  int first_irr = get_highest_priority_int(lapic->irr_l);
+  if (first_irr < 0) first_irr = 0;
+  uint32_t isrv = (first_isr >> 4) & 0xf;
+  uint32_t irrv = (first_irr >> 4) & 0xf;
+  uint8_t apr;
+
+  if((tpr >= irrv) && (tpr > isrv)) {
+    apr = lapic->lapic_tpr & 0xff;
+  }
+  else {
+    apr = ((tpr & isrv) > irrv) ?(tpr & isrv) : irrv;
+    apr <<= 4;
+  }
+
+  return (uint8_t)apr;
+}
+
+int lapic_irq_pending(lapic_t *lapic)
+{
+    int irrv, ppr;
+
+    if (!(lapic->lapic_spurious_interrupt & 0x100)) {
+        //pclog("APIC disabled\n");
+        return 0;
+    }
+
+    irrv = get_highest_priority_int(lapic->irr_l);
+    if (irrv < 0) {
+        //pclog("APIC irrv < 0\n");
+        return -1;
+    }
+
+    ppr = lapic_get_ppr(lapic);
+    if (ppr && (irrv & 0xf0) <= (ppr & 0xf0)) {
+        //pclog("APIC irrv < ppr\n");
+        return -1;
+    }
+
+    return irrv;
 }
 
 void
@@ -123,30 +201,38 @@ void
 apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
 {
     lapic_t *dev = (lapic_t *)priv;
-    uint8_t bit = 0;
+    int bit = 0;
     uint32_t timer_current_count = dev->lapic_timer_current_count;
     apic_ioredtable_t deliverstruct = { 0 };
     uint8_t mode;
 
     addr -= dev->lapic_mem_window.base;
 
-    pclog("Local APIC: [W] %04X = %08X\n", addr, val);
+    //if (addr != 0x80 && addr != 0x300)
+      //  pclog("Local APIC: [W] %04X = %08X\n", addr, val);
 
     if (addr < 0x400)  switch (addr & 0x3ff) {
         case 0x020:
             dev->lapic_id = val;
+            pclog("LAPIC ID: 0x%02X\n", val);
             break;
 
         case 0x080:
             dev->lapic_tpr = val & 0xFF;
+            if (lapic_irq_pending(dev) > 0)
+                cpu_block_end = 1;
             break;
 
         case 0x0b0:
-            bit = lapic_get_highest_bit(dev, lapic_get_bit_isr);
+            bit = get_highest_priority_int(dev->isr_l);
             if (bit != -1) {
                 lapic_set_bit_isr(dev, bit, 0);
-                if (lapic_get_bit_tmr(dev, bit) && current_ioapic) 
+                if (lapic_get_bit_tmr(dev, bit) && current_ioapic) {
+                    lapic_set_bit_tmr(dev, bit, 0);
                     apic_lapic_ioapic_remote_eoi(current_ioapic, bit);
+                    if (lapic_irq_pending(dev) > 0)
+                        cpu_block_end = 1;
+                }
             }
             break;
 
@@ -160,6 +246,13 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
         
         case 0x0f0:
             dev->lapic_spurious_interrupt = val;
+            if (!(val & 0x100)) {
+                dev->lapic_lvt_timer_val   =
+                dev->lapic_lvt_perf_val    =
+                dev->lapic_lvt_lvt0_val    =
+                dev->lapic_lvt_lvt1_val    =
+                dev->lapic_lvt_thermal_val = 1 << 16;
+            }
             break;
 
         case 0x280:
@@ -184,9 +277,9 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
             switch ((dev->icr0 >> 18) & 3) {
                 case 0:
                     mode = (dev->icr >> 11) & 1;
-                    if (mode == 0 && (dev->icr >> 56) != dev->lapic_id)
+                    if (mode == 0 && ((dev->icr >> 56) & 0xf) != ((dev->lapic_id >> 24) & 0xf))
                         break;
-                    if (mode == 1 && !(((uint8_t)(dev->icr >> 56)) & (1 << (dev->lapic_id & 0xff))))
+                    if (mode == 1 && !(((uint8_t)(dev->icr >> 56)) & (1 << ((dev->lapic_id >> 24) & 0xff))))
                         break;
                 case 1:
                 case 2:
@@ -194,6 +287,7 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
                         loadcs((deliverstruct.intvec & 0xff) << 8);
                         cpu_state.oldpc = cpu_state.pc;
                         cpu_state.pc = 0;
+                        cpu_block_end = 1;
                         pclog("SIPI jump\n");
                     } else
                         lapic_service_interrupt(dev, deliverstruct);
@@ -232,14 +326,23 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
             break;
 
         case 0x380:
+#ifdef USE_DYNAREC
+            if (cpu_use_dynarec)
+                update_tsc();
+#endif
             dev->lapic_timer_initial_count = dev->lapic_timer_current_count = val;
             dev->lapic_timer_remainder = 0;
-            pclog("APIC: Timer count: %u\n", dev->lapic_timer_initial_count);
+            cpu_block_end = 1;
+            //pclog("APIC: Timer count: %u\n", dev->lapic_timer_initial_count);
             break;
 
         case 0x3e0:
-            dev->lapic_timer_divider = val;
-            pclog("APIC: Timer divider: 0x%01X\n", dev->lapic_timer_divider);
+#ifdef USE_DYNAREC
+            if (cpu_use_dynarec)
+                update_tsc();
+#endif
+            dev->lapic_timer_divider = val & 0xb;
+            //pclog("APIC: Timer divider: 0x%01X\n", dev->lapic_timer_divider);
             break;
     }
 }
@@ -248,11 +351,19 @@ uint32_t
 apic_lapic_readl(uint32_t addr, void *priv)
 {
     lapic_t *dev = (lapic_t *)priv;
-    uint32_t ret = 0xffffffff;
+    uint32_t ret = 0x0;
 
     addr -= dev->lapic_mem_window.base;
+    addr &= ~3;
 
-    if ((addr < 0x400) && !(addr & 0x003))  switch (addr & 0x3ff) {
+    if ((addr < 0x400)) {
+        if (addr >= 0x100 && addr <= 0x170)
+            ret = dev->isr_l[(addr - 0x100) >> 4];
+        else if (addr >= 0x180 && addr <= 0x1f0)
+            ret = dev->tmr_l[(addr - 0x180) >> 4];
+        else if (addr >= 0x200 && addr <= 0x270)
+            ret = dev->irr_l[(addr - 0x200) >> 4];
+        else switch (addr & 0x3ff) {
         case 0x020:
             ret = dev->lapic_id;
             break;
@@ -265,11 +376,12 @@ apic_lapic_readl(uint32_t addr, void *priv)
             ret = dev->lapic_tpr;
             break;
 
+        case 0x090:
+            ret = 0;
+            break;
+
         case 0x0a0:
-            if (lapic_get_highest_bit(dev, lapic_get_bit_isr) != 0xff)
-                ret = lapic_get_highest_bit(dev, lapic_get_bit_isr);
-            else
-                ret = dev->lapic_tpr;
+            ret = lapic_get_ppr(dev);
             break;
 
         case 0x0d0:
@@ -282,18 +394,6 @@ apic_lapic_readl(uint32_t addr, void *priv)
 
         case 0x0f0:
             ret = dev->lapic_spurious_interrupt;
-            break;
-
-        case 0x100 ... 0x170:
-            ret = dev->isr_l[(addr - 0x100) >> 4];
-            break;
-
-        case 0x180 ... 0x1f0:
-            ret = dev->tmr_l[(addr - 0x180) >> 4];
-            break;
-
-        case 0x200 ... 0x270:
-            ret = dev->irr_l[(addr - 0x200) >> 4];
             break;
 
         case 0x280:
@@ -337,16 +437,21 @@ apic_lapic_readl(uint32_t addr, void *priv)
             break;
 
         case 0x390:
-            pclog("APIC: Read current timer count %u\n", dev->lapic_timer_current_count);
+            //pclog("APIC: Read current timer count %u\n", dev->lapic_timer_current_count);
             ret = dev->lapic_timer_current_count;
+#ifdef USE_DYNAREC
+            if (cpu_use_dynarec)
+                update_tsc();
+#endif
             break;
 
         case 0x3e0:
             ret = dev->lapic_timer_divider;
             break;
     }
-
-    pclog("Local APIC: [R] %04X = %08X\n", addr, ret);
+    }
+    //if (addr != 0x80 && addr != 0x300)
+      //  pclog("Local APIC: [R] %04X = %08X\n", addr, ret);
 
     return ret;
 }
@@ -390,6 +495,68 @@ apic_lapic_set_base(uint32_t base)
     }
 }
 
+static void
+lapic_service_local_interrupt(lapic_t *lapic, apic_ioredtable_t interrupt, bool lvt01)
+{
+    if (interrupt.intr_mask) {
+        //pclog("Local interrupt vector 0x%08llX masked.\n", *((uint64_t*)&interrupt));
+        return;
+    }
+
+    switch (interrupt.delmod) {
+        case 0:
+        case 1:
+        case 7:
+            lapic_set_bit_irr(lapic, interrupt.intvec, 1);
+            lapic_set_bit_tmr(lapic, interrupt.intvec, !lvt01 ? 0 : !!interrupt.trigmode);
+            if (lapic_irq_pending(lapic) > 0)
+                cpu_block_end = 1;
+            break;
+        case 2:
+            smi_raise();
+            return;
+        case 4:
+            nmi = 1;
+            return;
+        case 5: /*INIT*/
+            {
+                softresetx86();
+                cpu_set_edx();
+                flushmmucache();
+                lapic_reset(lapic);
+                return;
+            }
+    }
+}
+
+#if 0
+void apic_deliver_pic_intr(lapic_t *dev, int level)
+{
+    if (level) {
+        lapic_service_local_interrupt(dev, dev->lapic_lvt_lvt0, true);
+    } else {
+        switch ((dev->lapic_lvt_lvt0_val >> 8) & 7) {
+        case 0:
+            if (!(dev->lapic_lvt_lvt0.trigmode))
+                break;
+            lapic_set_bit_irr(dev, dev->lapic_lvt_lvt0.intvec, 0);
+            break;
+        }
+    }
+}
+
+static bool lapic_check_pic(lapic_t *dev)
+{
+    if (!lapic_is_pic_enabled() || !pic.int_pending) {
+        if (lapic_is_pic_enabled())
+            apic_deliver_pic_intr(dev, 0);
+        return false;
+    }
+    apic_deliver_pic_intr(dev, 1);
+    return true;
+}
+#endif
+
 void
 lapic_timer_advance_ticks(uint32_t ticks)
 {
@@ -400,56 +567,33 @@ lapic_timer_advance_ticks(uint32_t ticks)
         timer_divider_value = 1;
     }
 
+    if (ticks == 0)
+        return;
+
+count:
     if (dev->lapic_timer_current_count) {
         dev->lapic_timer_remainder += ticks;
         if (dev->lapic_timer_remainder >= timer_divider_value) {
             ticks = dev->lapic_timer_remainder / timer_divider_value;
             dev->lapic_timer_remainder %= timer_divider_value;
             if (ticks >= dev->lapic_timer_current_count) {
+                ticks -= dev->lapic_timer_current_count;
                 dev->lapic_timer_current_count = 0;
-                lapic_service_interrupt(dev, dev->lapic_lvt_timer);
+                dev->lapic_timer_remainder = 0;
+                lapic_service_local_interrupt(dev, dev->lapic_lvt_timer, false);
                 if (dev->lapic_lvt_timer.timer_mode == 1) {
-                    dev->lapic_timer_current_count = dev->lapic_timer_initial_count;
-                    pclog("APIC: Timer restart\n");
+                    dev->lapic_timer_current_count = (dev->lapic_timer_initial_count);
+                    //pclog("APIC: Timer restart\n");
+                    if (ticks)
+                        goto count;
                 } else {
-                    pclog("APIC: Timer one-shot finish\n");
+                    //pclog("APIC: Timer one-shot finish\n");
                 }
             } else {
                 dev->lapic_timer_current_count -= ticks;
             }
         }
     }
-}
-
-uint8_t
-apic_lapic_is_irr_pending(void)
-{
-    if (!current_lapic)
-        return 0;
-
-    if (!(current_lapic->lapic_spurious_interrupt & 0x100))
-        return 0;
-
-    if (current_lapic->lapic_extint_servicing)
-        return 1;
-
-    if (current_lapic->irr_ll[0] || current_lapic->irr_ll[1] || current_lapic->irr_ll[2] || current_lapic->irr_ll[3]) {
-        uint8_t highest_irr = lapic_get_highest_bit(current_lapic, lapic_get_bit_irr);
-        uint8_t highest_isr = lapic_get_highest_bit(current_lapic, lapic_get_bit_isr);
-        uint8_t tpr         = current_lapic->lapic_tpr;
-                
-        //pclog("Highest ISR: 0x%X. Highest IRR: 0x%X. TPR: 0x%X\n", highest_isr, highest_irr, tpr);
-
-        if (highest_isr >= highest_irr && (current_lapic->isr_ll[0] || current_lapic->isr_ll[1] || current_lapic->isr_ll[2] || current_lapic->isr_ll[3]))
-            return 0;
-
-        if ((highest_irr & 0xF0) <= (tpr & 0xF0))
-            return 0;
-
-        return 1;
-    }
-    
-    return 0;
 }
 
 void*
@@ -461,7 +605,7 @@ lapic_init(const device_t* info)
     current_lapic = dev;
 
     msr.apic_base = INITIAL_LAPIC_ADDRESS | (1 << 11) | (1 << 8);
-    mem_mapping_add(&dev->lapic_mem_window, INITIAL_LAPIC_ADDRESS, 0x100000, apic_lapic_read, apic_lapic_readw, apic_lapic_readl, apic_lapic_write, apic_lapic_writew, apic_lapic_writel, NULL, MEM_MAPPING_EXTERNAL, dev);
+    mem_mapping_add(&dev->lapic_mem_window, INITIAL_LAPIC_ADDRESS, 0x100000, apic_lapic_read, apic_lapic_readw, apic_lapic_readl, NULL, NULL, apic_lapic_writel, NULL, MEM_MAPPING_EXTERNAL, dev);
     lapic_reset(dev);
     return dev;
 }
@@ -470,105 +614,54 @@ uint8_t
 apic_lapic_picinterrupt(void)
 {
     lapic_t *lapic = current_lapic;
-    uint8_t highest_irr = lapic_get_highest_bit(current_lapic, lapic_get_bit_irr);
-    uint8_t highest_isr = lapic_get_highest_bit(current_lapic, lapic_get_bit_isr);
-    uint8_t tpr         = current_lapic->lapic_tpr;
+    int intno = lapic_irq_pending(lapic);
 
-    if (lapic->lapic_extint_servicing) {
-        uint8_t ret = lapic->lapic_extint_servicing;
-        lapic->lapic_extint_servicing = 0;
-        pclog("LAPIC: Service EXTINT INTVEC 0x%02X\n", ret);
-        return ret;
-    }
-
-#if 0
-    if (pic.int_pending && (lapic->lapic_spurious_interrupt & 0x100) && !lapic->lapic_extint_servicing_process) {
-        if (!lapic->lapic_lvt_lvt0.intr_mask) {
-            lapic_service_interrupt(lapic, lapic->lapic_lvt_lvt0);
-        }
-    }
-#endif
-
-    if (!(current_lapic->irr_ll[0] || current_lapic->irr_ll[1] || current_lapic->irr_ll[2] || current_lapic->irr_ll[3])) {
+    if (intno < 0)
         return lapic->lapic_spurious_interrupt & 0xFF;
-    }
 
-    if (highest_isr >= highest_irr && (current_lapic->isr_ll[0] || current_lapic->isr_ll[1] || current_lapic->isr_ll[2] || current_lapic->isr_ll[3])) {
-        return lapic->lapic_spurious_interrupt & 0xFF;
-    }
+    lapic_set_bit_irr(lapic, intno, 0);
+    lapic_set_bit_isr(lapic, intno, 1);
 
-    if ((highest_irr & 0xF0) <= (tpr & 0xF0)) {
-        return lapic->lapic_spurious_interrupt & 0xFF;
-    }
-
-    lapic_set_bit_irr(lapic, highest_irr, 0);
-    lapic_set_bit_isr(lapic, highest_irr, 1);
-
-    pclog("LAPIC: Service INTVEC 0x%02X\n", highest_irr);
-    return highest_irr;
+    //pclog("LAPIC: Service INTVEC 0x%02X\n", intno);
+    if (lapic_irq_pending(lapic) > 0)
+        cpu_block_end = 1;
+    return intno;
 }
 
 void
 apic_lapic_service_nmi(void)
 {
-    lapic_service_interrupt(current_lapic, current_lapic->lapic_lvt_lvt1);
-}
-
-/* TODO: Figure out how to wire this up to ExtINT. */
-void
-apic_lapic_service_extint(void)
-{
-    lapic_service_interrupt(current_lapic, current_lapic->lapic_lvt_lvt0);
+    lapic_service_local_interrupt(current_lapic, current_lapic->lapic_lvt_lvt1, true);
 }
 
 void
 lapic_service_interrupt(lapic_t *lapic, apic_ioredtable_t interrupt)
 {
-    if (!(lapic->lapic_spurious_interrupt & 0x100) && current_ioapic) {
-        /* All interrupts are presumed masked. */
-        apic_lapic_ioapic_remote_eoi(current_ioapic, interrupt.intvec);
-        return;
-    }
-    if (interrupt.intr_mask) {
-        pclog("Interrupt 0x%08X masked.\n", *((uint64_t*)&interrupt));
-        return;
-    }
     switch (interrupt.delmod) {
         case 2:
             smi_raise();
-            if(current_ioapic) apic_lapic_ioapic_remote_eoi(current_ioapic, interrupt.intvec);
             return;
         case 4:
             nmi = 1;
-            if(current_ioapic) apic_lapic_ioapic_remote_eoi(current_ioapic, interrupt.intvec);
             return;
         case 5: /*INIT*/
             {
-                if(current_ioapic) apic_lapic_ioapic_remote_eoi(current_ioapic, interrupt.intvec);
                 softresetx86();
                 cpu_set_edx();
                 flushmmucache();
                 lapic_reset(lapic);
                 return;
             }
-        case 7: /*ExtINT*/
-            {
-                uint8_t extvector = 0xFF;
-                lapic->lapic_extint_servicing_process = 1;
-                /* ExtINT interrupts are to be delivered directly. */
-                extvector = picinterrupt();
-                if (extvector != -1) {
-                    lapic->lapic_extint_servicing = extvector;
-                } else
-                    lapic->lapic_extint_servicing = 0;
-                lapic->lapic_extint_servicing_process = 0;
-                return;
-            }
     }
     
+    if (interrupt.delmod == 0 && lapic_get_bit_irr(lapic, interrupt.intvec))
+        return;
+
     lapic_set_bit_irr(lapic, interrupt.intvec, 1);
     lapic_set_bit_tmr(lapic, interrupt.intvec, !!interrupt.trigmode);
-    pclog("LAPIC: Interrupt 0x%X serviced\n", interrupt.intvec);
+    if (lapic_irq_pending(lapic) > 0)
+        cpu_block_end = 1;
+    //pclog("LAPIC: Interrupt 0x%X serviced\n", interrupt.intvec);
 }
 
 void
@@ -596,6 +689,23 @@ lapic_speed_changed(void* priv)
     else
         timer_on_auto(&dev->lapic_timer, (1000000. / cpuclock) * (1 << ((dev->lapic_timer_divider & 3) | ((dev->lapic_timer_divider & 0x8) >> 1)) + 1));
         #endif
+}
+
+int
+pic_pending_int(void)
+{
+    if (!current_ioapic)
+        return pic.int_pending;
+
+    if (!lapic_is_pic_enabled()) {
+        goto apic_only; /* PIC interrupts are completely disabled. */
+    }
+
+    if (pic.int_pending)
+        return 1;
+
+apic_only:
+    return lapic_irq_pending(current_lapic) > 0;
 }
 
 const device_t lapic_device = {

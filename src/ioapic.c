@@ -75,9 +75,11 @@ ioapic_write(UNUSED(uint16_t port), uint8_t val, UNUSED(void *priv))
             continue;
 
         /* patch over the signature on both tables */
-        ioapic_log("IOAPIC: Patching _MP_ [%08x] and PCMP [%08x] tables\n", addr, pcmp);
-        ram[addr] = ram[addr + 1] = ram[addr + 2] = ram[addr + 3] = 0xff;
-        ram[pcmp] = ram[pcmp + 1] = ram[pcmp + 2] = ram[pcmp + 3] = 0xff;
+        //ioapic_log("IOAPIC: Patching _MP_ [%08x] and PCMP [%08x] tables\n", addr, pcmp);
+        //ram[addr] = ram[addr + 1] = ram[addr + 2] = ram[addr + 3] = 0xff;
+        //ram[pcmp] = ram[pcmp + 1] = ram[pcmp + 2] = ram[pcmp + 3] = 0xff;
+
+        //pclog("MP Feature Byte 0x%X 0x%X\n", ram[addr + 0xb], ram[addr + 0xc]);
 
         break;
     }

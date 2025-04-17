@@ -46,6 +46,7 @@
 #include <86box/hdc_ide.h>
 #include <86box/hdc_ide_sff8038i.h>
 #include <86box/sis_55xx.h>
+#include <86box/apic.h>
 
 int        acpi_rtc_status     = 0;
 atomic_int acpi_pwrbut_pressed = 0;
@@ -217,7 +218,12 @@ acpi_update_irq(acpi_t *dev)
     if ((dev->regs.pmcntrl & 0x01) && sci_level)  switch (dev->irq_mode) {
         default:
             if (dev->irq_line != 0)
-                picintlevel(1 << dev->irq_line, &dev->irq_state);
+            {
+                if (dev->irq_line >= 16 && current_ioapic && current_ioapic->ioapic_mem_window.enable)
+                    apic_ioapic_set_irq(current_ioapic, dev->irq_line, 0);
+                else
+                    picintlevel(1 << dev->irq_line, &dev->irq_state);
+            }
             else
                 dev->irq_state = 1;
             break;
@@ -232,7 +238,12 @@ acpi_update_irq(acpi_t *dev)
     } else  switch (dev->irq_mode) {
         default:
             if (dev->irq_line != 0)
-                picintclevel(1 << dev->irq_line, &dev->irq_state);
+            {
+                if (dev->irq_line >= 16 && current_ioapic && current_ioapic->ioapic_mem_window.enable)
+                    apic_ioapic_clear_irq(current_ioapic, dev->irq_line);
+                else
+                    picintclevel(1 << dev->irq_line, &dev->irq_state);
+            }
             else
                 dev->irq_state = 0;
             break;

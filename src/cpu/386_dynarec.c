@@ -430,7 +430,7 @@ exec386_dynarec_int(void)
             CPU_BLOCK_END();
         else if (nmi && nmi_enable && nmi_mask)
             CPU_BLOCK_END();
-        else if ((cpu_state.flags & I_FLAG) && (pic.int_pending || apic_lapic_is_irr_pending()) && !cpu_end_block_after_ins)
+        else if ((cpu_state.flags & I_FLAG) && (pic_pending_int()) && !cpu_end_block_after_ins)
             CPU_BLOCK_END();
     }
 
@@ -675,7 +675,7 @@ exec386_dynarec_dyn(void)
                 CPU_BLOCK_END();
             if (nmi && nmi_enable && nmi_mask)
                 CPU_BLOCK_END();
-            if ((cpu_state.flags & I_FLAG) && (pic.int_pending || apic_lapic_is_irr_pending()) && !cpu_end_block_after_ins)
+            if ((cpu_state.flags & I_FLAG) && (pic_pending_int()) && !cpu_end_block_after_ins)
                 CPU_BLOCK_END();
 
             if (cpu_end_block_after_ins) {
@@ -778,7 +778,7 @@ exec386_dynarec_dyn(void)
                 CPU_BLOCK_END();
             if (nmi && nmi_enable && nmi_mask)
                 CPU_BLOCK_END();
-            if ((cpu_state.flags & I_FLAG) && (pic.int_pending || apic_lapic_is_irr_pending()) && !cpu_end_block_after_ins)
+            if ((cpu_state.flags & I_FLAG) && (pic_pending_int()) && !cpu_end_block_after_ins)
                 CPU_BLOCK_END();
 
             if (cpu_end_block_after_ins) {
@@ -905,7 +905,7 @@ exec386_dynarec(int32_t cycs)
 #    else
                 nmi = 0;
 #    endif
-            } else if ((cpu_state.flags & I_FLAG) && (pic.int_pending || apic_lapic_is_irr_pending())) {
+            } else if ((cpu_state.flags & I_FLAG) && (pic_pending_int())) {
                 vector = picinterrupt();
                 if (vector != -1) {
 #    ifndef USE_NEW_DYNAREC
@@ -1118,7 +1118,7 @@ block_ended:
 #else
                 nmi = 0;
 #endif
-            } else if ((cpu_state.flags & I_FLAG) && pic.int_pending && !cpu_end_block_after_ins) {
+            } else if ((cpu_state.flags & I_FLAG) && pic_pending_int() && !cpu_end_block_after_ins) {
                 vector = picinterrupt();
                 if (vector != -1) {
                     flags_rebuild();
@@ -1140,6 +1140,8 @@ block_ended:
 
             ins_cycles -= cycles;
             tsc += ins_cycles;
+            if (current_lapic)
+                lapic_timer_advance_ticks(ins_cycles);
 
             cycdiff = oldcyc - cycles;
 
