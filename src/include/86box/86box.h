@@ -27,7 +27,7 @@
 
 /* Configuration values. */
 #define GFXCARD_MAX  2
-#define SERIAL_MAX   7
+#define SERIAL_MAX   8
 #define PARALLEL_MAX 4
 #define SCREEN_RES_X 640
 #define SCREEN_RES_Y 480
@@ -121,7 +121,6 @@ extern int      dpi_scale;                  /* (C) DPI scaling of the emulated s
 extern int      vid_api;                    /* (C) video renderer */
 extern int      vid_cga_contrast;           /* (C) video */
 extern int      video_fullscreen;           /* (C) video */
-extern int      video_fullscreen_first;     /* (C) video */
 extern int      video_fullscreen_scale;     /* (C) video */
 extern int      enable_overscan;            /* (C) video */
 extern int      force_43;                   /* (C) video */
@@ -135,6 +134,7 @@ extern int      postcard_enabled;           /* (C) enable POST card */
 extern int      unittester_enabled;         /* (C) enable unit tester device */
 extern int      gameport_type[];            /* (C) enable gameports */
 extern int      isamem_type[];              /* (C) enable ISA mem cards */
+extern int      isarom_type[];              /* (C) enable ISA ROM cards */
 extern int      isartc_type;                /* (C) enable ISA RTC card */
 extern int      sound_is_float;             /* (C) sound uses FP values */
 extern int      voodoo_enabled;             /* (C) video option */
@@ -172,19 +172,13 @@ extern int    pit_mode;                     /* (C) force setting PIT mode */
 extern int    fm_driver;                    /* (C) select FM sound driver */
 extern int    hook_enabled;                 /* (C) Keyboard hook is enabled */
 
-/* Keyboard variables for future key combination redefinition. */
-extern uint16_t key_prefix_1_1;
-extern uint16_t key_prefix_1_2;
-extern uint16_t key_prefix_2_1;
-extern uint16_t key_prefix_2_2;
-extern uint16_t key_uncapture_1;
-extern uint16_t key_uncapture_2;
-
 extern char exe_path[2048];     /* path (dir) of executable */
 extern char usr_path[1024];     /* path (dir) of user data */
 extern char cfg_path[1024];     /* full path of config file */
 extern int  open_dir_usr_path;  /* default file open dialog directory of usr_path */
 extern char uuid[MAX_UUID_LEN]; /* UUID or machine identifier */
+extern char vmm_path[1024];       /* VM Manager path to scan (temporary) */
+extern int  vmm_enabled;
 #ifndef USE_NEW_DYNAREC
 extern FILE *stdlog; /* file to log output to */
 #endif
@@ -243,6 +237,17 @@ extern int    framecountx;
 
 extern volatile int     cpu_thread_run;
 extern          uint8_t postcard_codes[POSTCARDS_NUM];
+
+// Accelerator key structure, defines, helper functions
+struct accelKey {
+	char name[64];
+	char desc[64];
+	char seq[64];
+};
+#define NUM_ACCELS 8
+extern struct accelKey acc_keys[NUM_ACCELS];
+extern struct accelKey def_acc_keys[NUM_ACCELS];
+extern int FindAccelerator(const char *name);
 
 #ifdef __cplusplus
 }

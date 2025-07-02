@@ -432,7 +432,7 @@ typedef struct {
     MMX_REG MM[8];
 
 #ifdef USE_NEW_DYNAREC
-#    if defined(__APPLE__) && defined(__aarch64__)
+#    if (defined(__APPLE__) && defined(__aarch64__)) || defined(__aarch64__)
     uint64_t old_fp_control;
     uint64_t new_fp_control;
 #    else
@@ -467,6 +467,8 @@ typedef struct {
     uint16_t eflags;
 
     uint32_t _smbase;
+
+    uint32_t x87_op;
 
     x86reg regs64[8];
     uint32_t regs_high[16];
@@ -860,6 +862,8 @@ typedef struct {
     } arr[8];
     uint32_t smhr;
 } cyrix_t;
+
+#define x87_op cpu_state.x87_op
 
 extern uint32_t addr64;
 extern uint32_t addr64_2;

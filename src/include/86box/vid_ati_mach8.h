@@ -18,6 +18,12 @@
 #ifndef VIDEO_ATI_MACH8_H
 #define VIDEO_ATI_MACH8_H
 
+typedef enum {
+    ATI_68875 = 0,
+    ATI_68860,
+    RAMDAC_MAX
+} mach_ramdac_type;
+
 typedef struct mach_t {
     ati_eeprom_t eeprom;
     svga_t       svga;
@@ -39,7 +45,7 @@ typedef struct mach_t {
     uint8_t irq_state;
 
     int index;
-    int ramdac_type;
+    mach_ramdac_type ramdac_type;
     int old_mode;
 
     uint16_t config1;
@@ -77,8 +83,9 @@ typedef struct mach_t {
     uint8_t overscan_g_col_24;
     uint8_t overscan_r_col_24;
     uint16_t fifo_test_data[17];
-    int port_len;
-    int crt_resolution;
+    uint8_t old_on1;
+    uint8_t old_on2;
+    int     crt_resolution;
 
     struct {
         uint8_t  line_idx;
@@ -99,12 +106,13 @@ typedef struct mach_t {
         uint16_t src_x_end;
         uint16_t src_x_start;
         uint16_t src_x;
-        uint16_t r_src_x;
         uint16_t src_y;
         int16_t  bres_count;
         uint16_t clock_sel;
         uint16_t crt_pitch;
         uint16_t ge_pitch;
+        uint16_t src_pitch;
+        uint16_t dst_pitch;
         uint16_t dest_cmp_fn;
         uint16_t dp_config;
         uint16_t ext_ge_config;
@@ -135,6 +143,7 @@ typedef struct mach_t {
         int16_t  dx_end;
         int16_t  dy;
         int16_t  dy_end;
+        int16_t  dx_first_row_start;
         int16_t  dx_start;
         int16_t  dy_start;
         int16_t  cy;
@@ -158,14 +167,18 @@ typedef struct mach_t {
         int      src_stepx;
         uint8_t  mono_pattern_normal[16];
         uint8_t  color_pattern[32];
+        uint16_t color_pattern_hicol[8];
         int      mono_pattern[8][8];
-        uint32_t ge_offset;
+        uint32_t src_ge_offset;
+        uint32_t dst_ge_offset;
         uint32_t crt_offset;
         uint32_t patt_len_reg;
         int      poly_fill;
         uint16_t dst_clr_cmp_mask;
         int      clip_overrun;
         int      color_pattern_idx;
+        int64_t  src_x_scan;
+        int64_t  src_y_scan;
     } accel;
 
     atomic_int force_busy;

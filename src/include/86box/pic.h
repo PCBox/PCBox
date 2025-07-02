@@ -103,4 +103,6 @@ extern int     picinterrupt_common(void);
 
 extern uint8_t pic_irq_ack(void);
 
+extern void    pic_toggle_latch(int is_ps2);
+
 #endif /*EMU_PIC_H*/

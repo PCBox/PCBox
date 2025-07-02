@@ -5,10 +5,15 @@
 #include <QLabel>
 #include <QEvent>
 #include <QFocusEvent>
+#include <QLabel>
+#include <QShortcut>
+#include <QIcon>
 
 #include <memory>
 #include <array>
 #include <atomic>
+
+#include "qt_vmmanager_protocol.hpp"
 
 class MediaMenu;
 class RendererStack;
@@ -32,7 +37,10 @@ public:
     QSize getRenderWidgetSize();
     void  setSendKeyboardInput(bool enabled);
     void  reloadAllRenderers();
-
+	QShortcut	*windowedShortcut;
+	QKeySequence FindAcceleratorSeq(const char *name);
+	
+	
     std::array<std::unique_ptr<RendererStack>, 8> renderers;
 signals:
     void paint(const QImage &image);
@@ -57,6 +65,8 @@ signals:
 
     void showMessageForNonQtThread(int flags, const QString &header, const QString &message, bool richText, std::atomic_bool* done);
     void getTitleForNonQtThread(wchar_t *title);
+
+    void vmmRunningStateChanged(VMManagerProtocol::RunningState state);
 public slots:
     void showSettings();
     void hardReset();
@@ -121,7 +131,9 @@ private slots:
     void on_actionPreferences_triggered();
     void on_actionEnable_Discord_integration_triggered(bool checked);
     void on_actionRenderer_options_triggered();
-
+    void on_actionDebug_GPUDebug_VRAM_triggered();
+    void on_actionDebug_GPUDebug_VisualNv_triggered();
+    
     void refreshMediaMenu();
     void showMessage_(int flags, const QString &header, const QString &message, bool richText, std::atomic_bool* done = nullptr);
     void getTitle_(wchar_t *title);
@@ -159,6 +171,7 @@ private:
     std::unique_ptr<MachineStatus> status;
     std::shared_ptr<MediaMenu>     mm;
 
+	void updateShortcuts();
     void     processKeyboardInput(bool down, uint32_t keycode);
 #ifdef Q_OS_MACOS
     uint32_t last_modifiers = 0;
@@ -184,7 +197,10 @@ private:
     friend class RendererStack; // For UI variable access by non-primary renderer windows.
     friend class WindowsRawInputFilter; // Needed to reload renderers on style sheet changes.
 
-    
+    QLabel *caps_label, *scroll_label, *num_label, *kana_label;
+    QIcon caps_icon, scroll_icon, num_icon, kana_icon;
+    QIcon caps_icon_off, scroll_icon_off, num_icon_off, kana_icon_off;
+
     bool isShowMessage = false;
 };
 

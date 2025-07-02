@@ -21,7 +21,6 @@
 #include "qt_rendererstack.hpp"
 #include "ui_qt_rendererstack.h"
 
-#include "qt_hardwarerenderer.hpp"
 #include "qt_openglrenderer.hpp"
 #include "qt_softwarerenderer.hpp"
 #include "qt_vulkanwindowrenderer.hpp"
@@ -40,6 +39,22 @@
 #include <QMessageBox>
 #include <QTouchEvent>
 #include <QStringBuilder>
+
+#include <QPainter>
+#include <QEvent>
+#include <QKeyEvent>
+#include <QWidget>
+
+#include <atomic>
+#include <mutex>
+#include <array>
+#include <vector>
+#include <memory>
+#include <QApplication>
+
+#ifdef WAYLAND
+#    include "wl_mouse.hpp"
+#endif
 
 #ifdef __APPLE__
 #    include <CoreGraphics/CoreGraphics.h>
@@ -61,6 +76,11 @@ struct mouseinputdata {
 static mouseinputdata mousedata;
 
 extern MainWindow *main_window;
+
+#ifdef Q_OS_WINDOWS
+HWND   rw_hwnd;
+#endif
+
 RendererStack::RendererStack(QWidget *parent, int monitor_index)
     : QStackedWidget(parent)
     , ui(new Ui::RendererStack)
@@ -77,7 +97,7 @@ RendererStack::RendererStack(QWidget *parent, int monitor_index)
 
     m_monitor_index = monitor_index;
 #if defined __unix__ && !defined __HAIKU__
-    char auto_mouse_type[16];
+    memset(auto_mouse_type, 0, sizeof (auto_mouse_type));
     mousedata.mouse_type = getenv("EMUPCBOX_MOUSE");
     if (!mousedata.mouse_type || (mousedata.mouse_type[0] == '\0') || !stricmp(mousedata.mouse_type, "auto")) {
         if (QApplication::platformName().contains("wayland"))
@@ -251,7 +271,9 @@ RendererStack::mouseMoveEvent(QMouseEvent *event)
         leaveEvent((QEvent *) event);
         ignoreNextMouseEvent--;
     }
+#if !defined _WIN32
     QCursor::setPos(mapToGlobal(QPoint(width() / 2, height() / 2)));
+#endif
     ignoreNextMouseEvent = 2;
     oldPos               = event->pos();
 #endif
@@ -329,24 +351,6 @@ RendererStack::createRenderer(Renderer renderer)
 #endif
             }
             break;
-        case Renderer::OpenGL:
-            {
-                this->createWinId();
-                auto hw        = new HardwareRenderer(this);
-                rendererWindow = hw;
-                connect(this, &RendererStack::blitToRenderer, hw, &HardwareRenderer::onBlit, Qt::QueuedConnection);
-                current.reset(this->createWindowContainer(hw, this));
-                break;
-            }
-        case Renderer::OpenGLES:
-            {
-                this->createWinId();
-                auto hw        = new HardwareRenderer(this, HardwareRenderer::RenderType::OpenGLES);
-                rendererWindow = hw;
-                connect(this, &RendererStack::blitToRenderer, hw, &HardwareRenderer::onBlit, Qt::QueuedConnection);
-                current.reset(this->createWindowContainer(hw, this));
-                break;
-            }
         case Renderer::OpenGL3:
             {
                 this->createWinId();
@@ -405,8 +409,15 @@ RendererStack::createRenderer(Renderer renderer)
             }
 #endif
     }
-    if (current.get() == nullptr)
+    if (current.get() == nullptr) {
+#ifdef Q_OS_WINDOWS
+        rw_hwnd = NULL;
+#endif
         return;
+    }
+#ifdef Q_OS_WINDOWS
+    rw_hwnd        = (HWND) this->winId();                
+#endif
     current->setFocusPolicy(Qt::NoFocus);
     current->setFocusProxy(this);
     current->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -649,6 +660,14 @@ RendererStack::setFocusRenderer()
 void
 RendererStack::onResize(int width, int height)
 {
+#ifdef Q_OS_WINDOWS
+    if (mouse_capture) {
+        RECT rect;
+        if (GetWindowRect((HWND)this->winId(), &rect)) {
+            ClipCursor(&rect);
+        }
+    }
+#endif
     if (rendererWindow) {
         rendererWindow->r_monitor_index = m_monitor_index;
         rendererWindow->onResize(width, height);

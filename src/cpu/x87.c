@@ -297,6 +297,7 @@ FPU_write_eflags_fpu_compare(int float_relation)
             break;
 
         case softfloat_relation_greater:
+            cpu_state.flags &= ~(Z_FLAG | P_FLAG | C_FLAG);
             break;
 
         case softfloat_relation_less:

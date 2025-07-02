@@ -43,6 +43,7 @@
 #include <QTimer>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QKeySequence>
 
 #include <QLibrary>
 #include <QElapsedTimer>
@@ -87,13 +88,13 @@ public:
     CharPointer &operator=(const QByteArray &ba)
     {
         if (s > 0) {
+            // If the size is known, copy up to s - 1 bytes
+            // and null-terminate the string.
             strncpy(b, ba.data(), s - 1);
-            b[s] = 0;
-        } else {
-            // if we haven't been told the length of b, just assume enough
-            // because we didn't get it from emulator code
+            b[s - 1] = 0;
+        } else if (ba.size() > 0) {
+            // If the size is unknown, copy the whole QByteArray
             strcpy(b, ba.data());
-            b[ba.size()] = 0;
         }
         return *this;
     }
@@ -340,9 +341,25 @@ path_get_slash(char *path)
 void
 path_append_filename(char *dest, const char *s1, const char *s2)
 {
-    strcpy(dest, s1);
-    path_slash(dest);
-    strcat(dest, s2);
+    size_t dest_size = 260;
+    size_t len;
+
+    if (!dest || !s1 || !s2)
+        return;
+
+    snprintf(dest, dest_size, "%s", s1);
+    len = strlen(dest);
+
+    if (len > 0 && dest[len - 1] != '/' && dest[len - 1] != '\\') {
+        if (len + 1 < dest_size) {
+            dest[len++] = '/';
+            dest[len] = '\0';
+        }
+    }
+
+    if (len < dest_size - 1) {
+        strncat(dest, s2, dest_size - len - 1);
+    }
 }
 
 void
@@ -571,8 +588,6 @@ c16stombs(char dst[], const uint16_t src[], int len)
 }
 #endif
 
-#    define MOUSE_CAPTURE_KEYSEQ "F8+F12"
-
 #ifdef _WIN32
 #    if defined(__amd64__) || defined(_M_X64) || defined(__aarch64__) || defined(_M_ARM64)
 #        define LIB_NAME_GS   "gsdll64.dll"
@@ -595,8 +610,8 @@ ProgSettings::reloadStrings()
 {
     translatedstrings.clear();
     translatedstrings[STRING_MOUSE_CAPTURE]             = QCoreApplication::translate("", "Click to capture mouse").toStdWString();
-    translatedstrings[STRING_MOUSE_RELEASE]             = QCoreApplication::translate("", "Press %1 to release mouse").arg(QCoreApplication::translate("", MOUSE_CAPTURE_KEYSEQ)).toStdWString();
-    translatedstrings[STRING_MOUSE_RELEASE_MMB]         = QCoreApplication::translate("", "Press %1 or middle button to release mouse").arg(QCoreApplication::translate("", MOUSE_CAPTURE_KEYSEQ)).toStdWString();
+    translatedstrings[STRING_MOUSE_RELEASE]             = QCoreApplication::translate("", "Press %1 to release mouse").arg(QKeySequence(acc_keys[FindAccelerator("release_mouse")].seq, QKeySequence::PortableText).toString(QKeySequence::NativeText)).toStdWString();
+    translatedstrings[STRING_MOUSE_RELEASE_MMB]         = QCoreApplication::translate("", "Press %1 or middle button to release mouse").arg(QKeySequence(acc_keys[FindAccelerator("release_mouse")].seq, QKeySequence::PortableText).toString(QKeySequence::NativeText)).toStdWString();
     translatedstrings[STRING_INVALID_CONFIG]            = QCoreApplication::translate("", "Invalid configuration").toStdWString();
     translatedstrings[STRING_NO_ST506_ESDI_CDROM]       = QCoreApplication::translate("", "MFM/RLL or ESDI CD-ROM drives never existed").toStdWString();
     translatedstrings[STRING_PCAP_ERROR_NO_DEVICES]     = QCoreApplication::translate("", "No PCap devices found").toStdWString();
@@ -777,8 +792,8 @@ plat_set_thread_name(void *thread, const char *name)
 
     if (pSetThreadDescription) {
         size_t len = strlen(name) + 1;
-        wchar_t wname[len + 1];
-        mbstowcs(wname, name, len);
+        wchar_t wname[2048];
+        mbstowcs(wname, name, (len >= 1024) ? 1024 : len);
         pSetThreadDescription(thread ? (HANDLE) thread : GetCurrentThread(), wname);
     }
 #else

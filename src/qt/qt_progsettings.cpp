@@ -68,6 +68,7 @@ QVector<QPair<QString, QString>> ProgSettings::languages = {
     { "ru-RU",  "Russian (Russia)"         },
     { "sk-SK",  "Slovak (Slovakia)"        },
     { "sl-SI",  "Slovenian (Slovenia)"     },
+    { "sv-SE",  "Swedish (Sweden)"         },
     { "es-ES",  "Spanish (Spain)"          },
     { "tr-TR",  "Turkish (Turkey)"         },
     { "uk-UA",  "Ukrainian (Ukraine)"      },
@@ -95,7 +96,6 @@ ProgSettings::ProgSettings(QWidget *parent)
     ui->checkBoxConfirmExit->setChecked(confirm_exit);
     ui->checkBoxConfirmSave->setChecked(confirm_save);
     ui->checkBoxConfirmHardReset->setChecked(confirm_reset);
-    ui->checkBoxFullscreenFirst->setChecked(video_fullscreen_first);
 
 #ifndef Q_OS_WINDOWS
     ui->checkBoxMultimediaKeys->setHidden(true);
@@ -110,7 +110,6 @@ ProgSettings::accept()
     confirm_exit            = ui->checkBoxConfirmExit->isChecked() ? 1 : 0;
     confirm_save            = ui->checkBoxConfirmSave->isChecked() ? 1 : 0;
     confirm_reset           = ui->checkBoxConfirmHardReset->isChecked() ? 1 : 0;
-    video_fullscreen_first  = ui->checkBoxFullscreenFirst->isChecked() ? 1 : 0;
     inhibit_multimedia_keys = ui->checkBoxMultimediaKeys->isChecked() ? 1 : 0;
 
     loadTranslators(QCoreApplication::instance());

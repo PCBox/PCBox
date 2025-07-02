@@ -21,12 +21,44 @@
         CLOCK_CYCLES(2);                           \
     }
 
-#define SSE_GETSRC()                                      \
+#define SSE_GETSRC32()                                    \
     if (cpu_mod == 3) {                                   \
-        src = cpu_state.XMM[cpu_rm];                                \
+        src = cpu_state.XMM[cpu_rm];                      \
         CLOCK_CYCLES(1);                                  \
     } else {                                              \
         SEG_CHECK_READ(cpu_state.ea_seg);                 \
+        src.l[0] = readmeml(easeg, cpu_state.eaaddr);     \
+        if (cpu_state.abrt)                               \
+            return 1;                                     \
+        src.l[1] = 0;                                     \
+        src.q[1] = 0;                                     \
+        CLOCK_CYCLES(2);                                  \
+    }
+
+#define SSE_GETSRC64()                                    \
+    if (cpu_mod == 3) {                                   \
+        src = cpu_state.XMM[cpu_rm];                      \
+        CLOCK_CYCLES(1);                                  \
+    } else {                                              \
+        SEG_CHECK_READ(cpu_state.ea_seg);                 \
+        src.q[0] = readmemq(easeg, cpu_state.eaaddr);     \
+        if (cpu_state.abrt)                               \
+            return 1;                                     \
+        src.q[1] = 0;                                     \
+        CLOCK_CYCLES(2);                                  \
+    }
+
+#define SSE_GETSRC()                                      \
+    if (cpu_mod == 3) {                                   \
+        src = cpu_state.XMM[cpu_rm];                      \
+        CLOCK_CYCLES(1);                                  \
+    } else {                                              \
+        SEG_CHECK_READ(cpu_state.ea_seg);                 \
+        if (cpu_state.eaaddr & 0xf) {                     \
+            x86gpf(NULL, 0);                              \
+            if (cpu_state.abrt)                           \
+                return 1;                                 \
+        }                                                 \
         src.q[0] = readmemq(easeg, cpu_state.eaaddr);     \
         if (cpu_state.abrt)                               \
             return 1;                                     \
@@ -37,12 +69,12 @@
     }
 
 #define MMX_ENTER()                          \
-    if (!cpu_has_feature(CPU_FEATURE_MMX)) { \
+    if (!cpu_has_feature(CPU_FEATURE_MMX) || (cr0 & 0x4)) { \
         cpu_state.pc = cpu_state.oldpc;      \
         x86illegal();                        \
         return 1;                            \
     }                                        \
-    if (cr0 & 0xc) {                         \
+    if (cr0 & 0x8) {                         \
         x86_int(7);                          \
         return 1;                            \
     }                                        \

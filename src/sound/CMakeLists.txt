@@ -42,6 +42,7 @@ add_library(snd OBJECT
     snd_sb.c
     snd_sb_dsp.c
     snd_emu8k.c
+    snd_mmb.c
     snd_mpu401.c
     snd_pas16.c
     snd_sn76489.c
@@ -49,8 +50,6 @@ add_library(snd OBJECT
     snd_wss.c
     snd_ym7128.c
     snd_optimc.c
-    esfmu/esfm.c
-    esfmu/esfm_registers.c
     snd_opl_esfm.c
 )
 
@@ -178,23 +177,22 @@ if(MUNT)
     endif()
 endif()
 
+add_subdirectory(ayumi)
+target_link_libraries(PCBox ayumi)
+
+add_subdirectory(esfmu)
+target_link_libraries(PCBox esfmu)
+
 add_subdirectory(ymfm)
 target_link_libraries(PCBox ymfm)
-
-add_subdirectory(saasound)
-target_link_libraries(PCBox saasound)
-
-if(GUSMAX)
-    target_compile_definitions(snd PRIVATE USE_GUSMAX)
-endif()
 
 if(OPL4ML)
     target_compile_definitions(snd PRIVATE USE_OPL4ML)
     target_sources(snd PRIVATE midi_opl4.c midi_opl4_yrw801.c)
 endif()
  
-find_package(PkgConfig )
-pkg_check_modules(SERIALPORT  libserialport)
+find_package(PkgConfig)
+pkg_check_modules(SERIALPORT libserialport)
 
 if(SERIALPORT_FOUND OR DEFINED LIBSERIALPORT_ROOT)
     add_compile_definitions(USE_LIBSERIALPORT=1)

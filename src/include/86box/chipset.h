@@ -18,6 +18,7 @@
 #define EMU_CHIPSET_H
 
 /* ACC */
+extern const device_t acc2036_device;
 extern const device_t acc2168_device;
 
 /* ALi */
@@ -38,6 +39,9 @@ extern const device_t ali6117d_device;
 extern const device_t amd640_device;
 extern const device_t amd751_device;
 
+/* ASUS */
+extern const device_t isa486c_device;
+
 /* Compaq */
 extern const device_t compaq_386_device;
 extern const device_t compaq_genoa_device;
@@ -53,6 +57,7 @@ extern const device_t neat_sx_device;
 extern const device_t scat_device;
 extern const device_t scat_4_device;
 extern const device_t scat_sx_device;
+extern const device_t cs8220_device;
 extern const device_t cs8230_device;
 extern const device_t cs4031_device;
 
@@ -113,6 +118,8 @@ extern const device_t ioapic_device;
 /* Intel ICH2 */
 extern const device_t intel_815ep_device;
 extern const device_t intel_ich2_device;
+/* Olivetti */
+extern const device_t olivetti_eva_device;
 
 /* OPTi */
 extern const device_t opti283_device;
@@ -121,7 +128,9 @@ extern const device_t opti381_device;
 extern const device_t opti391_device;
 extern const device_t opti481_device;
 extern const device_t opti493_device;
-extern const device_t opti495_device;
+extern const device_t opti495slc_device;
+extern const device_t opti495sx_device;
+extern const device_t opti498_device;
 extern const device_t opti499_device;
 extern const device_t opti601_device;
 extern const device_t opti602_device;
@@ -161,6 +170,9 @@ extern const device_t stpc_atlas_device;
 extern const device_t stpc_serial_device;
 extern const device_t stpc_lpt_device;
 
+/* Symphony */
+extern const device_t sl82c461_device;
+
 /* UMC */
 extern const device_t umc_8886f_device;
 extern const device_t umc_8886af_device;
@@ -196,12 +208,12 @@ extern const device_t vlsi_scamp_device;
 extern const device_t wd76c10_device;
 
 /* Miscellaneous Hardware */
+extern const device_t tulip_jumper_device;
+
+extern const device_t dell_jumper_device;
+
 extern const device_t nec_mate_unk_device;
 
 extern const device_t phoenix_486_jumper_device;
 extern const device_t phoenix_486_jumper_pci_device;
-
-#ifdef USE_OLIVETTI
-extern const device_t olivetti_eva_device;
-#endif /* USE_OLIVETTI */
 #endif /*EMU_CHIPSET_H*/

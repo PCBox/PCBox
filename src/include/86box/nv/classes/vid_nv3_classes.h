@@ -36,7 +36,6 @@
 // or everything FUCKS UP
 //
 // DO NOT REMOVE! DO NOT REMOVE! DO NOT REMOVE!
-#pragma pack(push, 1)
 
 // CLass names for debugging
 extern const char* nv3_class_names[];
@@ -271,36 +270,38 @@ typedef struct nv3_color_argb_s
     uint8_t b;
 } nv3_color_argb_t;
 
-/* Generic 16-bit position*/
-typedef struct nv3_position_16_s
+/* Generic 16-bit coordinate*/
+typedef struct nv3_coord_16_s
 {
     uint16_t x;
     uint16_t y;
-} nv3_position_16_t;
+} nv3_coord_16_t;
 
 /* A big position format with 30:16 = y, 15:11 = nothing, 10:0 = x */
-typedef struct nv3_position_16_bigy_s
+typedef struct nv3_coord_16_bigy_s
 {
     // WHOSE IDEA WAS THIS?
     uint16_t x : 11; 
     uint8_t reserved : 5;
     uint16_t y : 15;
     bool reserved2 : 1;
-} nv3_position_16_bigy_t;
-
-/* Generic 16-bit size */
-typedef struct nv3_size_16_s
-{
-    uint16_t w;
-    uint16_t h;
-} nv3_size_16_t;
+} nv3_coord_16_bigy_t;
 
 /* Generic 32-bit colour + 16-bit position */
-typedef struct nv3_color_and_position_16_s
+typedef struct nv3_color_and_coord_16_s
 {
     nv3_color_expanded_t color;
-    nv3_position_16_t points;
-} nv3_color_and_position_16_t;
+    nv3_coord_16_t points;
+} nv3_color_and_coord_16_t;
+
+/* "UTRI" type triangle */
+typedef struct nv3_utri_s 
+{
+    uint32_t color;                             // use nv3_color_expanded_t but changed for alignment reasons
+    nv3_coord_16_t point0;
+    nv3_coord_16_t point1;
+    nv3_coord_16_t point2;
+} nv3_utri_t;
 
 /* Generic 16-bit clip region */
 typedef struct nv3_clip_16_s
@@ -313,11 +314,11 @@ typedef struct nv3_clip_16_s
 } nv3_clip_16_t; 
 
 /* In case your positions weren't HIGH PRECISION enough */
-typedef struct nv3_position_32_s
+typedef struct nv3_coord_32_s
 {
     uint32_t x;
     uint32_t y;
-} nv3_position_32_t;
+} nv3_coord_32_t;
 
 // COLOUR FORMATS
 
@@ -330,35 +331,10 @@ typedef struct nv3_object_class_001
 {
     nv3_class_ctx_switch_method_t set_notify_ctx_dma;    // Set notifier context for DMA (context switch)
     uint32_t set_notify;
-    uint8_t set_beta_factor_1d31;   // 31:31 (?) value, 30:21 fraction
+    uint32_t set_beta_factor_1d31;                       // 31:31 (?) value, 30:21 fraction
     // Put the rest of it here
 } nv3_beta_factor_t;
 
-/* Note: This is not used in the class, there are "special" rops that do certain things. So they need to be defined for code readability. It all gets optimised away
-by the compiler anyway */
-typedef enum nv3_render_operation_type_e
-{
-    // Black
-    nv3_rop_blackness = 0x00,
-    // dst = !src 
-    nv3_rop_dstinvert = 0x55,
-    // pattern invert
-    nv3_rop_patinvert = 0x5A,
-    // src ^ dst
-    nv3_rop_xor = 0x66,
-    // src & dst
-    nv3_rop_srcand = 0x88,
-    // dst = src (?)
-    nv3_rop_dstcopy = 0xAA,
-    // src = dst (?)
-    nv3_rop_srccopy = 0xCC,
-    // paint source
-    nv3_rop_srcpaint = 0xEE,
-    // pattern copy
-    nv3_rop_patcopy = 0xF0,
-    // White
-    nv3_rop_whiteness = 0xFF,
-} nv3_render_operation_type; 
 /* 
     Object class 0x02 (real hardware)
     0x14/0x43 (drivers)
@@ -367,9 +343,9 @@ typedef enum nv3_render_operation_type_e
 */
 typedef struct nv3_object_class_002
 {
-    nv3_class_ctx_switch_method_t set_notify_ctx_dma;    // Set notifier context for DMA (context switch)
-    uint32_t set_notify;            // Set notifier
-    uint8_t rop;                    // ROP3 (ID = ????????)
+    nv3_class_ctx_switch_method_t set_notify_ctx_dma;   // Set notifier context for DMA (context switch)
+    uint32_t set_notify;                                // Set notifier
+    uint8_t rop;                                        // ROP3 (ID = ????????)
 } nv3_render_operation_t;
 
 /* 
@@ -380,9 +356,9 @@ typedef struct nv3_object_class_002
 */
 typedef struct nv3_object_class_003
 {
-    nv3_class_ctx_switch_method_t set_notify_ctx_dma;    // Set notifier context for DMA (context switch)
-    uint32_t set_notify;            // Set notifier
-    uint8_t color;                  // ROP3 (ID = ????????)
+    nv3_class_ctx_switch_method_t set_notify_ctx_dma;   // Set notifier context for DMA (context switch)
+    uint32_t set_notify;                                // Set notifier
+    uint32_t color;                                     // ROP3 (ID = ????????)
 } nv3_chroma_key_t;
 
 /* 
@@ -393,9 +369,9 @@ typedef struct nv3_object_class_003
 */
 typedef struct nv3_object_class_004
 {
-    nv3_class_ctx_switch_method_t set_notify_ctx_dma;    // Set notifier context for DMA (context switch)
-    uint32_t set_notify;            // Set notifier
-    uint8_t color;                  // ROP3 (ID = ????????)
+    nv3_class_ctx_switch_method_t set_notify_ctx_dma;   // Set notifier context for DMA (context switch)
+    uint32_t set_notify;                                // Set notifier
+    uint32_t color;                                     // Plane mask
 } nv3_plane_mask_t;
 
 /* 
@@ -410,8 +386,8 @@ typedef struct nv3_object_class_005
     uint32_t set_notify;            // Set notifier
 
     /* 16-bit precision */
-    nv3_position_16_t position;
-    nv3_size_16_t size;
+    nv3_coord_16_t position;
+    nv3_coord_16_t size;
 
 } nv3_clipping_rectangle_t;
 
@@ -442,8 +418,8 @@ typedef struct nv3_object_class_007
     nv3_class_ctx_switch_method_t set_notify_ctx_dma;       // Set notifier context for DMA (context switch)
     uint32_t set_notify;                                    // Set notifier         
     uint32_t color;                                         // The colour of the object.
-    nv3_position_16_t position[16];                         // The positions of up to 16 rectangles.
-    nv3_size_16_t size[16];                                 // The sizes of up to 16 rectangles
+    nv3_coord_16_t position[16];                         // The positions of up to 16 rectangles.
+    nv3_coord_16_t size[16];                                 // The sizes of up to 16 rectangles
 } nv3_rectangle_t;
 
 
@@ -451,7 +427,7 @@ typedef struct nv3_object_class_007
 typedef struct nv3_object_class_008_cpoint_s
 {
     nv3_color_expanded_t color;                             // argb-format 32-bit color
-    nv3_position_16_t position;                             // position
+    nv3_coord_16_t position;                             // position
 } nv3_object_class_008_cpoint_t;
 
 /* 
@@ -465,16 +441,16 @@ typedef struct nv3_object_class_008
     nv3_class_ctx_switch_method_t set_notify_ctx_dma;                    // Set notifier context for DMA (context switch)
     uint32_t set_notify;                            // Set notifier
     nv3_color_expanded_t color;                                 // argb?
-    nv3_position_16_t point[16];                    // Boring points 
-    nv3_position_32_t point32[16];                  // Allows you to have points with full 32-bit precision 
+    nv3_coord_16_t point[16];                    // Boring points 
+    nv3_coord_32_t point32[16];                  // Allows you to have points with full 32-bit precision 
     nv3_object_class_008_cpoint_t cpoint[16];       // Allows you to have c o l o r f u l points! 
 } nv3_point_t; 
 
 /* Normal line... */
 typedef struct nv3_object_class_009_line_s
 {
-    nv3_position_16_t start; // presumably unless it's in reverse order...TODO: check the order
-    nv3_position_16_t end; 
+    nv3_coord_16_t start; // presumably unless it's in reverse order...TODO: check the order
+    nv3_coord_16_t end; 
 
 } nv3_object_class_009_line_t;
 
@@ -506,7 +482,7 @@ typedef struct nv3_object_class_009
     nv3_object_class_009_line32_t line32[8];
     nv3_object_class_009_line_t polyline[32];
     nv3_object_class_009_line32_t polyline32[16];
-    nv3_color_and_position_16_t cpolyline[16]; // List of line points and colours.
+    nv3_color_and_coord_16_t cpolyline[16]; // List of line points and colours.
 } nv3_line_t;
 
 /* 
@@ -528,7 +504,7 @@ typedef struct nv3_object_class_00A
     nv3_object_class_009_line32_t line32[8];
     nv3_object_class_009_line_t polyline[32];
     nv3_object_class_009_line32_t polyline32[16];
-    nv3_color_and_position_16_t cpolyline[16]; // List of line points and colours.
+    nv3_color_and_coord_16_t cpolyline[16]; // List of line points and colours.
 
 } nv3_lin_t;
 
@@ -541,24 +517,25 @@ typedef struct nv3_object_class_00A
 */
 typedef struct nv3_object_class_00B
 {
-    nv3_class_ctx_switch_method_t set_notify_ctx_dma;                    // Set notifier context for DMA (context switch)
-    uint32_t set_notify;                            // Set notifier
-    nv3_color_expanded_t color;                                 // argb?
+    nv3_class_ctx_switch_method_t set_notify_ctx_dma;               // Set notifier context for DMA (context switch)
+    uint32_t set_notify;                                            // Set notifier
+    nv3_color_expanded_t color;                                     // argb?
     // The points of the triangle.
-    nv3_position_16_t points[3];
+    nv3_coord_16_t points[3];
 
     // Another way of filling out the points of the triangle
     uint32_t x0;
     uint32_t y0;
     uint32_t x1;
     uint32_t y1;
-    uint32_t y2;
-    uint32_t x2; 
+    uint32_t x2;
+    uint32_t y2; 
 
-    nv3_position_16_t mesh[32];                     // Some kind of mesh format. I guess a list of vertex positions?
-    nv3_position_32_t mesh32[16];               
-    nv3_color_and_position_16_t ctriangle[3];       // Triangle with colour
-    nv3_color_and_position_16_t ctrimesh[16];       // Some kind of mesh format. I guess a list of vertex positions? with colours
+    nv3_coord_16_t mesh[32];                                        // Some kind of mesh format. I guess a list of vertex positions?
+    nv3_coord_32_t mesh32[16];                                      // Mesh with 32-bit format
+    nv3_utri_t ctriangle[8];                                        // Triangles with colour
+    nv3_color_and_coord_16_t ctrimesh[16];                          // Some kind of mesh format. I guess a list of vertex positions? with colours
+    
 } nv3_triangle_t;
 
 /* 
@@ -567,7 +544,6 @@ typedef struct nv3_object_class_00B
     Also 0x4C in context IDs.
     
     GDI text acceleration for Windows 95.
-    How the fuck does this even work?
 */
 typedef struct nv3_object_class_00C
 {
@@ -575,8 +551,8 @@ typedef struct nv3_object_class_00C
     nv3_class_ctx_switch_method_t set_notify_ctx_dma;                    // Set notifier context for DMA (context switch)
     uint32_t set_notify;                            // Set notifier
     uint32_t color_a;                               // Color for Clip A
-    nv3_position_16_t rect_a_position[64];
-    nv3_size_16_t rect_a_size[64];  
+    nv3_coord_16_t rect_a_position[64];
+    nv3_coord_16_t rect_a_size[64];  
     /* Clipped rect */
     nv3_clip_16_t clip_b;
     uint32_t color_b;                               // Color for Clip B
@@ -584,23 +560,23 @@ typedef struct nv3_object_class_00C
     /* Unclipped transparent bitmap */
     nv3_clip_16_t clip_c;
     uint32_t color1_c;
-    nv3_size_16_t size_c;
-    nv3_position_16_t point_c;
+    nv3_coord_16_t size_c;
+    nv3_coord_16_t point_c;
     uint32_t bitmap_c[128];
     /* Clipped transparent bitmap */
     nv3_clip_16_t clip_d;
     uint32_t color1_d;
-    nv3_size_16_t size_in_d;
-    nv3_size_16_t size_out_d;
-    nv3_position_16_t point_d;
+    nv3_coord_16_t size_in_d;
+    nv3_coord_16_t size_out_d;
+    nv3_coord_16_t point_d;
     uint32_t bitmap_d[128];
     /* Clipped 1bpp bitmap */
     nv3_clip_16_t clip_e;
     uint32_t color0_e;
     uint32_t color1_e;
-    nv3_size_16_t size_in_e;
-    nv3_size_16_t size_out_e;
-    nv3_position_16_t point_e;
+    nv3_coord_16_t size_in_e;
+    nv3_coord_16_t size_out_e;
+    nv3_coord_16_t point_e;
     uint32_t bitmap_e[128];
 } nv3_win95_text_t;
 
@@ -637,14 +613,14 @@ typedef struct nv3_object_class_00E
 {
     nv3_class_ctx_switch_method_t set_notify_ctx_dma;
     uint32_t set_notify;
-    nv3_position_16_t clip_0;
-    nv3_size_16_t clip_1;
-    nv3_position_16_t rectangle_out_0;
-    nv3_size_16_t rectangle_out_1;
+    nv3_coord_16_t clip_0;
+    nv3_coord_16_t clip_1;
+    nv3_coord_16_t rectangle_out_0;
+    nv3_coord_16_t rectangle_out_1;
     // Calculus in a graphics card
     uint32_t delta_du_dx;
     uint32_t delta_dv_dy;
-    nv3_size_16_t size; // can be size_y if YUV420
+    nv3_coord_16_t size; // can be size_y if YUV420
     uint32_t pitch;
     uint32_t offset;
     uint32_t point;
@@ -663,16 +639,16 @@ typedef struct nv3_object_class_00E
     0x?? (drivers)
     Also 0x50 in context IDs.
     
-    Represents a blit.
+    Represents a screen to screen blit. I'm still figuring it out. 
 */
 
 typedef struct nv3_object_class_010
 {
     nv3_class_ctx_switch_method_t set_notify_ctx_dma;
     uint32_t set_notify;
-    nv3_position_16_t point_in;
-    nv3_position_16_t point_out;
-    nv3_size_16_t size;
+    nv3_coord_16_t point_in;
+    nv3_coord_16_t point_out;
+    nv3_coord_16_t size;
 } nv3_blit_t;
 
 /* 
@@ -686,9 +662,9 @@ typedef struct nv3_object_class_011
 {
     nv3_class_ctx_switch_method_t set_notify_ctx_dma;
     uint32_t set_notify;
-    nv3_position_16_t point;
-    nv3_size_16_t size;
-    nv3_size_16_t size_in;
+    nv3_coord_16_t point;
+    nv3_coord_16_t size;
+    nv3_coord_16_t size_in;
     nv3_color_expanded_t color[32];                           // The colour to use
 } nv3_image_t;
 
@@ -706,9 +682,9 @@ typedef struct nv3_object_class_012
     uint32_t set_notify;
     nv3_color_expanded_t color_0;
     nv3_color_expanded_t color_1;
-    nv3_position_16_t point;                        // Top left(?) of the bitmap
-    nv3_size_16_t size;
-    nv3_size_16_t size_in;
+    nv3_coord_16_t point;                        // Top left(?) of the bitmap
+    nv3_coord_16_t size;
+    nv3_coord_16_t size_in;
     uint32_t monochrome_bitmap[32];
 } nv3_bitmap_t;
 
@@ -726,8 +702,8 @@ typedef struct nv3_object_class_014
 {
     nv3_class_ctx_switch_method_t set_notify_ctx_dma;
     uint32_t set_notify;
-    nv3_position_16_t point;
-    nv3_size_16_t size;
+    nv3_coord_16_t point;
+    nv3_coord_16_t size;
     uint32_t image_pitch;               // bytes per row
     uint32_t image_start;
 } nv3_image_to_memory_t;
@@ -744,11 +720,11 @@ typedef struct nv3_object_class_015
 {    
     nv3_class_ctx_switch_method_t set_notify_ctx_dma;
     uint32_t set_notify;
-    nv3_size_16_t size_in;
+    nv3_coord_16_t size_in;
     uint32_t delta_dx_du;
     uint32_t delta_dy_dv;
-    nv3_position_16_t clip_0;
-    nv3_size_16_t clip_1;
+    nv3_coord_16_t clip_0;
+    nv3_coord_16_t clip_1;
     uint32_t point12d4; /* todo: fraction struct */
     // no reserve needed
 } nv3_stretched_image_from_cpu_t; 
@@ -843,13 +819,13 @@ typedef enum nv3_d3d5_texture_size_e
 
     nv3_d3d5_texture_size_128x128 = 7,
 
-    // Highest size supported natively by hardware?
     nv3_d3d5_texture_size_256x256 = 8,
 
     nv3_d3d5_texture_size_512x512 = 9,
 
     nv3_d3d5_texture_size_1024x1024 = 10,
 
+    // Kind of infeasible considering hardware VRAM size limitations
     nv3_d3d5_texture_size_2048x2048 = 11,
 
     
@@ -1154,7 +1130,7 @@ typedef struct nv3_object_class_018
     uint32_t set_notify;
     nv3_d3d5_control_out_t control_out; 
     nv3_d3d5_alpha_control_t alpha_control;
-    nv3_position_16_t point;
+    nv3_coord_16_t point;
     nv3_zeta_buffer_t zeta[8];
 } nv3_point_with_zeta_buffer_t;
 
@@ -1200,7 +1176,6 @@ typedef struct nv3_grobj_s
     uint32_t grobj_3;
 } nv3_grobj_t;
 // TODO: PATCHCORDS!!!! TO LINK ALL OF THIS TOGETHER!!!
-#pragma pack(pop) // return packing to whatever it was before this disaster
 
 // PIO Subchannel info
 #define NV3_SUBCHANNEL_PIO_IS_PFIFO_FREE                0x0010

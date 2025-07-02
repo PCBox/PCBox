@@ -56,26 +56,16 @@ jobs:
           - name: SDL GUI
             qt: off
             static: on
-            src-packages: >-
-              libsndfile
           - name: Qt GUI
             qt: on
             slug: -Qt
             packages: >-
               qt@5
-            src-packages: >-
-              libsndfile
 
     steps:
-      - name: Install source dependencies
-        run: >-
-          brew reinstall -s
-          ${{ matrix.ui.src-packages }}
-
       - name: Install dependencies
         run: >-
           brew install
-          ninja
           sdl2
           rtmidi
           openal-soft
@@ -158,31 +148,22 @@ jobs:
           - name: SDL GUI
             qt: off
             static: on
-            src-packages: >-
-              libsndfile
           - name: Qt GUI
             qt: on
             slug: -Qt
             packages: >-
               qt@5
-            src-packages: >-
-              libsndfile
 
     steps:
-      - name: Install source dependencies
-        run: >-
-          brew reinstall -s
-          ${{ matrix.ui.src-packages }}
-
       - name: Install dependencies
         run: >-
           brew install
-          ninja
           sdl2
           rtmidi
           openal-soft
           fluidsynth
           libslirp
+          vde
           libserialport
           ${{ matrix.ui.packages }}
 

@@ -82,13 +82,13 @@ opCVTTPD2PI_mm_xmm_a16(uint32_t fetchdat)
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word(); 
     dst->sl[0] = f64_to_i32_round_to_zero(src.d[0], &status);
     dst->sl[1] = f64_to_i32_round_to_zero(src.d[1], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     MMX_SETEXP(cpu_reg);
     return 0;
 }
@@ -106,13 +106,13 @@ opCVTTPD2PI_mm_xmm_a32(uint32_t fetchdat)
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word(); 
     dst->sl[0] = f64_to_i32_round_to_zero(src.d[0], &status);
     dst->sl[1] = f64_to_i32_round_to_zero(src.d[1], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     MMX_SETEXP(cpu_reg);
     return 0;
 }
@@ -123,17 +123,16 @@ opCVTTSD2SI_l_xmm_a16(uint32_t fetchdat)
     SSE_ENTER();
     SSE_REG src;
     fetch_ea_16(fetchdat);
-    SSE_GETSRC();
+    SSE_GETSRC64();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word(); 
     setr32(cpu_reg, f64_to_i32_round_to_zero(src.d[0], &status));
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
-    CLOCK_CYCLES(1);
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -143,17 +142,16 @@ opCVTTSD2SI_l_xmm_a32(uint32_t fetchdat)
     SSE_ENTER();
     SSE_REG src;
     fetch_ea_32(fetchdat);
-    SSE_GETSRC();
-    struct softfloat_status_t status = mxcsr_to_softfloat_status_word(); 
+    SSE_GETSRC64();
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     setr32(cpu_reg, f64_to_i32_round_to_zero(src.d[0], &status));
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
-    CLOCK_CYCLES(1);
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -163,16 +161,16 @@ opCVTSD2SI_l_xmm_a16(uint32_t fetchdat)
     SSE_ENTER();
     SSE_REG src;
     fetch_ea_16(fetchdat);
-    SSE_GETSRC();
+    SSE_GETSRC64();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word(); 
     setr32(cpu_reg, f64_to_i32_normal(src.d[0], &status));
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -182,16 +180,16 @@ opCVTSD2SI_l_xmm_a32(uint32_t fetchdat)
     SSE_ENTER();
     SSE_REG src;
     fetch_ea_32(fetchdat);
-    SSE_GETSRC();
+    SSE_GETSRC64();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word(); 
     setr32(cpu_reg, f64_to_i32_normal(src.d[0], &status));
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -207,13 +205,13 @@ opCVTPD2PS_mm_xmm_a16(uint32_t fetchdat)
     cpu_state.XMM[cpu_reg].f[1] = f64_to_f32(src.d[1], &status);
     cpu_state.XMM[cpu_reg].l[2] = 0;
     cpu_state.XMM[cpu_reg].l[3] = 0;
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -229,13 +227,13 @@ opCVTPD2PS_mm_xmm_a32(uint32_t fetchdat)
     cpu_state.XMM[cpu_reg].f[1] = f64_to_f32(src.d[1], &status);
     cpu_state.XMM[cpu_reg].l[2] = 0;
     cpu_state.XMM[cpu_reg].l[3] = 0;
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -248,17 +246,17 @@ opCVTPS2PD_mm_xmm_a16(uint32_t fetchdat)
     SSE_ENTER();
     fetch_ea_16(fetchdat);
     SSE_REG src;
-    SSE_GETSRC();
+    SSE_GETSRC64();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word(); 
     cpu_state.XMM[cpu_reg].d[0] = f32_to_f64(src.f[0], &status);
     cpu_state.XMM[cpu_reg].d[1] = f32_to_f64(src.f[1], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -271,17 +269,17 @@ opCVTPS2PD_mm_xmm_a32(uint32_t fetchdat)
     SSE_ENTER();
     fetch_ea_32(fetchdat);
     SSE_REG src;
-    SSE_GETSRC();
+    SSE_GETSRC64();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word(); 
     cpu_state.XMM[cpu_reg].d[0] = f32_to_f64(src.f[0], &status);
     cpu_state.XMM[cpu_reg].d[1] = f32_to_f64(src.f[1], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -291,16 +289,16 @@ opCVTSS2SD_mm_xmm_a16(uint32_t fetchdat)
     SSE_ENTER();
     fetch_ea_16(fetchdat);
     SSE_REG src;
-    SSE_GETSRC();
+    SSE_GETSRC32();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word(); 
     cpu_state.XMM[cpu_reg].d[0] = f32_to_f64(src.f[0], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -310,16 +308,16 @@ opCVTSS2SD_mm_xmm_a32(uint32_t fetchdat)
     SSE_ENTER();
     fetch_ea_32(fetchdat);
     SSE_REG src;
-    SSE_GETSRC();
+    SSE_GETSRC32();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word(); 
     cpu_state.XMM[cpu_reg].d[0] = f32_to_f64(src.f[0], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -329,16 +327,16 @@ opCVTSD2SS_mm_xmm_a16(uint32_t fetchdat)
     SSE_ENTER();
     fetch_ea_16(fetchdat);
     SSE_REG src;
-    SSE_GETSRC();
+    SSE_GETSRC64();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word(); 
     cpu_state.XMM[cpu_reg].f[0] = f64_to_f32(src.d[0], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -348,16 +346,16 @@ opCVTSD2SS_mm_xmm_a32(uint32_t fetchdat)
     SSE_ENTER();
     fetch_ea_32(fetchdat);
     SSE_REG src;
-    SSE_GETSRC();
+    SSE_GETSRC64();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word(); 
     cpu_state.XMM[cpu_reg].f[0] = f64_to_f32(src.d[0], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -373,13 +371,13 @@ opCVTPS2DQ_xmm_xmm_a16(uint32_t fetchdat)
     cpu_state.XMM[cpu_reg].sl[1] = f32_to_i32_normal(src.f[1], &status);
     cpu_state.XMM[cpu_reg].sl[2] = f32_to_i32_normal(src.f[2], &status);
     cpu_state.XMM[cpu_reg].sl[3] = f32_to_i32_normal(src.f[3], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -395,13 +393,13 @@ opCVTPS2DQ_xmm_xmm_a32(uint32_t fetchdat)
     cpu_state.XMM[cpu_reg].sl[1] = f32_to_i32_normal(src.f[1], &status);
     cpu_state.XMM[cpu_reg].sl[2] = f32_to_i32_normal(src.f[2], &status);
     cpu_state.XMM[cpu_reg].sl[3] = f32_to_i32_normal(src.f[3], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -419,13 +417,13 @@ opCVTDQ2PS_xmm_xmm_a16(uint32_t fetchdat)
     cpu_state.XMM[cpu_reg].f[1] = i32_to_f32(src.sl[1], &status);
     cpu_state.XMM[cpu_reg].f[2] = i32_to_f32(src.sl[2], &status);
     cpu_state.XMM[cpu_reg].f[3] = i32_to_f32(src.sl[3], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -443,13 +441,13 @@ opCVTDQ2PS_xmm_xmm_a32(uint32_t fetchdat)
     cpu_state.XMM[cpu_reg].f[1] = i32_to_f32(src.sl[1], &status);
     cpu_state.XMM[cpu_reg].f[2] = i32_to_f32(src.sl[2], &status);
     cpu_state.XMM[cpu_reg].f[3] = i32_to_f32(src.sl[3], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -465,13 +463,13 @@ opCVTTPS2DQ_xmm_xmm_a16(uint32_t fetchdat)
     cpu_state.XMM[cpu_reg].sl[1] = f32_to_i32_round_to_zero(src.f[1], &status);
     cpu_state.XMM[cpu_reg].sl[2] = f32_to_i32_round_to_zero(src.f[2], &status);
     cpu_state.XMM[cpu_reg].sl[3] = f32_to_i32_round_to_zero(src.f[3], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -487,13 +485,13 @@ opCVTTPS2DQ_xmm_xmm_a32(uint32_t fetchdat)
     cpu_state.XMM[cpu_reg].sl[1] = f32_to_i32_round_to_zero(src.f[1], &status);
     cpu_state.XMM[cpu_reg].sl[2] = f32_to_i32_round_to_zero(src.f[2], &status);
     cpu_state.XMM[cpu_reg].sl[3] = f32_to_i32_round_to_zero(src.f[3], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -508,13 +506,13 @@ opCVTPD2DQ_mm_xmm_a16(uint32_t fetchdat)
     cpu_state.XMM[cpu_reg].sl[0] = f64_to_i32_normal(src.d[0], &status);
     cpu_state.XMM[cpu_reg].sl[1] = f64_to_i32_normal(src.d[1], &status);
     cpu_state.XMM[cpu_reg].q[1] = 0;
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -529,13 +527,13 @@ opCVTPD2DQ_mm_xmm_a32(uint32_t fetchdat)
     cpu_state.XMM[cpu_reg].sl[0] = f64_to_i32_normal(src.d[0], &status);
     cpu_state.XMM[cpu_reg].sl[1] = f64_to_i32_normal(src.d[1], &status);
     cpu_state.XMM[cpu_reg].q[1] = 0;
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -551,13 +549,13 @@ opCVTTPD2DQ_mm_xmm_a16(uint32_t fetchdat)
     cpu_state.XMM[cpu_reg].sl[0] = f64_to_i32_round_to_zero(src.d[0], &status);
     cpu_state.XMM[cpu_reg].sl[1] = f64_to_i32_round_to_zero(src.d[1], &status);
     cpu_state.XMM[cpu_reg].q[1] = 0;
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -573,13 +571,13 @@ opCVTTPD2DQ_mm_xmm_a32(uint32_t fetchdat)
     cpu_state.XMM[cpu_reg].sl[0] = f64_to_i32_round_to_zero(src.d[0], &status);
     cpu_state.XMM[cpu_reg].sl[1] = f64_to_i32_round_to_zero(src.d[1], &status);
     cpu_state.XMM[cpu_reg].q[1] = 0;
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -589,7 +587,7 @@ opCVTDQ2PD_mm_xmm_a16(uint32_t fetchdat)
     SSE_ENTER();
     SSE_REG src;
     fetch_ea_16(fetchdat);
-    SSE_GETSRC();
+    SSE_GETSRC64();
     cpu_state.XMM[cpu_reg].d[0] = i32_to_f64(src.sl[0]);
     cpu_state.XMM[cpu_reg].d[1] = i32_to_f64(src.sl[1]);
     return 0;
@@ -601,7 +599,7 @@ opCVTDQ2PD_mm_xmm_a32(uint32_t fetchdat)
     SSE_ENTER();
     SSE_REG src;
     fetch_ea_32(fetchdat);
-    SSE_GETSRC();
+    SSE_GETSRC64();
     cpu_state.XMM[cpu_reg].d[0] = i32_to_f64(src.sl[0]);
     cpu_state.XMM[cpu_reg].d[1] = i32_to_f64(src.sl[1]);
     return 0;
@@ -621,13 +619,13 @@ opCVTPD2PI_mm_xmm_a16(uint32_t fetchdat)
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     dst->sl[0] = f64_to_i32_normal(src.d[0], &status);
     dst->sl[1] = f64_to_i32_normal(src.d[1], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }
 
@@ -645,12 +643,12 @@ opCVTPD2PI_mm_xmm_a32(uint32_t fetchdat)
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     dst->sl[0] = f64_to_i32_normal(src.d[0], &status);
     dst->sl[1] = f64_to_i32_normal(src.d[1], &status);
-    /*softfloat_status_word_to_mxcsr(status);
+    softfloat_status_word_to_mxcsr(status);
     int unmasked = (~cpu_state.mxcsr >> 7) & 0x3f;
     if ((cpu_state.mxcsr & 0x3f) & (unmasked & 0x3f)) {
         if (cr4 & CR4_OSXMMEXCPT)
             x86_int(0x13);
-        //ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
-    }*/
+        ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
+    }
     return 0;
 }

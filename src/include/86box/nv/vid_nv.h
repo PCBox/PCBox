@@ -6,7 +6,10 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          Shared implementation file for all NVIDIA GPUs (hopefully to be) emulated by 86box.
+ *          The real Nvidia driver.
+ *          Implements components shared by all variants of the Nvidia GPUs (hopefully to be) supported by 86Box. 
+ * 
+ *          This driver draws on collaborative work by many people over many years. 
  * 
  *          Credit to:
  * 
@@ -18,6 +21,7 @@
  *          - xemu developers                                               https://github.com/xemu-project/xemu
  *          - RivaTV developers                                             https://rivatv.sourceforge.net (esp. https://rivatv.sourceforge.net/stuff/riva128.txt) 
  *          - Nvidia for leaking their driver symbols numerous times ;^)    https://nvidia.com 
+ *          - Vort (Bochs GeForce fork)                                     https://github.com/Vort/Bochs/tree/geforce 
  *          - People who prevented me from giving up (various)              
  * 
  * Authors: Connor Hyde / starfrost <mario64crashed@gmail.com>
@@ -127,6 +131,7 @@ typedef struct nv_base_s
     void* i2c;                                  // I2C for monitor EDID
     void* ddc;                                  // Display Data Channel for EDID
     uint32_t last_buffer_address;               // Last buffer address.
+    bool agp_enabled;                           // AGP Enabled (for debugging)
 } nv_base_t;
 
 #define NV_REG_LIST_END                         0xD15EA5E

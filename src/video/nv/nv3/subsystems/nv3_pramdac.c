@@ -64,6 +64,7 @@ void nv3_pramdac_pixel_clock_poll(double real_time)
     if (nv3->nvbase.refresh_clock > nv3->nvbase.refresh_time)
     {
         /* Update the screen because something changed */
+        nv3_render_current_bpp();
         video_blit_memtoscreen(0, 0, xsize, ysize);
         nv3->nvbase.refresh_clock = 0;
     }
@@ -134,7 +135,7 @@ void nv3_pramdac_set_vram_clock(void)
     // Convert to microseconds
     frequency = (frequency * nv3->pramdac.memory_clock_n) / (nv3->pramdac.memory_clock_m << nv3->pramdac.memory_clock_p); 
 
-    double time = (1000000.0 * NV3_86BOX_TIMER_SYSTEM_FIX_QUOTIENT) / (double)frequency; // needs to be a double for 86box
+    double time = 1000000.0  / (double)frequency; // needs to be a double for 86box
 
     nv_log("Memory clock = %.2f MHz\n", frequency / 1000000.0f);    
 
@@ -182,7 +183,7 @@ void nv3_pramdac_set_pixel_clock(void)
 
     nv3->nvbase.svga.clock = cpuclock / frequency;
 
-    double time = (1000000.0 * NV3_86BOX_TIMER_SYSTEM_FIX_QUOTIENT) / (double)frequency; // needs to be a double for 86box
+    double time = 1000000.0 / (double)frequency; // needs to be a double for 86box
 
     nv_log("Pixel clock = %.2f MHz\n", frequency / 1000000.0f);
 
@@ -205,6 +206,7 @@ void nv3_pramdac_set_pixel_clock(void)
 // NULL means handle in read functions
 nv_register_t pramdac_registers[] = 
 {
+    { NV3_PRAMDAC_CURSOR_START, "PRAMDAC - Cursor Start Position"},
     { NV3_PRAMDAC_CLOCK_PIXEL, "PRAMDAC - NV3 GPU Core - Pixel clock", nv3_pramdac_get_pixel_clock_register, nv3_pramdac_set_pixel_clock_register },
     { NV3_PRAMDAC_CLOCK_MEMORY, "PRAMDAC - NV3 GPU Core - Memory clock", nv3_pramdac_get_vram_clock_register, nv3_pramdac_set_vram_clock_register },
     { NV3_PRAMDAC_COEFF_SELECT, "PRAMDAC - PLL Clock Coefficient Select", NULL, NULL},
@@ -320,6 +322,9 @@ uint32_t nv3_pramdac_read(uint32_t address)
                     ret = nv3->pramdac.palette[nv3->pramdac.user_read_mode_address];
                     nv3->pramdac.user_read_mode_address++; 
                     break;
+                case NV3_PRAMDAC_CURSOR_START:
+                    ret = (nv3->pramdac.cursor_start.y << 16) | nv3->pramdac.cursor_start.x;
+                    break; 
             }
         }
 
@@ -345,8 +350,6 @@ void nv3_pramdac_write(uint32_t address, uint32_t value)
     // if the register actually exists
     if (reg)
     {
-
-
         // on-read function
         if (reg->on_write)
             reg->on_write(value);
@@ -434,6 +437,13 @@ void nv3_pramdac_write(uint32_t address, uint32_t value)
                     nv3->pramdac.user_write_mode_address++; 
                     
                     break;
+                /* cursor start location */
+                case NV3_PRAMDAC_CURSOR_START: 
+                    // only 12 bits are used here instead of 16 for some stupid reason
+                    nv3->pramdac.cursor_start.y = (value >> 16) & 0xFFF;  
+                    nv3->pramdac.cursor_start.x = (value) & 0xFFF;
+                    nv3_draw_cursor(&nv3->nvbase.svga, 0);//drawline doesn't matter here
+                    break; 
             }
         }
 

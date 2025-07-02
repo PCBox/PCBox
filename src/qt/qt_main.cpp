@@ -55,6 +55,7 @@ extern "C" {
 #endif
 #include <86box/gdbstub.h>
 #include <86box/version.h>
+#include <86box/renderdefs.h>
 }
 
 #ifdef Q_OS_WINDOWS
@@ -77,6 +78,8 @@ extern "C" {
 #include "qt_styleoverride.hpp"
 #include "qt_unixmanagerfilter.hpp"
 #include "qt_util.hpp"
+#include "qt_vmmanager_clientsocket.hpp"
+#include "qt_vmmanager_mainwindow.hpp"
 
 // Void Cast
 #define VC(x) const_cast<wchar_t *>(x)
@@ -214,7 +217,7 @@ emu_LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
                          (GetForegroundWindow() == ((HWND) secondaryRenderer->winId())));
     }
 
-    bool skip = ((nCode < 0) || (nCode != HC_ACTION) || !is_over_window);
+    bool skip = ((nCode < 0) || (nCode != HC_ACTION) || !is_over_window || (kbd_req_capture && !mouse_capture));
 
     if (skip)
         return CallNextHookEx(NULL, nCode, wParam, lParam);
@@ -662,6 +665,19 @@ main(int argc, char *argv[])
               return 0;
     }
 
+    if (vmm_enabled) {
+        // VMManagerMain vmm;
+        // // Hackish until there is a proper solution
+        // QApplication::setApplicationName("86Box VM Manager");
+        // QApplication::setApplicationDisplayName("86Box VM Manager");
+        // vmm.show();
+        // vmm.exec();
+        const auto vmm_main_window = new VMManagerMainWindow();
+        vmm_main_window->show();
+        QApplication::exec();
+        return 0;
+    }
+
 #ifdef DISCORD
     discord_load();
 #endif
@@ -672,6 +688,16 @@ main(int argc, char *argv[])
     } else {
         main_window->show();
     }
+#ifdef WAYLAND
+    if (QApplication::platformName().contains("wayland")) {
+        /* Force a sync. */
+        (void)main_window->winId();
+        QApplication::sync();
+        extern void wl_keyboard_grab(QWindow *window);
+        wl_keyboard_grab(main_window->windowHandle());
+    }
+#endif
+    
 
     app.installEventFilter(main_window);
 
@@ -748,6 +774,22 @@ main(int argc, char *argv[])
         socket.connectToServer(qgetenv("PCBOX_MANAGER_SOCKET"));
     }
 
+    VMManagerClientSocket manager_socket;
+    if (qgetenv("VMM_86BOX_SOCKET").size()) {
+        manager_socket.IPCConnect(qgetenv("VMM_86BOX_SOCKET"));
+        QObject::connect(&manager_socket, &VMManagerClientSocket::pause, main_window, &MainWindow::togglePause);
+        QObject::connect(&manager_socket, &VMManagerClientSocket::resetVM, main_window, &MainWindow::hardReset);
+        QObject::connect(&manager_socket, &VMManagerClientSocket::showsettings, main_window, &MainWindow::showSettings);
+        QObject::connect(&manager_socket, &VMManagerClientSocket::ctrlaltdel, []() { pc_send_cad(); });
+        QObject::connect(&manager_socket, &VMManagerClientSocket::request_shutdown, main_window, &MainWindow::close);
+        QObject::connect(&manager_socket, &VMManagerClientSocket::force_shutdown, []() {
+            do_stop();
+            emit main_window->close();
+        });
+        QObject::connect(main_window, &MainWindow::vmmRunningStateChanged, &manager_socket, &VMManagerClientSocket::clientRunningStateChanged);
+        main_window->installEventFilter(&manager_socket);
+    }
+
     // pc_reset_hard_init();
 
     QTimer onesec;
@@ -780,7 +822,7 @@ main(int argc, char *argv[])
 
         /* Set the PAUSE mode depending on the renderer. */
 #ifdef USE_VNC
-        if (vid_api == 5)
+        if (vid_api == RENDERER_VNC)
             plat_pause(1);
         else
 #endif

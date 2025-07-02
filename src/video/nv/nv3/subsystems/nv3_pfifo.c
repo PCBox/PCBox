@@ -48,8 +48,8 @@ nv_register_t pfifo_registers[] = {
     { NV3_PFIFO_CACHE0_PULLER_CTX_STATE, "PFIFO - Cache0 Puller State1 (Is context clean?)", NULL, NULL},
     { NV3_PFIFO_CACHE1_PULL0, "PFIFO - Cache1 Puller State0", NULL, NULL},
     { NV3_PFIFO_CACHE1_PULLER_CTX_STATE, "PFIFO - Cache1 Puller State1 (Is context clean?)", NULL, NULL},
-    { NV3_PFIFO_CACHE0_PUSH0, "PFIFO - Cache0 Access", NULL, NULL, },
-    { NV3_PFIFO_CACHE1_PUSH0, "PFIFO - Cache1 Access", NULL, NULL, },
+    { NV3_PFIFO_CACHE0_PUSH_ENABLED, "PFIFO - Cache0 Access", NULL, NULL, },
+    { NV3_PFIFO_CACHE1_PUSH_ENABLED, "PFIFO - Cache1 Access", NULL, NULL, },
     { NV3_PFIFO_CACHE0_PUSH_CHANNEL_ID, "PFIFO - Cache0 Push Channel ID", NULL, NULL, },
     { NV3_PFIFO_CACHE1_PUSH_CHANNEL_ID, "PFIFO - Cache1 Push Channel ID", NULL, NULL, },
     { NV3_PFIFO_CACHE0_ERROR_PENDING, "PFIFO - Cache0 DMA Error Pending?", NULL, NULL, },
@@ -61,14 +61,14 @@ nv_register_t pfifo_registers[] = {
     { NV3_PFIFO_CACHE0_PUT, "PFIFO - Cache0 Put", NULL, NULL },
     { NV3_PFIFO_CACHE1_PUT, "PFIFO - Cache1 Put", NULL, NULL },
     //Cache1 exclusive stuff
-    { NV3_PFIFO_CACHE1_DMA_CONFIG_0, "PFIFO - Cache1 DMA Config0"},
-    { NV3_PFIFO_CACHE1_DMA_CONFIG_1, "PFIFO - Cache1 DMA Config1"},
-    { NV3_PFIFO_CACHE1_DMA_CONFIG_2, "PFIFO - Cache1 DMA Config2"},
-    { NV3_PFIFO_CACHE1_DMA_CONFIG_3, "PFIFO - Cache1 DMA Config3"},
-    { NV3_PFIFO_CACHE1_DMA_STATUS, "PFIFO - Cache1 DMA Status - PROBABLY TRIGGERING DMA"},
-    { NV3_PFIFO_CACHE1_DMA_TLB_PT_BASE, "PFIFO - Cache1 DMA Translation Lookaside Buffer - Pagetable Base"},
-    { NV3_PFIFO_CACHE1_DMA_TLB_PTE, "PFIFO - Cache1 DMA Status"},
-    { NV3_PFIFO_CACHE1_DMA_TLB_TAG, "PFIFO - Cache1 DMA Status"},
+    { NV3_PFIFO_CACHE1_DMA_CONFIG_0, "PFIFO - Cache1 DMA Access (bit 0: is running, bit 4: is busy)"},
+    { NV3_PFIFO_CACHE1_DMA_CONFIG_1, "PFIFO - Cache1 DMA Length"},
+    { NV3_PFIFO_CACHE1_DMA_CONFIG_2, "PFIFO - Cache1 DMA Address"},
+    { NV3_PFIFO_CACHE1_DMA_CONFIG_3, "PFIFO - Cache1 DMA Target Node"},
+    { NV3_PFIFO_CACHE1_DMA_STATUS, "PFIFO - Cache1 DMA Status"},
+    { NV3_PFIFO_CACHE1_DMA_TLB_PT_BASE, "PFIFO - Cache1 DMA TLB - Pagetable Base"},
+    { NV3_PFIFO_CACHE1_DMA_TLB_PTE, "PFIFO - Cache1 DMA TLB - Pagetable Entry (31:12 - Frame Address; bit 0 - Is Present)"},
+    { NV3_PFIFO_CACHE1_DMA_TLB_TAG, "PFIFO - Cache1 DMA TLB - Tag"},
     //Runout
     { NV3_PFIFO_RUNOUT_GET, "PFIFO Runout Get Address [8:3 if 512b, otherwise 12:3]"},
     { NV3_PFIFO_RUNOUT_PUT, "PFIFO Runout Put Address [8:3 if 512b, otherwise 12:3]"},
@@ -160,10 +160,10 @@ uint32_t nv3_pfifo_read(uint32_t address)
                     ret = (nv3->pfifo.cache0_settings.context_is_dirty) ? (1 << NV3_PFIFO_CACHE0_PULLER_CTX_STATE_DIRTY) : 0;
                     break;
                 /* Does this automatically push? */
-                case NV3_PFIFO_CACHE0_PUSH0:
+                case NV3_PFIFO_CACHE0_PUSH_ENABLED:
                     ret = nv3->pfifo.cache0_settings.push0;
                     break;
-                case NV3_PFIFO_CACHE1_PUSH0:
+                case NV3_PFIFO_CACHE1_PUSH_ENABLED:
                     ret = nv3->pfifo.cache1_settings.push0;
                     break; 
                 case NV3_PFIFO_CACHE0_PUSH_CHANNEL_ID:
@@ -354,31 +354,41 @@ void nv3_pfifo_trigger_dma_if_required(void)
     bool cache1_dma = false;
 
     /* Check that DMA is enabled */
-    if (nv3->pfifo.cache1_settings.dma_state
+    if ((nv3->pfifo.cache1_settings.dma_state & NV3_PFIFO_CACHE1_DMA_STATUS_STATE_RUNNING)
     && nv3->pfifo.cache1_settings.dma_enabled)
     {
         uint32_t bytes_to_send = nv3->pfifo.cache1_settings.dma_length;
         uint32_t where_to_send = nv3->pfifo.cache1_settings.dma_address;
-        uint32_t target_node = nv3->pfifo.cache1_settings.dma_target_node; //2=pci, 3=agp. What does this even do
+        uint32_t target_node = nv3->pfifo.cache1_settings.dma_target_node; //2=pci, 3=agp. 
 
         /* Pagetable information */
-        uint32_t tlb_pt_base = nv3->pfifo.cache1_settings.dma_tlb_pt_base;
-        uint32_t tlb_pt_entry = nv3->pfifo.cache1_settings.dma_tlb_pte;
+        uint32_t tlb_pt_base = nv3->pfifo.cache1_settings.dma_tlb_pt_base;                      
+        uint32_t tlb_pt_entry = nv3->pfifo.cache1_settings.dma_tlb_pte;                         // notify_obj_page
         uint32_t tlb_pt_tag = nv3->pfifo.cache1_settings.dma_tlb_tag; // 0xFFFFFFFF usually?
-
-        /* PUSH - System to GPU (?) */
-        if (nv3->pfifo.cache1_settings.push0)
+    
+        /* 
+            going to treat the format the same as notifiers
+        */
+        if (!(tlb_pt_entry & NV3_PFIFO_CACHE1_DMA_TLB_PTE_IS_PRESENT))
         {
-            /* PULL - GPU to System */
-            nv_log("Initiating System to NV DMA - Probably we are trying to notify\n");
-        }
-        else if (nv3->pfifo.cache1_settings.pull0)
-        {
-            /* PULL - GPU to System */
-            nv_log("Initiating NV to System DMA - Probably we are trying to notify\n");
+            warning("NV3: Tried to DMA to a non-existent page! Big Problem!");
+            return; 
         }
 
+        uint32_t final_page_base = tlb_pt_entry & 0xFFFFF000; /* pull out 31:12 */
+
+        /* 
+            page size is 0x1000 
+        */
+        uint32_t final_address = final_page_base + (tlb_pt_entry << 10) + where_to_send; //x86 page size is 0x1000 (maybe rsh where_to_send by 2)
+
+        nv_log_verbose_only("DMA Engine: DMA to %08x length=%08x", final_address, bytes_to_send);
+
+        //-dma_bm_write()
     }
+
+    //we're done
+    nv3->pfifo.cache1_settings.dma_state &= ~NV3_PFIFO_CACHE1_DMA_STATUS_STATE_RUNNING;
 }
 
 void nv3_pfifo_write(uint32_t address, uint32_t val) 
@@ -499,10 +509,10 @@ void nv3_pfifo_write(uint32_t address, uint32_t val)
                 case NV3_PFIFO_CACHE1_PULLER_CTX_STATE:
                     nv3->pfifo.cache1_settings.context_is_dirty = (val >> NV3_PFIFO_CACHE0_PULLER_CTX_STATE_DIRTY) & 0x01;
                     break;
-                case NV3_PFIFO_CACHE0_PUSH0:
+                case NV3_PFIFO_CACHE0_PUSH_ENABLED:
                     nv3->pfifo.cache0_settings.push0 = val;
                     break;
-                case NV3_PFIFO_CACHE1_PUSH0:
+                case NV3_PFIFO_CACHE1_PUSH_ENABLED:
                     nv3->pfifo.cache1_settings.push0 = val;
                     break; 
                 case NV3_PFIFO_CACHE0_PUSH_CHANNEL_ID:
@@ -548,7 +558,7 @@ void nv3_pfifo_write(uint32_t address, uint32_t val)
                     nv3->pfifo.cache1_settings.get_address = val;
                     break;
                 case NV3_PFIFO_RUNOUT_GET:
-                    
+                {
                     uint32_t size_get = ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01);
 
                     if (size_get == 0) //512b
@@ -556,7 +566,9 @@ void nv3_pfifo_write(uint32_t address, uint32_t val)
                     else 
                         nv3->pfifo.runout_get = val & (NV3_RAMIN_RAMRO_SIZE_1 - 0x07);
                     break;
+                }
                 case NV3_PFIFO_RUNOUT_PUT:
+                {
                     uint32_t size_put = ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01);
 
                     if (size_put == 0) //512b
@@ -565,7 +577,8 @@ void nv3_pfifo_write(uint32_t address, uint32_t val)
                         nv3->pfifo.runout_put = val & (NV3_RAMIN_RAMRO_SIZE_1 - 0x07);
 
                     break;
-                /* Cache1 is handled below */
+                }
+                /* Cache1 Context is handled below */
                 case NV3_PFIFO_CACHE0_CTX:
                     nv3->pfifo.cache0_settings.context[0] = val;
                     break;
@@ -726,7 +739,7 @@ void nv3_pfifo_cache0_pull(void)
     uint32_t current_context = nv3->pfifo.cache0_settings.context[0]; // only 1 entry for CACHE0 so basically ignore the other context entries?
     uint8_t class_id = ((nv3_ramin_context_t*)&current_context)->class_id;
 
-    // Tell the CPU if we found a software method
+    // Tell the CPU if we found a software method and turn off cache pulling
     if (!(current_context & 0x800000))
     {
         nv_log("The object in CACHE0 is a software object\n");
@@ -941,7 +954,6 @@ void nv3_pfifo_cache1_pull(void)
     #ifndef RELEASE_BUILD
 
     nv_log_verbose_only("***** DEBUG: CACHE1 PULLED ****** Contextual information below\n");
-
 
     nv3_ramin_context_t context_structure = *(nv3_ramin_context_t*)&current_context;
 

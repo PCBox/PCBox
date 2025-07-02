@@ -206,10 +206,15 @@ opPSxxQ_xmm_imm(uint32_t fetchdat)
 
 #define SSE_GETSHIFT()                             \
     if (cpu_mod == 3) {                            \
-        shift = cpu_state.XMM[cpu_rm].q[0];   \
+        shift = cpu_state.XMM[cpu_rm].q[0];        \
         CLOCK_CYCLES(1);                           \
     } else {                                       \
         SEG_CHECK_READ(cpu_state.ea_seg);          \
+        if (cpu_state.eaaddr & 0xf) {              \
+            x86gpf(NULL, 0);                       \
+            if (cpu_state.abrt)                    \
+                return 1;                          \
+        }                                          \
         shift = readmemq(easeg, cpu_state.eaaddr); \
         if (cpu_state.abrt)                        \
             return 0;                              \

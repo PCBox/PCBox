@@ -196,7 +196,6 @@ void nv3_mmio_write16(uint32_t addr, uint16_t val, void* priv)
 
         nv_log_verbose_only("Redirected MMIO write16 to SVGA: addr=0x%04x val=0x%02x\n", addr, val);
 
-
         nv3_svga_write(real_address, val & 0xFF, nv3);
         nv3_svga_write(real_address + 1, (val >> 8) & 0xFF, nv3);
         
@@ -236,6 +235,46 @@ void nv3_mmio_write32(uint32_t addr, uint32_t val, void* priv)
     nv3_mmio_arbitrate_write(addr, val);
 }
 
+// AGP read function
+uint8_t nv3_agp_read(int32_t func, int32_t addr)
+{
+    uint8_t ret = 0x00;
+
+    switch (addr)
+    {
+        case NV3_AGP_CAPABILITIES_CAP_ID:
+            ret = NV3_AGP_CAPABILITIES_CAP_ID_AGP;     // AGP capable device
+            break;
+        case NV3_AGP_CAPABILITIES_NEXT_PTR:             // Always off
+            ret = 0x00; 
+        case NV3_AGP_CAPABILITIES_AGP_VERSION:
+            ret = (0x1 << NV3_AGP_CAPABILITIES_AGP_VERSION_MAJOR) | NV3_AGP_CAPABILITIES_AGP_VERSION_MINOR;
+            break;
+        case NV3_AGP_STATUS_RATE:
+            // NV3T = AGP 2X, NV3 = AGP 1X
+            if (nv3->nvbase.gpu_revision == NV3_PCI_CFG_REVISION_C00)
+                ret = NV3_AGP_STATUS_RATE_1X_SUPPORTED | NV3_AGP_STATUS_RATE_2X_SUPPORTED;
+            else
+                ret = NV3_AGP_STATUS_RATE_1X_SUPPORTED;
+            break;
+        case NV3_AGP_STATUS_BYTE1:
+            ret = 0x00;             // SBA not supported
+            break;
+        case NV3_AGP_STATUS_MAX_REQUESTS:
+            ret = NV3_AGP_STATUS_MAX_REQUESTS_AMOUNT;
+            break;
+        // This is also used for SBA but SBA is always off so we can use a bool
+        case NV3_AGP_COMMAND_BYTE1:
+            ret = nv3->nvbase.agp_enabled;
+            break;
+        default:
+            ret = nv3->pci_config.pci_regs[addr];
+            break; 
+    }
+
+    return ret; 
+}
+
 // PCI stuff
 // BAR0         Pointer to MMIO space
 // BAR1         Pointer to Linear Framebuffer (NV_USER)
@@ -272,7 +311,7 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, void* priv)
             ret = (NV_PCI_DEVICE_NV3 >> 8);
             break;
         
-        // various capabilities
+        // various capabilities enabled by default 
         // IO space         enabled
         // Memory space     enabled
         // Bus master       enabled
@@ -282,7 +321,7 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, void* priv)
         // 66Mhz FSB        capable
 
         case PCI_REG_COMMAND_L:
-            ret = nv3->pci_config.pci_regs[PCI_REG_COMMAND_L] ; // we actually respond to the fucking 
+            ret = nv3->pci_config.pci_regs[PCI_REG_COMMAND_L]; 
             break;
         
         case PCI_REG_COMMAND_H:
@@ -333,7 +372,7 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, void* priv)
         case NV3_PCI_CFG_BAR0_L:
         case NV3_PCI_CFG_BAR1_L:
             // only bit that matters is bit 3 (prefetch bit)
-            ret =(NV3_PCI_CFG_BAR_PREFETCHABLE_ENABLED << NV3_PCI_CFG_BAR_PREFETCHABLE);
+            ret = (NV3_PCI_CFG_BAR_PREFETCHABLE_ENABLED << NV3_PCI_CFG_BAR_PREFETCHABLE);
             break;
 
         // These registers are hardwired to zero per the datasheet
@@ -356,6 +395,13 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, void* priv)
             ret = nv3->pci_config.vbios_enabled;
             break;
         
+        case NV3_AGP_CAPABILITIES_POINTER:
+            if (nv3->nvbase.bus_generation >= nv_bus_agp_1x)
+                ret = NV3_AGP_CAPABILITIES_START;
+            else 
+                ret = 0x00;
+            break; 
+
         case NV3_PCI_CFG_INT_LINE:
             ret = nv3->pci_config.int_line;
             break;
@@ -382,6 +428,15 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, void* priv)
             ret = nv3->pci_config.pci_regs[NV3_PCI_CFG_SUBSYSTEM_ID + (addr & 0x03)];
             break;
 
+        case NV3_AGP_START ... NV3_AGP_END:
+            if (nv3->nvbase.bus_generation < nv_bus_agp_1x)
+                break;
+
+            ret = nv3_agp_read(func, addr);
+
+            break; 
+        
+
         default: // by default just return pci_config.pci_regs
             ret = nv3->pci_config.pci_regs[addr];
             break;
@@ -390,6 +445,20 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, void* priv)
 
     nv_log("nv3_pci_read func=0x%04x addr=0x%04x ret=0x%04x\n", func, addr, ret);
     return ret; 
+}
+
+void nv3_agp_write(int32_t func, int32_t addr, uint8_t val)
+{
+    nv3->pci_config.pci_regs[addr] = val;
+
+    switch (addr)
+    {
+        case NV3_AGP_COMMAND_BYTE1:
+            nv3->nvbase.agp_enabled = val;
+            break;
+        default:  
+            break;
+    }
 }
 
 void nv3_pci_write(int32_t func, int32_t addr, uint8_t val, void* priv)
@@ -490,6 +559,14 @@ void nv3_pci_write(int32_t func, int32_t addr, uint8_t val, void* priv)
             nv3->pci_config.pci_regs[NV3_PCI_CFG_SUBSYSTEM_ID + (addr & 0x03)] = val;
             break;
 
+        case NV3_AGP_START ... NV3_AGP_END:
+            if (nv3->nvbase.bus_generation < nv_bus_agp_1x)
+                break;
+
+            nv3_agp_write(func, addr, val);
+
+            break; 
+        
         default:
             break;
     }
@@ -508,7 +585,7 @@ void nv3_recalc_timings(svga_t* svga)
     nv3_t* nv3 = (nv3_t*)svga->priv;
     uint32_t pixel_mode = svga->crtc[NV3_CRTC_REGISTER_PIXELMODE] & 0x03;
 
-    svga->ma_latch += (svga->crtc[NV3_CRTC_REGISTER_RPC0] & 0x1F) << 16;
+    svga->memaddr_latch += (svga->crtc[NV3_CRTC_REGISTER_RPC0] & 0x1F) << 16;
 
     /* Turn off override if we are in VGA mode */
     svga->override = !(pixel_mode == NV3_CRTC_REGISTER_PIXELMODE_VGA);
@@ -537,7 +614,7 @@ void nv3_recalc_timings(svga_t* svga)
         case NV3_CRTC_REGISTER_PIXELMODE_16BPP:
             /* This is some sketchy shit that is an attempt at an educated guess
             at pixel clock differences between 9x and NT only in 16bpp. If there is ever an error on 9x with "interlaced" looking graphics,
-            this is what's causing it. Possibly fucking *ReactOS* of all things */
+            this is what's causing it. Possibly fucking up *ReactOS* of all things */
             if ((svga->crtc[NV3_CRTC_REGISTER_VRETRACESTART] >> 1) & 0x01)
                 svga->rowoffset += (svga->crtc[NV3_CRTC_REGISTER_RPC0] & 0xE0) << 2;
             else 
@@ -632,6 +709,9 @@ uint8_t nv3_svga_read(uint16_t addr, void* priv)
         case NV3_CRTC_REGISTER_INDEX:
             ret = nv3->nvbase.svga.crtcreg;
             break;
+        case NV3_CRTC_REGISTER_WTF:
+            ret = 0x08; // Required to not freeze in certain situations on v3.xx drivers
+            break; 
         case NV3_CRTC_REGISTER_CURRENT:
             // Support the extended NVIDIA CRTC register range
             switch (nv3->nvbase.svga.crtcreg)
@@ -723,18 +803,18 @@ void nv3_svga_write(uint16_t addr, uint8_t val, void* priv)
             switch (crtcreg)
             {
                 case NV3_CRTC_REGISTER_READ_BANK:
-                        nv3->nvbase.cio_read_bank = val;
-                        if (nv3->nvbase.svga.chain4) // chain4 addressing (planar?)
-                            nv3->nvbase.svga.read_bank = nv3->nvbase.cio_read_bank << 15;
-                        else
-                            nv3->nvbase.svga.read_bank = nv3->nvbase.cio_read_bank << 13; // extended bank numbers
+                    nv3->nvbase.cio_read_bank = val;
+                    if (nv3->nvbase.svga.chain4) // chain4 addressing (planar?)
+                        nv3->nvbase.svga.read_bank = nv3->nvbase.cio_read_bank << 15;
+                    else
+                        nv3->nvbase.svga.read_bank = nv3->nvbase.cio_read_bank << 13; // extended bank numbers
                     break;
                 case NV3_CRTC_REGISTER_WRITE_BANK:
                     nv3->nvbase.cio_write_bank = val;
-                        if (nv3->nvbase.svga.chain4)
-                            nv3->nvbase.svga.write_bank = nv3->nvbase.cio_write_bank << 15;
-                        else
-                            nv3->nvbase.svga.write_bank = nv3->nvbase.cio_write_bank << 13;
+                    if (nv3->nvbase.svga.chain4)
+                        nv3->nvbase.svga.write_bank = nv3->nvbase.cio_write_bank << 15;
+                    else
+                        nv3->nvbase.svga.write_bank = nv3->nvbase.cio_write_bank << 13;
                     break;
                 case NV3_CRTC_REGISTER_RMA:
                     nv3->pbus.rma.mode = val & NV3_CRTC_REGISTER_RMA_MODE_MAX;
@@ -760,11 +840,22 @@ void nv3_svga_write(uint16_t addr, uint8_t val, void* priv)
                         nv3->nvbase.svga.hdisp += 0x100;
                     break;
                 case NV3_CRTC_REGISTER_I2C_GPIO:
+                {
                     uint8_t scl = !!(val & 0x20);
                     uint8_t sda = !!(val & 0x10);
                     // Set an I2C GPIO register
                     i2c_gpio_set(nv3->nvbase.i2c, scl, sda);
                     break;
+                }
+                /* [6:0] contains cursorAddr [23:17] */
+                case NV3_CRTC_REGISTER_CURSOR_ADDR0:
+                    nv3->pramdac.cursor_address |= val << 17; //bit7 technically ignored, but nv don't care, so neither do we
+                    break;
+                /* [7:2] contains cursorAddr [16:11] */
+                case NV3_CRTC_REGISTER_CURSOR_ADDR1:
+                    nv3->pramdac.cursor_address |= (val >> 2) << 13; // bit0 and 1 aren't part of the address 
+                    break;
+
 
             }
 
@@ -848,11 +939,126 @@ void nv3_draw_cursor(svga_t* svga, int32_t drawline)
     // sanity check
     if (!nv3)
         return; 
+
+    // if cursor disabled is set, return
+    if ((nv3->nvbase.svga.crtc[NV3_CRTC_REGISTER_CURSOR_START] >> NV3_CRTC_REGISTER_CURSOR_START_DISABLED) & 0x01)
+        return; 
     
-    // On windows, this shows up using NV_IMAGE_IN_MEMORY.
+    // NT GDI drivers: Load cursor using NV_IMAGE_FROM_MEMORY ("NV3LCD")
+    // 9x GDI drivers: Use H/W cursor in RAMIN
+
     // Do we need to emulate it?
 
-    nv_log("nv3_draw_cursor drawline=0x%04x", drawline);
+    // THIS IS CORRECT. BUT HOW DO WE FIND IT?
+    uint32_t ramin_cursor_position = NV3_RAMIN_OFFSET_CURSOR;
+
+    /* let's just assume buffer 0 here...that code needs to be totally rewritten*/
+    nv3_coord_16_t start_position = nv3->pramdac.cursor_start;
+
+    /* refuse to draw if thge cursor is offscreen */
+    if (start_position.x >= nv3->nvbase.svga.hdisp
+        || start_position.y >= nv3->nvbase.svga.dispend)
+        {
+            return;
+        }
+
+    nv_log("nv3_draw_cursor start=0x%04x,0x%04x", start_position.x, start_position.y);
+
+    uint32_t final_position = nv3_render_get_vram_address_for_buffer(start_position, 0);
+    
+    uint16_t* vram_16 = (uint16_t*)nv3->nvbase.svga.vram;
+    uint32_t* vram_32 = (uint32_t*)nv3->nvbase.svga.vram;
+    
+    /* 
+        We have to get a 32x32, "A"1R5G5B5-format cursor 
+        out of video memory. The alpha bit actually means - XOR with display pixel if 0, replace if 1
+
+        These are expanded to RGB10 only if they are XORed. We don't do this (we don't really need to + there is no grobj specified here so special casing
+        would be needed) so we just xor it with the current pixel format
+    */
+    for (int32_t y = 0; y < NV3_PRAMDAC_CURSOR_SIZE_Y; y++)
+    {
+        for (int32_t x = 0; x < NV3_PRAMDAC_CURSOR_SIZE_X; x++)
+        {
+            uint16_t current_pixel = nv3_ramin_read16(ramin_cursor_position, nv3);
+
+            // 0000 = transparent, so skip drawing
+            if (current_pixel)
+            {
+                bool replace_bit = (current_pixel & 0x8000);
+        
+                // use buffer 0 BPIXEL
+                uint32_t bpixel_format = (nv3->pgraph.bpixel[0]) & 0x03;
+
+                switch (bpixel_format)
+                {
+                    case bpixel_fmt_8bit: 
+                        if (replace_bit)
+                            nv3->nvbase.svga.vram[final_position] = current_pixel;
+                        else //xor
+                        {
+                            // not sure what to do here. we'd have to search through the palette to find the closest possible colour.
+                            uint8_t final = current_pixel ^ nv3->nvbase.svga.vram[final_position];
+                            nv3->nvbase.svga.vram[final_position] = final;
+                        }
+                    case bpixel_fmt_16bit:             // easy case (our cursor is 15bpp format)
+                    {
+                        uint32_t index_16 = final_position >> 1; 
+
+                        if (replace_bit) // just replace
+                            vram_16[index_16] = current_pixel;
+                        else // xor
+                        {
+                            current_pixel &= ~0x8000;  // mask off the xor bit
+                            uint16_t final = current_pixel ^ vram_16[index_16];
+                            vram_16[index_16] = final;
+                        }
+                    }
+                    case bpixel_fmt_32bit:
+                    {
+                        uint32_t index_32 = final_position >> 2; 
+
+                        if (replace_bit) // just replace    
+                            vram_32[index_32] = nv3->nvbase.svga.conv_16to32(&nv3->nvbase.svga, current_pixel, 15); // 565_MODE doesn't seem to matter here
+                        else //xor
+                        {
+                            current_pixel &= ~0x8000;  // mask off the xor bit
+                            uint32_t current_pixel_32 = nv3->nvbase.svga.conv_16to32(&nv3->nvbase.svga, current_pixel, 15); // 565_MODE doesn't seem to matter here
+                        
+                            uint32_t final = current_pixel_32 ^ vram_32[index_32];
+                            vram_32[index_32] = final;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // increment vram position 
+            ramin_cursor_position += 2; 
+
+            // go
+            switch (nv3->nvbase.svga.bpp)
+            {
+                case 8:
+                    final_position++; 
+                case 15 ... 16:
+                    final_position += 2;
+                    break;  
+                case 32: 
+                    final_position += 4; 
+                    break;
+            }
+
+            start_position.x++; 
+        }
+
+
+        start_position.y++; 
+        start_position.x = nv3->pramdac.cursor_start.x; 
+
+        // reset at the end of each line so we "jump" to the start x
+        final_position = nv3_render_get_vram_address_for_buffer(start_position, 0);
+    }
 }
 
 // MMIO 0x110000->0x111FFF is mapped to a mirror of the VBIOS.

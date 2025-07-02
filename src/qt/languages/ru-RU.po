@@ -147,6 +147,12 @@ msgstr "RGB &цветной"
 msgid "&RGB Grayscale"
 msgstr "&RGB монохромный"
 
+msgid "RGB (no brown)"
+msgstr "RGB (без коричневого)"
+
+msgid "Generic RGBI color monitor"
+msgstr "Стандартный цветной монитор RGBI"
+
 msgid "&Amber monitor"
 msgstr "&Янтарный оттенок"
 
@@ -598,7 +604,10 @@ msgid "ISA RTC:"
 msgstr "ISA RTC:"
 
 msgid "ISA Memory Expansion"
-msgstr "Карта расширения памяти ISA"
+msgstr "Карты расширения памяти ISA"
+
+msgid "ISA ROM Cards"
+msgstr "Карты ПЗУ ISA"
 
 msgid "Card 1:"
 msgstr "Карта 1:"
@@ -629,9 +638,6 @@ msgstr "Неустранимая ошибка"
 
 msgid " - PAUSED"
 msgstr " - ПАУЗА"
-
-msgid "Press Ctrl+Alt+PgDn to return to windowed mode."
-msgstr "Нажмите Ctrl+Alt+PgDn для возврата в оконный режим."
 
 msgid "Speed"
 msgstr "Скорость"
@@ -863,9 +869,6 @@ msgstr "Для автоматического преобразования фа�
 
 msgid "%1 is required for automatic conversion of PCL files to PDF.\n\nAny documents sent to the generic PCL printer will be saved as Printer Command Language (.pcl) files."
 msgstr "Для автоматического преобразования файлов PCL в PDF требуется %1.\n\nВсе документы, отправленные на стандартный принтер PCL, будут сохранены в виде файлов Printer Command Language (.pcl)."
-
-msgid "Entering fullscreen mode"
-msgstr "Вход в полноэкранный режим"
 
 msgid "Don't show this message again"
 msgstr "Больше не показывать это сообщение"
@@ -1243,7 +1246,7 @@ msgid "Pen"
 msgstr "Ручка"
 
 msgid "Host CD/DVD Drive (%1:)"
-msgstr "CD/DVD-привод хоста (%1:)"
+msgstr "CD/DVD Привод хоста (%1:)"
 
 msgid "&Connected"
 msgstr "&Кабель подключен"
@@ -1255,7 +1258,7 @@ msgid "Create..."
 msgstr "Создать..."
 
 msgid "Host CD/DVD Drive (%1)"
-msgstr "CD/DVD-привод хоста (%1)"
+msgstr "CD/DVD Привод хоста (%1)"
 
 msgid "Unknown Bus"
 msgstr "Неизвестная шина"
@@ -1305,8 +1308,8 @@ msgstr "Ошибка инициализации OpenGL"
 msgid "\nFalling back to software rendering."
 msgstr "\nПереключение на программный рендеринг."
 
-msgid "&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;When selecting media images (CD-ROM, floppy, etc.) the open dialog will start in the same directory as the 86Box configuration file. This setting will likely only make a difference on macOS.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
-msgstr "&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;При выборе образов носителей (CD-ROM, дискет и т. д.) диалог открытия будет запускаться в том же каталоге, что и файл конфигурации 86Box. Эта настройка, скорее всего, будет иметь значение только на macOS.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;"
+msgid "<html><head/><body><p>When selecting media images (CD-ROM, floppy, etc.) the open dialog will start in the same directory as the 86Box configuration file. This setting will likely only make a difference on macOS.</p></body></html>"
+msgstr "<html><head/><body><p>При выборе образов носителей (CD-ROM, дискет и т. д.) диалог открытия будет запускаться в том же каталоге, что и файл конфигурации 86Box. Эта настройка, скорее всего, будет иметь значение только на macOS.</p></body></html>"
 
 msgid "This machine might have been moved or copied."
 msgstr "Возможно, эта машина была перемещена или скопирована."
@@ -1419,11 +1422,53 @@ msgstr "Системный MIDI"
 msgid "MIDI Input Device"
 msgstr "Устройство ввода MIDI"
 
+msgid "BIOS file"
+msgstr "Файл BIOS"
+
+msgid "BIOS file (ROM #1)"
+msgstr "Файл BIOS (ПЗУ #1)"
+
+msgid "BIOS file (ROM #2)"
+msgstr "Файл BIOS (ПЗУ #2)"
+
+msgid "BIOS file (ROM #3)"
+msgstr "Файл BIOS (ПЗУ #3)"
+
+msgid "BIOS file (ROM #4)"
+msgstr "Файл BIOS (ПЗУ #4)"
+
 msgid "BIOS Address"
 msgstr "Адрес BIOS"
 
+msgid "BIOS address (ROM #1)"
+msgstr "Адрес BIOS (ПЗУ #1)"
+
+msgid "BIOS address (ROM #2)"
+msgstr "Адрес BIOS (ПЗУ #2)"
+
+msgid "BIOS address (ROM #3)"
+msgstr "Адрес BIOS (ПЗУ #3)"
+
+msgid "BIOS address (ROM #4)"
+msgstr "Адрес BIOS (ПЗУ #4)"
+
 msgid "Enable BIOS extension ROM Writes"
 msgstr "Разрешить запись в ПЗУ расширения BIOS"
+
+msgid "Enable BIOS extension ROM Writes (ROM #1)"
+msgstr "Разрешить запись в ПЗУ расширения BIOS (ПЗУ #1)"
+
+msgid "Enable BIOS extension ROM Writes (ROM #2)"
+msgstr "Разрешить запись в ПЗУ расширения BIOS (ПЗУ #2)"
+
+msgid "Enable BIOS extension ROM Writes (ROM #3)"
+msgstr "Разрешить запись в ПЗУ расширения BIOS (ПЗУ #3)"
+
+msgid "Enable BIOS extension ROM Writes (ROM #4)"
+msgstr "Разрешить запись в ПЗУ расширения BIOS (ПЗУ #4)"
+
+msgid "Linear framebuffer base"
+msgstr "Линейная база кадрового буфера"
 
 msgid "Address"
 msgstr "Адрес"
@@ -1433,6 +1478,21 @@ msgstr "IRQ"
 
 msgid "BIOS Revision"
 msgstr "Версия BIOS"
+
+msgid "BIOS Version"
+msgstr "Версия BIOS"
+
+msgid "BIOS Versions"
+msgstr "Версии BIOS"
+
+msgid "BIOS Language"
+msgstr "Язык BIOS"
+
+msgid "IBM 5161 Expansion Unit"
+msgstr "Блок расширения IBM 5161"
+
+msgid "IBM Cassette Basic"
+msgstr "Кассетный бейсик IBM"
 
 msgid "Translate 26 -> 17"
 msgstr "Переводить 26 -> 17"
@@ -1448,6 +1508,18 @@ msgstr "Инвертировать цвета"
 
 msgid "BIOS size"
 msgstr "Размер BIOS"
+
+msgid "BIOS size (ROM #1)"
+msgstr "Размер BIOS (ПЗУ #1)"
+
+msgid "BIOS size (ROM #2)"
+msgstr "Размер BIOS (ПЗУ #2)"
+
+msgid "BIOS size (ROM #3)"
+msgstr "Размер BIOS (ПЗУ #3)"
+
+msgid "BIOS size (ROM #4)"
+msgstr "Размер BIOS (ПЗУ #4)"
 
 msgid "Map C0000-C7FFF as UMB"
 msgstr "Отображение C0000-C7FFF в качестве UMB"
@@ -1523,6 +1595,9 @@ msgstr "Уровень реверберации"
 
 msgid "Interpolation Method"
 msgstr "Метод интерполяции"
+
+msgid "Dynamic Sample Loading"
+msgstr "Динамическая загрузка сэмплов"
 
 msgid "Reverb Output Gain"
 msgstr "Усиление выходного сигнала ревербератора"
@@ -1612,16 +1687,19 @@ msgid "Enable Game port"
 msgstr "Включить игровой порт"
 
 msgid "Surround module"
-msgstr "Модуль объемного звучания"
+msgstr "Модуль объёмного звучания"
 
 msgid "CODEC"
 msgstr "Кодек"
 
 msgid "Raise CODEC interrupt on CODEC setup (needed by some drivers)"
-msgstr "Поднимать прерывание кодека при настройке кодека (необходимо некоторым драйверам)."
+msgstr "Поднимать прерывание кодека при настройке кодека (необходимо некоторым драйверам)"
 
 msgid "SB Address"
 msgstr "Адрес SB"
+
+msgid "Use EEPROM setting"
+msgstr "Использовать настройку EEPROM"
 
 msgid "WSS IRQ"
 msgstr "IRQ WSS"
@@ -1707,6 +1785,9 @@ msgstr "Тип RAMDAC"
 msgid "Blend"
 msgstr "Смесь"
 
+msgid "Font"
+msgstr "Шрифт"
+
 msgid "Bilinear filtering"
 msgstr "Билинейная фильтрация"
 
@@ -1714,7 +1795,7 @@ msgid "Dithering"
 msgstr "Дизеринг"
 
 msgid "Enable NMI for CGA emulation"
-msgstr "Включение NMI для эмуляции CGA"
+msgstr "Включить NMI для эмуляции CGA"
 
 msgid "Voodoo type"
 msgstr "Тип Voodoo"
@@ -1752,6 +1833,33 @@ msgstr "Скорость передачи данных"
 msgid "EMS mode"
 msgstr "Режим EMS"
 
+msgid "EMS Address"
+msgstr "Адрес EMS"
+
+msgid "EMS 1 Address"
+msgstr "Адрес EMS 1"
+
+msgid "EMS 2 Address"
+msgstr "Адрес EMS 2"
+
+msgid "EMS Memory Size"
+msgstr "Размер памяти EMS"
+
+msgid "EMS 1 Memory Size"
+msgstr "Размер памяти EMS 1"
+
+msgid "EMS 2 Memory Size"
+msgstr "Размер памяти EMS 2"
+
+msgid "Enable EMS"
+msgstr "Включить EMS"
+
+msgid "Enable EMS 1"
+msgstr "Включить EMS 1"
+
+msgid "Enable EMS 2"
+msgstr "Включить EMS 2"
+
 msgid "Address for > 2 MB"
 msgstr "Адрес для > 2 МБ"
 
@@ -1771,10 +1879,10 @@ msgid "BIOS setting + Hotkeys (off during POST)"
 msgstr "Настройка BIOS + горячие клавиши (отключается во время POST)"
 
 msgid "64 kB starting from F0000"
-msgstr "64 кБ, начиная с F0000"
+msgstr "64 КБ, начиная с F0000"
 
 msgid "128 kB starting from E0000 (address MSB inverted, last 64KB first)"
-msgstr "128 кБ, начиная с E0000 (адрес MSB инвертирован, сначала последние 64 КБ)"
+msgstr "128 КБ, начиная с E0000 (адрес MSB инвертирован, сначала последние 64 КБ)"
 
 msgid "Sine"
 msgstr "Синусоидальная"
@@ -1798,7 +1906,7 @@ msgid "45 Hz (JMP2 not populated)"
 msgstr "45 Гц (без джампера на JMP2)"
 
 msgid "Two"
-msgstr "Два"
+msgstr "Две"
 
 msgid "Three"
 msgstr "Три"
@@ -1885,7 +1993,7 @@ msgid "Color (generic)"
 msgstr "Цветной (стандартный)"
 
 msgid "Green Monochrome"
-msgstr "Зеленый монохромный"
+msgstr "Зелёный монохромный"
 
 msgid "Amber Monochrome"
 msgstr "Янтарный монохромный"
@@ -1941,6 +2049,9 @@ msgstr "Янтарный"
 msgid "Gray"
 msgstr "Серый"
 
+msgid "Grayscale"
+msgstr "Монохромный"
+
 msgid "Color"
 msgstr "Цветной"
 
@@ -1955,6 +2066,12 @@ msgstr "Другие языки"
 
 msgid "Bochs latest"
 msgstr "Bochs последний"
+
+msgid "Apply overscan deltas"
+msgstr "Применить дельты вылетов развёртки"
+
+msgid "Mono Interlaced"
+msgstr "Монохромный с чересстрочной развёрткой"
 
 msgid "Mono Non-Interlaced"
 msgstr "Монохромный без чересстрочной развёртки"
@@ -2059,22 +2176,22 @@ msgid "[Generic] 1989 (3500 RPM)"
 msgstr "[Стандартный] 1989 (3500 RPM)"
 
 msgid "[Generic] 1992 (3600 RPM)"
-msgstr "[Стандартный] 1989 (3500 RPM)"
+msgstr "[Стандартный] 1992 (3600 RPM)"
 
 msgid "[Generic] 1994 (4500 RPM)"
-msgstr "[Стандартный] 1989 (3500 RPM)"
+msgstr "[Стандартный] 1994 (4500 RPM)"
 
 msgid "[Generic] 1996 (5400 RPM)"
-msgstr "[Стандартный] 1989 (3500 RPM)"
+msgstr "[Стандартный] 1996 (5400 RPM)"
 
 msgid "[Generic] 1997 (5400 RPM)"
-msgstr "[Стандартный] 1989 (3500 RPM)"
+msgstr "[Стандартный] 1997 (5400 RPM)"
 
 msgid "[Generic] 1998 (5400 RPM)"
-msgstr "[Стандартный] 1989 (3500 RPM)"
+msgstr "[Стандартный] 1998 (5400 RPM)"
 
 msgid "[Generic] 2000 (7200 RPM)"
-msgstr "[Стандартный] 1989 (3500 RPM)"
+msgstr "[Стандартный] 2000 (7200 RPM)"
 
 msgid "IBM 8514/A clone (ISA)"
 msgstr "Клон IBM 8514/A (ISA)"
@@ -2101,7 +2218,7 @@ msgid "TrueType fonts in the \"roms/printer/fonts\" directory are required for t
 msgstr "Шрифты TrueType в каталоге \"roms/printer/fonts\" необходимы для эмуляции стандартного матричного принтера ESC/P."
 
 msgid "Inhibit multimedia keys"
-msgstr "Перехватывать мультимедиа-клавиши"
+msgstr "Перехватывать мультимедийные клавиши"
 
 msgid "Ask for confirmation before saving settings"
 msgstr "Запрашивать подтверждение перед сохранением настроек"
@@ -2111,9 +2228,6 @@ msgstr "Запрашивать подтверждение перед холод�
 
 msgid "Ask for confirmation before quitting"
 msgstr "Запрашивать подтверждение перед выходом"
-
-msgid "Display hotkey message when entering full-screen mode"
-msgstr "Показывать сообщение о горячей клавише при входе в полноэкранный режим"
 
 msgid "Options"
 msgstr "Параметры"
@@ -2162,3 +2276,54 @@ msgstr "Вниз"
 
 msgid "Could not load file %1"
 msgstr "Не удалось загрузить файл %1"
+
+msgid "Key Bindings:"
+msgstr "Привязки клавиш:"
+
+msgid "Action"
+msgstr "Действие"
+
+msgid "Keybind"
+msgstr "Привязка клавиш"
+
+msgid "Clear binding"
+msgstr "Очистить привязку"
+
+msgid "Bind"
+msgstr "Привязка"
+
+msgid "Bind Key"
+msgstr "Привязать клавишу"
+
+msgid "Enter key combo:"
+msgstr "Введите комбинацию клавиш:"
+
+msgid "Send Control+Alt+Del"
+msgstr "Отправить Control+Alt+Del"
+
+msgid "Send Control+Alt+Escape"
+msgstr "Отправить Control+Alt+Escape"
+
+msgid "Toggle fullscreen"
+msgstr "Переключить полноэкранный режим"
+
+msgid "Screenshot"
+msgstr "Скриншот"
+
+msgid "Release mouse pointer"
+msgstr "Отпустить указатель мыши"
+
+msgid "Toggle pause"
+msgstr "Переключить паузу"
+
+msgid "Toggle mute"
+msgstr "Переключить беззвучный режим"
+
+msgid "Text files"
+msgstr "Текстовые файлы"
+
+msgid "ROM files"
+msgstr "Файлы ПЗУ"
+
+msgid "SoundFont files"
+msgstr "Файлы SoundFont"

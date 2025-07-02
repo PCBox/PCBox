@@ -6,7 +6,7 @@ opMOVDDUP_a16(uint32_t fetchdat)
     SSE_REG src;
 
     fetch_ea_16(fetchdat);
-    SSE_GETSRC();
+    SSE_GETSRC64();
 
     cpu_state.XMM[cpu_reg].q[0] = src.q[0];
     cpu_state.XMM[cpu_reg].q[1] = src.q[0];
@@ -20,7 +20,7 @@ opMOVDDUP_a32(uint32_t fetchdat)
     SSE_REG src;
 
     fetch_ea_32(fetchdat);
-    SSE_GETSRC();
+    SSE_GETSRC64();
 
     cpu_state.XMM[cpu_reg].q[0] = src.q[0];
     cpu_state.XMM[cpu_reg].q[1] = src.q[0];

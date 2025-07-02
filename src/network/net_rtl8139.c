@@ -2478,10 +2478,7 @@ rtl8139_io_writeb(uint32_t addr, uint8_t val, void *priv)
 
     addr &= 0xFF;
     switch (addr) {
-        case MAC0 ... MAC0 + 4:
-            s->phys[addr - MAC0] = val;
-            break;
-        case MAC0 + 5:
+        case MAC0 ... MAC0 + 5:
             s->phys[addr - MAC0] = val;
             break;
         case MAC0 + 6 ... MAC0 + 7:
@@ -2547,6 +2544,12 @@ rtl8139_io_writeb(uint32_t addr, uint8_t val, void *priv)
                 rtl8139_cplus_transmit(s);
             }
 
+            break;
+
+        case RxConfig:
+            rtl8139_log("RxConfig write(b) val=0x%02x\n", val);
+            rtl8139_RxConfig_write(s,
+                (rtl8139_RxConfig_read(s) & 0xFFFFFF00) | val);
             break;
 
         default:
@@ -3229,7 +3232,7 @@ nic_init(const device_t *info)
     nmc93cxx_eeprom_params_t params;
     char          eeprom_filename[1024] = { 0 };
     char          filename[1024] = { 0 };
-    uint8_t      *mac_bytes;
+    uint8_t       mac_bytes[6];
     uint16_t     *eep_data;
     uint32_t      mac;
 
@@ -3252,16 +3255,18 @@ nic_init(const device_t *info)
     eep_data[2] = 0x8139;
 
     /* XXX: Get proper MAC addresses from real EEPROM dumps. OID taken from net_ne2000.c */
-#ifdef USE_REALTEK_OID
+//#ifdef USE_REALTEK_OID
     eep_data[7] = 0xe000;
-    eep_data[8] = 0x124c;
-#else
-    eep_data[7] = 0x1400;
-    eep_data[8] = 0x122a;
-#endif
-    eep_data[9] = 0x1413;
+    eep_data[8] = 0x004c;
+//#else
+//    eep_data[7] = 0x1400;
+//    eep_data[8] = 0x122a;
+//#endif
+//    eep_data[9] = 0x1413;
 
-    mac_bytes = (uint8_t *) &(eep_data[7]);
+    mac_bytes[0] = 0x00;
+    mac_bytes[1] = 0xe0;
+    mac_bytes[2] = 0x4c;
 
     /* See if we have a local MAC address configured. */
     mac = device_get_config_mac("mac", -1);
@@ -3284,6 +3289,9 @@ nic_init(const device_t *info)
 
     for (uint32_t i = 0; i < 6; i++)
         s->phys[MAC0 + i] = mac_bytes[i];
+
+    eep_data[8] = 0x4c | (mac_bytes[3] << 8);
+    eep_data[9] = mac_bytes[4] | (mac_bytes[5] << 8);
 
     params.nwords          = 64;
     params.default_content = (uint16_t *) s->eeprom_data;

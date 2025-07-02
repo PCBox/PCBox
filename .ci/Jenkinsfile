@@ -20,7 +20,7 @@ def repository = ['https://github.com/PCBox/PCBox.git', scm.userRemoteConfigs[0]
 def commitBrowser = ['https://github.com/PCBox/PCBox/commit/%s', null]
 def branch = ['pcbox', scm.branches[0].name]
 def buildType = ['beta', 'alpha']
-def tarballFlags = ['', '-s']
+def tarballFlags = ['', '-t']
 def buildBranch = env.JOB_BASE_NAME.contains('-') ? 1 : 0
 
 def osArchs = [
