@@ -701,7 +701,6 @@ picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
     pic_t   *dev;
 
 
-{
     /*
        Do this because some emulated cards will, for whatever reason, attempt to
        raise an IRQ at init when the PIC has not yet been properly initialized.
