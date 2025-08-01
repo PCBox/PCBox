@@ -11,10 +11,8 @@
 # Authors: David Hrdlička, <hrdlickadavid@outlook.com>
 #
 #          Copyright 2020-2021 David Hrdlička.
-#          Copyright 2025 starfrost
+#          Copyright 2025 Connor Hyde / starfrost
 #
-
-# todo: Split nv stuff into its own file...
 
 add_library(vid OBJECT
 
@@ -57,8 +55,9 @@ add_library(vid OBJECT
     vid_cga_colorplus.c
     vid_cga_ncr.c
     vid_cga_olivetti.c
-    vid_cga_toshiba_t1000.c 
-    vid_cga_toshiba_t3100e.c 
+    vid_cga_quadcolor.c
+    vid_cga_toshiba_t1000.c
+    vid_cga_toshiba_t3100e.c
 
     # PCJr/Tandy
     vid_pcjr.c
@@ -135,9 +134,11 @@ add_library(vid OBJECT
     # Matrox
     vid_mga.c
 
-    # Nvidia
-    nv/nv_base.c nv/nv_rivatimer.c
-    
+    # NVidia - Core
+    nv/nv_base.c
+    nv/nv_rivatimer.c
+
+    # NVidia RIVA 128 - Subsystems
     nv/nv3/nv3_core.c 
     nv/nv3/nv3_core_config.c 
     nv/nv3/nv3_core_arbiter.c  
@@ -149,12 +150,17 @@ add_library(vid OBJECT
     nv/nv3/subsystems/nv3_pme.c
     nv/nv3/subsystems/nv3_pextdev.c
     nv/nv3/subsystems/nv3_pfb.c
-    nv/nv3/subsystems/nv3_pbus.c nv/nv3/subsystems/nv3_pbus_dma.c
+    nv/nv3/subsystems/nv3_pbus.c 
+    nv/nv3/subsystems/nv3_pbus_dma.c
     nv/nv3/subsystems/nv3_ptimer.c
-    nv/nv3/subsystems/nv3_pramin.c nv/nv3/subsystems/nv3_pramin_ramht.c nv/nv3/subsystems/nv3_pramin_ramfc.c nv/nv3/subsystems/nv3_pramin_ramro.c 
+    nv/nv3/subsystems/nv3_pramin.c 
+    nv/nv3/subsystems/nv3_pramin_ramht.c 
+    nv/nv3/subsystems/nv3_pramin_ramfc.c 
+    nv/nv3/subsystems/nv3_pramin_ramro.c 
     nv/nv3/subsystems/nv3_pvideo.c
     nv/nv3/subsystems/nv3_user.c
 
+    # NVidia RIVA 128 - Object Classes
     nv/nv3/classes/nv3_class_names.c
     nv/nv3/classes/nv3_class_shared_methods.c
     nv/nv3/classes/nv3_class_001_beta_factor.c
@@ -180,14 +186,13 @@ add_library(vid OBJECT
     nv/nv3/classes/nv3_class_018_point_zeta_buffer.c
     nv/nv3/classes/nv3_class_01c_image_in_memory.c
 
+    # NVidia RIVA 128 - Render
     nv/nv3/render/nv3_render_core.c
     nv/nv3/render/nv3_render_primitives.c   
-    nv/nv3/render/nv3_render_blit.c    
- 
+    nv/nv3/render/nv3_render_blit.c   
 
     # Generic
     vid_bochs_vbe.c
-
 )
 
 if(R100)

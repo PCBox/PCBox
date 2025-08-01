@@ -19,6 +19,9 @@
 
 #include <86box/rom.h>
 
+#define XGA_INT_START_BLKNK_ENAB         (1 << 0)
+#define XGA_INT_MASK                     0xf
+
 typedef struct xga_hwcursor_t {
     int      ena;
     int      x;
@@ -84,13 +87,13 @@ typedef struct xga_t {
     uint8_t  border_color;
     uint8_t  direct_color;
     uint8_t  dma_channel;
-    uint8_t  instance_isa;
     uint8_t  instance_num;
-    uint8_t  ext_mem_addr;
     uint8_t  vga_post;
     uint8_t  addr_test;
     uint8_t *vram;
     uint8_t *changedvram;
+    uint8_t int_ena;
+    uint8_t int_stat;
 
     int16_t hwc_pos_x;
     int16_t hwc_pos_y;
@@ -149,9 +152,9 @@ typedef struct xga_t {
     int cursor_data_on;
     int pal_test;
     int a5_test;
+    int test_stage;
     int type;
     int bus;
-    int busy;
 
     uint32_t linear_base;
     uint32_t linear_size;
@@ -171,6 +174,7 @@ typedef struct xga_t {
     uint32_t px_map_base;
     uint32_t pallook[512];
     uint32_t bios_diag;
+    uint32_t mapping_base;
 
     PALETTE xgapal;
 
@@ -205,6 +209,10 @@ typedef struct xga_t {
         uint16_t dst_map_y;
         uint16_t pat_map_x;
         uint16_t pat_map_y;
+        uint16_t clip_l;
+        uint16_t clip_r;
+        uint16_t clip_t;
+        uint16_t clip_b;
 
         int ssv_state;
         int pat_src;
@@ -218,13 +226,13 @@ typedef struct xga_t {
         int y;
         int sx;
         int sy;
-        int dx;
-        int dy;
         int px;
         int py;
         int pattern;
         int command_len;
         int filling;
+        int y_len;
+        int x_len;
 
         uint32_t short_stroke;
         uint32_t color_cmp;
@@ -234,6 +242,7 @@ typedef struct xga_t {
         uint32_t bkgd_color;
         uint32_t command;
         uint32_t dir_cmd;
+        uint32_t pattern_data;
 
         uint8_t  px_map_format[4];
         uint16_t px_map_width[4];

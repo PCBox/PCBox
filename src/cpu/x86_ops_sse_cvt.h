@@ -122,7 +122,7 @@ opCVTTPS2PI_mm_xmm_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
 
     dst = MMX_GETREGP(cpu_reg);
-    SSE_GETSRC32();
+    SSE_GETSRC64();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     dst->sl[0] = f32_to_i32_round_to_zero(src.f[0], &status);
     dst->sl[1] = f32_to_i32_round_to_zero(src.f[1], &status);
@@ -151,7 +151,7 @@ opCVTTPS2PI_mm_xmm_a32(uint32_t fetchdat)
     MMX_ENTER();
     fetch_ea_32(fetchdat);
     dst = MMX_GETREGP(cpu_reg);
-    SSE_GETSRC32();
+    SSE_GETSRC64();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     dst->sl[0] = f32_to_i32_round_to_zero(src.f[0], &status);
     dst->sl[1] = f32_to_i32_round_to_zero(src.f[1], &status);
@@ -222,7 +222,7 @@ opCVTPS2PI_mm_xmm_a16(uint32_t fetchdat)
     MMX_ENTER();
     fetch_ea_16(fetchdat);
     dst = MMX_GETREGP(cpu_reg);
-    SSE_GETSRC32();
+    SSE_GETSRC64();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     dst->sl[0] = f32_to_i32_normal(src.f[0], &status);
     dst->sl[1] = f32_to_i32_normal(src.f[1], &status);
@@ -251,7 +251,7 @@ opCVTPS2PI_mm_xmm_a32(uint32_t fetchdat)
     MMX_ENTER();
     fetch_ea_32(fetchdat);
     dst = MMX_GETREGP(cpu_reg);
-    SSE_GETSRC32();
+    SSE_GETSRC64();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     dst->sl[0] = f32_to_i32_normal(src.f[0], &status);
     dst->sl[1] = f32_to_i32_normal(src.f[1], &status);

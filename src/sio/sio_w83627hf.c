@@ -953,7 +953,7 @@ w83627hf_init(const device_t *info)
 
     /* Keyboard Controller (Based on AMIKEY-2) */
     /* Note: The base addresses and IRQ's of the Keyboard & PS/2 Mouse are remappable. Due to 86Box limitations we can't do that just yet */
-    device_add(&keyboard_ps2_ami_pci_device);
+    device_add(&kbc_ps2_ami_pci_device);
 
     /* Port 92h */
     dev->port_92 = device_add(&port_92_device);

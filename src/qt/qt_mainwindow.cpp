@@ -23,9 +23,9 @@
 #include <QDebug>
 
 #include "qt_mainwindow.hpp"
-#include "qt_gpudebug_vram.hpp"
-#include "qt_gpudebug_visualnv.hpp"
 #include "ui_qt_mainwindow.h"
+#include "ui_qt_gpudebug_vram.h"
+#include "ui_qt_gpudebug_visualnv.h"
 
 #include "qt_specifydimensions.h"
 #include "qt_soundgain.hpp"
@@ -94,11 +94,14 @@ extern bool cpu_thread_running;
 #    include <QVulkanFunctions>
 #endif
 
+void qt_set_sequence_auto_mnemonic(bool b);
+
 #include <array>
 #include <memory>
 #include <unordered_map>
 
 #include "qt_settings.hpp"
+#include "qt_about.hpp"
 #include "qt_machinestatus.hpp"
 #include "qt_mediamenu.hpp"
 #include "qt_util.hpp"
@@ -272,9 +275,11 @@ MainWindow::MainWindow(QWidget *parent)
         num_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
         scroll_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
         caps_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
-        /* TODO: Base this on keyboard type instead when that's done. */
-        kana_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD) &&
-                               machine_has_flags(machine, MACHINE_AX));
+        int ext_ax_kbd = machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD) &&
+                         (keyboard_type == KEYBOARD_TYPE_AX);
+        int int_ax_kbd = machine_has_flags(machine, MACHINE_KEYBOARD_JIS) &&
+                         !machine_has_bus(machine, MACHINE_BUS_PS2_PORTS);
+        kana_label->setVisible(ext_ax_kbd || int_ax_kbd);
         while (QApplication::overrideCursor())
             QApplication::restoreOverrideCursor();
 #ifdef USE_WACOM
@@ -306,8 +311,6 @@ MainWindow::MainWindow(QWidget *parent)
             }
         }
 #endif
-        ui->actionPause->setChecked(false);
-        ui->actionPause->setCheckable(false);
     });
     connect(this, &MainWindow::getTitleForNonQtThread, this, &MainWindow::getTitle_, Qt::BlockingQueuedConnection);
 
@@ -338,6 +341,16 @@ MainWindow::MainWindow(QWidget *parent)
             }
             ui->stackedWidget->unsetCursor();
         }
+#ifndef Q_OS_MACOS
+        if (kbd_req_capture) {
+            qt_set_sequence_auto_mnemonic(!mouse_capture);
+            /* Hack to get the menubar to update the internal Alt+shortcut table */
+            if (!video_fullscreen) {
+                ui->menubar->hide();
+                ui->menubar->show();
+            }
+        }
+#endif
     });
 
     connect(qApp, &QGuiApplication::applicationStateChanged, [this](Qt::ApplicationState state) {
@@ -798,6 +811,41 @@ MainWindow::MainWindow(QWidget *parent)
 	updateShortcuts();
 }
 
+void MainWindow::onHardResetCompleted()
+{
+        ui->actionMCA_devices->setVisible(machine_has_bus(machine, MACHINE_BUS_MCA));
+        num_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
+        scroll_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
+        caps_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
+        /* TODO: Base this on keyboard type instead when that's done. */
+        kana_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD) &&
+                               machine_has_flags(machine, MACHINE_AX));
+        while (QApplication::overrideCursor())
+            QApplication::restoreOverrideCursor();
+#ifdef USE_WACOM
+        ui->menuTablet_tool->menuAction()->setVisible(mouse_input_mode >= 1);
+#else
+        ui->menuTablet_tool->menuAction()->setVisible(false);
+#endif
+
+#ifdef ENABLE_NV_LOG
+        /* 
+            THIS CODE SUCKS AND THIS DESIGN IS TERRIBLE - EVERYTHING ABOUT IT IS BAD AND WRONG. 
+            ENTIRE DEVICE SUBSYSTEM IDEALLY WOULD BE DECOUPLED FROM UI BUT MEH
+        */
+
+        const device_t* vid_device = video_card_getdevice(gfxcard[0]);
+        
+        bool is_nv3 = (vid_device == &nv3_device_agp
+        || vid_device == &nv3_device_pci
+        || vid_device == &nv3t_device_agp
+        || vid_device == &nv3t_device_pci);
+
+        ui->actionDebug_GPUDebug_VisualNv->setVisible(is_nv3);
+#endif 
+}
+
+
 void
 MainWindow::closeEvent(QCloseEvent *event)
 {
@@ -1037,6 +1085,14 @@ void
 MainWindow::on_actionKeyboard_requires_capture_triggered()
 {
     kbd_req_capture ^= 1;
+#ifndef Q_OS_MACOS
+    qt_set_sequence_auto_mnemonic(!!kbd_req_capture);
+    /* Hack to get the menubar to update the internal Alt+shortcut table */
+    if (!video_fullscreen) {
+        ui->menubar->hide();
+        ui->menubar->show();
+    }
+#endif
 }
 
 void
@@ -1112,7 +1168,8 @@ MainWindow::on_actionSettings_triggered()
         case QDialog::Accepted:
             settings.save();
             config_changed = 2;
-			updateShortcuts();
+            updateShortcuts();
+            emit vmmConfigurationChanged();
             pc_reset_hard();
             break;
         case QDialog::Rejected:
@@ -1435,7 +1492,7 @@ MainWindow::eventFilter(QObject *receiver, QEvent *event)
 	}
 	
 
-    if (!dopause) {
+    if (!dopause && (!kbd_req_capture || mouse_capture)) {
         if (event->type() == QEvent::Shortcut) {
             auto shortcutEvent = (QShortcutEvent *) event;
             if (shortcutEvent->key() == ui->actionExit->shortcut()) {
@@ -1458,11 +1515,13 @@ MainWindow::eventFilter(QObject *receiver, QEvent *event)
     if (receiver == this) {
         static auto curdopause = dopause;
         if (event->type() == QEvent::WindowBlocked) {
+            window_blocked = true;
             curdopause = dopause;
             plat_pause(isShowMessage ? 2 : 1);
             emit setMouseCapture(false);
             releaseKeyboard();
         } else if (event->type() == QEvent::WindowUnblocked) {
+            window_blocked = false;
             plat_pause(curdopause);
         }
     }
@@ -1486,8 +1545,11 @@ MainWindow::refreshMediaMenu()
     caps_label->setToolTip(QShortcut::tr("Caps Lock"));
     caps_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
     kana_label->setToolTip(QShortcut::tr("Kana Lock"));
-    kana_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD) &&
-                           machine_has_flags(machine, MACHINE_AX));
+    int ext_ax_kbd = machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD) &&
+                     (keyboard_type == KEYBOARD_TYPE_AX);
+    int int_ax_kbd = machine_has_flags(machine, MACHINE_KEYBOARD_JIS) &&
+                     !machine_has_bus(machine, MACHINE_BUS_PS2_PORTS);
+    kana_label->setVisible(ext_ax_kbd || int_ax_kbd);
 }
 
 void
@@ -1907,42 +1969,8 @@ MainWindow::on_actionAbout_Qt_triggered()
 void
 MainWindow::on_actionAbout_86Box_triggered()
 {
-    QMessageBox msgBox;
-    msgBox.setTextFormat(Qt::RichText);
-    QString versioninfo;
-#ifdef EMU_GIT_HASH
-    versioninfo = QString(" [%1]").arg(EMU_GIT_HASH);
-#endif
-#ifdef USE_DYNAREC
-#    ifdef USE_NEW_DYNAREC
-#        define DYNAREC_STR "new dynarec"
-#    else
-#        define DYNAREC_STR "old dynarec"
-#    endif
-#else
-#    define DYNAREC_STR "no dynarec"
-#endif
-    versioninfo.append(QString(" [%1, %2]").arg(QSysInfo::buildCpuArchitecture(), tr(DYNAREC_STR)));
-    msgBox.setText(QString("<b>%3%1%2</b>").arg(EMU_VERSION_FULL, versioninfo, tr("PCBox v")));
-    msgBox.setInformativeText(tr("An emulator of old computers\n\nAuthors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), Tiseno100, reenigne, and others.\n\nWith previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\nReleased under the GNU General Public License version 2 or later. See LICENSE for more information."));
-    msgBox.setWindowTitle(tr("About PCBox"));
-    const auto closeButton = msgBox.addButton("OK", QMessageBox::ButtonRole::AcceptRole);
-    msgBox.setEscapeButton(closeButton);
-    const auto webSiteButton = msgBox.addButton(EMU_SITE, QMessageBox::ButtonRole::HelpRole);
-    webSiteButton->connect(webSiteButton, &QPushButton::released, []() {
-        QDesktopServices::openUrl(QUrl("https://" EMU_SITE));
-    });
-#ifdef RELEASE_BUILD
-    msgBox.setIconPixmap(QIcon(":/settings/qt/icons/86Box-green.ico").pixmap(32, 32));
-#elif defined ALPHA_BUILD
-    msgBox.setIconPixmap(QIcon(":/settings/qt/icons/86Box-red.ico").pixmap(32, 32));
-#elif defined BETA_BUILD
-    msgBox.setIconPixmap(QIcon(":/settings/qt/icons/86Box-yellow.ico").pixmap(32, 32));
-#else
-    msgBox.setIconPixmap(QIcon(":/settings/qt/icons/86Box-gray.ico").pixmap(32, 32));
-#endif
-    msgBox.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint | Qt::WindowCloseButtonHint);
-    msgBox.exec();
+    const auto msgBox = new About(this);
+    msgBox->exec();
 }
 
 void
@@ -2114,9 +2142,12 @@ MainWindow::updateUiPauseState()
                                     QIcon(":/menuicons/qt/icons/pause.ico");
     const auto tooltip_text = dopause ? QString(tr("Resume execution")) :
                                     QString(tr("Pause execution"));
+    const auto menu_text = dopause ? QString(tr("Re&sume")) :
+                                    QString(tr("&Pause"));
     ui->actionPause->setIcon(pause_icon);
     ui->actionPause->setToolTip(tooltip_text);
-    emit vmmRunningStateChanged(static_cast<VMManagerProtocol::RunningState>(dopause));
+    ui->actionPause->setText(menu_text);
+    emit vmmRunningStateChanged(static_cast<VMManagerProtocol::RunningState>(window_blocked ? (dopause ? VMManagerProtocol::RunningState::PausedWaiting : VMManagerProtocol::RunningState::RunningWaiting) : (VMManagerProtocol::RunningState)dopause));
 }
 
 void
@@ -2304,19 +2335,26 @@ void MainWindow::on_actionACPI_Shutdown_triggered()
 
 void MainWindow::on_actionDebug_GPUDebug_VRAM_triggered()
 {
-    GPUDebugVRAMDialog debugVramDialog(this);
-    debugVramDialog.setWindowFlag(Qt::CustomizeWindowHint, true);
-    debugVramDialog.setWindowFlag(Qt::WindowTitleHint, true);
-    debugVramDialog.setWindowFlag(Qt::WindowSystemMenuHint, false);
-    debugVramDialog.exec();
+    debugVramDialog = new GPUDebugVRAMDialog(this);
+    debugVramDialog->setWindowFlag(Qt::CustomizeWindowHint, true);
+    debugVramDialog->setWindowFlag(Qt::WindowTitleHint, true);
+    debugVramDialog->setWindowFlag(Qt::WindowSystemMenuHint, false);
+    // If I have this as a NON-MODAL dialog, input is just eaten without doing anything
+    // WTF?!?!?!?!? 
+    //debugVramDialog->show();
+    debugVramDialog->exec();
+
 }
 
 
 void MainWindow::on_actionDebug_GPUDebug_VisualNv_triggered()
 {
-    VisualNVDialog visualNvDialog(this);
-    visualNvDialog.setWindowFlag(Qt::CustomizeWindowHint, true);
-    visualNvDialog.setWindowFlag(Qt::WindowTitleHint, true);
-    visualNvDialog.setWindowFlag(Qt::WindowSystemMenuHint, false);
-    visualNvDialog.exec();
+    visualNvDialog = new VisualNVDialog(this);
+    visualNvDialog->setWindowFlag(Qt::CustomizeWindowHint, true);
+    visualNvDialog->setWindowFlag(Qt::WindowTitleHint, true);
+    visualNvDialog->setWindowFlag(Qt::WindowSystemMenuHint, false);
+    // If I have this as a NON-MODAL dialog, input is just eaten without doing anything
+    // WTF?!?!?!?!?
+    //visualNvDialog->show();
+    visualNvDialog->exec();
 }

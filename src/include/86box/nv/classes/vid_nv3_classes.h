@@ -14,7 +14,7 @@
  *          (they are converted to pointers). In the case of NV3, these map directly to the PHYSICAL PGRAPH REGISTERS while sitting in RAMHT!!!!.
  *
  *          Also, these class IDs don't relate to the internal architecture of the GPU.
- *          Effectively, the NVIDIA drivers are faking shit. There are only 16 classes but the drivers recognise many more. See nv3_object_classes_driver.txt for the list of  
+ *          Effectively, the NVIDIA drivers are faking shit. There are only 22 classes but the drivers recognise many more and have a different naming scheme. See nv3_object_classes_driver.txt for the list of  
  *          classes recognised by the driver.
  *          This is why the Class IDs you see here are not the same as you may see in other places.
  *
@@ -31,11 +31,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-// This is slower, but these need to map *****EXACTLY***** to the registers in PGRAPH,
-// or everything FUCKS UP
-//
-// DO NOT REMOVE! DO NOT REMOVE! DO NOT REMOVE!
 
 // CLass names for debugging
 extern const char* nv3_class_names[];
@@ -157,6 +152,14 @@ typedef enum nv3_pgraph_class_e
 #define NV3_IMAGE_IN_MEMORY_TOP_LEFT_OFFSET             0x030C
 #define NV3_IMAGE_IN_MEMORY_TOP_LEFT_OFFSET_END         22  
 
+// scaled_image_from_cpu
+#define NV3_SCALED_IMAGE_SIZE_IN                               0x0304
+#define NV3_SCALED_IMAGE_START_POSITION                        0x0310
+#define NV3_SCALED_IMAGE_SIZE                                  0x0314
+#define NV3_SCALED_IMAGE_COLOR_START                           0x0400
+#define NV3_SCALED_IMAGE_COLOR_MAX                             32
+#define NV3_SCALED_IMAGE_COLOR_END                             0x0480
+
 /* GDI */
 
 /* Type A: Unclipped Rectangle */
@@ -244,9 +247,14 @@ typedef struct nv3_color_expanded_s
     uint8_t a;
 
     /* WARNING: The internal format is 10-bit RGB! */
-    uint16_t r : 10;
-    uint16_t g : 10;
-    uint16_t b : 10;
+    uint16_t r;
+    uint16_t g;
+    uint16_t b;
+
+    // YUV stuff
+    float y;
+    float u;
+    float v; 
 
     // Indexed colour
     union 
@@ -723,9 +731,10 @@ typedef struct nv3_object_class_015
     nv3_coord_16_t size_in;
     uint32_t delta_dx_du;
     uint32_t delta_dy_dv;
-    nv3_coord_16_t clip_0;
-    nv3_coord_16_t clip_1;
+    nv3_coord_16_t point;
+    nv3_coord_16_t size;
     uint32_t point12d4; /* todo: fraction struct */
+    nv3_color_expanded_t color[32]; // The color to use
     // no reserve needed
 } nv3_stretched_image_from_cpu_t; 
 

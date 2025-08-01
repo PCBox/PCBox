@@ -270,7 +270,7 @@ mach_log(const char *fmt, ...)
 static int
 mach_pixel_write(mach_t *mach)
 {
-    if (mach->accel.dp_config & 1)
+    if (mach->accel.dp_config & 0x01)
         return 1;
 
     return 0;
@@ -279,7 +279,7 @@ mach_pixel_write(mach_t *mach)
 static int
 mach_pixel_read(mach_t *mach)
 {
-    if (mach->accel.dp_config & 1)
+    if (mach->accel.dp_config & 0x01)
         return 0;
 
     return 1;
@@ -4303,6 +4303,10 @@ mach_accel_in_fifo(mach_t *mach, svga_t *svga, ibm8514_t *dev, uint16_t port, in
                                     dev->force_busy = 0;
                                 else if ((mono_src == 2) || (frgd_sel == 2) || (bkgd_sel == 2))
                                     dev->force_busy = 0;
+                                else if (!dev->accel.cmd_back)
+                                    dev->force_busy = 0;
+
+                                mach_log("2Force Busy=%d, frgdsel=%d, bkgdsel=%d, monosrc=%d, read=%d, dpconfig=%04x, back=%d.\n", dev->force_busy, frgd_sel, bkgd_sel, mono_src, mach_pixel_read(mach), mach->accel.dp_config, dev->accel.cmd_back);
                                 break;
                             case 5:
                                 if (dev->accel.sx >= mach->accel.width)
@@ -6214,6 +6218,7 @@ static void
 mach32_updatemapping(mach_t *mach, svga_t *svga)
 {
     ibm8514_t *dev = (ibm8514_t *) svga->dev8514;
+    xga_t     *xga = (xga_t *) svga->xga;
 
     if (mach->pci_bus && (!(mach->pci_regs[PCI_REG_COMMAND] & PCI_COMMAND_MEM))) {
         mach_log("No Mapping.\n");
@@ -6234,6 +6239,11 @@ mach32_updatemapping(mach_t *mach, svga_t *svga)
             case 0x4: /*64k at A0000*/
                 mem_mapping_set_addr(&svga->mapping, 0xa0000, 0x10000);
                 svga->banked_mask = 0xffff;
+                if (xga_active && (svga->xga != NULL)) {
+                    xga->on = 0;
+                    mem_mapping_set_handler(&svga->mapping, svga_read, svga_readw, svga_readl, svga_write, svga_writew, svga_writel);
+                    mem_mapping_set_p(&svga->mapping, svga);
+                }
                 break;
             case 0x8: /*32k at B0000*/
                 mem_mapping_set_addr(&svga->mapping, 0xb0000, 0x08000);

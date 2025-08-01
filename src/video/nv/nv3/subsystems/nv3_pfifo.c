@@ -742,7 +742,7 @@ void nv3_pfifo_cache0_pull(void)
     // Tell the CPU if we found a software method and turn off cache pulling
     if (!(current_context & 0x800000))
     {
-        nv_log("The object in CACHE0 is a software object\n");
+        nv_log_verbose_only("The object in CACHE0 is a software object\n");
 
         nv3->pfifo.cache0_settings.pull0 |= NV3_PFIFO_CACHE0_PULL0_SOFTWARE_METHOD;
         nv3->pfifo.cache0_settings.pull0 &= ~NV3_PFIFO_CACHE0_PULL0_ENABLED;
@@ -819,7 +819,7 @@ void nv3_pfifo_cache1_push(uint32_t addr, uint32_t param)
     // 0x0 is used for creating the object.
     if (method_offset > 0 && method_offset < 0x100)
     {
-        // Reserved NVIDIA Objects
+        // Reserved nvidia methods
         oh_shit = true; 
         oh_shit_reason = nv3_runout_reason_reserved_access;
         new_address |= (nv3_runout_reason_reserved_access << NV3_PFIFO_RUNOUT_RAMIN_ERR);
@@ -923,11 +923,22 @@ void nv3_pfifo_cache1_pull(void)
             return; // interrupt was fired, and we went to ramro
     }
 
+    // should this be obtained from the grobj? Test on real nv3 h/w after drawrect.nvp works
     uint32_t current_context = nv3->pfifo.cache1_settings.context[current_subchannel]; // get the current subchannel
 
     uint8_t class_id = ((nv3_ramin_context_t*)&current_context)->class_id;
 
-    // Tell the CPU if we found a software method
+
+
+    // start by incrementing
+    uint32_t next_get_address = nv3_pfifo_cache1_gray2normal(get_index) + 1;
+    
+    if (nv3->nvbase.gpu_revision >= NV3_PCI_CFG_REVISION_C00) // RIVA 128ZX
+        next_get_address &= (NV3_PFIFO_CACHE1_SIZE_REV_C - 1);
+    else 
+        next_get_address &= (NV3_PFIFO_CACHE1_SIZE_REV_AB - 1);
+
+        // Tell the CPU if we found a software method
     //bit23 unset=software
     //bit23 set=hardware
     if (!(current_context & 0x800000))
@@ -939,14 +950,6 @@ void nv3_pfifo_cache1_pull(void)
         nv3_pfifo_interrupt(NV3_PFIFO_INTR_CACHE_ERROR, true);
         return;
     }
-
-    // start by incrementing
-    uint32_t next_get_address = nv3_pfifo_cache1_gray2normal(get_index) + 1;
-    
-    if (nv3->nvbase.gpu_revision >= NV3_PCI_CFG_REVISION_C00) // RIVA 128ZX
-        next_get_address &= (NV3_PFIFO_CACHE1_SIZE_REV_C - 1);
-    else 
-        next_get_address &= (NV3_PFIFO_CACHE1_SIZE_REV_AB - 1);
 
     // Is this needed?
     nv3->pfifo.cache1_settings.get_address = nv3_pfifo_cache1_normal2gray(next_get_address) << 2;

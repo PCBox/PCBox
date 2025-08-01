@@ -908,7 +908,7 @@ extern const device_config_t nv3t_config[];                             // Confi
 
 // These are nvidia, licensed from weitek (25-63)
 #define NV3_CRTC_REGISTER_RPC0                          0x19        // 7:5 - [10:8] of CRTC. 4:0 - [20:16] of 21-bit display buffer address
-#define NV3_CRTC_REGISTER_RPC1                          0x1A        // What does this mean?
+#define NV3_CRTC_REGISTER_RPC1                          0x1A        // bit7=hsync enabled, bit6=vsync enabled, bit4="compatible text", bit2=large screen, bit1=6bit palette width (>1280)
 #define NV3_CRTC_REGISTER_READ_BANK                     0x1D
 #define NV3_CRTC_REGISTER_WRITE_BANK                    0x1E
 #define NV3_CRTC_REGISTER_FORMAT                        0x25
@@ -921,8 +921,8 @@ extern const device_config_t nv3t_config[];                             // Confi
 
 #define NV3_CRTC_REGISTER_HEB                           0x2D        // HRS most significant bit
 
-#define NV3_CRTC_REGISTER_CURSOR_ADDR0                  0x30        // Cursor high 
-#define NV3_CRTC_REGISTER_CURSOR_ADDR1                  0x31        // Cursor low (1:0 = enable)
+#define NV3_CRTC_REGISTER_CURSOR_ADDR0                  0x30        // Cursor high                  21:16
+#define NV3_CRTC_REGISTER_CURSOR_ADDR1                  0x31        // Cursor low (1:0 = enable)    15:11
 
 #define NV3_CRTC_REGISTER_PIXELMODE_VGA                 0x00        // vga textmode
 #define NV3_CRTC_REGISTER_PIXELMODE_8BPP                0x01
@@ -935,7 +935,6 @@ extern const device_config_t nv3t_config[];                             // Confi
 #define NV3_CRTC_REGISTER_I2C                           0x3E    
 #define NV3_CRTC_REGISTER_I2C_GPIO                      0x3F
 
-// where the fuck is GDC?
 #define NV3_CRTC_BANKED_128K_A0000                      0x00
 #define NV3_CRTC_BANKED_64K_A0000                       0x04
 #define NV3_CRTC_BANKED_32K_B0000                       0x08
@@ -951,9 +950,6 @@ extern const device_config_t nv3t_config[];                             // Confi
 #define NV3_RMA_SIGNATURE_LSB                           0x2B
 
 #define NV3_CRTC_REGISTER_RMA_MODE_MAX                  0x0F
-
-
-
 
 /* 
     STRUCTURES FOR THE GPU START HERE
@@ -1036,6 +1032,7 @@ typedef struct nv3_pfb_s
 #define NV3_NOTIFICATION_PAGE_FRAME_ADDRESS     12      // The pageframe to use 
 
 
+
 // Core notification structure
 typedef struct nv3_notification_s
 {
@@ -1066,7 +1063,7 @@ typedef struct nv3_pbus_s
 
 typedef struct nv3_pfifo_cache_s
 {
-    bool push0;                // Can we even access this cache?
+    bool push0;                         // Can we even access this cache?
     uint8_t put_address;                // Trigger a DMA into the value you put here.
     uint8_t get_address;                // Trigger a DMA from the value you put here into where you were going.
     uint8_t channel;                    // The DMA channel ID of this cache.
@@ -1180,7 +1177,7 @@ typedef struct nv3_pgraph_context_control_s
 } nv3_pgraph_context_control_t;
 
 /* DMA object context info 
-   Context uploaded from CACHE0/CACH1 by DMA Puller
+   Context uploaded from CACHE0/CACHE1 by DMA Puller
 */
 typedef struct nv3_pgraph_context_user_s
 {
@@ -1193,7 +1190,7 @@ typedef struct nv3_pgraph_context_user_s
             bool reserved3 : 1;
             uint8_t channel : 7;
             uint8_t reserved2 : 3;
-            uint8_t class : 5;
+            uint8_t class_id : 5;
             uint8_t subchannel : 3;
             uint16_t reserved : 13;
         };
@@ -1251,6 +1248,14 @@ typedef enum nv3_pgraph_bpixel_format_e
     // 32-bit colour (ARGB)
     bpixel_fmt_32bit = 3,
 } nv3_pgraph_bpixel_format;
+
+typedef enum nv3_pgraph_destination_buffer_e
+{
+    pgraph_dest_buffer0 = (1 << NV3_PGRAPH_CONTEXT_SWITCH_DST_BUFFER0_ENABLED),
+    pgraph_dest_buffer1 = (1 << NV3_PGRAPH_CONTEXT_SWITCH_DST_BUFFER1_ENABLED),
+    pgraph_dest_buffer2 = (1 << NV3_PGRAPH_CONTEXT_SWITCH_DST_BUFFER2_ENABLED),
+    pgraph_dest_buffer3 = (1 << NV3_PGRAPH_CONTEXT_SWITCH_DST_BUFFER3_ENABLED),
+} nv3_pgraph_destination_buffer;
 
 // Graphics Subsystem
 typedef struct nv3_pgraph_s
@@ -1413,7 +1418,7 @@ typedef struct nv3_ptimer_s
 } nv3_ptimer_t;
 
 // Object name is just a uint32_t identifier it doesn't need a struct
-// This is howt he cotnext is represented in ramin
+// This is how the context is represented in ramin
 // IN PGRAPH IT IS DIFFERENT! ONLY 5 BITS FOR THE CLASS ID! WHY?
 typedef struct nv3_ramin_context_s
 {
@@ -1468,19 +1473,6 @@ typedef enum nv3_ramin_ramro_reason_e
 
 } nv3_ramin_ramro_reason;
 
-/* This is a gigantic error handling system */
-typedef struct nv3_ramin_ramro_entry_s
-{
-    
-    //todo
-} nv3_ramin_ramro_entry_t;
-
-// Anti-fuckup device
-typedef struct nv3_ramin_ramro_s
-{
-
-} nv3_ramin_ramro_t;
-
 // context for unused channels
 typedef struct nv3_ramin_ramfc_s
 {
@@ -1533,10 +1525,10 @@ typedef struct nv3_s
     nv3_pextdev_t pextdev;          // Chip configuration
     nv3_ptimer_t ptimer;            // programmable interval timer
     nv3_ramin_ramht_t ramht;        // hashtable for PGRAPH objects
-    nv3_ramin_ramro_t ramro;        // anti-fuckup mechanism for idiots who fucked up the FIFO submission
+    // (ramro does not need a struct)
     nv3_ramin_ramfc_t ramfc;        // context for unused channels
     nv3_ramin_ramau_t ramau;        // auxillary weirdnes
-    nv3_ramin_t pramin;             // Ram for INput of DMA objects. Very important!
+    nv3_ramin_t pramin;             // INstance memory for graphics objects. Very important!
     nv3_pvideo_t pvideo;            // Video overlay
     nv3_pme_t pme;                  // Mediaport - external MPEG decoder and video interface
     //more here

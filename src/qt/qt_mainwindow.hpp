@@ -15,6 +15,10 @@
 
 #include "qt_vmmanager_protocol.hpp"
 
+// NON-modal dialogs
+#include "qt_gpudebug_vram.hpp"
+#include "qt_gpudebug_visualnv.hpp"
+
 class MediaMenu;
 class RendererStack;
 
@@ -67,9 +71,12 @@ signals:
     void getTitleForNonQtThread(wchar_t *title);
 
     void vmmRunningStateChanged(VMManagerProtocol::RunningState state);
+    void vmmConfigurationChanged();
 public slots:
     void showSettings();
     void hardReset();
+    void onHardResetCompleted();
+
     void togglePause();
     void initRendererMonitorSlot(int monitor_index);
     void destroyRendererMonitorSlot(int monitor_index);
@@ -85,7 +92,7 @@ private slots:
     void on_actionCtrl_Alt_Esc_triggered();
     void on_actionHard_Reset_triggered();
     void on_actionRight_CTRL_is_left_ALT_triggered();
-    static void on_actionKeyboard_requires_capture_triggered();
+    void on_actionKeyboard_requires_capture_triggered();
     void on_actionResizable_window_triggered(bool checked);
     void on_actionInverted_VGA_monitor_triggered();
     void on_action0_5x_triggered();
@@ -168,6 +175,10 @@ private slots:
 
 private:
     Ui::MainWindow                *ui;
+
+    // NON-modal dialogs - these use ::show() and therefore have to be maintained as objects
+    GPUDebugVRAMDialog            *debugVramDialog;
+    VisualNVDialog                *visualNvDialog;          
     std::unique_ptr<MachineStatus> status;
     std::shared_ptr<MediaMenu>     mm;
 
@@ -202,6 +213,7 @@ private:
     QIcon caps_icon_off, scroll_icon_off, num_icon_off, kana_icon_off;
 
     bool isShowMessage = false;
+    bool window_blocked = false;
 };
 
 #endif // QT_MAINWINDOW_HPP

@@ -11,8 +11,10 @@
  *
  *
  * Authors: Connor Hyde, <mario64crashed@gmail.com> I need a better email address ;^)
+ *          fuel <mszoopers@protonmail.com>
  *
  *          Copyright 2024-2025 Connor Hyde
+ *          Copyright 2025 fuel
  */
 
 #include <stdlib.h>
@@ -32,9 +34,35 @@ void nv3_class_015_method(uint32_t param, uint32_t method_id, nv3_ramin_context_
 {
     switch (method_id)
     {
+        case NV3_SCALED_IMAGE_START_POSITION:
+            nv3->pgraph.stretched_image_from_cpu.point.x = (param & 0xFFFF);
+            nv3->pgraph.stretched_image_from_cpu.point.y = (param >> 16);
+            nv_log("Method Execution: Scaled Image Point=%d,%d\n", nv3->pgraph.image.point.x, nv3->pgraph.image.point.y);
+            break; 
+        /* Seems to allow scaling of the bitblt. */
+        case NV3_SCALED_IMAGE_SIZE:
+            nv3->pgraph.stretched_image_from_cpu.size.x = (param & 0xFFFF);
+            nv3->pgraph.stretched_image_from_cpu.size.y = (param >> 16);
+            nv_log("Method Execution: Scaled Image Size (Clip)=%d,%d\n", nv3->pgraph.image.size.x, nv3->pgraph.image.size.y);
+            break;
+        case NV3_SCALED_IMAGE_SIZE_IN:
+            nv3->pgraph.stretched_image_from_cpu.size_in.x = (param & 0xFFFF);
+            nv3->pgraph.stretched_image_from_cpu.size_in.y = (param >> 16);
+            nv3->pgraph.image_current_position = nv3->pgraph.image.point;
+            return;
+        case 0x308: case 0x30c: case 0x318: 
+            return;
         default:
-            warning("%s: Invalid or unimplemented method 0x%04x\n", nv3_class_names[context.class_id & 0x1F], method_id);
-            nv3_pgraph_interrupt_invalid(NV3_PGRAPH_INTR_1_SOFTWARE_METHOD_PENDING);
+            if (method_id >= NV3_SCALED_IMAGE_COLOR_START && method_id <= NV3_SCALED_IMAGE_COLOR_END)
+            {    
+                uint32_t pixel_slot = (method_id - NV3_IMAGE_COLOR_START) >> 2;
+                nv_log("Method Execution: Image Pixel%d Colour%08x Format%x\n", pixel_slot, param, (grobj.grobj_0) & 0x07);
+                nv3_render_blit_scaled_image(param, grobj);
+            }
+            else {
+                warning("%s: Invalid or unimplemented method 0x%04x\n", nv3_class_names[context.class_id & 0x1F], method_id);
+                nv3_pgraph_interrupt_invalid(NV3_PGRAPH_INTR_1_SOFTWARE_METHOD_PENDING);
+            }
             return;
     }
 }

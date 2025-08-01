@@ -54,7 +54,7 @@ void nv3_class_011_method(uint32_t param, uint32_t method_id, nv3_ramin_context_
             {    
                 uint32_t pixel_slot = (method_id - NV3_IMAGE_COLOR_START) >> 2;
                 nv_log("Method Execution: Image Pixel%d Colour%08x Format%x\n", pixel_slot, param, (grobj.grobj_0) & 0x07);
-                nv3_render_blit_image(param, grobj);
+                nv3_render_blit_scaled_image(param, grobj);
             }
             else
             {

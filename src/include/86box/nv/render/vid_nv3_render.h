@@ -51,6 +51,7 @@ bool nv3_render_chroma_test(uint32_t color, nv3_grobj_t grobj);
 
 /* Blit */
 void nv3_render_blit_image(uint32_t color, nv3_grobj_t grobj);
+void nv3_render_blit_scaled_image(uint32_t color, nv3_grobj_t grobj);
 void nv3_render_blit_screen2screen(nv3_grobj_t grobj);
 
 /* GDI */

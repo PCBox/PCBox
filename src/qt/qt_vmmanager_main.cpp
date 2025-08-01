@@ -32,7 +32,6 @@
 VMManagerMain::VMManagerMain(QWidget *parent) :
     QWidget(parent), ui(new Ui::VMManagerMain), selected_sysconfig(new VMManagerSystem) {
     ui->setupUi(this);
-    this->setWindowTitle("86Box VM Manager");
 
     // Set up the main listView
     ui->listView->setItemDelegate(new VMManagerListViewDelegate);
@@ -48,19 +47,20 @@ VMManagerMain::VMManagerMain(QWidget *parent) :
 
     // Set up the context menu for the list view
     ui->listView->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(ui->listView, &QListView::customContextMenuRequested, [this](const QPoint &pos) {
+    connect(ui->listView, &QListView::customContextMenuRequested, [this, parent](const QPoint &pos) {
         const auto indexAt = ui->listView->indexAt(pos);
         if (indexAt.isValid()) {
             QMenu contextMenu(tr("Context Menu"), ui->listView);
 
-            QAction nameChangeAction(tr("Change display name"));
+            QAction nameChangeAction(tr("Change &display name..."));
             contextMenu.addAction(&nameChangeAction);
             // Use a lambda to call a function so indexAt can be passed
             connect(&nameChangeAction, &QAction::triggered, ui->listView, [this, indexAt] {
                    updateDisplayName(indexAt);
             });
+            nameChangeAction.setEnabled(!selected_sysconfig->window_obscured);
 
-            QAction openSystemFolderAction(tr("Open folder"));
+            QAction openSystemFolderAction(tr("&Open folder..."));
             contextMenu.addAction(&openSystemFolderAction);
             connect(&openSystemFolderAction, &QAction::triggered, [indexAt] {
                 if (const auto configDir = indexAt.data(VMManagerModel::Roles::ConfigDir).toString(); !configDir.isEmpty()) {
@@ -72,7 +72,19 @@ VMManagerMain::VMManagerMain(QWidget *parent) :
                 }
             });
 
-            QAction setSystemIcon(tr("Set icon"));
+            QAction openPrinterFolderAction(tr("Open &printer tray..."));
+            contextMenu.addAction(&openPrinterFolderAction);
+            connect(&openPrinterFolderAction, &QAction::triggered, [indexAt] {
+                if (const auto printerDir = indexAt.data(VMManagerModel::Roles::ConfigDir).toString() + QString("/printer/"); !printerDir.isEmpty()) {
+                    QDir dir(printerDir);
+                    if (!dir.exists())
+                        dir.mkpath(".");
+                    
+                    QDesktopServices::openUrl(QUrl(QString("file:///") + dir.canonicalPath()));
+                }
+            });
+
+            QAction setSystemIcon(tr("Set &icon..."));
             contextMenu.addAction(&setSystemIcon);
             connect(&setSystemIcon, &QAction::triggered, [this] {
                 IconSelectionDialog dialog(":/systemicons/");
@@ -82,10 +94,22 @@ VMManagerMain::VMManagerMain(QWidget *parent) :
                     selected_sysconfig->setIcon(iconName);
                 }
             });
+            setSystemIcon.setEnabled(!selected_sysconfig->window_obscured);
+
+            QAction killIcon(tr("&Kill"));
+            contextMenu.addAction(&killIcon);
+            connect(&killIcon, &QAction::triggered, [this, parent] {
+                QMessageBox msgbox(QMessageBox::Warning, tr("Warning"), tr("Killing a virtual machine can cause data loss. Only do this if the 86Box process gets stuck.\n\nDo you really wish to kill the virtual machine \"%1\"?").arg(selected_sysconfig->displayName), QMessageBox::StandardButton::Yes | QMessageBox::StandardButton::No, parent);
+                msgbox.exec();
+                if (msgbox.result() == QMessageBox::Yes) {
+                    selected_sysconfig->process->kill();
+                }
+            });
+            killIcon.setEnabled(selected_sysconfig->process->state() == QProcess::Running);
 
             contextMenu.addSeparator();
 
-            QAction showRawConfigFile(tr("Show config file"));
+            QAction showRawConfigFile(tr("Show &config file"));
             contextMenu.addAction(&showRawConfigFile);
             connect(&showRawConfigFile, &QAction::triggered, [this, indexAt] {
                 if (const auto configFile = indexAt.data(VMManagerModel::Roles::ConfigFile).toString(); !configFile.isEmpty()) {
@@ -110,8 +134,11 @@ VMManagerMain::VMManagerMain(QWidget *parent) :
         ui->listView->setCurrentIndex(first_index);
     }
 
+    connect(ui->listView, &QListView::doubleClicked, this, &VMManagerMain::startButtonPressed);
+
     // Load and apply settings
     loadSettings();
+    ui->splitter->setSizes({ui->detailsArea->width(), (ui->listView->minimumWidth() * 2)});
 
     // Set up search bar
     connect(ui->searchBar, &QLineEdit::textChanged, this, &VMManagerMain::searchSystems);
@@ -131,12 +158,14 @@ VMManagerMain::VMManagerMain(QWidget *parent) :
         emit updateStatusRight(totalCountString());
     });
 
+#if EMU_BUILD_NUM != 0
     // Start update check after a slight delay
     QTimer::singleShot(1000, this, [this] {
             if(updateCheck) {
                 backgroundUpdateCheckStart();
             }
     });
+#endif
 }
 
 VMManagerMain::~VMManagerMain() {
@@ -152,9 +181,11 @@ VMManagerMain::currentSelectionChanged(const QModelIndex &current,
         return;
     }
 
+    disconnect(selected_sysconfig, &VMManagerSystem::configurationChanged, this, &VMManagerMain::onConfigUpdated);
     const auto mapped_index = proxy_model->mapToSource(current);
     selected_sysconfig = vm_model->getConfigObjectForIndex(mapped_index);
     vm_details->updateData(selected_sysconfig);
+    connect(selected_sysconfig, &VMManagerSystem::configurationChanged, this, &VMManagerMain::onConfigUpdated);
 
     // Emit that the selection changed, include with the process state
     emit selectionChanged(current, selected_sysconfig->process->state());
@@ -167,19 +198,6 @@ VMManagerMain::settingsButtonPressed() {
         return;
     }
     selected_sysconfig->launchSettings();
-    // If the process is already running, the system will be instructed to open its settings window.
-    // Otherwise the process will be launched and will need to be tracked here.
-    if (!selected_sysconfig->isProcessRunning()) {
-        connect(selected_sysconfig->process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            [=](const int exitCode, const QProcess::ExitStatus exitStatus){
-                if (exitCode != 0 || exitStatus != QProcess::NormalExit) {
-                    qInfo().nospace().noquote() << "Abnormal program termination while launching settings: exit code " <<  exitCode << ", exit status " << exitStatus;
-                    return;
-                }
-                selected_sysconfig->reloadConfig();
-                vm_details->updateData(selected_sysconfig);
-            });
-    }
 }
 
 void
@@ -276,7 +294,9 @@ VMManagerMain::loadSettings()
 {
     const auto config        = new VMManagerConfig(VMManagerConfig::ConfigType::General);
     const auto lastSelection = config->getStringValue("last_selection");
+#if EMU_BUILD_NUM != 0
     updateCheck = config->getStringValue("update_check").toInt();
+#endif
     regexSearch = config->getStringValue("regex_search").toInt();
 
     const auto matches = ui->listView->model()->match(vm_model->index(0, 0), VMManagerModel::Roles::ConfigName, QVariant::fromValue(lastSelection));
@@ -291,6 +311,12 @@ VMManagerMain::currentSelectionIsValid() const
     return ui->listView->currentIndex().isValid() && selected_sysconfig->isValid();
 }
 
+void
+VMManagerMain::onConfigUpdated(const QString &uuid)
+{
+    if (selected_sysconfig->uuid == uuid)
+        vm_details->updateData(selected_sysconfig);
+}
 // Used from MainWindow during app exit to obtain and persist the current selection
 QString
 VMManagerMain::getCurrentSelection() const
@@ -453,10 +479,16 @@ VMManagerMain::onPreferencesUpdated()
     }
 }
 
+int
+VMManagerMain::getActiveMachineCount()
+{
+    return vm_model->getActiveMachineCount();
+}
+
+#if EMU_BUILD_NUM != 0
 void
 VMManagerMain::backgroundUpdateCheckStart() const
 {
-#if EMU_BUILD_NUM != 0
     auto updateChannel = UpdateCheck::UpdateChannel::CI;
 #ifdef RELEASE_BUILD
     updateChannel = UpdateCheck::UpdateChannel::Stable;
@@ -465,7 +497,6 @@ VMManagerMain::backgroundUpdateCheckStart() const
     connect(updateCheck, &UpdateCheck::updateCheckComplete, this, &VMManagerMain::backgroundUpdateCheckComplete);
     connect(updateCheck, &UpdateCheck::updateCheckError, this, &VMManagerMain::backgroundUpdateCheckError);
     updateCheck->checkForUpdates();
-#endif
 }
 
 void
@@ -483,6 +514,7 @@ VMManagerMain::backgroundUpdateCheckError(const QString &errorMsg)
     qDebug() << "Update check failed with the following error:" << errorMsg;
     // TODO: Update the status bar
 }
+#endif
 
 void
 VMManagerMain::showTextFileContents(const QString &title, const QString &path)
@@ -503,10 +535,21 @@ VMManagerMain::showTextFileContents(const QString &title, const QString &path)
     displayFile.close();
 
     const auto textDisplayDialog = new QDialog(this);
-    textDisplayDialog->setFixedSize(QSize(540, 360));
+    textDisplayDialog->setMinimumSize(QSize(540, 360));
     textDisplayDialog->setWindowTitle(QString("%1 - %2").arg(title, fi.fileName()));
 
     const auto textEdit = new QPlainTextEdit();
+    const auto monospaceFont = new QFont();
+#ifdef Q_OS_WINDOWS
+    monospaceFont->setFamily("Consolas");
+#elif defined(Q_OS_MACOS)
+    monospaceFont->setFamily("Menlo");
+#else
+    monospaceFont->setFamily("Monospace");
+#endif
+    monospaceFont->setStyleHint(QFont::Monospace);
+    monospaceFont->setFixedPitch(true);
+    textEdit->setFont(*monospaceFont);
     textEdit->setReadOnly(true);
     textEdit->setPlainText(configFileContents);
     const auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok);
