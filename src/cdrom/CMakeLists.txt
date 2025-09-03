@@ -25,6 +25,12 @@ add_library(cdrom OBJECT
     cdrom_image_viso.c
     cdrom_mke.c
 )
+if(NOT WIN32)
+	target_include_directories(PCBox PRIVATE PkgConfig::SNDFILE)
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+	target_include_directories(cdrom PRIVATE /usr/local/include)
+endif()
 target_link_libraries(PCBox PkgConfig::SNDFILE)
 
 if(CDROM_MITSUMI)

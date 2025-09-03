@@ -330,7 +330,9 @@ svga_out(uint16_t addr, uint8_t val, void *priv)
                 case 4:
                     svga->chain2_write = !(val & 4);
                     svga->chain4       = (svga->chain4 & ~8) | (val & 8);
-                    svga->fast         = (svga->gdcreg[8] == 0xff && !(svga->gdcreg[3] & 0x18) && !svga->gdcreg[1]) && ((svga->chain4 && (svga->packed_chain4 || svga->force_old_addr)) || svga->fb_only) && !(svga->adv_flags & FLAG_ADDR_BY8);
+                    svga->fast         = (svga->gdcreg[8] == 0xff && !(svga->gdcreg[3] & 0x18) && !svga->gdcreg[1]) &&
+                                        ((svga->chain4 && (svga->packed_chain4 || svga->force_old_addr)) || svga->fb_only) &&
+                                        !(svga->adv_flags & FLAG_ADDR_BY8);
                     break;
 
                 default:
@@ -431,7 +433,9 @@ svga_out(uint16_t addr, uint8_t val, void *priv)
                     break;
             }
             svga->gdcreg[svga->gdcaddr & 15] = val;
-            svga->fast                       = (svga->gdcreg[8] == 0xff && !(svga->gdcreg[3] & 0x18) && !svga->gdcreg[1]) && ((svga->chain4 && (svga->packed_chain4 || svga->force_old_addr)) || svga->fb_only);
+            svga->fast                       = (svga->gdcreg[8] == 0xff && !(svga->gdcreg[3] & 0x18) && !svga->gdcreg[1]) &&
+                                               ((svga->chain4 && (svga->packed_chain4 || svga->force_old_addr)) || svga->fb_only) &&
+                                                !(svga->adv_flags & FLAG_ADDR_BY8);;
             if (((svga->gdcaddr & 15) == 5 && (val ^ o) & 0x70) || ((svga->gdcaddr & 15) == 6 && (val ^ o) & 1)) {
                 svga_log("GDCADDR%02x recalc.\n", svga->gdcaddr & 0x0f);
                 svga_recalctimings(svga);
@@ -799,9 +803,10 @@ svga_recalctimings(svga_t *svga)
 
             if ((svga->bpp <= 8) || ((svga->gdcreg[5] & 0x60) <= 0x20)) {
                 if ((svga->gdcreg[5] & 0x60) == 0x00) {
-                    if (svga->seqregs[1] & 8) /*Low res (320)*/
+                    if (svga->seqregs[1] & 8) { /*Low res (320)*/
                         svga->render = svga_render_4bpp_lowres;
-                    else
+                        svga_log("4 bpp low res.\n");
+                    } else
                         svga->render = svga_render_4bpp_highres;
                 } else if ((svga->gdcreg[5] & 0x60) == 0x20) {
                     if (svga->seqregs[1] & 8) { /*Low res (320)*/
@@ -1045,11 +1050,11 @@ svga_recalctimings(svga_t *svga)
     crtcconst = svga->clock * svga->char_width;
     if (ibm8514_active && (svga->dev8514 != NULL)) {
         if (dev->on)
-            crtcconst8514 = svga->clock_8514;
+            crtcconst8514 = svga->clock_8514 * 8;
     }
     if (xga_active && (svga->xga != NULL)) {
         if (xga->on)
-            crtcconst_xga = svga->clock_xga;
+            crtcconst_xga = svga->clock_xga * 8;
     }
 
 #ifdef ENABLE_SVGA_LOG
@@ -1093,7 +1098,6 @@ svga_recalctimings(svga_t *svga)
         if (dev->on) {
             disptime8514 = dev->h_total;
             _dispontime8514 = dev->h_disp_time;
-            svga_log("HTOTAL=%d, HDISP=%d.\n", dev->h_total, dev->h_disp);
         }
     }
 
@@ -1135,6 +1139,7 @@ svga_recalctimings(svga_t *svga)
         case 1: /*Plus 8514/A*/
             if (dev->on) {
                 _dispofftime8514 = disptime8514 - _dispontime8514;
+                svga_log("DISPTIME8514=%lf, off=%lf, DISPONTIME8514=%lf, CRTCCONST8514=%lf.\n", disptime8514, _dispofftime8514, _dispontime8514, crtcconst8514);
                 _dispontime8514 *= crtcconst8514;
                 _dispofftime8514 *= crtcconst8514;
 
@@ -1245,6 +1250,36 @@ svga_recalctimings(svga_t *svga)
         }
         else
             svga->hdisp >>= 1;
+    }
+
+    svga->monitor->mon_interlace = 0;
+    if (!svga->override) {
+        switch (set_timer) {
+            default:
+            case 0: /*VGA only*/
+                svga->monitor->mon_interlace = !!svga->interlace;
+                break;
+            case 1: /*Plus 8514/A*/
+                if (dev->on)
+                    svga->monitor->mon_interlace = !!dev->interlace;
+                else
+                    svga->monitor->mon_interlace = !!svga->interlace;
+                break;
+            case 2: /*Plus XGA*/
+                if (xga->on)
+                    svga->monitor->mon_interlace = !!xga->interlace;
+                else
+                    svga->monitor->mon_interlace = !!svga->interlace;
+                break;
+            case 3: /*Plus 8514/A and XGA*/
+                if (dev->on)
+                    svga->monitor->mon_interlace = !!dev->interlace;
+                else if (xga->on)
+                    svga->monitor->mon_interlace = !!xga->interlace;
+                else
+                    svga->monitor->mon_interlace = !!svga->interlace;
+                break;
+        }
     }
 }
 

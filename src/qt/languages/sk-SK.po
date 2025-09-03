@@ -27,8 +27,11 @@ msgstr "Ctrl+Alt+&Esc"
 msgid "&Pause"
 msgstr "P&ozastaviť"
 
+msgid "Pause"
+msgstr "Pozastaviť"
+
 msgid "Re&sume"
-msgstr ""
+msgstr "&Obnoviť"
 
 msgid "E&xit"
 msgstr "&Ukončiť"
@@ -54,9 +57,6 @@ msgstr "&Renderer"
 msgid "&Qt (Software)"
 msgstr "&Qt (Software)"
 
-msgid "Qt (&OpenGL)"
-msgstr "Qt (&OpenGL)"
-
 msgid "Open&GL (3.0 Core)"
 msgstr "Open&GL (3.0 Core)"
 
@@ -66,8 +66,8 @@ msgstr "&VNC"
 msgid "Specify &dimensions..."
 msgstr "&Zadať veľkosť..."
 
-msgid "F&orce 4:3 display ratio"
-msgstr "&Zachovať pomer strán 4:3"
+msgid "Force &4:3 display ratio"
+msgstr "Zachovať pomer strán &4:3"
 
 msgid "&Window scale factor"
 msgstr "&Násobné zväčšenie okna"
@@ -135,8 +135,8 @@ msgstr "&Celočíselné škálovanie"
 msgid "4:&3 Integer scale"
 msgstr "4:&3 Celočíselné škálovanie"
 
-msgid "E&GA/(S)VGA settings"
-msgstr "Nastavenia pre E&GA a (S)VGA"
+msgid "EGA/(S)&VGA settings"
+msgstr "Nastavenia pre EGA a (S)&VGA"
 
 msgid "&Inverted VGA monitor"
 msgstr "&Obrátiť farby"
@@ -148,13 +148,13 @@ msgid "RGB &Color"
 msgstr "RGB &farebný"
 
 msgid "RGB (no brown)"
-msgstr ""
+msgstr "RGB (bez hnedej)"
 
 msgid "&RGB Grayscale"
 msgstr "&Odtiene sivej"
 
 msgid "Generic RGBI color monitor"
-msgstr ""
+msgstr "Obecný RGBI farebný monitor"
 
 msgid "&Amber monitor"
 msgstr "&Jantárová obrazovka"
@@ -191,6 +191,9 @@ msgstr "&Nástroje"
 
 msgid "&Settings..."
 msgstr "&Nastavenia..."
+
+msgid "Settings..."
+msgstr "Nastavenia..."
 
 msgid "&Update status bar icons"
 msgstr "&Aktualizovať ikony na stavovom riadku"
@@ -357,6 +360,9 @@ msgstr "Počítač:"
 msgid "Configure"
 msgstr "Nastaviť"
 
+msgid "CPU:"
+msgstr "Procesor:"
+
 msgid "CPU type:"
 msgstr "Procesor:"
 
@@ -394,13 +400,13 @@ msgid "Dynamic Recompiler"
 msgstr "Dynamický prekladač"
 
 msgid "CPU frame size"
-msgstr ""
+msgstr "Veľkosť rámcov CPU"
 
 msgid "Larger frames (less smooth)"
-msgstr ""
+msgstr "Väčšie rámce (menej plynulé)"
 
 msgid "Smaller frames (smoother)"
-msgstr ""
+msgstr "Menšie rámce (plynulejšie)"
 
 msgid "Video:"
 msgstr "Grafika:"
@@ -417,14 +423,26 @@ msgstr "Grafika IBM 8514/A"
 msgid "XGA Graphics"
 msgstr "Grafika XGA"
 
+msgid "IBM PS/55 Display Adapter Graphics"
+msgstr "Grafika zobrazovacieho adaptéru IBM PS/55"
+
 msgid "Keyboard:"
-msgstr ""
+msgstr "Klávesnica:"
+
+msgid "Keyboard"
+msgstr "Klávesnica"
 
 msgid "Mouse:"
 msgstr "Myš:"
 
+msgid "Mouse"
+msgstr "Myš"
+
 msgid "Joystick:"
 msgstr "Joystick:"
+
+msgid "Joystick"
+msgstr "Joystick"
 
 msgid "Joystick 1..."
 msgstr "Joystick 1..."
@@ -451,10 +469,13 @@ msgid "Sound card #4:"
 msgstr "Zvuková karta 4:"
 
 msgid "MIDI Out Device:"
-msgstr "MIDI výstup:"
+msgstr "Zariadenie pre MIDI výstup:"
 
 msgid "MIDI In Device:"
-msgstr "MIDI vstup:"
+msgstr "Zariadenie pre MIDI vstup:"
+
+msgid "MIDI Out:"
+msgstr "MIDI výstup"
 
 msgid "Standalone MPU-401"
 msgstr "Samostatný MPU-401"
@@ -495,6 +516,9 @@ msgstr "Zariadenie na LPT3:"
 msgid "LPT4 Device:"
 msgstr "Zariadenie na LPT4:"
 
+msgid "Internal LPT ECP DMA:"
+msgstr "DMA kanál ECP interného LPT portu:"
+
 msgid "Serial port 1"
 msgstr "Povoliť port COM1"
 
@@ -523,7 +547,7 @@ msgid "FD Controller:"
 msgstr "Disketový radič:"
 
 msgid "CD-ROM Controller:"
-msgstr ""
+msgstr "Radič CD-ROM:"
 
 msgid "Tertiary IDE Controller"
 msgstr "Tretí radič IDE"
@@ -532,7 +556,7 @@ msgid "Quaternary IDE Controller"
 msgstr "Štvrtý radič IDE"
 
 msgid "Hard disk"
-msgstr ""
+msgstr "Radič CD-ROM:"
 
 msgid "SCSI"
 msgstr "SCSI"
@@ -556,7 +580,7 @@ msgid "Hard disks:"
 msgstr "Pevné disky:"
 
 msgid "Firmware Version"
-msgstr ""
+msgstr "Verzia firmvéru"
 
 msgid "&New..."
 msgstr "&Nový..."
@@ -615,8 +639,14 @@ msgstr "Mechaniky CD-ROM:"
 msgid "MO drives:"
 msgstr "Magnetooptické mechaniky:"
 
+msgid "MO:"
+msgstr "Magnetooptické jednotky:"
+
+msgid "Removable disks:"
+msgstr "Vymeniteľné disky:"
+
 msgid "Removable disk drives:"
-msgstr ""
+msgstr "Mechaniky vymeniteľných diskov:"
 
 msgid "ZIP 250"
 msgstr "ZIP 250"
@@ -628,7 +658,7 @@ msgid "ISA Memory Expansion"
 msgstr "ISA rozšírenie pamäte"
 
 msgid "ISA ROM Cards"
-msgstr ""
+msgstr "ISA karty s pamäťou ROM"
 
 msgid "Card 1:"
 msgstr "Karta 1:"
@@ -643,13 +673,13 @@ msgid "Card 4:"
 msgstr "Karta 4:"
 
 msgid "Generic ISA ROM Board"
-msgstr ""
+msgstr "Obecná ISA karta s pamäťou ROM"
 
 msgid "Generic Dual ISA ROM Board"
-msgstr ""
+msgstr "Obecná karta ISA s dvoma pamäťami ROM"
 
 msgid "Generic Quad ISA ROM Board"
-msgstr ""
+msgstr "Obecná karta ISA so štyrmi pamäťami ROM"
 
 msgid "ISABugger device"
 msgstr "Zariadenie ISABugger"
@@ -673,16 +703,16 @@ msgid "Speed"
 msgstr "Rýchlosť"
 
 msgid "Removable disk %1 (%2): %3"
-msgstr ""
+msgstr "Vymeniteľný disk %1 (%2): %3"
 
 msgid "&Removable disk %1 (%2): %3"
-msgstr ""
+msgstr "&Vymeniteľný disk %1 (%2): %3"
 
 msgid "Removable disk images"
-msgstr ""
+msgstr "Obrazy vymeniteľných diskov"
 
 msgid "Image %1"
-msgstr ""
+msgstr "Obraz %1"
 
 msgid "PCBox could not find any usable ROM images.\n\nPlease <a href=\"https://github.com/PCBox/roms/releases/latest\">download</a> a ROM set and extract it into the \"roms\" directory."
 msgstr "PCBox nenašiel žiadne použiteľné imidž pamätí ROM.\n\n<a href=\"https://github.com/PCBox/roms/releases/latest\">Stiahnite</a> sadu obrazov ROM a extrahujte ju do zložky \"roms\"."
@@ -741,11 +771,29 @@ msgstr "Sieť"
 msgid "Ports (COM & LPT)"
 msgstr "COM a LPT porty"
 
+msgid "Ports"
+msgstr "Porty"
+
+msgid "Serial ports:"
+msgstr "Sériové porty:"
+
+msgid "Parallel ports:"
+msgstr "Paralelné porty:"
+
 msgid "Storage controllers"
 msgstr "Radiče úložiska"
 
 msgid "Hard disks"
 msgstr "Pevné disky"
+
+msgid "Disks:"
+msgstr "Disky:"
+
+msgid "Floppy:"
+msgstr "Disketové jednotky:"
+
+msgid "Controllers:"
+msgstr "Radiče:"
 
 msgid "Floppy & CD-ROM drives"
 msgstr "Disketové a CD-ROM mechaniky"
@@ -755,6 +803,9 @@ msgstr "Ďalšie vymeniteľné zariadenia"
 
 msgid "Other peripherals"
 msgstr "Iné príslušenstvo"
+
+msgid "Other devices"
+msgstr "Iné zariadenia"
 
 msgid "Click to capture mouse"
 msgstr "Kliknite pre zabráni myši"
@@ -823,7 +874,7 @@ msgid "CH Flightstick Pro"
 msgstr "CH Flightstick Pro"
 
 msgid "CH Flightstick Pro + CH Pedals"
-msgstr ""
+msgstr "CH Flightstick Pro + CH Pedals"
 
 msgid "Microsoft SideWinder Pad"
 msgstr "Microsoft SideWinder Pad"
@@ -832,28 +883,28 @@ msgid "Thrustmaster Flight Control System"
 msgstr "Thrustmaster Flight Control System"
 
 msgid "Thrustmaster FCS + Rudder Control System"
-msgstr ""
+msgstr "Thrustmaster FCS + Rudder Control System"
 
 msgid "2-button gamepad(s)"
-msgstr ""
+msgstr "Ovládač s 2 tlačidlami"
 
 msgid "2-button flight yoke"
-msgstr ""
+msgstr "Letecký knipl s 2 tlačidlami"
 
 msgid "4-button gamepad"
-msgstr ""
+msgstr "Ovládač so 4 tlačidlami"
 
 msgid "4-button flight yoke"
-msgstr ""
+msgstr "Letecký knipl so 4 tlačidlami"
 
 msgid "2-button flight yoke with throttle"
-msgstr ""
+msgstr "Letecký knipl s 2 tlačidlami a pákou"
 
 msgid "4-button flight yoke with throttle"
-msgstr ""
+msgstr "Letecký knipl s 4 tlačidlami a pákou"
 
 msgid "Win95 Steering Wheel (3-axis, 4-button)"
-msgstr ""
+msgstr "Volant pre Windows 95 (3 osy, 4 tlačítka)"
 
 msgid "None"
 msgstr "Žiadne"
@@ -899,6 +950,15 @@ msgstr "Vitajte v programe PCBox!"
 
 msgid "Internal device"
 msgstr "Vstavané zariadenie"
+
+msgid "&File"
+msgstr "&Súbor"
+
+msgid "&New machine..."
+msgstr "&Nový počítač..."
+
+msgid "&Check for updates..."
+msgstr "&Skontroluj aktualizácie..."
 
 msgid "Exit"
 msgstr "Ukončiť"
@@ -996,6 +1056,9 @@ msgstr "Obnoviť"
 msgid "Pause execution"
 msgstr "Pozastaviť"
 
+msgid "Ctrl+Alt+Del"
+msgstr "Ctrl+Alt+Del"
+
 msgid "Press Ctrl+Alt+Del"
 msgstr "Stlačiť Ctrl+Alt+Delete"
 
@@ -1004,6 +1067,273 @@ msgstr "Stlačiť Ctrl+Alt+Esc"
 
 msgid "Hard reset"
 msgstr "Resetovať"
+
+msgid "Force shutdown"
+msgstr "Vynútiť vypnutie"
+
+msgid "Start"
+msgstr "Spustiť"
+
+msgid "Not running"
+msgstr "Nebeží"
+
+msgid "Running"
+msgstr "Beží"
+
+msgid "Paused"
+msgstr "Pozastavené"
+
+msgid "Waiting"
+msgstr "Čeká"
+
+msgid "Powered Off"
+msgstr "Vypnuté"
+
+msgid "%n running"
+msgstr "%n beží"
+
+msgid "%n paused"
+msgstr "%n pozostavené"
+
+msgid "%n waiting"
+msgstr "%n čeká"
+
+msgid "%1 total"
+msgstr "%1 celkom"
+
+msgid "VMs: %1"
+msgstr "Virtuálnych počítačov: %1"
+
+msgid "System Directory:"
+msgstr "Systémový adresár:"
+
+msgid "Choose directory"
+msgstr "Vyberte adresár"
+
+msgid "Choose configuration file"
+msgstr "Vyberte konfiguračný súbor"
+
+msgid "86Box configuration files (86box.cfg)"
+msgstr "Konfiguračné súbory 86Box (86box.cfg)"
+
+msgid "Configuration read failed"
+msgstr "Čítanie konfigurácie zlyhalo"
+
+msgid "Unable to open the selected configuration file for reading: %1"
+msgstr "Nie je možné otvoriť vybraný konfiguračný súbor na čítanie: %1"
+
+msgid "Use regular expressions in search box"
+msgstr "Použiť v poli vyhľadávania regulárne výrazy"
+
+msgid "%1 machine(s) are currently active. Are you sure you want to exit the VM manager anyway?"
+msgstr "%1 počítač(ov) je stále aktívnych. Naozaj chcete ukončiť správcu virtuálnych počítačov?"
+
+msgid "Add new system wizard"
+msgstr "Sprievodca pridávaním nového systému"
+
+msgid "Introduction"
+msgstr "Úvod"
+
+msgid "This will help you add a new system to 86Box."
+msgstr "Tento sprievodca vám pomôže pridať nový systém do programu 86Box."
+
+msgid "New configuration"
+msgstr "Nová konfigurácia"
+
+msgid "Complete"
+msgstr "Dokončiť"
+
+msgid "The wizard will now launch the configuration for the new system."
+msgstr "Sprievodca teraz spustí konfiguráciu nového systému."
+
+msgid "Use existing configuration"
+msgstr "Použiť existujúcu konfiguráciu"
+
+msgid "Type some notes here"
+msgstr "Tu zadajte nejaké poznámky"
+
+msgid "Paste the contents of the existing configuration file into the box below."
+msgstr "Vložte obsah existujúceho konfiguračného súboru do poľa nižšie."
+
+msgid "Load configuration from file"
+msgstr "Načítať konfiguráciu zo súboru"
+
+msgid "System name"
+msgstr "Názov systému"
+
+msgid "System name:"
+msgstr "Názov systému:"
+
+msgid "System name cannot contain certain characters"
+msgstr "Názov systému nesmie obsahovať určité znaky"
+
+msgid "System name already exists"
+msgstr "Názov systému už existuje"
+
+msgid "Please enter a directory for the system"
+msgstr "Zadajte adresár pre systém"
+
+msgid "Directory does not exist"
+msgstr "Adresár neexistuje"
+
+msgid "A new directory for the system will be created in the selected directory above"
+msgstr "Pre tento systém bude vytvorený nový adresár vo vyššie zvolenom adresári."
+
+msgid "System location:"
+msgstr "Umiestnenie systému:"
+
+msgid "System name and location"
+msgstr "Názov systému a umiestnenie"
+
+msgid "Enter the name of the system and choose the location"
+msgstr "Zadajte názov systému a vyberte umiestnenie"
+
+msgid "Enter the name of the system"
+msgstr "Zadajte názov systému"
+
+msgid "Please enter a system name"
+msgstr "Zadajte názov systému"
+
+msgid "Display name (optional):"
+msgstr "Zobrazené meno (voliteľné):"
+
+msgid "Display name:"
+msgstr "Zobrazené meno:"
+
+msgid "Set display name"
+msgstr "Nastaviť zobrazené meno"
+
+msgid "Enter the new display name (blank to reset)"
+msgstr "Zadajte nové zobrazené meno (prázdne pole pre vymazanie)"
+
+msgid "Change &display name..."
+msgstr "Zmeniť &zobrazené meno..."
+
+msgid "Context Menu"
+msgstr "Kontextové menu"
+
+msgid "&Open folder..."
+msgstr "&Otvoriť priečinok..."
+
+msgid "Open p&rinter tray..."
+msgstr "Otvoriť zásobník &tlačiarne..."
+
+msgid "Set &icon..."
+msgstr "Nastaviť &ikonu..."
+
+msgid "Select an icon"
+msgstr "Vyberte ikonu"
+
+msgid "C&lone..."
+msgstr "K&lonovať..."
+
+msgid "Virtual machine \"%1\" (%2) will be cloned into:"
+msgstr "Virtuálny počítač \"%1\" (%2) bude klonovaný do:"
+
+msgid "Directory %1 already exists"
+msgstr "Adresár %1 už existuje."
+
+msgid "You cannot use the following characters in the name: %1"
+msgstr "V názve nemožno použiť nasledujúce znaky: %1"
+
+msgid "Clone"
+msgstr "Klonovať"
+
+msgid "Failed to create directory for cloned VM"
+msgstr "Nepodarilo sa vytvoriť adresár pre klonovaný virtuálny počítač"
+
+msgid "Failed to clone VM."
+msgstr "Klonovanie virtuálneho počítača sa nepodarilo."
+
+msgid "Directory in use"
+msgstr "Adresár sa už používa"
+
+msgid "The selected directory is already in use. Please select a different directory."
+msgstr "Vybraný adresár je už používaný. Vyberte prosím iný adresár."
+
+msgid "Create directory failed"
+msgstr "Vytvorenie adresára sa nepodarilo"
+
+msgid "Unable to create the directory for the new system"
+msgstr "Nie je možné vytvoriť adresár pre nový systém"
+
+msgid "Configuration write failed"
+msgstr "Zlyhal zápis konfigurácie"
+
+msgid "Unable to open the configuration file at %1 for writing"
+msgstr "Nepodarilo sa otvoriť konfiguračný súbor %1 na zápis"
+
+msgid "Error adding system"
+msgstr "Chyba pri pridávaní systému"
+
+msgid "Remove directory failed"
+msgstr "Odstránenie adresára sa nepodarilo"
+
+msgid "Some files in the machine's directory were unable to be deleted. Please delete them manually."
+msgstr "Niektoré súbory v adresári zariadenia nebolo možné odstrániť. Odstráňte ich prosím ručne."
+
+msgid "Build"
+msgstr "Build"
+
+msgid "Version"
+msgstr "Verzia"
+
+msgid "An update to 86Box is available: %1 %2"
+msgstr "Je k dispozícii aktualizácia pre 86Box: %1 %2"
+
+msgid "An error has occurred while checking for updates: %1"
+msgstr "Pri kontrole aktualizácií došlo k chybe: %1"
+
+msgid "<b>An update to 86Box is available!</b>"
+msgstr "<b>Je k dispozícii aktualizácia pre 86Box!</b>"
+
+msgid "Warning"
+msgstr "Upozornenie"
+
+msgid "&Kill"
+msgstr "Vynútiť &ukončenie"
+
+msgid "Killing a virtual machine can cause data loss. Only do this if the 86Box process gets stuck.\n\nDo you really wish to kill the virtual machine \"%1\"?"
+msgstr "Ukončenie virtuálneho počítača môže spôsobiť stratu údajov. Ukončite ho len v prípade, ak proces programu 86Box zamrzne.\n\nNaozaj chcete ukončiť virtuálny počítač \"%1\"?"
+
+msgid "&Delete"
+msgstr "&Odstrániť"
+
+msgid "Do you really want to delete the virtual machine \"%1\" and all its files? This action cannot be undone!"
+msgstr "Naozaj chcete odstrániť virtuálny počítač \"%1\" a všetky jeho súbory? Táto akcia sa nedá vrátiť späť!"
+
+msgid "Show &config file"
+msgstr "Zobraziť &konfiguračný súbor"
+
+msgid "No screenshot"
+msgstr "Žiadny snímok obrazovky"
+
+msgid "Search"
+msgstr "Hľadať"
+
+msgid "Searching for VMs..."
+msgstr "Hľadanie virtuálnych počítačov..."
+
+msgid "Found %1"
+msgstr "Nájdené %1"
+
+msgid "System"
+msgstr "Systém"
+
+msgid "Storage"
+msgstr "Úložisko"
+
+msgid "Disk %1: "
+msgstr "Disk %1: "
+
+msgid "No disks"
+msgstr "Žiadne disky"
+
+msgid "Audio"
+msgstr "Zvuk"
+
+msgid "Audio:"
+msgstr "Zvuk:"
 
 msgid "ACPI shutdown"
 msgstr "Vypnúť cez rozhranie ACPI"
@@ -1158,6 +1488,9 @@ msgstr "ATAPI"
 msgid "CD-ROM %1 (%2): %3"
 msgstr "CD-ROM %1 (%2): %3"
 
+msgid "&CD-ROM %1 (%2): %3"
+msgstr "&CD-ROM %1 (%2): %3"
+
 msgid "160 KB"
 msgstr "160 KB"
 
@@ -1299,9 +1632,6 @@ msgstr "Zoznam zariadení MCA:"
 msgid "&Tablet tool"
 msgstr "Nástroj pre tablety"
 
-msgid "Qt (OpenGL &ES)"
-msgstr "Qt (OpenGL &ES)"
-
 msgid "About &Qt"
 msgstr "O &Qt"
 
@@ -1327,7 +1657,7 @@ msgid "&Host CD/DVD Drive (%1:)"
 msgstr "&Hostiteľská jednotka CD/DVD (%1:)"
 
 msgid "&Connected"
-msgstr ""
+msgstr "&Pripojené"
 
 msgid "Clear image &history"
 msgstr "Vymazanie histórie obrázkov"
@@ -1336,7 +1666,7 @@ msgid "Create..."
 msgstr "Vytvorte..."
 
 msgid "Host CD/DVD Drive (%1)"
-msgstr "Hostiteľská jednotka CD/DVD (%1)"
+msgstr "Jednotka CD/DVD hostiteľa (%1)"
 
 msgid "Unknown Bus"
 msgstr "Neznáma zbernica"
@@ -1344,8 +1674,14 @@ msgstr "Neznáma zbernica"
 msgid "Null Driver"
 msgstr "Nulový ovládač"
 
+msgid "NIC:"
+msgstr "Sieťový adaptér:"
+
 msgid "NIC %1 (%2) %3"
-msgstr "NIC %1 (%2) %3"
+msgstr "Sieťový adaptér %1 (%2) %3"
+
+msgid "&NIC %1 (%2) %3"
+msgstr "&Sieťový adaptér %1 (%2) %3"
 
 msgid "Render behavior"
 msgstr "Správanie pri vykresľovaní"
@@ -1410,6 +1746,9 @@ msgstr "Žiadne zariadenia MCA."
 msgid "MiB"
 msgstr "MiB"
 
+msgid "GiB"
+msgstr "GiB"
+
 msgid "Network Card #1"
 msgstr "Sieťová karta 1"
 
@@ -1456,22 +1795,22 @@ msgid "Renderer &options..."
 msgstr "Možnosti vykresľovača..."
 
 msgid "PC/XT Keyboard"
-msgstr ""
+msgstr "Klávesnica PC/XT"
 
 msgid "AT Keyboard"
-msgstr ""
+msgstr "Klávesnica AT"
 
 msgid "AX Keyboard"
-msgstr ""
+msgstr "Klávesnica AX"
 
 msgid "PS/2 Keyboard"
-msgstr ""
+msgstr "Klávesnica PS/2"
 
 msgid "PS/55 Keyboard"
-msgstr ""
+msgstr "Klávesnica PS/55"
 
 msgid "Keys"
-msgstr ""
+msgstr "Klávesy"
 
 msgid "Logitech/Microsoft Bus Mouse"
 msgstr "Zbernicová myš Logitech/Microsoft"
@@ -1480,16 +1819,16 @@ msgid "Microsoft Bus Mouse (InPort)"
 msgstr "Zbernicová myš Microsoft (InPort)"
 
 msgid "Mouse Systems Serial Mouse"
-msgstr "Zbernicová myš Mouse Systems"
+msgstr "Sériová myš Mouse Systems"
 
 msgid "Mouse Systems Bus Mouse"
-msgstr ""
+msgstr "Zbernicová myš Mouse Systems"
 
 msgid "Microsoft Serial Mouse"
 msgstr "Sériová myš Microsoft"
 
 msgid "Microsoft Serial BallPoint"
-msgstr ""
+msgstr "Sériová myš Microsoft BallPoint"
 
 msgid "Logitech Serial Mouse"
 msgstr "Sériová myš Logitech"
@@ -1498,13 +1837,13 @@ msgid "PS/2 Mouse"
 msgstr "Myš PS/2"
 
 msgid "PS/2 QuickPort Mouse"
-msgstr ""
+msgstr "Myš PS/2 QuickPort"
 
 msgid "3M MicroTouch (Serial)"
 msgstr "3M MicroTouch (sériová)"
 
 msgid "Default Baud rate"
-msgstr ""
+msgstr "Východná prenosová rýchlosť"
 
 msgid "[COM] Standard Hayes-compliant Modem"
 msgstr "[COM] Štandardný modem kompatibilný s Hayesom"
@@ -1531,52 +1870,52 @@ msgid "MIDI Input Device"
 msgstr "Vstupné zariadenie MIDI"
 
 msgid "BIOS file"
-msgstr ""
+msgstr "Súbor BIOS"
 
 msgid "BIOS file (ROM #1)"
-msgstr ""
+msgstr "Súbor BIOS (ROM 1)"
 
 msgid "BIOS file (ROM #2)"
-msgstr ""
+msgstr "Súbor BIOS (ROM 2)"
 
 msgid "BIOS file (ROM #3)"
-msgstr ""
+msgstr "Súbor BIOS (ROM 3)"
 
 msgid "BIOS file (ROM #4)"
-msgstr ""
+msgstr "Súbor BIOS (ROM 4)"
 
 msgid "BIOS address"
 msgstr "Adresa BIOS"
 
 msgid "BIOS address (ROM #1)"
-msgstr ""
+msgstr "Adresa BIOS (ROM 1)"
 
 msgid "BIOS address (ROM #2)"
-msgstr ""
+msgstr "Adresa BIOS (ROM 2)"
 
 msgid "BIOS address (ROM #3)"
-msgstr ""
+msgstr "Adresa BIOS (ROM 3)"
 
 msgid "BIOS address (ROM #4)"
-msgstr ""
+msgstr "Adresa BIOS (ROM 4)"
 
 msgid "Enable BIOS extension ROM Writes"
 msgstr "Povolenie zápisu do pamäte ROM s rozšírením BIOS"
 
 msgid "Enable BIOS extension ROM Writes (ROM #1)"
-msgstr ""
+msgstr "Povolenie zápisu do pamäte ROM s rozšírením BIOS (ROM 1)"
 
 msgid "Enable BIOS extension ROM Writes (ROM #2)"
-msgstr ""
+msgstr "Povolenie zápisu do pamäte ROM s rozšírením BIOS (ROM 2)"
 
 msgid "Enable BIOS extension ROM Writes (ROM #3)"
-msgstr ""
+msgstr "Povolenie zápisu do pamäte ROM s rozšírením BIOS (ROM 3)"
 
 msgid "Enable BIOS extension ROM Writes (ROM #4)"
-msgstr ""
+msgstr "Povolenie zápisu do pamäte ROM s rozšírením BIOS (ROM 4)"
 
 msgid "Linear framebuffer base"
-msgstr ""
+msgstr "Začiatok lineárneho framebufferu"
 
 msgid "Address"
 msgstr "Adresa"
@@ -1584,20 +1923,26 @@ msgstr "Adresa"
 msgid "IRQ"
 msgstr "IRQ"
 
+msgid "Serial port IRQ"
+msgstr "Prerušenie sériového portu"
+
+msgid "Parallel port IRQ"
+msgstr "Prerušenie paralelného portu"
+
 msgid "BIOS Revision"
-msgstr "Revízia systému BIOS"
+msgstr "Revízia BIOS"
 
 msgid "BIOS Version"
-msgstr ""
+msgstr "Verzia BIOS"
 
 msgid "BIOS Language"
-msgstr ""
+msgstr "Jazyk BIOS"
 
 msgid "IBM 5161 Expansion Unit"
-msgstr ""
+msgstr "Rozširujúca jednotka IBM 5161"
 
 msgid "IBM Cassette Basic"
-msgstr ""
+msgstr "Kazetový Basic IBM"
 
 msgid "Translate 26 -> 17"
 msgstr "Preložiť 26 -> 17"
@@ -1612,19 +1957,19 @@ msgid "Invert colors"
 msgstr "Invertovanie farieb"
 
 msgid "BIOS size"
-msgstr "Veľkosť systému BIOS"
+msgstr "Veľkosť BIOS"
 
 msgid "BIOS size (ROM #1)"
-msgstr ""
+msgstr "Veľkosť BIOS (ROM 1)"
 
 msgid "BIOS size (ROM #2)"
-msgstr ""
+msgstr "Veľkosť BIOS (ROM 2)"
 
 msgid "BIOS size (ROM #3)"
-msgstr ""
+msgstr "Veľkosť BIOS (ROM 3)"
 
 msgid "BIOS size (ROM #4)"
-msgstr ""
+msgstr "Veľkosť BIOS (ROM 4)"
 
 msgid "Map C0000-C7FFF as UMB"
 msgstr "Mapa C0000-C7FFF ako UMB"
@@ -1702,7 +2047,7 @@ msgid "Interpolation Method"
 msgstr "Metóda interpolácie"
 
 msgid "Dynamic Sample Loading"
-msgstr ""
+msgstr "Dynamické načítanie vzoriek"
 
 msgid "Reverb Output Gain"
 msgstr "Zosilnenie výstupu dozvuku"
@@ -1792,10 +2137,10 @@ msgid "Enable Game port"
 msgstr "Povolenie herného portu"
 
 msgid "SID Model"
-msgstr ""
+msgstr "Model SID"
 
 msgid "SID Filter Strength"
-msgstr ""
+msgstr "Sila filtra SID"
 
 msgid "Surround module"
 msgstr "Surround modul"
@@ -1809,8 +2154,11 @@ msgstr "Zvýšenie prerušenia CODEC pri nastavení CODEC (potrebné v niektorý
 msgid "SB Address"
 msgstr "Adresa SB"
 
+msgid "Adlib Address"
+msgstr "Adresa Adlib"
+
 msgid "Use EEPROM setting"
-msgstr ""
+msgstr "Použiť nastavenie EEPROM"
 
 msgid "WSS IRQ"
 msgstr "WSS IRQ"
@@ -1897,13 +2245,13 @@ msgid "Blend"
 msgstr "Zmes"
 
 msgid "Font"
-msgstr ""
+msgstr "Písmo"
 
 msgid "Bilinear filtering"
 msgstr "Bilineárne filtrovanie"
 
 msgid "Video chroma-keying"
-msgstr ""
+msgstr "Farebné kľúčovanie obrazu"
 
 msgid "Dithering"
 msgstr "Dithering"
@@ -1948,31 +2296,31 @@ msgid "EMS mode"
 msgstr "Režim EMS"
 
 msgid "EMS Address"
-msgstr ""
+msgstr "Adresa EMS"
 
 msgid "EMS 1 Address"
-msgstr ""
+msgstr "Adresa EMS 1"
 
 msgid "EMS 2 Address"
-msgstr ""
+msgstr "Adresa EMS 2"
 
 msgid "EMS Memory Size"
-msgstr ""
+msgstr "Veľkosť pamäte EMS"
 
 msgid "EMS 1 Memory Size"
-msgstr ""
+msgstr "Veľkosť pamäte EMS 1"
 
 msgid "EMS 2 Memory Size"
-msgstr ""
+msgstr "Veľkosť pamäte EMS 2"
 
 msgid "Enable EMS"
-msgstr ""
+msgstr "Povoliť EMS"
 
 msgid "Enable EMS 1"
-msgstr ""
+msgstr "Povoliť EMS 1"
 
 msgid "Enable EMS 2"
-msgstr ""
+msgstr "Povoliť EMS 2"
 
 msgid "Address for > 2 MB"
 msgstr "Adresa pre > 2 MB"
@@ -2026,13 +2374,13 @@ msgid "Three"
 msgstr "Tri"
 
 msgid "Wheel"
-msgstr "Koleso"
+msgstr "Koliesko"
 
 msgid "Five + Wheel"
-msgstr "Päť + koleso"
+msgstr "Päť s kolieskom"
 
 msgid "Five + 2 Wheels"
-msgstr ""
+msgstr "Päť s 2 kolieskami"
 
 msgid "A3 - SMT2 Serial / SMT3(R)V"
 msgstr "A3 - SMT2 sériová / SMT3(R)V"
@@ -2097,6 +2445,9 @@ msgstr "256 KB"
 msgid "Composite"
 msgstr "Kompozitný"
 
+msgid "True color"
+msgstr "True color"
+
 msgid "Old"
 msgstr "Staré"
 
@@ -2131,13 +2482,13 @@ msgid "Linear interpolation"
 msgstr "Lineárna interpolácia"
 
 msgid "Has secondary 8x8 character set"
-msgstr ""
+msgstr "Má druhú sadu 8x8 znakov"
 
 msgid "Has Quadcolor II daughter board"
-msgstr ""
+msgstr "Má dcérsku dosku Quadcolor II"
 
 msgid "Alternate monochrome contrast"
-msgstr ""
+msgstr "Alternatívny monochromatický kontrast"
 
 msgid "128 KB"
 msgstr "128 KB"
@@ -2173,7 +2524,7 @@ msgid "Gray"
 msgstr "Šedý"
 
 msgid "Grayscale"
-msgstr ""
+msgstr "Odtiene šedej"
 
 msgid "Color"
 msgstr "Farebný"
@@ -2191,22 +2542,25 @@ msgid "Bochs latest"
 msgstr "Bochs najnovšie"
 
 msgid "Apply overscan deltas"
-msgstr ""
+msgstr "Použiť delty presahu"
 
 msgid "Mono Interlaced"
-msgstr ""
+msgstr "Monochromatický s prekladaním"
 
 msgid "Mono Non-Interlaced"
-msgstr "Mono bez prelínania"
+msgstr "Monochromatický bez prekladania"
 
 msgid "Color Interlaced"
-msgstr "Farebné prelínanie"
+msgstr "Farebný s prekladaním"
 
 msgid "Color Non-Interlaced"
-msgstr "Farba bez prelínania"
+msgstr "Farebny bez prekladania"
 
 msgid "3Dfx Voodoo Graphics"
 msgstr "Grafický akcelerátor 3dfx Voodoo"
+
+msgid "3Dfx Voodoo 2"
+msgstr "3Dfx Voodoo 2"
 
 msgid "Obsidian SB50 + Amethyst (2 TMUs)"
 msgstr "Obsidian SB50 + Amethyst (2 zariadenia TMU)"
@@ -2238,8 +2592,8 @@ msgstr "Stereofónny prevodník LPT DAC"
 msgid "Generic Text Printer"
 msgstr "Generická textová tlačiareň"
 
-msgid "Generic ESC/P Dot-Matrix Printer"
-msgstr "Generická ihličková tlačiareň ESC/P"
+msgid "Generic ESC/P 2 Dot-Matrix Printer"
+msgstr "Generická ihličková tlačiareň ESC/P 2"
 
 msgid "Generic PostScript Printer"
 msgstr "Generická tlačiareň PostScript"
@@ -2275,10 +2629,10 @@ msgid "Baud Rate of Passthrough"
 msgstr "Prenosová rýchlosť priechodu"
 
 msgid "Named Pipe (Server)"
-msgstr "Pomenované potrubie (server)"
+msgstr "Pomenovaná rúrka (server)"
 
 msgid "Named Pipe (Client)"
-msgstr ""
+msgstr "Pomenovaná rúrka (klient)"
 
 msgid "Host Serial Passthrough"
 msgstr "Priechod sériového portu hostiteľa"
@@ -2296,28 +2650,28 @@ msgid "High performance impact"
 msgstr "Vysoký vplyv na výkon"
 
 msgid "[Generic] RAM Disk (max. speed)"
-msgstr "[Generic] Disk RAM (max. rýchlosť)"
+msgstr "[Všeobecný] Disk RAM (max. rýchlosť)"
 
 msgid "[Generic] 1989 (3500 RPM)"
-msgstr ""
+msgstr "[Všeobecný] 1989 (3500 ot./m)"
 
 msgid "[Generic] 1992 (3600 RPM)"
-msgstr ""
+msgstr "[Všeobecný] 1992 (3600 ot./m)"
 
 msgid "[Generic] 1994 (4500 RPM)"
-msgstr ""
+msgstr "[Všeobecný] 1994 (4500 ot./m)"
 
 msgid "[Generic] 1996 (5400 RPM)"
-msgstr ""
+msgstr "[Všeobecný] 1996 (5400 ot./m)"
 
 msgid "[Generic] 1997 (5400 RPM)"
-msgstr ""
+msgstr "[Všeobecný] 1997 (5400 ot./m)"
 
 msgid "[Generic] 1998 (5400 RPM)"
-msgstr ""
+msgstr "[Všeobecný] 1998 (5400 ot./m)"
 
 msgid "[Generic] 2000 (7200 RPM)"
-msgstr ""
+msgstr "[Všeobecný] 2000 (7200 ot./m)"
 
 msgid "IBM 8514/A clone (ISA)"
 msgstr "Klon IBM 8514/A (ISA)"
@@ -2326,10 +2680,10 @@ msgid "Vendor"
 msgstr "Výrobca"
 
 msgid "30 Hz (JMP2 = 1)"
-msgstr ""
+msgstr "30 Hz (JMP2 = 1)"
 
 msgid "60 Hz (JMP2 = 2)"
-msgstr ""
+msgstr "60 Hz (JMP2 = 2)"
 
 msgid "Generic PC/XT Memory Expansion"
 msgstr "Všeobecné rozšírenie pamäte PC/XT"
@@ -2340,134 +2694,290 @@ msgstr "Všeobecné rozšírenie pamäte PC/AT"
 msgid "Unable to find Dot-Matrix fonts"
 msgstr "Nastala chyba pri hľadaní ihličkových písem"
 
-msgid "TrueType fonts in the \"roms/printer/fonts\" directory are required for the emulation of the Generic ESC/P Dot-Matrix Printer."
-msgstr "Písma TrueType v adresári \"roms/printer/fonts\" sú potrebné na emuláciu generickej ihličkovej tlačiarne ESC/P."
+msgid "TrueType fonts in the \"roms/printer/fonts\" directory are required for the emulation of the Generic ESC/P 2 Dot-Matrix Printer."
+msgstr "Písma TrueType v adresári \"roms/printer/fonts\" sú potrebné na emuláciu generickej ihličkovej tlačiarne ESC/P 2."
 
 msgid "Inhibit multimedia keys"
-msgstr ""
+msgstr "Potlačiť stlačenie multimediálnych klávesov"
 
 msgid "Ask for confirmation before saving settings"
-msgstr ""
+msgstr "Vyžadovať potvrdenie pred uložením nastavení"
 
 msgid "Ask for confirmation before hard resetting"
-msgstr ""
+msgstr "Vyžadovať potvrdenie pred resetovaním"
 
 msgid "Ask for confirmation before quitting"
-msgstr ""
+msgstr "Vyžadovať potvrdenie pred ukončením"
 
 msgid "Options"
-msgstr ""
+msgstr "Možnosti"
 
 msgid "Model"
-msgstr ""
+msgstr "Model"
 
 msgid "Model:"
-msgstr ""
+msgstr "Model:"
 
 msgid "Failed to initialize Vulkan renderer."
-msgstr ""
+msgstr "Inicializácia renderera Vulkan zlyhala."
 
 msgid "GLSL Error"
-msgstr ""
+msgstr "Chyba GLSL"
 
 msgid "Could not load shader: %1"
-msgstr ""
+msgstr "Nebol možné načítať shader: %1"
 
 msgid "OpenGL version 3.0 or greater is required. Current GLSL version is %1.%2"
-msgstr ""
+msgstr "Je vyžadovaná verzia OpenGL 3.0 alebo vyššia. Aktuálna verzia GLSL je %1.%2"
 
 msgid "Could not load texture: %1"
-msgstr ""
+msgstr "Nebolo možné načítať textúru: %1"
 
 msgid "Could not compile shader:\n\n%1"
-msgstr ""
+msgstr "Nebolo možné skompilovať shader:\n\n%1"
 
 msgid "Program not linked:\n\n%1"
-msgstr ""
+msgstr "Program nebol spojený:\n\n%1"
 
 msgid "Shader Manager"
-msgstr ""
+msgstr "Správca shaderov"
 
 msgid "Shader Configuration"
-msgstr ""
+msgstr "Konfigurácia shaderu"
 
 msgid "Add"
-msgstr ""
+msgstr "Pridať"
 
 msgid "Move up"
-msgstr ""
+msgstr "Posunúť vyššie"
 
 msgid "Move down"
-msgstr ""
+msgstr "Posunúť nižšie"
 
 msgid "Could not load file %1"
-msgstr ""
+msgstr "Nebolo možné možné načítať súbor %1"
 
 msgid "Key Bindings:"
-msgstr ""
+msgstr "Nastavenie klávesov"
 
 msgid "Action"
-msgstr ""
+msgstr "Akcia"
 
 msgid "Keybind"
-msgstr ""
+msgstr "Klávesy"
 
 msgid "Clear binding"
-msgstr ""
+msgstr "Vymazať nastavenia"
 
 msgid "Bind"
-msgstr ""
+msgstr "Nastaviť"
 
 msgid "Bind Key"
-msgstr ""
+msgstr "Nastaviť klávesu"
 
 msgid "Enter key combo:"
-msgstr ""
+msgstr "Zadajte kombináciu klávesov"
 
 msgid "Bind conflict"
-msgstr ""
+msgstr "Konflikt nastavení"
 
 msgid "This key combo is already in use."
-msgstr ""
+msgstr "Táto kombinácia klávesov je už použitá."
 
 msgid "Send Control+Alt+Del"
-msgstr ""
+msgstr "Stlačte Ctrl+Alt+Del"
 
 msgid "Send Control+Alt+Escape"
-msgstr ""
+msgstr "Stlačte Ctrl+Alt+Esc"
 
 msgid "Toggle fullscreen"
-msgstr ""
+msgstr "Prepnúť režim celej obrazovky"
 
 msgid "Screenshot"
-msgstr ""
+msgstr "Zhotoviť snímku obrazovky"
 
 msgid "Release mouse pointer"
-msgstr ""
+msgstr "Uvoľniť kurzor myši"
 
 msgid "Toggle pause"
-msgstr ""
+msgstr "Pozastaviť alebo obnoviť"
 
 msgid "Toggle mute"
-msgstr ""
+msgstr "Prepnúť stlmenie"
 
 msgid "Text files"
-msgstr ""
+msgstr "Textové súbory"
 
 msgid "ROM files"
-msgstr ""
+msgstr "Súbory ROM"
 
 msgid "SoundFont files"
-msgstr ""
+msgstr "Súbory SoundFont"
 
-#~ msgid "HD Controller:"
-#~ msgstr "Radič disku:"
+msgid "Local Switch"
+msgstr "Lokálny prepínač"
 
-#~ msgid "ZIP drives:"
-#~ msgstr "Mechaniky ZIP:"
+msgid "Remote Switch"
+msgstr "Vzdialený prepínač"
 
-#~ msgid "ZIP %1 %2 (%3): %4"
-#~ msgstr "ZIP %1 %2 (%3): %4"
+msgid "Switch:"
+msgstr "Prepínač:"
 
-#~ msgid "ZIP images"
-#~ msgstr "Obrazy ZIP diskov"
+msgid "Hub Mode"
+msgstr "Režim hubu"
+
+msgid "Hostname:"
+msgstr "Hostiteľské meno"
+
+msgid "ISA RAM:"
+msgstr "ISA pamäť RAM:"
+
+msgid "ISA ROM:"
+msgstr "ISA pamäť ROM:"
+
+msgid "&Wipe NVRAM"
+msgstr "&Vymazať NVRAM"
+
+msgid "This will delete all NVRAM (and related) files of the virtual machine located in the \"nvr\" subdirectory. You'll have to reconfigure the BIOS (and possibly other devices inside the VM) settings again if applicable.\n\nAre you sure you want to wipe all NVRAM contents of the virtual machine \"%1\"?"
+msgstr "Týmto sa vymažú všetky súbory NVRAM (a súvisiace súbory) virtuálneho počítača umiestnené v podadresári „nvr“. V prípade potreby budete musieť znovu nakonfigurovať nastavenia systému BIOS (a prípadne aj ďalších zariadení vo vnútri virtuálneho počítača).\n\nNaozaj chcete vymazať celý obsah NVRAM virtuálneho počítača \"%1\"?"
+
+msgid "Success"
+msgstr "Úspech"
+
+msgid "Successfully wiped the NVRAM contents of the virtual machine \"%1\""
+msgstr "Obsah NVRAM virtuálneho počítača \"%1\" bol úspešne vymazaný."
+
+msgid "An error occurred trying to wipe the NVRAM contents of the virtual machine \"%1\""
+msgstr "Pri pokuse o vymazanie obsahu NVRAM virtuálneho počítača \"%1\" došlo k chybe"
+
+msgid "%1 VM Manager"
+msgstr "Správca virtuálnych počítačov %1"
+
+msgid "%n disk(s)"
+msgstr "%n disk(ov)"
+
+msgid "Unknown Status"
+msgstr "Neznámy stav"
+
+msgid "No Machines Found!"
+msgstr "Žádné počítače nalezeny!"
+
+msgid "Check for updates on startup"
+msgstr "Skontroluj aktualizácie pri spustení"
+
+msgid "Unable to determine release information"
+msgstr "Nebolo možné zistiť informácie o vydaní"
+
+msgid "There was an error checking for updates:\n\n%1\n\nPlease try again later."
+msgstr "Pri kontrole aktualizácií došlo k chybe:\n\n%1\n\nSkúste to prosím neskôr znova."
+
+msgid "Update check complete"
+msgstr "Kontrola aktualizácií dokončená"
+
+msgid "stable"
+msgstr "stabilnú"
+
+msgid "beta"
+msgstr "beta"
+
+msgid "You are running the latest %1 version of 86Box: %2"
+msgstr "Používáte najnovšiu %1 verziu 86Boxu: %2"
+
+msgid "version"
+msgstr "verzia"
+
+msgid "build"
+msgstr "build"
+
+msgid "You are currently running version <b>%1</b>."
+msgstr "Práve používate verziu <b>%1</b>."
+
+msgid "<b>Version %1</b> is now available."
+msgstr "K dispozícii je teraz <b>verzia %1</b>."
+
+msgid "You are currently running build <b>%1</b>."
+msgstr "Práve používate build <b>%1</b>."
+
+msgid "<b>Build %1</b> is now available."
+msgstr "K dispozícii je teraz <b>build %1</b>."
+
+msgid "Would you like to visit the download page?"
+msgstr "Chcete navštíviť stránku na stiahnutie?"
+
+msgid "Visit download page"
+msgstr "Navštíviť stránku na stiahnutie"
+
+msgid "Update check"
+msgstr "Kontrola aktualizácií"
+
+msgid "Checking for updates..."
+msgstr "Prebieha kontrola aktualizácií..."
+
+msgid "86Box Update"
+msgstr "Aktualizácia 86Box"
+
+msgid "Release notes:"
+msgstr "Poznámky k vydaniu:"
+
+msgid "%1 Hz"
+msgstr "%1 Hz"
+
+msgid "Virtual machine crash"
+msgstr "Havária virtuálneho počítača"
+
+msgid "The virtual machine \"%1\"'s process has unexpectedly terminated with exit code %2."
+msgstr "Proces virtuálneho počítača \"%1\" bol neočakávane ukončený s kódom ukončenia %2."
+
+msgid "The system will not be added."
+msgstr "Systém nebude pridaný."
+
+msgid "&Update mouse every CPU frame"
+msgstr "&Aktualizovať myš pri každom rámci CPU"
+
+msgid "Hue"
+msgstr "Odtieň"
+
+msgid "Saturation"
+msgstr "Saturácia"
+
+msgid "Contrast"
+msgstr "Kontrast"
+
+msgid "Brightness"
+msgstr "Jas"
+
+msgid "Sharpness"
+msgstr "Ostrota"
+
+msgid "&CGA composite settings..."
+msgstr "Nastavenia kompozitného režimu &CGA..."
+
+msgid "CGA composite settings"
+msgstr "Nastavenia kompozitného režimu CGA"
+
+msgid "Monitor EDID"
+msgstr "EDID monitora"
+
+msgid "Export..."
+msgstr "Exportovať..."
+
+msgid "Export EDID"
+msgstr "Exportovať EDID"
+
+msgid "EDID file \"%ls\" is too large."
+msgstr "Súbor EDID \"%ls\" je príliš veľký."
+
+msgid "OpenGL input scale"
+msgstr "Vstupná stupnica OpenGL"
+
+msgid "OpenGL input stretch mode"
+msgstr "Režim rozťahovania vstupu OpenGL"
+
+msgid "Color scheme"
+msgstr "Farebná schéma"
+
+msgid "Light"
+msgstr "Svetlo"
+
+msgid "Dark"
+msgstr "Tmavá"

@@ -90,6 +90,7 @@ static int   cy;
 static int   cw;
 static int   ch;
 static ini_t config;
+static ini_t global;
 
 #ifdef ENABLE_CONFIG_LOG
 int config_do_log = ENABLE_CONFIG_LOG;
@@ -109,6 +110,68 @@ config_log(const char *fmt, ...)
 #    define config_log(fmt, ...)
 #endif
 
+/* Load global configuration */
+static void
+load_global(void)
+{
+    ini_section_t cat = ini_find_section(global, "");
+    char         *p;
+
+    p = ini_section_get_string(cat, "language", NULL);
+    if (p != NULL)
+        lang_id = plat_language_code(p);
+    else
+        lang_id = plat_language_code(DEFAULT_LANGUAGE);
+
+    open_dir_usr_path = ini_section_get_int(cat, "open_dir_usr_path", 0);
+
+    confirm_reset = ini_section_get_int(cat, "confirm_reset", 1);
+    confirm_exit  = ini_section_get_int(cat, "confirm_exit", 1);
+    confirm_save  = ini_section_get_int(cat, "confirm_save", 1);
+    color_scheme  = ini_section_get_int(cat, "color_scheme", 0);
+
+    inhibit_multimedia_keys = ini_section_get_int(cat, "inhibit_multimedia_keys", 0);
+
+    mouse_sensitivity = ini_section_get_double(cat, "mouse_sensitivity", 1.0);
+    if (mouse_sensitivity < 0.1)
+        mouse_sensitivity = 0.1;
+    else if (mouse_sensitivity > 2.0)
+        mouse_sensitivity = 2.0;
+
+    vmm_disabled = ini_section_get_int(cat, "vmm_disabled", 0);
+
+    p = ini_section_get_string(cat, "vmm_path", NULL);
+    if (p != NULL) {
+        /* Convert relative paths to absolute in portable mode */
+        if (portable_mode && !path_abs(p)) {
+            path_append_filename(vmm_path_cfg, exe_path, p);
+            path_normalize(vmm_path_cfg);
+        } else {
+            strncpy(vmm_path_cfg, p, sizeof(vmm_path_cfg) - 1);
+        }
+    } else {
+        plat_get_vmm_dir(vmm_path_cfg, sizeof(vmm_path_cfg));
+    }
+}
+
+/* Load scan code mappings. */
+static void
+load_scan_code_mappings(void)
+{
+    ini_section_t cat = ini_find_section(config, "Scan code mappings");
+    char          temp[512];
+
+    for (int c = 0; c < 768; c++) {
+        sprintf(temp, "%03X", c);
+
+        int mapping = ini_section_get_hex12(cat, temp, c);
+
+        if (mapping == c)
+            ini_section_delete_var(cat, temp);
+        else
+            scancode_config_map[c] = mapping;
+    }
+}
 
 /* Load "General" section. */
 static void
@@ -132,8 +195,6 @@ load_general(void)
 
     video_filter_method = ini_section_get_int(cat, "video_filter_method", 1);
 
-    inhibit_multimedia_keys = ini_section_get_int(cat, "inhibit_multimedia_keys", 0);
-
     force_43 = !!ini_section_get_int(cat, "force_43", 0);
     scale    = ini_section_get_int(cat, "scale", 1);
     if (scale > 9)
@@ -149,6 +210,8 @@ load_general(void)
 
     rctrl_is_lalt = ini_section_get_int(cat, "rctrl_is_lalt", 0);
     update_icons  = ini_section_get_int(cat, "update_icons", 1);
+
+    start_in_fullscreen = ini_section_get_int(cat, "start_in_fullscreen", 0);
 
     window_remember = ini_section_get_int(cat, "window_remember", 0);
 
@@ -181,28 +244,13 @@ load_general(void)
     hide_tool_bar   = ini_section_get_int(cat, "hide_tool_bar", 0);
     sound_muted     = ini_section_get_int(cat, "sound_muted", 0);
 
-    confirm_reset = ini_section_get_int(cat, "confirm_reset", 1);
-    confirm_exit  = ini_section_get_int(cat, "confirm_exit", 1);
-    confirm_save  = ini_section_get_int(cat, "confirm_save", 1);
-
-    p = ini_section_get_string(cat, "language", NULL);
-    if (p != NULL)
-        lang_id = plat_language_code(p);
-    else
-        lang_id = plat_language_code(DEFAULT_LANGUAGE);
-
-    mouse_sensitivity = ini_section_get_double(cat, "mouse_sensitivity", 1.0);
-    if (mouse_sensitivity < 0.1)
-        mouse_sensitivity = 0.1;
-    else if (mouse_sensitivity > 2.0)
-        mouse_sensitivity = 2.0;
-
     enable_discord = !!ini_section_get_int(cat, "enable_discord", 0);
-
-    open_dir_usr_path = ini_section_get_int(cat, "open_dir_usr_path", 0);
 
     video_framerate = ini_section_get_int(cat, "video_gl_framerate", -1);
     video_vsync     = ini_section_get_int(cat, "video_gl_vsync", 0);
+
+    video_gl_input_scale      = ini_section_get_double(cat, "video_gl_input_scale", 1.0);
+    video_gl_input_scale_mode = ini_section_get_int(cat, "video_gl_input_scale_mode", FULLSCR_SCALE_FULL);
 
     window_remember = ini_section_get_int(cat, "window_remember", 0);
     if (window_remember) {
@@ -216,6 +264,7 @@ load_general(void)
     }
 
     do_auto_pause = ini_section_get_int(cat, "do_auto_pause", 0);
+    force_constant_mouse = ini_section_get_int(cat, "force_constant_mouse", 0);
 
     p = ini_section_get_string(cat, "uuid", NULL);
     if (p != NULL)
@@ -254,6 +303,7 @@ static void
 load_machine(void)
 {
     ini_section_t cat = ini_find_section(config, "Machine");
+    ini_section_t migration_cat;
     const char   *p;
     const char   *migrate_from = NULL;
     int           c;
@@ -262,36 +312,63 @@ load_machine(void)
     int           speed;
     double        multi;
 
+    static const struct {
+        const char *old;
+        const char *new;
+        const char *new_bios;
+    } machine_migrations[] = {
+        { .old = "tandy", .new = "tandy1000sx", .new_bios = NULL },
+        { .old = "mr1217", .new = "325ax", .new_bios = "mr1217" },
+        { .old = "deskpro386_05_1988", .new = "deskpro386", .new_bios = "deskpro386_05_1988" },
+        { .old = "mr495", .new = "ami495", .new_bios = "mr495" },
+        { .old = "403tg_d", .new = "403tg", .new_bios = "403tg_d" },
+        { .old = "403tg_d_mr", .new = "403tg", .new_bios = "403tg_d_mr" },
+        { .old = "aptiva510", .new = "pc330_6573", .new_bios = "aptiva510" },
+        { .old = "ambradp60", .new = "batman", .new_bios = "ambradp60" },
+        { .old = "dellxp60", .new = "batman", .new_bios = "dellxp60" },
+        { .old = "586mc1", .new = "586is", .new_bios = NULL },
+        { .old = "ambradp90", .new = "plato", .new_bios = "ambradp90" },
+        { .old = "dellplato", .new = "plato", .new_bios = "dellplato" },
+        { .old = "430nx", .new = "586ip", .new_bios = NULL },
+        { .old = "p54tp4xe_mr", .new = "p54tp4xe", .new_bios = "p54tp4xe_mr" },
+        { .old = "gw2katx", .new = "thor", .new_bios = "gw2katx" },
+        { .old = "mrthor", .new = "thor", .new_bios = "mrthor" },
+        { .old = "equium5200", .new = "cu430hx", .new_bios = "equium5200" },
+        { .old = "infinia7200", .new = "tc430hx", .new_bios = "infinia7200" },
+        { .old = "dellvenus", .new = "vs440fx", .new_bios = "dellvenus" },
+        { .old = "gw2kvenus", .new = "vs440fx", .new_bios = "gw2kvenus" },
+        { 0 }
+    };
+
     p = ini_section_get_string(cat, "machine", NULL);
     if (p != NULL) {
-        migrate_from = p;
         /* Migrate renamed machines. */
-        if (!strcmp(p, "tandy"))
-            machine = machine_get_machine_from_internal_name("tandy1000sx");
-        else if (!strcmp(p, "430nx"))
-            machine = machine_get_machine_from_internal_name("586ip");
-        else if (!strcmp(p, "586mc1"))
-            machine = machine_get_machine_from_internal_name("586is");
-        else {
-            machine      = machine_get_machine_from_internal_name(p);
-            migrate_from = NULL;
+        for (i = 0; machine_migrations[i].old; i++) {
+            if (!strcmp(p, machine_migrations[i].old)) {
+                machine      = machine_get_machine_from_internal_name(machine_migrations[i].new);
+                migrate_from = p;
+                if (machine_migrations[i].new_bios) {
+                    migration_cat = ini_find_or_create_section(config, machine_get_device(machine)->name);
+                    ini_section_set_string(migration_cat, "bios", machine_migrations[i].new_bios);
+                }
+                break;
+            }
         }
-    } else
+        if (!migrate_from)
+            machine = machine_get_machine_from_internal_name(p);
+    } else {
         machine = 0;
+    }
 
     if (machine >= machine_count())
         machine = machine_count() - 1;
 
-    /* Copy NVR files when migrating a machine to a new internal name. */
-    if (migrate_from) {
+    /* Copy NVR files when migrating a machine to a new NVR name. */
+    if (migrate_from && strcmp(migrate_from, machine_get_nvr_name())) {
         char old_fn[256];
-        strcpy(old_fn, migrate_from);
-        strcat(old_fn, ".");
-        c = strlen(old_fn);
+        c = snprintf(old_fn, sizeof(old_fn), "%s.", migrate_from);
         char new_fn[256];
-        strcpy(new_fn, machines[machine].internal_name);
-        strcat(new_fn, ".");
-        i = strlen(new_fn);
+        i = snprintf(new_fn, sizeof(new_fn), "%s.", machine_get_nvr_name());
 
         /* Iterate through NVR files. */
         DIR *dirp = opendir(nvr_path("."));
@@ -464,6 +541,12 @@ load_video(void)
     show_second_monitors             = !!ini_section_get_int(cat, "show_second_monitors", 1);
     video_fullscreen_scale_maximized = !!ini_section_get_int(cat, "video_fullscreen_scale_maximized", 0);
 
+    vid_cga_comp_brightness = ini_section_get_int(cat, "vid_cga_comp_brightness", 0);
+    vid_cga_comp_sharpness  = ini_section_get_int(cat, "vid_cga_comp_sharpness", 0);
+    vid_cga_comp_contrast   = ini_section_get_int(cat, "vid_cga_comp_contrast", 100);
+    vid_cga_comp_hue        = ini_section_get_int(cat, "vid_cga_comp_hue", 0);
+    vid_cga_comp_saturation = ini_section_get_int(cat, "vid_cga_comp_saturation", 100);
+
     // TODO
     for (uint8_t i = 1; i < GFXCARD_MAX; i ++) {
         p = ini_section_get_string(cat, "gfxcard_2", NULL);
@@ -471,6 +554,11 @@ load_video(void)
             p = "none";
         gfxcard[i] = video_get_video_from_internal_name(p);
     }
+
+    monitor_edid = ini_section_get_int(cat, "monitor_edid", 0);
+
+    monitor_edid_path[0] = 0;
+    strncpy(monitor_edid_path, ini_section_get_string(cat, "monitor_edid_path", (char*)""), sizeof(monitor_edid_path) - 1);
 }
 
 /* Load "Input Devices" section. */
@@ -484,6 +572,8 @@ load_input_devices(void)
     p = ini_section_get_string(cat, "keyboard_type", NULL);
     if (p != NULL)
         keyboard_type = keyboard_get_from_internal_name(p);
+    else if (strstr(machine_get_internal_name(), "pc5086"))
+        keyboard_type = KEYBOARD_TYPE_PC_XT;
     else if (machine_has_bus(machine, MACHINE_BUS_PS2_PORTS)) {
         if (machine_has_flags(machine, MACHINE_KEYBOARD_JIS))
             keyboard_type = KEYBOARD_TYPE_PS55;
@@ -504,62 +594,63 @@ load_input_devices(void)
     else
         mouse_type = 0;
 
+    uint8_t joy_insn = 0;
     p = ini_section_get_string(cat, "joystick_type", NULL);
     if (p != NULL) {
-        joystick_type = joystick_get_from_internal_name(p);
+        joystick_type[joy_insn] = joystick_get_from_internal_name(p);
 
-        if (!joystick_type) {
+        if (!joystick_type[joy_insn]) {
             /* Try to read an integer for backwards compatibility with old configs */
             if (!strcmp(p, "0"))
                 /* Workaround for ini_section_get_int returning 0 on non-integer data */
-                joystick_type = joystick_get_from_internal_name("2axis_2button");
+                joystick_type[joy_insn] = joystick_get_from_internal_name("2axis_2button");
             else {
                 int js = ini_section_get_int(cat, "joystick_type", 8);
                 switch (js) {
                     case JS_TYPE_2AXIS_4BUTTON:
-                        joystick_type = joystick_get_from_internal_name("2axis_4button");
+                        joystick_type[joy_insn] = joystick_get_from_internal_name("2axis_4button");
                         break;
                     case JS_TYPE_2AXIS_6BUTTON:
-                        joystick_type = joystick_get_from_internal_name("2axis_6button");
+                        joystick_type[joy_insn] = joystick_get_from_internal_name("2axis_6button");
                         break;
                     case JS_TYPE_2AXIS_8BUTTON:
-                        joystick_type = joystick_get_from_internal_name("2axis_8button");
+                        joystick_type[joy_insn] = joystick_get_from_internal_name("2axis_8button");
                         break;
                     case JS_TYPE_4AXIS_4BUTTON:
-                        joystick_type = joystick_get_from_internal_name("4axis_4button");
+                        joystick_type[joy_insn] = joystick_get_from_internal_name("4axis_4button");
                         break;
                     case JS_TYPE_CH_FLIGHTSTICK_PRO:
-                        joystick_type = joystick_get_from_internal_name("ch_flightstick_pro");
+                        joystick_type[joy_insn] = joystick_get_from_internal_name("ch_flightstick_pro");
                         break;
                     case JS_TYPE_SIDEWINDER_PAD:
-                        joystick_type = joystick_get_from_internal_name("sidewinder_pad");
+                        joystick_type[joy_insn] = joystick_get_from_internal_name("sidewinder_pad");
                         break;
                     case JS_TYPE_THRUSTMASTER_FCS:
-                        joystick_type = joystick_get_from_internal_name("thrustmaster_fcs");
+                        joystick_type[joy_insn] = joystick_get_from_internal_name("thrustmaster_fcs");
                         break;
                     default:
-                        joystick_type = JS_TYPE_NONE;
+                        joystick_type[joy_insn] = JS_TYPE_NONE;
                         break;
                 }
             }
         }
     } else
-        joystick_type = JS_TYPE_NONE;
+        joystick_type[joy_insn] = JS_TYPE_NONE;
 
-    for (int js = 0; js < joystick_get_max_joysticks(joystick_type); js++) {
+    for (int js = 0; js < joystick_get_max_joysticks(joystick_type[joy_insn]); js++) {
         sprintf(temp, "joystick_%i_nr", js);
         joystick_state[0][js].plat_joystick_nr = ini_section_get_int(cat, temp, 0);
 
         if (joystick_state[0][js].plat_joystick_nr) {
-            for (int axis_nr = 0; axis_nr < joystick_get_axis_count(joystick_type); axis_nr++) {
+            for (int axis_nr = 0; axis_nr < joystick_get_axis_count(joystick_type[joy_insn]); axis_nr++) {
                 sprintf(temp, "joystick_%i_axis_%i", js, axis_nr);
                 joystick_state[0][js].axis_mapping[axis_nr] = ini_section_get_int(cat, temp, axis_nr);
             }
-            for (int button_nr = 0; button_nr < joystick_get_button_count(joystick_type); button_nr++) {
+            for (int button_nr = 0; button_nr < joystick_get_button_count(joystick_type[joy_insn]); button_nr++) {
                 sprintf(temp, "joystick_%i_button_%i", js, button_nr);
                 joystick_state[0][js].button_mapping[button_nr] = ini_section_get_int(cat, temp, button_nr);
             }
-            for (int pov_nr = 0; pov_nr < joystick_get_pov_count(joystick_type); pov_nr++) {
+            for (int pov_nr = 0; pov_nr < joystick_get_pov_count(joystick_type[joy_insn]); pov_nr++) {
                 sprintf(temp, "joystick_%i_pov_%i", js, pov_nr);
                 p                                   = ini_section_get_string(cat, temp, "0, 0");
                 joystick_state[0][js].pov_mapping[pov_nr][0] = joystick_state[0][js].pov_mapping[pov_nr][1] = 0;
@@ -681,6 +772,10 @@ load_network(void)
                 nc->net_type = NET_TYPE_VDE;
             else if (!strcmp(p, "tap") || !strcmp(p, "4"))
                 nc->net_type = NET_TYPE_TAP;
+            else if (!strcmp(p, "nmswitch") || !strcmp(p, "5"))
+                nc->net_type = NET_TYPE_NMSWITCH;
+            else if (!strcmp(p, "nrswitch") || !strcmp(p, "6"))
+                nc->net_type = NET_TYPE_NRSWITCH;
             else
                 nc->net_type = NET_TYPE_NONE;
         } else
@@ -729,6 +824,10 @@ load_network(void)
                 nc->net_type = NET_TYPE_VDE;
             else if (!strcmp(p, "tap") || !strcmp(p, "4"))
                 nc->net_type = NET_TYPE_TAP;
+            else if (!strcmp(p, "nmswitch") || !strcmp(p, "5"))
+                nc->net_type = NET_TYPE_NMSWITCH;
+            else if (!strcmp(p, "nrswitch") || !strcmp(p, "6"))
+                nc->net_type = NET_TYPE_NRSWITCH;
             else
                 nc->net_type = NET_TYPE_NONE;
         } else
@@ -750,6 +849,19 @@ load_network(void)
         } else
             strcpy(nc->host_dev_name, "none");
 
+         sprintf(temp, "net_%02i_switch_group", c + 1);
+         net_cards_conf[c].switch_group = ini_section_get_int(cat, temp, 0);
+
+         sprintf(temp, "net_%02i_promisc", c + 1);
+         net_cards_conf[c].promisc_mode = ini_section_get_int(cat, temp, 0);
+
+         sprintf(temp, "net_%02i_nrs_host", c + 1);
+         p = ini_section_get_string(cat, temp, NULL);
+         if (p != NULL)
+            strncpy(net_cards_conf[c].nrs_hostname, p, sizeof(net_cards_conf[c].nrs_hostname) - 1);
+         else
+            strncpy(net_cards_conf[c].nrs_hostname, "", sizeof(net_cards_conf[c].nrs_hostname) - 1);
+
         sprintf(temp, "net_%02i_link", c + 1);
         nc->link_state = ini_section_get_int(cat, temp,
                                              (NET_LINK_10_HD | NET_LINK_10_FD |
@@ -767,6 +879,18 @@ load_ports(void)
     char          temp[512];
     memset(temp, 0, sizeof(temp));
 
+    int           has_jumpers = machine_has_jumpered_ecp_dma(machine, DMA_ANY);
+    int           def_jumper  = machine_get_default_jumpered_ecp_dma(machine);
+
+    jumpered_internal_ecp_dma = ini_section_get_int(cat, "jumpered_internal_ecp_dma", def_jumper);
+
+    if (!has_jumpers || (jumpered_internal_ecp_dma == def_jumper))
+        ini_section_delete_var(cat, "jumpered_internal_ecp_dma");
+    else if (has_jumpers && !(machine_has_jumpered_ecp_dma(machine, jumpered_internal_ecp_dma))) {
+        jumpered_internal_ecp_dma = def_jumper;
+        ini_section_delete_var(cat, "jumpered_internal_ecp_dma");
+    }
+
     for (int c = 0; c < (SERIAL_MAX - 1); c++) {
         sprintf(temp, "serial%d_enabled", c + 1);
         com_ports[c].enabled = !!ini_section_get_int(cat, temp, (c >= 2) ? 0 : 1);
@@ -783,8 +907,8 @@ load_ports(void)
         lpt_ports[c].enabled = !!ini_section_get_int(cat, temp, (c == 0) ? 1 : 0);
 
         sprintf(temp, "lpt%d_device", c + 1);
-        p                   = ini_section_get_string(cat, temp, "none");
-        lpt_ports[c].device = lpt_device_get_from_internal_name(p);
+        p                    = ini_section_get_string(cat, temp, "none");
+        lpt_ports[c].device  = lpt_device_get_from_internal_name(p);
     }
 
 #if 0
@@ -825,12 +949,12 @@ load_image_file(char *dest, char *p, uint8_t *ui_wp)
        prefix = "wp://";
 
     if (path_abs(p)) {
-        if ((strlen(prefix) + strlen(p)) > (MAX_IMAGE_PATH_LEN - 1))
+        if ((strlen(prefix) + strlen(p)) > (MAX_IMAGE_PATH_LEN - 11))
             ret = 1;
         else
             snprintf(dest, MAX_IMAGE_PATH_LEN, "%s%s", prefix, p);
     } else {
-        if ((strlen(prefix) + strlen(usr_path) + strlen(path_get_slash(usr_path)) + strlen(p)) > (MAX_IMAGE_PATH_LEN - 1))
+        if ((strlen(prefix) + strlen(usr_path) + strlen(path_get_slash(usr_path)) + strlen(p)) > (MAX_IMAGE_PATH_LEN - 11))
             ret = 1;
         else
             snprintf(dest, MAX_IMAGE_PATH_LEN, "%s%s%s%s", prefix, usr_path, path_get_slash(usr_path), p);
@@ -1345,8 +1469,11 @@ load_floppy_and_cdrom_drives(void)
         sprintf(temp, "cdrom_%02i_speed", c + 1);
         cdrom[c].speed = ini_section_get_int(cat, temp, 8);
 
+        sprintf(temp, "cdrom_%02i_no_check", c + 1);
+        cdrom[c].no_check = ini_section_get_int(cat, temp, 0);
+
         sprintf(temp, "cdrom_%02i_type", c + 1);
-        p = ini_section_get_string(cat, temp, "86cd");
+        p = ini_section_get_string(cat, temp, cdrom[c].bus_type == CDROM_BUS_MKE ? "cr563" : "86cd");
         /* TODO: Configuration migration, remove when no longer needed. */
         int cdrom_type = cdrom_get_from_internal_name(p);
         if (cdrom_type == -1) {
@@ -1565,7 +1692,7 @@ load_other_removable_devices(void)
 
         sprintf(temp, "zip_%02i_image_path", c + 1);
         p = ini_section_get_string(cat, temp, "");
-        
+
         sprintf(temp, "zip_%02i_writeprot", c + 1);
         rdisk_drives[c].read_only =  ini_section_get_int(cat, temp, 0);
         ini_section_delete_var(cat, temp);
@@ -1669,7 +1796,7 @@ load_other_removable_devices(void)
 
         sprintf(temp, "rdisk_%02i_image_path", c + 1);
         p = ini_section_get_string(cat, temp, "");
-        
+
         sprintf(temp, "rdisk_%02i_writeprot", c + 1);
         rdisk_drives[c].read_only =  ini_section_get_int(cat, temp, 0);
         ini_section_delete_var(cat, temp);
@@ -1959,6 +2086,22 @@ load_keybinds(void)
     }
 }
 
+void
+config_load_global(void)
+{
+    config_log("Loading global config file '%s'...\n", global_cfg_path);
+
+    global = ini_read(global_cfg_path);
+
+    if (global == NULL) {
+        global = ini_new();
+
+        config_log("Global config file not present or invalid!\n");
+    }
+
+    load_global();
+}
+
 /* Load the specified or a default configuration file. */
 void
 config_load(void)
@@ -1966,7 +2109,7 @@ config_load(void)
     int           i;
     ini_section_t c;
 
-    config_log("Loading config file '%s'..\n", cfg_path);
+    config_log("Loading VM config file '%s'...\n", cfg_path);
 
     memset(hdd, 0, sizeof(hard_disk_t));
     memset(cdrom, 0, sizeof(cdrom_t) * CDROM_NUM);
@@ -1975,22 +2118,25 @@ config_load(void)
 #endif
     memset(rdisk_drives, 0, sizeof(rdisk_drive_t));
 
+    for (int i = 0; i < 768; i++)
+        scancode_config_map[i] = i;
+
     config = ini_read(cfg_path);
 
     if (config == NULL) {
-        config         = ini_new();
-        config_changed = 1;
+        config = ini_new();
 
         cpu_f = (cpu_family_t *) &cpu_families[0];
         cpu   = 0;
 
-        kbd_req_capture = 0;
-        hide_status_bar = 0;
-        hide_tool_bar   = 0;
-        scale           = 1;
-        machine         = machine_get_machine_from_internal_name("ibmpc");
-        dpi_scale       = 1;
-        do_auto_pause   = 0;
+        kbd_req_capture      = 0;
+        hide_status_bar      = 0;
+        hide_tool_bar        = 0;
+        scale                = 1;
+        machine              = machine_get_machine_from_internal_name("ibmpc");
+        dpi_scale            = 1;
+        do_auto_pause        = 0;
+        force_constant_mouse = 0;
 
         cpu_override_interpreter = 0;
 
@@ -2005,6 +2151,8 @@ config_load(void)
 
         for (int i = 0; i < HDC_MAX; i++)
             hdc_current[i]         = hdc_get_from_internal_name("none");
+
+        jumpered_internal_ecp_dma = -1;
 
         com_ports[0].enabled = 1;
         com_ports[1].enabled = 1;
@@ -2044,13 +2192,12 @@ config_load(void)
         cassette_pcm          = 0;
         cassette_ui_writeprot = 0;
 
-        lang_id = plat_language_code(DEFAULT_LANGUAGE);
-
-        config_log("Config file not present or invalid!\n");
+        config_log("VM config file not present or invalid!\n");
     } else {
         load_general();                 /* General */
         for (i = 0; i < MONITORS_NUM; i++)
             load_monitor(i);            /* Monitors */
+        load_scan_code_mappings();      /* Scan code mappings */
         load_machine();                 /* Machine */
         load_video();                   /* Video */
         load_input_devices();           /* Input devices */
@@ -2084,13 +2231,98 @@ config_load(void)
         if (c != NULL)
             ini_rename_section(c, "3Dfx Voodoo Banshee");
 
-        /* Mark the configuration as changed. */
-        config_changed = 1;
-
-        config_log("Config loaded.\n\n");
+        config_log("VM config loaded.\n\n");
     }
 
+    /* Mark the configuration as changed. */
+    config_changed = 1;
+
     video_copy = (video_grayscale || invert_display) ? video_transform_copy : memcpy;
+}
+
+/* Save global configuration */
+static void
+save_global(void)
+{
+    ini_section_t cat = ini_find_or_create_section(global, "");
+    char          buffer[512] = { 0 };
+
+    if (lang_id == plat_language_code(DEFAULT_LANGUAGE))
+        ini_section_delete_var(cat, "language");
+    else {
+        plat_language_code_r(lang_id, buffer, 511);
+        ini_section_set_string(cat, "language", buffer);
+    }
+
+    if (color_scheme)
+        ini_section_set_int(cat, "color_scheme", color_scheme);
+    else
+        ini_section_delete_var(cat, "color_scheme");
+
+    if (open_dir_usr_path)
+        ini_section_set_int(cat, "open_dir_usr_path", open_dir_usr_path);
+    else
+        ini_section_delete_var(cat, "open_dir_usr_path");
+
+    if (confirm_reset != 1)
+        ini_section_set_int(cat, "confirm_reset", confirm_reset);
+    else
+        ini_section_delete_var(cat, "confirm_reset");
+
+    if (confirm_exit != 1)
+        ini_section_set_int(cat, "confirm_exit", confirm_exit);
+    else
+        ini_section_delete_var(cat, "confirm_exit");
+
+    if (confirm_save != 1)
+        ini_section_set_int(cat, "confirm_save", confirm_save);
+    else
+        ini_section_delete_var(cat, "confirm_save");
+
+    if (inhibit_multimedia_keys == 1)
+        ini_section_set_int(cat, "inhibit_multimedia_keys", inhibit_multimedia_keys);
+    else
+        ini_section_delete_var(cat, "inhibit_multimedia_keys");
+
+    if (mouse_sensitivity != 1.0)
+        ini_section_set_double(cat, "mouse_sensitivity", mouse_sensitivity);
+    else
+        ini_section_delete_var(cat, "mouse_sensitivity");
+
+    if (vmm_disabled != 0)
+        ini_section_set_int(cat, "vmm_disabled", vmm_disabled);
+    else
+        ini_section_delete_var(cat, "vmm_disabled");
+
+    if (vmm_path_cfg[0] != 0) {
+        /* Save path as relative to the EXE path in portable mode */
+        if (portable_mode && path_abs(vmm_path_cfg) && !strnicmp(vmm_path_cfg, exe_path, strlen(exe_path))) {
+            ini_section_set_string(cat, "vmm_path", &vmm_path_cfg[strlen(exe_path)]);
+        } else {
+            ini_section_set_string(cat, "vmm_path", vmm_path_cfg);
+        }
+    } else {
+        ini_section_delete_var(cat, "vmm_path");
+    }
+}
+
+/* Save scan code mappings. */
+static void
+save_scan_code_mappings(void)
+{
+    ini_section_t cat = ini_find_section(config, "Scan code mappings");
+    char          temp[512];
+
+    for (int c = 0; c < 768; c++) {
+        sprintf(temp, "%03X", c);
+
+        if (scancode_config_map[c] == c)
+            ini_section_delete_var(cat, temp);
+        else
+            ini_section_set_hex12(cat, temp, scancode_config_map[c]);
+    }
+
+    ini_delete_section_if_empty(config, cat);
 }
 
 /* Save "General" section. */
@@ -2099,17 +2331,12 @@ save_general(void)
 {
     ini_section_t cat = ini_find_or_create_section(config, "General");
     char          temp[512];
-    char          buffer[512] = { 0 };
 
     const char *va_name;
 
     ini_section_set_int(cat, "force_10ms", force_10ms);
     if (force_10ms == 0)
         ini_section_delete_var(cat, "force_10ms");
-
-    ini_section_set_int(cat, "inhibit_multimedia_keys", inhibit_multimedia_keys);
-    if (inhibit_multimedia_keys == 0)
-        ini_section_delete_var(cat, "inhibit_multimedia_keys");
 
     ini_section_set_int(cat, "sound_muted", sound_muted);
     if (sound_muted == 0)
@@ -2185,6 +2412,11 @@ save_general(void)
     else
         ini_section_delete_var(cat, "window_remember");
 
+    if (video_fullscreen)
+        ini_section_set_int(cat, "start_in_fullscreen", video_fullscreen);
+    else
+        ini_section_delete_var(cat, "start_in_fullscreen");
+
     if (vid_resize & 2) {
         sprintf(temp, "%ix%i", fixed_size_x, fixed_size_y);
         ini_section_set_string(cat, "window_fixed_res", temp);
@@ -2211,42 +2443,10 @@ save_general(void)
     else
         ini_section_delete_var(cat, "hide_tool_bar");
 
-    if (confirm_reset != 1)
-        ini_section_set_int(cat, "confirm_reset", confirm_reset);
-    else
-        ini_section_delete_var(cat, "confirm_reset");
-
-    if (confirm_exit != 1)
-        ini_section_set_int(cat, "confirm_exit", confirm_exit);
-    else
-        ini_section_delete_var(cat, "confirm_exit");
-
-    if (confirm_save != 1)
-        ini_section_set_int(cat, "confirm_save", confirm_save);
-    else
-        ini_section_delete_var(cat, "confirm_save");
-
-    if (mouse_sensitivity != 1.0)
-        ini_section_set_double(cat, "mouse_sensitivity", mouse_sensitivity);
-    else
-        ini_section_delete_var(cat, "mouse_sensitivity");
-
-    if (lang_id == plat_language_code(DEFAULT_LANGUAGE))
-        ini_section_delete_var(cat, "language");
-    else {
-        plat_language_code_r(lang_id, buffer, 511);
-        ini_section_set_string(cat, "language", buffer);
-    }
-
     if (enable_discord)
         ini_section_set_int(cat, "enable_discord", enable_discord);
     else
         ini_section_delete_var(cat, "enable_discord");
-
-    if (open_dir_usr_path)
-        ini_section_set_int(cat, "open_dir_usr_path", open_dir_usr_path);
-    else
-        ini_section_delete_var(cat, "open_dir_usr_path");
 
     if (video_framerate != -1)
         ini_section_set_int(cat, "video_gl_framerate", video_framerate);
@@ -2261,6 +2461,23 @@ save_general(void)
         ini_section_set_int(cat, "do_auto_pause", do_auto_pause);
     else
         ini_section_delete_var(cat, "do_auto_pause");
+
+    if (video_gl_input_scale != 1.0) {
+        ini_section_set_double(cat, "video_gl_input_scale", video_gl_input_scale);
+    } else {
+        ini_section_delete_var(cat, "video_gl_input_scale");
+    }
+
+    if (video_gl_input_scale_mode != FULLSCR_SCALE_FULL) {
+        ini_section_set_int(cat, "video_gl_input_scale_mode", video_gl_input_scale_mode);
+    } else {
+        ini_section_delete_var(cat, "video_gl_input_scale_mode");
+    }
+
+    if (force_constant_mouse)
+        ini_section_set_int(cat, "force_constant_mouse", force_constant_mouse);
+    else
+        ini_section_delete_var(cat, "force_constant_mouse");
 
     char cpu_buf[128] = { 0 };
     plat_get_cpu_string(cpu_buf, 128);
@@ -2380,6 +2597,41 @@ save_video(void)
     ini_section_set_string(cat, "gfxcard",
                            video_get_internal_name(gfxcard[0]));
 
+    if (monitor_edid)
+        ini_section_set_int(cat, "monitor_edid", monitor_edid);
+    else
+        ini_section_delete_var(cat, "monitor_edid");
+
+    if (monitor_edid_path[0])
+        ini_section_set_string(cat, "monitor_edid_path", monitor_edid_path);
+    else
+        ini_section_delete_var(cat, "monitor_edid_path");
+
+    if (vid_cga_comp_brightness)
+        ini_section_set_int(cat, "vid_cga_comp_brightness", vid_cga_comp_brightness);
+    else
+        ini_section_delete_var(cat, "vid_cga_comp_brightness");
+
+    if (vid_cga_comp_sharpness)
+        ini_section_set_int(cat, "vid_cga_comp_sharpness", vid_cga_comp_sharpness);
+    else
+        ini_section_delete_var(cat, "vid_cga_comp_sharpness");
+
+    if (vid_cga_comp_contrast != 100)
+        ini_section_set_int(cat, "vid_cga_comp_contrast", vid_cga_comp_contrast);
+    else
+        ini_section_delete_var(cat, "vid_cga_comp_contrast");
+
+    if (vid_cga_comp_hue)
+        ini_section_set_int(cat, "vid_cga_comp_hue", vid_cga_comp_hue);
+    else
+        ini_section_delete_var(cat, "vid_cga_comp_hue");
+
+    if (vid_cga_comp_saturation != 100)
+        ini_section_set_int(cat, "vid_cga_comp_saturation", vid_cga_comp_saturation);
+    else
+        ini_section_delete_var(cat, "vid_cga_comp_saturation");
+
     if (voodoo_enabled == 0)
         ini_section_delete_var(cat, "voodoo");
     else
@@ -2433,7 +2685,8 @@ save_input_devices(void)
 
     ini_section_set_string(cat, "mouse_type", mouse_get_internal_name(mouse_type));
 
-    if (!joystick_type) {
+    uint8_t joy_insn = 0;
+    if (!joystick_type[joy_insn]) {
         ini_section_delete_var(cat, "joystick_type");
 
         for (int js = 0; js < MAX_PLAT_JOYSTICKS; js++) {
@@ -2454,22 +2707,22 @@ save_input_devices(void)
             }
         }
     } else {
-        ini_section_set_string(cat, "joystick_type", joystick_get_internal_name(joystick_type));
+        ini_section_set_string(cat, "joystick_type", joystick_get_internal_name(joystick_type[joy_insn]));
 
-        for (int js = 0; js < joystick_get_max_joysticks(joystick_type); js++) {
+        for (int js = 0; js < joystick_get_max_joysticks(joystick_type[joy_insn]); js++) {
             sprintf(tmp2, "joystick_%i_nr", js);
             ini_section_set_int(cat, tmp2, joystick_state[0][js].plat_joystick_nr);
 
             if (joystick_state[0][js].plat_joystick_nr) {
-                for (int axis_nr = 0; axis_nr < joystick_get_axis_count(joystick_type); axis_nr++) {
+                for (int axis_nr = 0; axis_nr < joystick_get_axis_count(joystick_type[joy_insn]); axis_nr++) {
                     sprintf(tmp2, "joystick_%i_axis_%i", js, axis_nr);
                     ini_section_set_int(cat, tmp2, joystick_state[0][js].axis_mapping[axis_nr]);
                 }
-                for (int button_nr = 0; button_nr < joystick_get_button_count(joystick_type); button_nr++) {
+                for (int button_nr = 0; button_nr < joystick_get_button_count(joystick_type[joy_insn]); button_nr++) {
                     sprintf(tmp2, "joystick_%i_button_%i", js, button_nr);
                     ini_section_set_int(cat, tmp2, joystick_state[0][js].button_mapping[button_nr]);
                 }
-                for (int pov_nr = 0; pov_nr < joystick_get_pov_count(joystick_type); pov_nr++) {
+                for (int pov_nr = 0; pov_nr < joystick_get_pov_count(joystick_type[joy_insn]); pov_nr++) {
                     sprintf(tmp2, "joystick_%i_pov_%i", js, pov_nr);
                     sprintf(temp, "%i, %i", joystick_state[0][js].pov_mapping[pov_nr][0],
                             joystick_state[0][js].pov_mapping[pov_nr][1]);
@@ -2601,6 +2854,12 @@ save_network(void)
             case NET_TYPE_TAP:
                 ini_section_set_string(cat, temp, "tap");
                 break;
+            case NET_TYPE_NMSWITCH:
+                ini_section_set_string(cat, temp, "nmswitch");
+                break;
+            case NET_TYPE_NRSWITCH:
+                ini_section_set_string(cat, temp, "nrswitch");
+                break;
             default:
                 break;
         }
@@ -2621,6 +2880,28 @@ save_network(void)
             ini_section_delete_var(cat, temp);
         else
             ini_section_set_int(cat, temp, nc->link_state);
+
+        sprintf(temp, "net_%02i_switch_group", c + 1);
+        if (nc->device_num == 0)
+            ini_section_delete_var(cat, temp);
+        else
+            ini_section_set_int(cat, temp, net_cards_conf[c].switch_group);
+
+        sprintf(temp, "net_%02i_promisc", c + 1);
+        if (nc->device_num == 0)
+            ini_section_delete_var(cat, temp);
+        else
+            ini_section_set_int(cat, temp, net_cards_conf[c].promisc_mode);
+
+        sprintf(temp, "net_%02i_nrs_host", c + 1);
+        if (nc->device_num == 0)
+            ini_section_delete_var(cat, temp);
+        else {
+            if (nc->nrs_hostname[0] != '\0')
+                ini_section_set_string(cat, temp, net_cards_conf[c].nrs_hostname);
+            else
+                ini_section_delete_var(cat, temp);
+        }
     }
 
     ini_delete_section_if_empty(config, cat);
@@ -2632,6 +2913,17 @@ save_ports(void)
 {
     ini_section_t cat = ini_find_or_create_section(config, "Ports (COM & LPT)");
     char          temp[512];
+
+    int           has_jumpers = machine_has_jumpered_ecp_dma(machine, DMA_ANY);
+    int           def_jumper  = machine_get_default_jumpered_ecp_dma(machine);
+
+    if (!has_jumpers || (jumpered_internal_ecp_dma == def_jumper))
+        ini_section_delete_var(cat, "jumpered_internal_ecp_dma");
+    else if (has_jumpers && !(machine_has_jumpered_ecp_dma(machine, jumpered_internal_ecp_dma))) {
+        jumpered_internal_ecp_dma = def_jumper;
+        ini_section_set_int(cat, "jumpered_internal_ecp_dma", jumpered_internal_ecp_dma);
+    } else
+        ini_section_set_int(cat, "jumpered_internal_ecp_dma", jumpered_internal_ecp_dma);
 
     for (int c = 0; c < (SERIAL_MAX - 1); c++) {
         sprintf(temp, "serial%d_enabled", c + 1);
@@ -2659,8 +2951,7 @@ save_ports(void)
         if (lpt_ports[c].device == 0)
             ini_section_delete_var(cat, temp);
         else
-            ini_section_set_string(cat, temp,
-                                   lpt_device_get_internal_name(lpt_ports[c].device));
+            ini_section_set_string(cat, temp, lpt_device_get_internal_name(lpt_ports[c].device));
     }
 
 #if 0
@@ -3131,6 +3422,12 @@ save_floppy_and_cdrom_drives(void)
         sprintf(temp, "cdrom_%02i_host_drive", c + 1);
         ini_section_delete_var(cat, temp);
 
+        sprintf(temp, "cdrom_%02i_no_check", c + 1);
+        if (cdrom[c].no_check)
+            ini_section_set_int(cat, temp, cdrom[c].no_check);
+        else
+            ini_section_delete_var(cat, temp);
+
         sprintf(temp, "cdrom_%02i_speed", c + 1);
         if ((cdrom[c].bus_type == 0) || (cdrom[c].speed == 8))
             ini_section_delete_var(cat, temp);
@@ -3325,11 +3622,20 @@ save_other_removable_devices(void)
 }
 
 void
+config_save_global(void)
+{
+    save_global();                  /* Global */
+
+    ini_write(global, global_cfg_path);
+}
+
+void
 config_save(void)
 {
     save_general();                 /* General */
     for (uint8_t i = 0; i < MONITORS_NUM; i++)
         save_monitor(i);            /* Monitors */
+    save_scan_code_mappings();      /* Scan code mappings */
     save_machine();                 /* Machine */
     save_video();                   /* Video */
     save_input_devices();           /* Input devices */
@@ -3347,6 +3653,8 @@ config_save(void)
     save_keybinds();                /* Key bindings */
 
     ini_write(config, cfg_path);
+
+    config_save_global();
 }
 
 ini_t

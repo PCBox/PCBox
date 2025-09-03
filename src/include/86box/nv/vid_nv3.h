@@ -75,7 +75,7 @@ extern const device_config_t nv3t_config[];                             // Confi
 #define NV3T_VBIOS_ASUS_V170                            "roms/video/nvidia/nv3/A170D03T.rom"            // ASUS AGP-V3000 ZXTV BIOS - V1.70D.03 (C) 1996-98 Nvidia Corporation
 #define NV3T_VBIOS_REFERENCE_CEK_V171                   "roms/video/nvidia/nv3/BIOS_49_Riva 128"        // Reference BIOS: RIVA 128 ZX BIOS - V1.71B-N (C) 1996-98 NVidia Corporation
 #define NV3T_VBIOS_REFERENCE_CEK_V172                   "roms/video/nvidia/nv3/vgasgram.rom"            // Reference(?) BIOS: RIVA 128 ZX BIOS - V1.72B (C) 1996-98 NVidia Corporation
-#
+
 // The default VBIOS to use
 #define NV3_VBIOS_DEFAULT                               NV3_VBIOS_ERAZOR_V15403
 
@@ -607,24 +607,58 @@ extern const device_config_t nv3t_config[];                             // Confi
 #define NV3_PGRAPH_INTR_EN_0                            0x400140    // Interrupt Control for PGRAPH #1
 //todo: add what this does
 #define NV3_PGRAPH_INTR_EN_1                            0x400144    // Interrupt Control for PGRAPH #2 (it can receive two at onc)
-#define NV3_PGRAPH_CONTEXT_SWITCH                       0x400180    // Holds the current PGRAPH context, switched by context switching
+#define NV3_PGRAPH_CTX_SWITCH                           0x400180    // Holds the current PGRAPH context, switched by context switching
 
 /* Contextual information for pgraph */
-#define NV3_PGRAPH_CONTEXT_SWITCH_COLOR_FORMAT          2           // Holds the current color format used for drawing operations.
-#define NV3_PGRAPH_CONTEXT_SWITCH_ALPHA                 3           // Holds a boolean if alpha transparency is currently enabled in drawing operations.
-#define NV3_PGRAPH_CONTEXT_SWITCH_MONO_FORMAT           8           // Holds the current color format used for monochome drawing operations.  
-#define NV3_PGRAPH_CONTEXT_SWITCH_DAC_BYPASS            9           // Holds if PRAMDAC should be bypassed, and an external DAC drawn.
-#define NV3_PGRAPH_CONTEXT_SWITCH_Z_WRITE               12          // Holds if we should write back to the zbuffer.
-#define NV3_PGRAPH_CONTEXT_SWITCH_CHROMA_KEY            13          // Holds the current chroma mask used for drawing operations.
-#define NV3_PGRAPH_CONTEXT_SWITCH_PLANE_MASK            14          // Holds the current plane mask used for drawing operations.
-#define NV3_PGRAPH_CONTEXT_SWITCH_USER_CLIP             15          // Holds the user-specified clipping information used for drawing operations.
-#define NV3_PGRAPH_CONTEXT_SWITCH_SRC_BUFFER            16          // Holds the buffer ID used for drawing operation (i.e. which bpixel/bpitch/boffset index to use)
-#define NV3_PGRAPH_CONTEXT_SWITCH_DST_BUFFER0_ENABLED   20          // Holds a boolean indicating if buffer 0 can be used as the destination for a drawing operation.
-#define NV3_PGRAPH_CONTEXT_SWITCH_DST_BUFFER1_ENABLED   21          // Holds a boolean indicating if buffer 1 can be used as the destination for a drawing operation.
-#define NV3_PGRAPH_CONTEXT_SWITCH_DST_BUFFER2_ENABLED   22          // Holds a boolean indicating if buffer 2 can be used as the destination for a drawing operation.
-#define NV3_PGRAPH_CONTEXT_SWITCH_DST_BUFFER3_ENABLED   23          // Holds a boolean indicating if buffer 3 can be used as the destination for a drawing operation.
-#define NV3_PGRAPH_CONTEXT_SWITCH_PATCH_CONFIG          24          // Something to do with an operation to do during a patchcord?
-#define NV3_PGRAPH_CONTEXT_SWITCH_VOLATILE              31          // HUH
+#define NV3_PGRAPH_CTX_SWITCH_COLOR_FORMAT              0           // Holds the current color format used for drawing operations.
+#define NV3_PGRAPH_CTX_SWITCH_ALPHA                     3           // Holds a boolean indicating in if alpha transparency is currently enabled in drawing operations.
+#define NV3_PGRAPH_CTX_SWITCH_MONO_FORMAT               8           // Holds the current color format used for monochome drawing operations.  
+#define NV3_PGRAPH_CTX_SWITCH_DAC_BYPASS                9           // Holds if PRAMDAC should be bypassed, and an external DAC drawn.
+#define NV3_PGRAPH_CTX_SWITCH_Z_WRITE                   12          // Holds if we should write back to the zbuffer.
+#define NV3_PGRAPH_CTX_SWITCH_CHROMA_KEY                13          // Holds the current chroma mask used for drawing operations.
+#define NV3_PGRAPH_CTX_SWITCH_PLANE_MASK                14          // Holds the current plane mask used for drawing operations.
+#define NV3_PGRAPH_CTX_SWITCH_USER_CLIP                 15          // Holds the user-specified clipping information used for drawing operations.
+#define NV3_PGRAPH_CTX_SWITCH_SRC_BUFFER                16          // Holds the buffer ID used for drawing operation (i.e. which bpixel/bpitch/boffset index to use)
+#define NV3_PGRAPH_CTX_SWITCH_DST_BUFFER0_ENABLED       20          // Holds a boolean indicating if buffer 0 can be used as the destination for a drawing operation.
+#define NV3_PGRAPH_CTX_SWITCH_DST_BUFFER1_ENABLED       21          // Holds a boolean indicating if buffer 1 can be used as the destination for a drawing operation.
+#define NV3_PGRAPH_CTX_SWITCH_DST_BUFFER2_ENABLED       22          // Holds a boolean indicating if buffer 2 can be used as the destination for a drawing operation.
+#define NV3_PGRAPH_CTX_SWITCH_DST_BUFFER3_ENABLED       23          // Holds a boolean indicating if buffer 3 can be used as the destination for a drawing operation.
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG              24          // ROP type
+
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_RSVD0        0x0         // Reserved
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_DST_DST_SRC  0x1 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_DST_SRC_DST  0x2 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_DST_SRC_SRC  0x3 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_SRC_DST_DST  0x4 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_SRC_DST_SRC  0x5 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_SRC_SRC_DST  0x6 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_SRC_SRC_SRC0 0x7 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_SRC_SRC_SRC1 0x8 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_SRC_SRC_PAT  0x9 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_SRC_PAT_SRC  0xA 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_SRC_PAT_PAT  0xB 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_PAT_SRC_SRC  0xC 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_PAT_SRC_PAT  0xD 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_PAT_PAT_SRC  0xE 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_RSVD1        0xF 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_PAT_SRC_DST  0x10 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_PAT_DST_SRC  0x11 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_SRC_PAT_DST  0x12 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_SRC_DST_PAT  0x13 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_DST_PAT_SRC  0x14 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_DST_SRC_PAT  0x15 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_RSVD2        0x16 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_SRC_BYPASS   0x17        // Ignore
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_BLEND_RSVD0  0x18 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_BLEND_SRC_DST 0x19 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_BLEND_DST_SRC 0x1A 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_BLEND_RSVD1  0x1B 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_BLEND_RSVD2  0x1C 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_BLEND_SRC    0x1D 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_BLEND_RSVD3  0x1E 
+#define NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG_BLEND_RSVD4  0x1F        
+
+#define NV3_PGRAPH_CTX_SWITCH_VOLATILE                  31          // HUH
 
 #define NV3_PGRAPH_CONTEXT_CONTROL                      0x400190    // DMA context control
 #define NV3_PGRAPH_CONTEXT_USER                         0x400194    // Current DMA context state, may rename
@@ -1020,10 +1054,10 @@ typedef struct nv3_pfb_s
 #define NV3_NOTIFICATION_INFO_ADJUST            0       // Wut
 #define NV3_NOTIFICATION_PT_PRESENT             16      // Determines if the pagetable exists.
 #define NV3_NOTIFICATION_TARGET                 24      // Determines where this notification goes
-#define NV3_NOTIFICATION_TARGET_NVM             0       // VRAM target for DMA
-#define NV3_NOTIFICATION_TARGET_CART            1       // "Cartridge" target for dma, only mentioned in a few places, !!! NV2 LEFTOVER !!!
-#define NV3_NOTIFICATION_TARGET_PCI             2       // Send the data to the host system over PCI
-#define NV3_NOTIFICATION_TARGET_AGP             3       // Send the data to the host system over AGP
+#define NV3_DMA_TARGET_NODE_VRAM             0       // VRAM target for DMA
+#define NV3_DMA_TARGET_NODE_CART            1       // "Cartridge" target for dma, only mentioned in a few places, !!! NV2 LEFTOVER !!!
+#define NV3_DMA_TARGET_NODE_PCI             2       // Send the data to the host system over PCI
+#define NV3_DMA_TARGET_NODE_AGP             3       // Send the data to the host system over AGP
 
 #define NV3_NOTIFICATION_PAGE_IS_PRESENT        0       // Determines if the page really exists
 #define NV3_NOTIFICATION_PAGE_ACCESS            1       // Determines the page access type
@@ -1166,10 +1200,10 @@ typedef struct nv3_pramdac_s
 } nv3_pramdac_t;
 
 /* Holds DMA channel context information */
-typedef struct nv3_pgraph_context_switch_s
+typedef struct NV3_PGRAPH_CTX_SWITCH_s
 {
     /* TODO */
-} nv3_pgraph_context_switch_t;
+} NV3_PGRAPH_CTX_SWITCH_t;
 
 typedef struct nv3_pgraph_context_control_s
 {
@@ -1251,10 +1285,10 @@ typedef enum nv3_pgraph_bpixel_format_e
 
 typedef enum nv3_pgraph_destination_buffer_e
 {
-    pgraph_dest_buffer0 = (1 << NV3_PGRAPH_CONTEXT_SWITCH_DST_BUFFER0_ENABLED),
-    pgraph_dest_buffer1 = (1 << NV3_PGRAPH_CONTEXT_SWITCH_DST_BUFFER1_ENABLED),
-    pgraph_dest_buffer2 = (1 << NV3_PGRAPH_CONTEXT_SWITCH_DST_BUFFER2_ENABLED),
-    pgraph_dest_buffer3 = (1 << NV3_PGRAPH_CONTEXT_SWITCH_DST_BUFFER3_ENABLED),
+    pgraph_dest_buffer0 = (1 << NV3_PGRAPH_CTX_SWITCH_DST_BUFFER0_ENABLED),
+    pgraph_dest_buffer1 = (1 << NV3_PGRAPH_CTX_SWITCH_DST_BUFFER1_ENABLED),
+    pgraph_dest_buffer2 = (1 << NV3_PGRAPH_CTX_SWITCH_DST_BUFFER2_ENABLED),
+    pgraph_dest_buffer3 = (1 << NV3_PGRAPH_CTX_SWITCH_DST_BUFFER3_ENABLED),
 } nv3_pgraph_destination_buffer;
 
 // Graphics Subsystem
@@ -1273,7 +1307,7 @@ typedef struct nv3_pgraph_s
 
     uint32_t context_switch;              // TODO: Make this a struct, it's just going to be enormous lol.
     nv3_pgraph_context_control_t context_control;
-    nv3_pgraph_context_switch_t context_user_submit;
+    NV3_PGRAPH_CTX_SWITCH_t context_user_submit;
     nv3_pgraph_context_user_t context_user;
     uint32_t context_cache[NV3_PGRAPH_CONTEXT_CACHE_SIZE];  // DMA context cache (nv3_pgraph_context_user_t array?)
 

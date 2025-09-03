@@ -54,7 +54,7 @@
      <x>0</x>
      <y>0</y>
      <width>724</width>
-     <height>23</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuAction">
@@ -68,12 +68,14 @@
      <addaction name="actionPen"/>
      <addaction name="actionCursor_Puck"/>
     </widget>
-    <addaction name="actionAuto_pause"/>
+    <addaction name="menuTablet_tool"/>
     <addaction name="separator"/>
     <addaction name="actionKeyboard_requires_capture"/>
     <addaction name="actionRight_CTRL_is_left_ALT"/>
-    <addaction name="menuTablet_tool"/>
     <addaction name="separator"/>
+    <addaction name="actionUpdate_mouse_every_CPU_frame"/>
+    <addaction name="separator"/>
+    <addaction name="actionAuto_pause"/>
     <addaction name="actionPause"/>
     <addaction name="separator"/>
     <addaction name="actionHard_Reset"/>
@@ -110,6 +112,7 @@
     <addaction name="separator"/>
     <addaction name="actionMCA_devices"/>
     <addaction name="separator"/>
+    <addaction name="actionOpen_printer_tray"/>
     <addaction name="actionOpen_screenshots_folder"/>
    </widget>
    <widget class="QMenu" name="menuView">
@@ -159,7 +162,7 @@
     </widget>
     <widget class="QMenu" name="menuEGA_S_VGA_settings">
      <property name="title">
-      <string>E&amp;GA/(S)VGA settings</string>
+      <string>EGA/(S)&amp;VGA settings</string>
      </property>
      <widget class="QMenu" name="menuVGA_screen_type">
       <property name="title">
@@ -183,6 +186,31 @@
      <addaction name="menuVGA_screen_type"/>
      <addaction name="menuGrayscale_conversion_type"/>
     </widget>
+    <widget class="QMenu" name="menuOpenGL_input_stretch_mode">
+     <property name="title">
+      <string>OpenGL input stretch mode</string>
+     </property>
+     <addaction name="action_Full_screen_stretch_gl"/>
+     <addaction name="action_4_3_gl"/>
+     <addaction name="action_Square_pixels_keep_ratio_gl"/>
+     <addaction name="action_Integer_scale_gl"/>
+     <addaction name="action4_3_Integer_scale_gl"/>
+    </widget>
+    <widget class="QMenu" name="menuOpenGL_input_scale">
+     <property name="title">
+      <string>OpenGL input scale</string>
+     </property>
+     <addaction name="action_0_5x_2"/>
+     <addaction name="action_1x_2"/>
+     <addaction name="action1_5x_2"/>
+     <addaction name="action_2x_2"/>
+     <addaction name="action_3x_2"/>
+     <addaction name="action_4x_2"/>
+     <addaction name="action_5x_2"/>
+     <addaction name="action_6x_2"/>
+     <addaction name="action_7x_2"/>
+     <addaction name="action_8x_2"/>
+    </widget>
     <addaction name="actionHide_tool_bar"/>
     <addaction name="actionHide_status_bar"/>
     <addaction name="separator"/>
@@ -192,6 +220,8 @@
     <addaction name="separator"/>
     <addaction name="menuRenderer"/>
     <addaction name="actionRenderer_options"/>
+    <addaction name="menuOpenGL_input_stretch_mode"/>
+    <addaction name="menuOpenGL_input_scale"/>
     <addaction name="separator"/>
     <addaction name="actionSpecify_dimensions"/>
     <addaction name="actionForce_4_3_display_ratio"/>
@@ -202,6 +232,7 @@
     <addaction name="actionFullscreen"/>
     <addaction name="menuFullscreen_stretch_mode"/>
     <addaction name="actionApply_fullscreen_stretch_mode_when_maximized"/>
+    <addaction name="actionCGA_composite_settings"/>
     <addaction name="menuEGA_S_VGA_settings"/>
     <addaction name="separator"/>
     <addaction name="actionCGA_PCjr_Tandy_EGA_S_VGA_overscan"/>
@@ -237,7 +268,7 @@
   <widget class="QStatusBar" name="statusbar"/>
   <widget class="QToolBar" name="toolBar">
    <property name="contextMenuPolicy">
-    <enum>Qt::PreventContextMenu</enum>
+    <enum>Qt::ContextMenuPolicy::PreventContextMenu</enum>
    </property>
    <property name="windowTitle">
     <string notr="true">toolBar</string>
@@ -249,7 +280,7 @@
     <bool>false</bool>
    </property>
    <property name="allowedAreas">
-    <set>Qt::TopToolBarArea</set>
+    <set>Qt::ToolBarArea::TopToolBarArea</set>
    </property>
    <property name="iconSize">
     <size>
@@ -258,7 +289,7 @@
     </size>
    </property>
    <property name="toolButtonStyle">
-    <enum>Qt::ToolButtonIconOnly</enum>
+    <enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum>
    </property>
    <property name="floatable">
     <bool>false</bool>
@@ -279,6 +310,14 @@
    <addaction name="separator"/>
    <addaction name="actionSettings"/>
   </widget>
+  <action name="actionUpdate_mouse_every_CPU_frame">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Update mouse every CPU frame</string>
+   </property>
+  </action>
   <action name="actionAuto_pause">
    <property name="checkable">
     <bool>true</bool>
@@ -365,7 +404,7 @@
     <string>E&amp;xit</string>
    </property>
    <property name="menuRole">
-    <enum>QAction::QuitRole</enum>
+    <enum>QAction::MenuRole::QuitRole</enum>
    </property>
   </action>
   <action name="actionSettings">
@@ -377,7 +416,7 @@
     <string>&amp;Settings...</string>
    </property>
    <property name="menuRole">
-    <enum>QAction::NoRole</enum>
+    <enum>QAction::MenuRole::NoRole</enum>
    </property>
    <property name="iconVisibleInMenu">
     <bool>false</bool>
@@ -436,7 +475,7 @@
     <bool>true</bool>
    </property>
    <property name="text">
-    <string>F&amp;orce 4:3 display ratio</string>
+    <string>Force &amp;4:3 display ratio</string>
    </property>
   </action>
   <action name="actionHiDPI_scaling">
@@ -679,7 +718,7 @@
     <bool>false</bool>
    </property>
    <property name="menuRole">
-    <enum>QAction::AboutQtRole</enum>
+    <enum>QAction::MenuRole::AboutQtRole</enum>
    </property>
   </action>
   <action name="actionAbout_86Box">
@@ -687,7 +726,7 @@
     <string>&amp;About PCBox...</string>
    </property>
    <property name="menuRole">
-    <enum>QAction::AboutRole</enum>
+    <enum>QAction::MenuRole::AboutRole</enum>
    </property>
   </action>
   <action name="actionDocumentation">
@@ -740,7 +779,7 @@
     <string>&amp;Preferences...</string>
    </property>
    <property name="menuRole">
-    <enum>QAction::PreferencesRole</enum>
+    <enum>QAction::MenuRole::PreferencesRole</enum>
    </property>
   </action>
   <action name="actionEnable_Discord_integration">
@@ -813,7 +852,7 @@
     <string>Renderer &amp;options...</string>
    </property>
    <property name="menuRole">
-    <enum>QAction::NoRole</enum>
+    <enum>QAction::MenuRole::NoRole</enum>
    </property>
   </action>
   <action name="actionVulkan">
@@ -849,6 +888,11 @@
    </property>
    <property name="vid_api" stdset="0">
     <number>3</number>
+   </property>
+  </action>
+  <action name="actionOpen_printer_tray">
+   <property name="text">
+    <string>Open p&amp;rinter tray...</string>
    </property>
   </action>
   <action name="actionOpen_screenshots_folder">
@@ -889,6 +933,139 @@
     <property name="text">
       <string>RIVA 128 Realtime Debugger</string>
     </property>
+   </action>
+  <action name="actionCGA_composite_settings">
+   <property name="text">
+    <string>&amp;CGA composite settings...</string>
+   </property>
+  </action>
+  <action name="action_Full_screen_stretch_gl">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Full screen stretch</string>
+   </property>
+  </action>
+  <action name="action_4_3_gl">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;4:3</string>
+   </property>
+  </action>
+  <action name="action_Square_pixels_keep_ratio_gl">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Square pixels (Keep ratio)</string>
+   </property>
+  </action>
+  <action name="action_Integer_scale_gl">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Integer scale</string>
+   </property>
+  </action>
+  <action name="action4_3_Integer_scale_gl">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>4:&amp;3 Integer scale</string>
+   </property>
+  </action>
+  <action name="action_1x">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;1x</string>
+   </property>
+  </action>
+  <action name="action_0_5x_2">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;0.5x</string>
+   </property>
+  </action>
+  <action name="action_1x_2">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;1x</string>
+   </property>
+  </action>
+  <action name="action1_5x_2">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>1.&amp;5x</string>
+   </property>
+  </action>
+  <action name="action_2x_2">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;2x</string>
+   </property>
+  </action>
+  <action name="action_3x_2">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;3x</string>
+   </property>
+  </action>
+  <action name="action_4x_2">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;4x</string>
+   </property>
+  </action>
+  <action name="action_5x_2">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;5x</string>
+   </property>
+  </action>
+  <action name="action_6x_2">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;6x</string>
+   </property>
+  </action>
+  <action name="action_7x_2">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;7x</string>
+   </property>
+  </action>
+  <action name="action_8x_2">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>&amp;8x</string>
+   </property>
   </action>
  </widget>
  <customwidgets>

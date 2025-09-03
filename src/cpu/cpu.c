@@ -81,6 +81,8 @@ enum {
     CPUID_SSE2      = (1 << 26),
 
     CPUID_SSE3      = (1 << 0),
+    CPUID_MONITOR_MWAIT = (1 << 3),
+    CPUID_SSSE3     = (1 << 9),
 
     CPUID_NX        = (1 << 20)  /* NX bit */
 };
@@ -105,6 +107,8 @@ uint32_t abrt_error;
 #ifdef USE_DYNAREC
 const OpFn *x86_dynarec_opcodes;
 const OpFn *x86_dynarec_opcodes_0f;
+const OpFn *x86_dynarec_opcodes_0f_38;
+const OpFn *x86_dynarec_opcodes_0f_3a;
 const OpFn *x86_dynarec_opcodes_d8_a16;
 const OpFn *x86_dynarec_opcodes_d8_a32;
 const OpFn *x86_dynarec_opcodes_d9_a16;
@@ -130,6 +134,8 @@ const OpFn *x86_dynarec_opcodes_3DNOW;
 
 const OpFn *x86_opcodes;
 const OpFn *x86_opcodes_0f;
+const OpFn *x86_opcodes_0f_38;
+const OpFn *x86_opcodes_0f_3a;
 const OpFn *x86_opcodes_d8_a16;
 const OpFn *x86_opcodes_d8_a32;
 const OpFn *x86_opcodes_d9_a16;
@@ -627,6 +633,8 @@ cpu_set(void)
     x86_opcodes_REPE_0f    = NULL;
     x86_opcodes_REPNE      = ops_REPNE;
     x86_opcodes_REPNE_0f   = NULL;
+    x86_opcodes_0f_38      = NULL;
+    x86_opcodes_0f_3a      = NULL;
     x86_2386_opcodes_REPE  = ops_2386_REPE;
     x86_2386_opcodes_REPNE = ops_2386_REPNE;
     x86_opcodes_3DNOW      = ops_3DNOW;
@@ -635,6 +643,8 @@ cpu_set(void)
     x86_dynarec_opcodes_REPE_0f  = NULL;
     x86_dynarec_opcodes_REPNE = dynarec_ops_REPNE;
     x86_dynarec_opcodes_REPNE_0f  = NULL;
+    x86_dynarec_opcodes_0f_38 = NULL;
+    x86_dynarec_opcodes_0f_3a = NULL;
     x86_dynarec_opcodes_3DNOW = dynarec_ops_3DNOW;
 #endif /* USE_DYNAREC */
 
@@ -1110,6 +1120,9 @@ cpu_set(void)
             timing_jmp_rm             = 12;
             timing_jmp_pm             = 27;
             timing_jmp_pm_gate        = 45;
+
+            if (cpu_s->cpu_type == CPU_386DX)
+                cpu_cache_ext_enabled = 1;
             break;
 
         case CPU_486SLC:
@@ -1191,6 +1204,8 @@ cpu_set(void)
             timing_jmp_pm_gate        = 37;
 
             timing_misaligned = 3;
+
+            cpu_cache_ext_enabled = 1;
             break;
 
         case CPU_i486SX_SLENH:
@@ -1906,11 +1921,15 @@ cpu_set(void)
             }
             x86_dynarec_opcodes_REPE_0f = dynarec_ops_genericintel_REPE_0f;
             x86_dynarec_opcodes_REPNE_0f = dynarec_ops_genericintel_REPNE_0f;
+            x86_dynarec_opcodes_0f_38 = dynarec_ops_genericintel_0f_38;
+            x86_dynarec_opcodes_0f_3a = dynarec_ops_genericintel_0f_3a;
 #else
             x86_setopcodes(ops_386, ops_genericintel_0f);
 #endif
             x86_opcodes_REPE_0f = ops_genericintel_REPE_0f;
             x86_opcodes_REPNE_0f = ops_genericintel_REPNE_0f;
+            x86_opcodes_0f_38 = ops_genericintel_0f_38;
+            x86_opcodes_0f_3a = ops_genericintel_0f_3a;
             if (fpu_softfloat) {
                 x86_opcodes_da_a16 = ops_sf_fpu_686_da_a16;
                 x86_opcodes_da_a32 = ops_sf_fpu_686_da_a32;
@@ -1963,7 +1982,7 @@ cpu_set(void)
 
             timing_misaligned = 3;
 
-            cpu_features = CPU_FEATURE_RDTSC | CPU_FEATURE_MSR | CPU_FEATURE_CR4 | CPU_FEATURE_VME | CPU_FEATURE_MMX | CPU_FEATURE_PSE36 | CPU_FEATURE_SSE | CPU_FEATURE_SSE2 | CPU_FEATURE_CLFLUSH | CPU_FEATURE_NX | CPU_FEATURE_SSE3 | CPU_FEATURE_LAPIC;
+            cpu_features = CPU_FEATURE_RDTSC | CPU_FEATURE_MSR | CPU_FEATURE_CR4 | CPU_FEATURE_VME | CPU_FEATURE_MMX | CPU_FEATURE_PSE36 | CPU_FEATURE_SSE | CPU_FEATURE_SSE2 | CPU_FEATURE_CLFLUSH | CPU_FEATURE_NX | CPU_FEATURE_LAPIC;
             msr.fcr      = (1 << 8) | (1 << 9) | (1 << 12) | (1 << 16) | (1 << 19) | (1 << 21);
             cpu_CR4_mask = CR4_VME | CR4_PVI | CR4_TSD | CR4_DE | CR4_PSE | CR4_MCE | CR4_PAE | CR4_PCE | CR4_PGE;
             cpu_CR4_mask |= CR4_OSFXSR | CR4_OSXMMEXCPT;
@@ -2983,20 +3002,31 @@ cpu_CPUID(void)
 
         case CPU_GENERICINTEL:
             if (!EAX) {
-                EAX = 0x00000002;
+                EAX = 0x00000005;
                 EBX = 0x756e6547;
                 EDX = 0x49656e69;
                 ECX = 0x6c65746e;
             } else if (EAX == 1) {
                 EAX = CPUID;
                 EBX = (8 << 8) | (1 << 16);
-                ECX       = CPUID_SSE3;
+                ECX       = CPUID_SSE3;// | CPUID_MONITOR_MWAIT;// | CPUID_SSSE3;
                 EDX       = CPUID_FPU | CPUID_VME | CPUID_DE | CPUID_PSE | CPUID_TSC | CPUID_MSR | CPUID_PAE | CPUID_MCE | CPUID_CMPXCHG8B | CPUID_MMX | CPUID_MTRR | CPUID_PGE | CPUID_MCA | CPUID_SEP | CPUID_FXSR | CPUID_CMOV | CPUID_PSE36 | CPUID_SSE | CPUID_SSE2 | CPUID_CLFLUSH | CPUID_LAPIC;
                 if (msr.apic_base & (1 << 11)) EDX &= ~CPUID_LAPIC;
             } else if (EAX == 2) {
                 EAX = 0x00000001;
                 EBX = ECX = 0;
                 EDX       = 0x00000000;
+            } else if (EAX == 5) {
+                if((msr.ecx1a0 & (1 << 22)))
+                {
+                    EAX = EBX = ECX = EDX = 0;
+                }
+                else
+                {
+                    EAX = EBX = 0x40;
+                    ECX = 0;
+                    EDX = 0x1120;
+                }
             } else if (EAX == 0x80000000) {
                 EAX = 0x80000001;
                 EBX = 0x756e6547;
@@ -3099,7 +3129,7 @@ cpu_CPUID(void)
                     break;
                 case 0x80000001:
                     EAX = CPUID;
-                    EDX = CPUID_FPU | CPUID_DE | CPUID_TSC | CPUID_MSR | CPUID_MCE | CPUID_MMX | CPUID_MTRR | CPUID_CMOV | CPUID_FXSR | CPUID_SSE;
+                    EDX = CPUID_FPU | CPUID_DE | CPUID_TSC | CPUID_MSR | CPUID_MCE | CPUID_MMX | CPUID_MTRR | CPUID_CMOV | CPUID_FXSR;
                     if (cpu_has_feature(CPU_FEATURE_CX8))
                         EDX |= CPUID_CMPXCHG8B;
                     if (msr.fcr & (1 << 7))
@@ -5820,13 +5850,6 @@ cpu_update_waitstates(void)
     if (cpu_cache_int_enabled) {
         /* Disable prefetch emulation */
         cpu_prefetch_cycles = 0;
-    } else if (cpu_waitstates && (cpu_s->cpu_type >= CPU_286 && cpu_s->cpu_type <= CPU_386DX)) {
-        /* Waitstates override */
-        cpu_prefetch_cycles = cpu_waitstates + 1;
-        cpu_cycles_read     = cpu_waitstates + 1;
-        cpu_cycles_read_l   = (cpu_16bitbus ? 2 : 1) * (cpu_waitstates + 1);
-        cpu_cycles_write    = cpu_waitstates + 1;
-        cpu_cycles_write_l  = (cpu_16bitbus ? 2 : 1) * (cpu_waitstates + 1);
     } else if (cpu_cache_ext_enabled) {
         /* Use cache timings */
         cpu_prefetch_cycles = cpu_s->cache_read_cycles;
@@ -5834,6 +5857,13 @@ cpu_update_waitstates(void)
         cpu_cycles_read_l   = (cpu_16bitbus ? 2 : 1) * cpu_s->cache_read_cycles;
         cpu_cycles_write    = cpu_s->cache_write_cycles;
         cpu_cycles_write_l  = (cpu_16bitbus ? 2 : 1) * cpu_s->cache_write_cycles;
+    } else if (cpu_waitstates && (cpu_s->cpu_type >= CPU_286 && cpu_s->cpu_type <= CPU_386DX)) {
+        /* Waitstates override */
+        cpu_prefetch_cycles = cpu_waitstates + 1;
+        cpu_cycles_read     = cpu_waitstates + 1;
+        cpu_cycles_read_l   = (cpu_16bitbus ? 2 : 1) * (cpu_waitstates + 1);
+        cpu_cycles_write    = cpu_waitstates + 1;
+        cpu_cycles_write_l  = (cpu_16bitbus ? 2 : 1) * (cpu_waitstates + 1);
     } else {
         /* Use memory timings */
         cpu_prefetch_cycles = cpu_s->mem_read_cycles;

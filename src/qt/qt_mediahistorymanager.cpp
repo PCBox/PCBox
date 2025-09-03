@@ -353,7 +353,7 @@ MediaHistoryManager::removeMissingImages(device_index_list_t &device_history)
         char temp[MAX_IMAGE_PATH_LEN * 2] = { 0 };
 
         if (checked_path.left(8) == "ioctl://") {
-            strncpy(temp, checked_path.toUtf8().data(), sizeof(temp));
+            strncpy(temp, checked_path.toUtf8().data(), sizeof(temp) - 10);
             temp[sizeof(temp) - 1] = '\0';
         } else {
             QString path_only;
@@ -384,7 +384,7 @@ MediaHistoryManager::removeMissingImages(device_index_list_t &device_history)
 
 #ifdef Q_OS_WINDOWS
         if (new_fi.filePath().left(8) == "ioctl://")
-            file_exists = (GetDriveType(new_fi.filePath().right(2).toUtf8().data()) == DRIVE_CDROM);
+            file_exists = (GetDriveTypeA(new_fi.filePath().right(2).toUtf8().data()) == DRIVE_CDROM);
 #endif
 
         if (!file_exists) {

@@ -36,7 +36,7 @@ if(MUNT_EXTERNAL)
 endif()
 
 project(PCBox
-    VERSION 5.0
+    VERSION 5.1
     DESCRIPTION "Emulator of x86-based systems"
     HOMEPAGE_URL "https://pcbox-emu.xyz/"
     LANGUAGES C CXX)
@@ -196,6 +196,7 @@ cmake_dependent_option(SIO_DETECT     "Super I/O Detection Helper"              
 cmake_dependent_option(WACOM          "Wacom Input Devices"                      ON    "DEV_BRANCH"  OFF)
 cmake_dependent_option(XL24           "ATI VGA Wonder XL24 (ATI-28800-6)"        ON    "DEV_BRANCH"  OFF)
 cmake_dependent_option(NV3            "NVidia RIVA 128/128ZX (NV3/NV3T)"         ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(NETSWITCH      "Network Switch Support"                   ON    "DEV_BRANCH"  OFF)
 
 # Ditto but for Qt
 if(QT)

@@ -290,6 +290,8 @@ plat_get_string(int i)
             return L"Hardware not available";
         case STRING_MONITOR_SLEEP:
             return L"Monitor in sleep mode";
+        case STRING_EDID_TOO_LARGE:
+            return "EDID file \"%ls\" is too large.";
     }
     return L"";
 }
@@ -873,21 +875,23 @@ plat_init_rom_paths(void)
 #undef TMP_PATH_BUFSIZE
 
 void
-plat_get_global_config_dir(char *outbuf, const uint8_t len)
+plat_get_global_config_dir(char *outbuf, const size_t len)
 {
-    char *prefPath = SDL_GetPrefPath(NULL, "86Box");
-    strncpy(outbuf, prefPath, len);
-    path_slash(outbuf);
-    SDL_free(prefPath);
+    return plat_get_global_data_dir(outbuf, len);
 }
 
 void
-plat_get_global_data_dir(char *outbuf, const uint8_t len)
+plat_get_global_data_dir(char *outbuf, const size_t len)
 {
-    char *prefPath = SDL_GetPrefPath(NULL, "86Box");
-    strncpy(outbuf, prefPath, len);
+    if (portable_mode) {
+        strncpy(outbuf, exe_path, len);
+    } else {
+        char *prefPath = SDL_GetPrefPath(NULL, "86Box");
+        strncpy(outbuf, prefPath, len);
+        SDL_free(prefPath);
+    }
+
     path_slash(outbuf);
-    SDL_free(prefPath);
 }
 
 void
@@ -899,6 +903,14 @@ plat_get_temp_dir(char *outbuf, uint8_t len)
     }
     strncpy(outbuf, tmpdir, len);
     path_slash(outbuf);
+}
+
+void
+plat_get_vmm_dir(char *outbuf, const size_t len)
+{
+    // Return empty string. SDL 86Box does not have a VM manager
+    if (len > 0)
+        outbuf[0] = 0;
 }
 
 bool
@@ -1228,11 +1240,12 @@ main(int argc, char **argv)
     ret = pc_init(argc, argv);
     if (ret == 0)
         return 0;
-    if (!pc_init_modules()) {
+    if (!pc_init_roms()) {
         ui_msgbox_header(MBX_FATAL, L"No ROMs found.", L"86Box could not find any usable ROM images.\n\nPlease download a ROM set and extract it into the \"roms\" directory.");
         SDL_Quit();
         return 6;
     }
+    pc_init_modules();
 
     for (uint8_t i = 1; i < GFXCARD_MAX; i++)
         gfxcard[i]  = 0;
@@ -1475,7 +1488,7 @@ joystick_close(void)
 }
 
 void
-joystick_process(void)
+joystick_process(uint8_t gp)
 {
     /* No-op. */
 }

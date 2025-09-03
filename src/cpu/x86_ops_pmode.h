@@ -365,6 +365,52 @@ op0F01_common(UNUSED(uint32_t fetchdat), int is32, int is286, UNUSED(int ea32))
     uint16_t limit;
     uint16_t tempw;
 
+    if(((rmdat & 0xc0) == 0xc0) && (cpu_features & CPU_FEATURE_MONITOR_MWAIT))
+    {
+        if(rmdat == 0xc8)
+        {
+            //MONITOR
+            if(CPL != 0)
+            {
+                cpu_state.pc = cpu_state.oldpc;
+                x86illegal();
+                return 1;
+            }
+
+            if(ECX != 0)
+            {
+                x86gpf(NULL, 0);
+                return 1;
+            }
+
+            uint32_t eaddr = EAX;
+
+            SEG_CHECK_READ(cpu_state.ea_seg);
+            (void)readmemb(easeg, eaddr);
+
+            flushmmucache_nopc();
+            return 0;
+        }
+        else if(rmdat == 0xc9)
+        {
+            if(CPL != 0)
+            {
+                cpu_state.pc = cpu_state.oldpc;
+                x86illegal();
+                return 1;
+            }
+
+            if(ECX != 0)
+            {
+                x86gpf(NULL, 0);
+                return 1;
+            }
+
+            //Treat MWAIT as a NOP, since we don't support APIC yet.
+            return 0;
+        }
+    }
+
     switch (rmdat & 0x38) {
         case 0x00: /*SGDT*/
             ILLEGAL_ON(cpu_mod == 3);

@@ -17,13 +17,22 @@
 
 #include <QFileDialog>
 #include <QStyle>
+#include <cstring>
 
+#include "qt_progsettings.hpp"
 #include "qt_vmmanager_preferences.hpp"
 #include "qt_vmmanager_config.hpp"
 #include "ui_qt_vmmanager_preferences.h"
 
+#ifdef Q_OS_WINDOWS
+#include "qt_vmmanager_windarkmodefilter.hpp"
+extern WindowsDarkModeFilter* vmm_dark_mode_filter;
+#endif
+
 extern "C" {
 #include <86box/86box.h>
+#include <86box/config.h>
+#include <86box/version.h>
 }
 
 VMManagerPreferences::
@@ -34,14 +43,23 @@ VMManagerPreferences(QWidget *parent) : ui(new Ui::VMManagerPreferences)
     connect(ui->dirSelectButton, &QPushButton::clicked, this, &VMManagerPreferences::chooseDirectoryLocation);
 
     const auto config = new VMManagerConfig(VMManagerConfig::ConfigType::General);
-    const auto configSystemDir = config->getStringValue("system_directory");
+    const auto configSystemDir = QString(vmm_path_cfg);
     if(!configSystemDir.isEmpty()) {
         // Prefer this one
-        ui->systemDirectory->setText(configSystemDir);
+        ui->systemDirectory->setText(QDir::toNativeSeparators(configSystemDir));
     } else if(!QString(vmm_path).isEmpty()) {
         // If specified on command line
-        ui->systemDirectory->setText(QDir(vmm_path).path());
+        ui->systemDirectory->setText(QDir::toNativeSeparators(QDir(vmm_path).path()));
     }
+
+    ui->comboBoxLanguage->setItemData(0, 0);
+    for (int i = 1; i < ProgSettings::languages.length(); i++) {
+        ui->comboBoxLanguage->addItem(ProgSettings::languages[i].second, i);
+        if (i == lang_id) {
+            ui->comboBoxLanguage->setCurrentIndex(ui->comboBoxLanguage->findData(i));
+        }
+    }
+    ui->comboBoxLanguage->model()->sort(Qt::AscendingOrder);
 
     // TODO: Defaults
 #if EMU_BUILD_NUM != 0
@@ -53,7 +71,13 @@ VMManagerPreferences(QWidget *parent) : ui(new Ui::VMManagerPreferences)
     const auto useRegexSearch = config->getStringValue("regex_search").toInt();
     ui->regexSearchCheckBox->setChecked(useRegexSearch);
 
+    ui->radioButtonSystem->setChecked(color_scheme == 0);
+    ui->radioButtonLight->setChecked(color_scheme == 1);
+    ui->radioButtonDark->setChecked(color_scheme == 2);
 
+#ifndef Q_OS_WINDOWS
+    ui->groupBoxColorScheme->setHidden(true);
+#endif
 }
 
 VMManagerPreferences::~
@@ -64,16 +88,27 @@ VMManagerPreferences()
 void
 VMManagerPreferences::chooseDirectoryLocation()
 {
-    // TODO: FIXME: This is pulling in the CLI directory! Needs to be set properly elsewhere
-    const auto directory = QFileDialog::getExistingDirectory(this, "Choose directory", QDir(vmm_path).path());
-    ui->systemDirectory->setText(QDir::toNativeSeparators(directory));
+    const auto directory = QFileDialog::getExistingDirectory(this, tr("Choose directory"), ui->systemDirectory->text());
+    if (!directory.isEmpty())
+        ui->systemDirectory->setText(QDir::toNativeSeparators(directory));
+}
+
+void
+VMManagerPreferences::on_pushButtonLanguage_released()
+{
+    ui->comboBoxLanguage->setCurrentIndex(0);
 }
 
 void
 VMManagerPreferences::accept()
 {
     const auto config = new VMManagerConfig(VMManagerConfig::ConfigType::General);
-    config->setStringValue("system_directory", ui->systemDirectory->text());
+
+    strncpy(vmm_path_cfg, QDir::cleanPath(ui->systemDirectory->text()).toUtf8().constData(), sizeof(vmm_path_cfg) - 1);
+    lang_id = ui->comboBoxLanguage->currentData().toInt();
+    color_scheme = (ui->radioButtonSystem->isChecked()) ? 0 : (ui->radioButtonLight->isChecked() ? 1 : 2);
+    config_save_global();
+
 #if EMU_BUILD_NUM != 0
     config->setStringValue("update_check", ui->updateCheckBox->isChecked() ? "1" : "0");
 #endif

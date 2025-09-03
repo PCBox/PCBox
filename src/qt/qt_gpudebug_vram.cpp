@@ -16,7 +16,6 @@
  */
 
 /* C++ includes */
-#include <cstdbool>
 #include <cstdint>
 
 

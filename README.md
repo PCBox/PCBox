@@ -8,6 +8,6 @@ You can find CI builds under our Actions tab.
 
 Visit our Discord! https://discord.gg/ep8PPMhUPy
 
-Or, visit our IRC channel on Libera.chat! #pcbox
+Or, join us on XMPP/Jabber at pcbox@chat.yax.im
 
 Our website is at http://pcbox-emu.xyz

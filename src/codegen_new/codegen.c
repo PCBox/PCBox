@@ -381,6 +381,50 @@ static uint8_t opcode_0f_modrm[256] = {
     1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1, /*e0*/
     1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 0  /*f0*/
 };
+
+static uint8_t opcode_0f_38_modrm[256] = {
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  0, 0, 0, 0, /*00*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  1, 1, 1, 0, /*10*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*20*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*30*/
+
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*40*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*50*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*60*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*70*/
+
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*80*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*90*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*a0*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*b0*/
+
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*c0*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*d0*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*e0*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0  /*f0*/
+};
+
+static uint8_t opcode_0f_3a_modrm[256] = {
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 1, /*00*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*10*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*20*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*30*/
+
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*40*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*50*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*60*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*70*/
+
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*80*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*90*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*a0*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*b0*/
+
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*c0*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*d0*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, /*e0*/
+    0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0  /*f0*/
+};
 // clang-format on
 
 void
@@ -401,6 +445,7 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
     int          pc_off             = 0;
     int          in_lock            = 0;
     uint32_t     next_pc            = 0;
+    int is_0f = 0;
     int is_repe = 0;
     int is_repne = 0;
     uint16_t     op87               = 0x0000;
@@ -418,6 +463,7 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
 #ifdef DEBUG_EXTRA
                 last_prefix = 0x0f;
 #endif
+                is_0f = 1;
                 op_table        = x86_dynarec_opcodes_0f;
                 recomp_op_table = recomp_opcodes_0f_no_mmx;
                 if(is_repe)
@@ -430,7 +476,7 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
                     op_table        = x86_dynarec_opcodes_REPNE_0f;
                     recomp_op_table = NULL;
                 }
-                over            = 1;
+                if((fetchdat & 0xff) != 0x38 && (fetchdat & 0xff) != 0x3a) over = 1;
                 break;
 
             case 0x26: /*ES:*/
@@ -444,6 +490,24 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
             case 0x36: /*SS:*/
                 op_ea_seg = &cpu_state.seg_ss;
                 op_ssegs  = 1;
+                break;
+            case 0x38:
+                if(is_0f)
+                {
+                    op_table        = x86_dynarec_opcodes_0f_38;
+                    recomp_op_table = NULL;
+                    over = 1;
+                }
+                else goto generate_call;
+                break;
+            case 0x3a:
+                if(is_0f)
+                {
+                    op_table        = x86_dynarec_opcodes_0f_3a;
+                    recomp_op_table = NULL;
+                    over = 1;
+                }
+                else goto generate_call;
                 break;
             case 0x3e: /*DS:*/
                 op_ea_seg = &cpu_state.seg_ds;
@@ -736,6 +800,8 @@ codegen_skip:
 
     if (!test_modrm || (op_table == x86_dynarec_opcodes && opcode_modrm[opcode])
     || (op_table == x86_dynarec_opcodes_0f && opcode_0f_modrm[opcode])
+    || (op_table == x86_dynarec_opcodes_0f_38 && opcode_0f_38_modrm[opcode])
+    || (op_table == x86_dynarec_opcodes_0f_3a && opcode_0f_3a_modrm[opcode])
     || (op_table == x86_dynarec_opcodes_REPE_0f && opcode_0f_modrm[opcode])
     || (op_table == x86_dynarec_opcodes_REPNE_0f && opcode_0f_modrm[opcode])
     || (op_table == x86_dynarec_opcodes_3DNOW)) {

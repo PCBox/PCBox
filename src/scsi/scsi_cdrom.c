@@ -645,19 +645,16 @@ scsi_cdrom_bus_speed(scsi_cdrom_t *dev)
 {
     double ret = -1.0;
 
-    if (dev && dev->drv && (dev->drv->bus_type == CDROM_BUS_SCSI)) {
-        dev->callback = -1.0; /* Speed depends on SCSI controller */
-        return 0.0;
-    } else {
-        if (dev && dev->drv)
-            ret = ide_atapi_get_period(dev->drv->ide_channel);
-        if (ret == -1.0) {
-            if (dev)
-                dev->callback = -1.0;
-            return 0.0;
-        } else
-            return 1000000.0 / ret;
+    if (dev && dev->drv)
+        ret = ide_atapi_get_period(dev->drv->ide_channel);
+
+    if (ret == -1.0) {
+        if (dev)
+            dev->callback = -1.0;
+        ret = 0.0;
     }
+
+    return ret;
 }
 
 static void
@@ -671,7 +668,12 @@ scsi_cdrom_set_period(scsi_cdrom_t *dev)
         double  bytes_per_second;
         double  period;
 
-        if (dev->was_cached != -1) {
+        if (dev->was_cached == -1) {
+            if (dev->drv->bus_type == CDROM_BUS_SCSI)
+                dev->callback = -1.0; /* Speed depends on SCSI controller */
+            else
+                dev->callback = 512.0 + (scsi_cdrom_bus_speed(dev) * (double) (dev->packet_len));
+        } else {
             if (dev->was_cached) {
                 dev->callback += 512.0;
                 scsi_cdrom_set_callback(dev);
@@ -686,27 +688,21 @@ scsi_cdrom_set_period(scsi_cdrom_t *dev)
             /* 44100 * 16 bits * 2 channels = 176400 bytes per second */
             bytes_per_second = 176400.0;
             bytes_per_second *= (double) dev->drv->cur_speed;
-        } else {
-            bytes_per_second = scsi_cdrom_bus_speed(dev);
-            if (bytes_per_second == 0.0) {
-                dev->callback = -1; /* Speed depends on SCSI controller */
-                return;
+
+            period = 1000000.0 / bytes_per_second;
+            scsi_cdrom_log(dev->log, "Byte transfer period: %lf us\n", period);
+            if (dev->was_cached == -1)
+                period *= (double) dev->packet_len;
+            else {
+                const int num = ((dev->drv->bus_type == CDROM_BUS_SCSI) ||
+                                 (dev->block_len == 0)) ? dev->sectors_num :
+                                ((scsi_cdrom_current_mode(dev) == 2) ? 1 : dev->sectors_num);
+
+                period *= ((double) num) * 2352.0;
             }
+            scsi_cdrom_log(dev->log, "Sector transfer period: %lf us\n", period);
+            dev->callback += period;
         }
-
-        period = 1000000.0 / bytes_per_second;
-        scsi_cdrom_log(dev->log, "Byte transfer period: %lf us\n", period);
-        if (dev->was_cached == -1)
-            period *= (double) dev->packet_len;
-        else {
-            const int num = ((dev->drv->bus_type == CDROM_BUS_SCSI) ||
-                             (dev->block_len == 0)) ? dev->sectors_num :
-                            ((scsi_cdrom_current_mode(dev) == 2) ? 1 : dev->sectors_num);
-
-            period *= ((double) num) * 2352.0;
-        }
-        scsi_cdrom_log(dev->log, "Sector transfer period: %lf us\n", period);
-        dev->callback += period;
     }
     scsi_cdrom_set_callback(dev);
 }
@@ -3814,8 +3810,10 @@ scsi_cdrom_get_max(const ide_t *ide, UNUSED(const int ide_has_dma), const int ty
 static int
 scsi_cdrom_get_timings(const ide_t *ide, UNUSED(const int ide_has_dma), const int type)
 {
-    const scsi_cdrom_t *dev         = (scsi_cdrom_t *) ide->sc;
-    int                 has_dma     = cdrom_has_dma(dev->drv->type);
+    const scsi_cdrom_t *dev             = (scsi_cdrom_t *) ide->sc;
+    int                 has_dma         = cdrom_has_dma(dev->drv->type);
+    int                 pio_cyc_time[5] = { 600, 383, 240, 180, 120 };
+    int                 max_pio         = cdrom_get_transfer_max(dev->drv->type, TYPE_PIO);
     int                 ret;
 
     switch (type) {
@@ -3823,10 +3821,20 @@ scsi_cdrom_get_timings(const ide_t *ide, UNUSED(const int ide_has_dma), const in
             ret = has_dma ? 120 : 0;
             break;
         case TIMINGS_PIO:
-            ret = has_dma ? 120 : 0;
+            if (max_pio <= 0)
+                ret = 600;
+            else if (max_pio == 1)
+                ret = 383;
+            else
+                ret = 240;
             break;
         case TIMINGS_PIO_FC:
-            ret = 0;
+            if (max_pio > 4)
+                ret = 120;
+            else if (max_pio < 0)
+                ret = 600;
+            else
+                ret = pio_cyc_time[max_pio];
             break;
         default:
             ret = 0;

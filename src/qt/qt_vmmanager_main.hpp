@@ -70,7 +70,9 @@ public slots:
     void shutdownForceButtonPressed() const;
     void searchSystems(const QString &text) const;
     void newMachineWizard();
-    void addNewSystem(const QString &name, const QString &dir, const QString &configFile = {});
+    void updateGlobalSettings();
+    void deleteSystem(VMManagerSystem *sysconfig);
+    void addNewSystem(const QString &name, const QString &dir, const QString &displayName = QString(), const QString &configFile = {});
 #if __GNUC__ >= 11
     [[nodiscard]] QStringList getSearchCompletionList() const;
 #else
@@ -78,6 +80,10 @@ public slots:
 #endif
     void modelDataChange();
     void onPreferencesUpdated();
+    void onLanguageUpdated();
+#ifdef Q_OS_WINDOWS
+    void onDarkModeUpdated();
+#endif
     void onConfigUpdated(const QString &uuid);
     int  getActiveMachineCount();
 
@@ -102,7 +108,7 @@ private:
     void updateDisplayName(const QModelIndex &index);
     void loadSettings();
     [[nodiscard]] bool currentSelectionIsValid() const;
-    [[nodiscard]] QString totalCountString() const;
+    [[nodiscard]] QString machineCountString(QString states = "") const;
 #if EMU_BUILD_NUM != 0
     void backgroundUpdateCheckStart() const;
 #endif

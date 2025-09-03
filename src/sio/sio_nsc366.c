@@ -45,6 +45,7 @@ typedef struct {
     fdc_t        *fdc;
     serial_t     *uart[2];
     nsc366_hwm_t *hwm;
+    lpt_t        *lpt;
 
     uint8_t index;
     uint8_t ldn;
@@ -101,14 +102,14 @@ nsc366_fdc(nsc366_t *dev)
 void
 nsc366_lpt(nsc366_t *dev)
 {
-    lpt1_remove();
+    lpt_port_remove(dev->lpt);
     int base = ((dev->io_base0[0][1] & 7) << 8) | (dev->io_base0[1][1] & 0xfc);
     int irq  = (dev->int_num_irq[1] & 0x0f);
 
     if (dev->ld_activate[1]) {
         nsc366_log("NSC 366 LPT: Reconfigured with Base 0x%04x IRQ: %d\n", base, irq);
-        lpt1_setup(base);
-        lpt1_irq(irq);
+        lpt_port_setup(dev->lpt, base);
+        lpt_port_irq(dev->lpt, irq);
     }
 }
 
@@ -496,11 +497,13 @@ nsc366_init(const device_t *info)
     /* FDC */
     dev->fdc = device_add(&fdc_at_nsc_device);
 
+    dev->lpt = device_add_inst(&lpt_port_device, 1);
+
     /* Hardware Monitor Setup */
     dev->hwm = device_add(&nsc366_hwm_device);
 
     /* Keyboard Controller */
-    device_add(&kbc_ps2_ami_pci_device);
+    device_add_params(&kbc_at_device, (void *) (KBC_VEN_AMI | 0x00004800));
 
     /* Port 92h */
     device_add(&port_92_pci_device);

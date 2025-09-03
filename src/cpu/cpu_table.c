@@ -1367,8 +1367,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 3,
                 .mem_write_cycles   = 3,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 2
             },
             {
@@ -1384,8 +1384,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 3
             },
             {
@@ -1401,8 +1401,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 3
             },
             {
@@ -1418,8 +1418,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 6,
                 .mem_write_cycles   = 6,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 4
             },
             {
@@ -1435,8 +1435,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 7,
                 .mem_write_cycles   = 7,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 5
             },
             { .name = "", 0 }
@@ -1461,8 +1461,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 3,
                 .mem_write_cycles   = 3,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 2
             },
             {
@@ -1478,8 +1478,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 3
             },
             {
@@ -1495,8 +1495,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 3
             },
             { .name = "", 0 }
@@ -1521,8 +1521,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = CPU_SUPPORTS_DYNAREC,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 3
             },
             {
@@ -1538,8 +1538,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = CPU_SUPPORTS_DYNAREC,
                 .mem_read_cycles    = 6,
                 .mem_write_cycles   = 6,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 4
             },
             {
@@ -1555,8 +1555,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = CPU_SUPPORTS_DYNAREC,
                 .mem_read_cycles    = 7,
                 .mem_write_cycles   = 7,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 5
             },
             { .name = "", 0 }
@@ -1581,8 +1581,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 3
             },
             {
@@ -1598,8 +1598,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 6,
                 .mem_write_cycles   = 6,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 4
             },
             {
@@ -1615,8 +1615,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 7,
                 .mem_write_cycles   = 7,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 5
             },
             { .name = "", 0 }
@@ -2096,7 +2096,7 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 4,
                 .mem_write_cycles   = 4,
-                .cache_read_cycles  = 3,
+                .cache_read_cycles  = 2,
                 .cache_write_cycles = 3,
                 .atclk_div          = 3
             },
@@ -2113,8 +2113,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 6,
                 .mem_write_cycles   = 6,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 4
             },
             {
@@ -2130,8 +2130,8 @@ const cpu_family_t cpu_families[] = {
                 .cpu_flags          = 0,
                 .mem_read_cycles    = 7,
                 .mem_write_cycles   = 7,
-                .cache_read_cycles  = 3,
-                .cache_write_cycles = 3,
+                .cache_read_cycles  = 2,
+                .cache_write_cycles = 2,
                 .atclk_div          = 5
             },
             { .name = "", 0 }
@@ -10739,6 +10739,16 @@ const cpu_family_t cpu_families[] = {
             { "1300", CPU_GENERICINTEL, fpus_internal, 1300000000, 13.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 117, 117, 39, 39, 156 },
             { "1400", CPU_GENERICINTEL, fpus_internal, 1400000000, 14.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 126, 126, 42, 42, 168 },
             { "1500", CPU_GENERICINTEL, fpus_internal, 1500000000, 15.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 135, 135, 45, 45, 180 },
+            { "1600", CPU_GENERICINTEL, fpus_internal, 1600000000, 16.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 135, 135, 45, 45, 192 },
+            { "1700", CPU_GENERICINTEL, fpus_internal, 1700000000, 17.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 135, 135, 45, 45, 204 },
+            { "1800", CPU_GENERICINTEL, fpus_internal, 1800000000, 18.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 135, 135, 45, 45, 216 },
+            { "1900", CPU_GENERICINTEL, fpus_internal, 1900000000, 19.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 135, 135, 45, 45, 228 },
+            { "2000", CPU_GENERICINTEL, fpus_internal, 2000000000, 20.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 135, 135, 45, 45, 240 },
+            { "2100", CPU_GENERICINTEL, fpus_internal, 2100000000, 21.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 135, 135, 45, 45, 252 },
+            { "2200", CPU_GENERICINTEL, fpus_internal, 2200000000, 22.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 135, 135, 45, 45, 264 },
+            { "2300", CPU_GENERICINTEL, fpus_internal, 2300000000, 23.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 135, 135, 45, 45, 276 },
+            { "2400", CPU_GENERICINTEL, fpus_internal, 2400000000, 24.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 135, 135, 45, 45, 288 },
+            { "2500", CPU_GENERICINTEL, fpus_internal, 2500000000, 25.0, 1500, 0x6B4, 0x6B4, 0, CPU_SUPPORTS_DYNAREC, 135, 135, 45, 45, 300 },
             { .name = "", 0 }
         }
     },

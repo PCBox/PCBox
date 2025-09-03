@@ -31,7 +31,6 @@
 extern "C" {
 #ifdef Q_OS_WINDOWS
 #define BITMAP WINDOWS_BITMAP
-#undef UNICODE
 #include <windows.h>
 #include <windowsx.h>
 #undef BITMAP
@@ -176,7 +175,7 @@ MediaMenu::refresh(QMenu *parentMenu)
            it's a CDROM */
         for (const auto &letter : driveLetters) {
             auto drive = QString("%1:\\").arg(letter);
-            if (GetDriveType(drive.toUtf8().constData()) == DRIVE_CDROM)
+            if (GetDriveTypeA(drive.toUtf8().constData()) == DRIVE_CDROM)
                 menu->addAction(QIcon(":/settings/qt/icons/cdrom_host.ico"), tr("&Host CD/DVD Drive (%1:)").arg(letter), [this, i, letter] { cdromMount(i, 2, QString(R"(\\.\%1:)").arg(letter)); })->setCheckable(false);
         }
         menu->addSeparator();
@@ -1180,6 +1179,12 @@ MediaMenu::nicUpdateMenu(int i)
             break;
         case NET_TYPE_TAP:
             netType = "TAP";
+            break;
+        case NET_TYPE_NMSWITCH:
+            netType = "Local Switch";
+            break;
+        case NET_TYPE_NRSWITCH:
+            netType = "Remote Switch";
             break;
     }
 

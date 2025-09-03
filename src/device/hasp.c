@@ -28,8 +28,8 @@
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/timer.h>
-#include <86box/lpt.h>
 #include <86box/device.h>
+#include <86box/lpt.h>
 
 #define HASP_BYTEARRAY(...) \
     {                       \
@@ -341,7 +341,6 @@ const lpt_device_t lpt_hasp_savquest_device = {
     .close            = hasp_close,
     .write_data       = hasp_write_data,
     .write_ctrl       = NULL,
-    .autofeed         = NULL,
     .strobe           = NULL,
     .read_status      = hasp_read_status,
     .read_ctrl        = NULL,

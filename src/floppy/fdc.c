@@ -341,7 +341,8 @@ fdc_int(fdc_t *fdc, int set_fintr)
         ienable = !!(fdc->dor & 8);
 
     if (ienable) {
-        picint(1 << fdc->irq);
+        if (fdc->irq != 0xff)
+            picint(1 << fdc->irq);
 
         if (set_fintr)
             fdc->fintr = 1;
@@ -358,7 +359,7 @@ fdc_watchdog_poll(void *priv)
     if (fdc->watchdog_count)
         timer_advance_u64(&fdc->watchdog_timer, 1000 * TIMER_USEC);
     else {
-        if (fdc->dor & 0x20)
+        if ((fdc->dor & 0x20) && (fdc->irq != 0xff))
             picint(1 << fdc->irq);
     }
 }
@@ -436,6 +437,44 @@ void
 fdc_set_media_id(fdc_t *fdc, int id, int set)
 {
     fdc->media_id = (fdc->media_id & ~(1 << id)) | (set << id);
+}
+
+void
+fdc_set_flags(fdc_t *fdc, int flags)
+{
+    fdc->flags |= flags;
+}
+
+void
+fdc_clear_flags(fdc_t *fdc, int flags)
+{
+    fdc->flags &= ~flags;
+}
+
+void
+fdc_set_fdd_changed(int drive, int changed)
+{
+    if (changed)
+        fdd_changed[drive] = 1;
+}
+
+uint8_t
+fdc_get_fdd_changed(int drive)
+{
+    uint8_t ret = !!fdd_changed[drive];
+
+    return ret;
+}
+
+uint8_t
+fdc_get_shadow(fdc_t *fdc)
+{
+    uint8_t ret = (fdc->rate & 0x03) |
+                  ((fdc->pretrk & 0x07) << 2) |
+                  (fdc->power_down ? 0x40 : 0x00) |
+                  ((fdc_read(0x03f2, fdc) & 0x04) ? 0x80 : 0x00);
+
+    return ret;
 }
 
 int

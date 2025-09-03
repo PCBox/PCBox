@@ -23,6 +23,7 @@ VMManagerModel::VMManagerModel() {
     for ( const auto& each_config : machines_vec) {
         machines.append(each_config);
         connect(each_config, &VMManagerSystem::itemDataChanged, this, &VMManagerModel::modelDataChanged);
+        connect(each_config, &VMManagerSystem::globalConfigurationChanged, this, &VMManagerModel::globalConfigurationChanged);
     }
 }
 
@@ -138,8 +139,21 @@ VMManagerModel::addConfigToModel(VMManagerSystem *system_config)
     beginInsertRows(QModelIndex(), this->rowCount(QModelIndex()), this->rowCount(QModelIndex()));
     machines.append(system_config);
     connect(system_config, &VMManagerSystem::itemDataChanged, this, &VMManagerModel::modelDataChanged);
+    connect(system_config, &VMManagerSystem::globalConfigurationChanged, this, &VMManagerModel::globalConfigurationChanged);
     endInsertRows();
 }
+
+void
+VMManagerModel::removeConfigFromModel(VMManagerSystem *system_config)
+{
+    const QModelIndex index = getIndexForConfigFile(system_config->config_file);
+    disconnect(system_config, &VMManagerSystem::itemDataChanged, this, &VMManagerModel::modelDataChanged);
+    beginRemoveRows(QModelIndex(), index.row(), index.row());
+    machines.remove(index.row());
+    endRemoveRows();
+    emit systemDataChanged();
+}
+
 void
 VMManagerModel::modelDataChanged()
 {
@@ -155,17 +169,24 @@ VMManagerModel::updateDisplayName(const QModelIndex &index, const QString &newDi
     machines.at(index.row())->setDisplayName(newDisplayName);
     modelDataChanged();
 }
-QHash<QString, int>
+QMap<VMManagerSystem::ProcessStatus, int>
 VMManagerModel::getProcessStats()
 {
-    QHash<QString, int> stats;
+    QMap<VMManagerSystem::ProcessStatus, int> stats;
     for (const auto& system: machines) {
-        if (system->getProcessStatus() != VMManagerSystem::ProcessStatus::Stopped) {
-            auto statusString = system->getProcessStatusString();
-            stats[statusString] += 1;
-        }
+        stats[system->getProcessStatus()] += 1;
     }
     return stats;
+}
+
+void
+VMManagerModel::sendGlobalConfigurationChanged()
+{
+    for (auto& system: machines) {
+        if (system->getProcessStatus() != VMManagerSystem::ProcessStatus::Stopped) {
+            system->sendGlobalConfigurationChanged();
+        }
+    }
 }
 
 int

@@ -72,6 +72,7 @@ signals:
 
     void vmmRunningStateChanged(VMManagerProtocol::RunningState state);
     void vmmConfigurationChanged();
+    void vmmGlobalConfigurationChanged();
 public slots:
     void showSettings();
     void hardReset();
@@ -87,6 +88,7 @@ private slots:
     void on_actionSettings_triggered();
     void on_actionExit_triggered();
     void on_actionAuto_pause_triggered();
+    void on_actionUpdate_mouse_every_CPU_frame_triggered();
     void on_actionPause_triggered();
     void on_actionCtrl_Alt_Del_triggered();
     void on_actionCtrl_Alt_Esc_triggered();
@@ -171,7 +173,11 @@ private slots:
 
     void on_actionOpen_screenshots_folder_triggered();
 
+    void on_actionOpen_printer_tray_triggered();
+
     void on_actionApply_fullscreen_stretch_mode_when_maximized_triggered(bool checked);
+
+    void on_actionCGA_composite_settings_triggered();
 
 private:
     Ui::MainWindow                *ui;
@@ -182,6 +188,9 @@ private:
     std::unique_ptr<MachineStatus> status;
     std::shared_ptr<MediaMenu>     mm;
 
+    static bool s_adjustingForce43; // guard against recursion
+	void adjustForForce43(const QSize &newWinSize);
+    
 	void updateShortcuts();
     void     processKeyboardInput(bool down, uint32_t keycode);
 #ifdef Q_OS_MACOS
@@ -213,6 +222,7 @@ private:
     QIcon caps_icon_off, scroll_icon_off, num_icon_off, kana_icon_off;
 
     bool isShowMessage = false;
+    bool isNonPause = false;
     bool window_blocked = false;
 };
 

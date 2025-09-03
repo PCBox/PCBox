@@ -88,8 +88,8 @@ uint32_t nv3_pfifo_read(uint32_t address)
 { 
     // before doing anything, check the subsystem enablement state
 
-    if (!(nv3->pmc.enable >> NV3_PMC_ENABLE_PFIFO)
-    & NV3_PMC_ENABLE_PFIFO_ENABLED)
+    if (!((nv3->pmc.enable >> NV3_PMC_ENABLE_PFIFO)
+    & NV3_PMC_ENABLE_PFIFO_ENABLED))
     {
         nv_log("Repressing PFIFO read. The subsystem is disabled according to pmc_enable, returning 0\n");
         return 0x00;
@@ -264,7 +264,7 @@ uint32_t nv3_pfifo_read(uint32_t address)
                         new_size_ramro = 0x2000;
                     
                     // WTF?
-                    if (nv3->pfifo.runout_put + 0x08 & (new_size_ramro - 0x08) == nv3->pfifo.runout_get)
+                    if ((nv3->pfifo.runout_put + 0x08) & (new_size_ramro - 0x08) == nv3->pfifo.runout_get)
                         ret |= 1 << NV3_PFIFO_RUNOUT_STATUS_FULL; /* VERY BAD news */
 
                     break;
@@ -395,8 +395,8 @@ void nv3_pfifo_write(uint32_t address, uint32_t val)
 {
     // before doing anything, check the subsystem enablement
 
-    if (!(nv3->pmc.enable >> NV3_PMC_ENABLE_PFIFO)
-    & NV3_PMC_ENABLE_PFIFO_ENABLED)
+    if (!((nv3->pmc.enable >> NV3_PMC_ENABLE_PFIFO)
+    & NV3_PMC_ENABLE_PFIFO_ENABLED))
     {
         nv_log("Repressing PFIFO write. The subsystem is disabled according to pmc_enable\n");
         return;
@@ -427,7 +427,7 @@ void nv3_pfifo_write(uint32_t address, uint32_t val)
                     nv3_pmc_clear_interrupts();
 
                     // update the internal cache error state
-                    if (!nv3->pfifo.interrupt_status & NV3_PFIFO_INTR_CACHE_ERROR)
+                    if (!(nv3->pfifo.interrupt_status & NV3_PFIFO_INTR_CACHE_ERROR))
                         nv3->pfifo.debug_0 &= ~NV3_PFIFO_INTR_CACHE_ERROR;
                     break;
                 case NV3_PFIFO_INTR_EN:
@@ -713,7 +713,7 @@ NV_USER writes always go to CACHE1
 void nv3_pfifo_cache0_pull(void)
 {
     // Do nothing if PFIFO CACHE0 is disabled
-    if (!nv3->pfifo.cache0_settings.pull0 & (1 >> NV3_PFIFO_CACHE0_PULL0_ENABLED))
+    if (!(nv3->pfifo.cache0_settings.pull0 & (1 >> NV3_PFIFO_CACHE0_PULL0_ENABLED)))
         return; 
 
     // Do nothing if there is nothing in cache0 to pull
@@ -902,7 +902,7 @@ void nv3_pfifo_cache1_push(uint32_t addr, uint32_t param)
 void nv3_pfifo_cache1_pull(void)
 {
     // Do nothing if PFIFO CACHE1 is disabled
-    if (!nv3->pfifo.cache1_settings.pull0 & (1 >> NV3_PFIFO_CACHE1_PULL0_ENABLED))
+    if (!(nv3->pfifo.cache1_settings.pull0 & (1 >> NV3_PFIFO_CACHE1_PULL0_ENABLED)))
         return; 
 
     // Do nothing if there is nothing in cache1 to pull

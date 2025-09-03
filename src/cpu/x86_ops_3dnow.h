@@ -22,8 +22,8 @@ opPREFETCH_a32(uint32_t fetchdat)
 static int
 opFEMMS(UNUSED(uint32_t fetchdat))
 {
-    ILLEGAL_ON(!cpu_has_feature(CPU_FEATURE_MMX));
-    if (cr0 & 0xc) {
+    ILLEGAL_ON(!cpu_has_feature(CPU_FEATURE_MMX) || (cr0 & 0x4));
+    if (cr0 & 0x8) {
         x86_int(7);
         return 1;
     }

@@ -12,7 +12,7 @@
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/artifacts",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": true,
                 "DEV_BRANCH": "OFF",
-                "NEW_DYNAREC": "OFF",
+                "NEW_DYNAREC": "ON",
                 "QT": "ON"
             },
             "generator": "Ninja",
@@ -36,8 +36,7 @@
             "name": "debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "NV_LOG": "ON",
-                "NV_LOG_ULTRA": "ON"
+                "NV_LOG": "ON"
             },
             "inherits": "base"
         },

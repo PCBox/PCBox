@@ -111,7 +111,7 @@ opFISTTPiw_a16(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    seteaw(trunc(ST(0)));
+    seteaw((int16_t)ST(0));
     if (cpu_state.abrt)
         return 1;
     x87_pop();
@@ -126,7 +126,7 @@ opFISTTPiw_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    seteaw(trunc(ST(0)));
+    seteaw((int16_t)ST(0));
     if (cpu_state.abrt)
         return 1;
     x87_pop();
@@ -142,7 +142,7 @@ opFISTTPil_a16(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    seteal(trunc(ST(0)));
+    seteal((int32_t)ST(0));
     if (cpu_state.abrt)
         return 1;
     x87_pop();
@@ -157,7 +157,7 @@ opFISTTPil_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    seteal(trunc(ST(0)));
+    seteal((int32_t)ST(0));
     if (cpu_state.abrt)
         return 1;
     x87_pop();
@@ -173,7 +173,7 @@ opFISTTPiq_a16(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    seteaq((uint64_t)trunc(ST(0)));
+    seteaq((int64_t)ST(0));
     if (cpu_state.abrt)
         return 1;
     x87_pop();
@@ -188,7 +188,7 @@ opFISTTPiq_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    seteaq((uint64_t)trunc(ST(0)));
+    seteaq((int64_t)ST(0));
     if (cpu_state.abrt)
         return 1;
     x87_pop();

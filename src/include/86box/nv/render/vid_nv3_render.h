@@ -39,6 +39,9 @@ uint32_t nv3_render_to_chroma(nv3_color_expanded_t expanded);                   
 nv3_color_expanded_t nv3_render_expand_color(uint32_t color, nv3_grobj_t grobj);            // Convert a colour to full RGB10 format from the current working format.
 uint32_t nv3_render_downconvert_color(nv3_grobj_t grobj, nv3_color_expanded_t color);       // Convert a colour from the current working format to RGB10 format.
 
+/* ROP */
+uint8_t nv3_render_translate_nvrop(nv3_grobj_t grobj, uint32_t rop);
+
 /* Pattern */
 void nv3_render_set_pattern_color(nv3_color_expanded_t pattern_colour, bool use_color1);
 
@@ -56,4 +59,7 @@ void nv3_render_blit_screen2screen(nv3_grobj_t grobj);
 
 /* GDI */
 void nv3_render_gdi_transparent_bitmap(bool clip, uint32_t color, uint32_t bitmap_data, nv3_grobj_t grobj);
-void nv3_render_gdi_1bpp_bitmap(uint32_t color0, uint32_t color1, uint32_t bitmap_data, nv3_grobj_t grobj);                               /* GDI Type-E: Clipped 1bpp colour-expanded bitmap */
+void nv3_render_gdi_1bpp_bitmap(uint32_t color0, uint32_t color1, uint32_t bitmap_data, nv3_grobj_t grobj); /* GDI Type-E: Clipped 1bpp colour-expanded bitmap */
+
+/* DMA */
+void nv3_perform_dma_m2mf(nv3_grobj_t grobj);

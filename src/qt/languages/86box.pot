@@ -27,6 +27,9 @@ msgstr ""
 msgid "&Pause"
 msgstr ""
 
+msgid "Pause"
+msgstr ""
+
 msgid "Re&sume"
 msgstr ""
 
@@ -54,9 +57,6 @@ msgstr ""
 msgid "&Qt (Software)"
 msgstr ""
 
-msgid "Qt (&OpenGL)"
-msgstr ""
-
 msgid "Open&GL (3.0 Core)"
 msgstr ""
 
@@ -66,7 +66,7 @@ msgstr ""
 msgid "Specify &dimensions..."
 msgstr ""
 
-msgid "F&orce 4:3 display ratio"
+msgid "Force &4:3 display ratio"
 msgstr ""
 
 msgid "&Window scale factor"
@@ -135,7 +135,7 @@ msgstr ""
 msgid "4:&3 Integer scale"
 msgstr ""
 
-msgid "E&GA/(S)VGA settings"
+msgid "EGA/(S)&VGA settings"
 msgstr ""
 
 msgid "&Inverted VGA monitor"
@@ -190,6 +190,9 @@ msgid "&Tools"
 msgstr ""
 
 msgid "&Settings..."
+msgstr ""
+
+msgid "Settings..."
 msgstr ""
 
 msgid "&Update status bar icons"
@@ -357,6 +360,9 @@ msgstr ""
 msgid "Configure"
 msgstr ""
 
+msgid "CPU:"
+msgstr ""
+
 msgid "CPU type:"
 msgstr ""
 
@@ -417,13 +423,25 @@ msgstr ""
 msgid "XGA Graphics"
 msgstr ""
 
+msgid "IBM PS/55 Display Adapter Graphics"
+msgstr ""
+
 msgid "Keyboard:"
+msgstr ""
+
+msgid "Keyboard"
 msgstr ""
 
 msgid "Mouse:"
 msgstr ""
 
+msgid "Mouse"
+msgstr ""
+
 msgid "Joystick:"
+msgstr ""
+
+msgid "Joystick"
 msgstr ""
 
 msgid "Joystick 1..."
@@ -454,6 +472,9 @@ msgid "MIDI Out Device:"
 msgstr ""
 
 msgid "MIDI In Device:"
+msgstr ""
+
+msgid "MIDI Out:"
 msgstr ""
 
 msgid "Standalone MPU-401"
@@ -493,6 +514,9 @@ msgid "LPT3 Device:"
 msgstr ""
 
 msgid "LPT4 Device:"
+msgstr ""
+
+msgid "Internal LPT ECP DMA:"
 msgstr ""
 
 msgid "Serial port 1"
@@ -613,6 +637,12 @@ msgid "CD-ROM drives:"
 msgstr ""
 
 msgid "MO drives:"
+msgstr ""
+
+msgid "MO:"
+msgstr ""
+
+msgid "Removable disks:"
 msgstr ""
 
 msgid "Removable disk drives:"
@@ -741,10 +771,28 @@ msgstr ""
 msgid "Ports (COM & LPT)"
 msgstr ""
 
+msgid "Ports"
+msgstr ""
+
+msgid "Serial ports:"
+msgstr ""
+
+msgid "Parallel ports:"
+msgstr ""
+
 msgid "Storage controllers"
 msgstr ""
 
 msgid "Hard disks"
+msgstr ""
+
+msgid "Disks:"
+msgstr ""
+
+msgid "Floppy:"
+msgstr ""
+
+msgid "Controllers:"
 msgstr ""
 
 msgid "Floppy & CD-ROM drives"
@@ -754,6 +802,9 @@ msgid "Other removable devices"
 msgstr ""
 
 msgid "Other peripherals"
+msgstr ""
+
+msgid "Other devices"
 msgstr ""
 
 msgid "Click to capture mouse"
@@ -900,6 +951,15 @@ msgstr ""
 msgid "Internal device"
 msgstr ""
 
+msgid "&File"
+msgstr ""
+
+msgid "&New machine..."
+msgstr ""
+
+msgid "&Check for updates..."
+msgstr ""
+
 msgid "Exit"
 msgstr ""
 
@@ -996,6 +1056,9 @@ msgstr ""
 msgid "Pause execution"
 msgstr ""
 
+msgid "Ctrl+Alt+Del"
+msgstr ""
+
 msgid "Press Ctrl+Alt+Del"
 msgstr ""
 
@@ -1003,6 +1066,273 @@ msgid "Press Ctrl+Alt+Esc"
 msgstr ""
 
 msgid "Hard reset"
+msgstr ""
+
+msgid "Force shutdown"
+msgstr ""
+
+msgid "Start"
+msgstr ""
+
+msgid "Not running"
+msgstr ""
+
+msgid "Running"
+msgstr ""
+
+msgid "Paused"
+msgstr ""
+
+msgid "Waiting"
+msgstr ""
+
+msgid "Powered Off"
+msgstr ""
+
+msgid "%n running"
+msgstr ""
+
+msgid "%n paused"
+msgstr ""
+
+msgid "%n waiting"
+msgstr ""
+
+msgid "%1 total"
+msgstr ""
+
+msgid "VMs: %1"
+msgstr ""
+
+msgid "System Directory:"
+msgstr ""
+
+msgid "Choose directory"
+msgstr ""
+
+msgid "Choose configuration file"
+msgstr ""
+
+msgid "86Box configuration files (86box.cfg)"
+msgstr ""
+
+msgid "Configuration read failed"
+msgstr ""
+
+msgid "Unable to open the selected configuration file for reading: %1"
+msgstr ""
+
+msgid "Use regular expressions in search box"
+msgstr ""
+
+msgid "%1 machine(s) are currently active. Are you sure you want to exit the VM manager anyway?"
+msgstr ""
+
+msgid "Add new system wizard"
+msgstr ""
+
+msgid "Introduction"
+msgstr ""
+
+msgid "This will help you add a new system to 86Box."
+msgstr ""
+
+msgid "New configuration"
+msgstr ""
+
+msgid "Complete"
+msgstr ""
+
+msgid "The wizard will now launch the configuration for the new system."
+msgstr ""
+
+msgid "Use existing configuration"
+msgstr ""
+
+msgid "Type some notes here"
+msgstr ""
+
+msgid "Paste the contents of the existing configuration file into the box below."
+msgstr ""
+
+msgid "Load configuration from file"
+msgstr ""
+
+msgid "System name"
+msgstr ""
+
+msgid "System name:"
+msgstr ""
+
+msgid "System name cannot contain certain characters"
+msgstr ""
+
+msgid "System name already exists"
+msgstr ""
+
+msgid "Please enter a directory for the system"
+msgstr ""
+
+msgid "Directory does not exist"
+msgstr ""
+
+msgid "A new directory for the system will be created in the selected directory above"
+msgstr ""
+
+msgid "System location:"
+msgstr ""
+
+msgid "System name and location"
+msgstr ""
+
+msgid "Enter the name of the system and choose the location"
+msgstr ""
+
+msgid "Enter the name of the system"
+msgstr ""
+
+msgid "Please enter a system name"
+msgstr ""
+
+msgid "Display name (optional):"
+msgstr ""
+
+msgid "Display name:"
+msgstr ""
+
+msgid "Set display name"
+msgstr ""
+
+msgid "Enter the new display name (blank to reset)"
+msgstr ""
+
+msgid "Change &display name..."
+msgstr ""
+
+msgid "Context Menu"
+msgstr ""
+
+msgid "&Open folder..."
+msgstr ""
+
+msgid "Open p&rinter tray..."
+msgstr ""
+
+msgid "Set &icon..."
+msgstr ""
+
+msgid "Select an icon"
+msgstr ""
+
+msgid "C&lone..."
+msgstr ""
+
+msgid "Virtual machine \"%1\" (%2) will be cloned into:"
+msgstr ""
+
+msgid "Directory %1 already exists"
+msgstr ""
+
+msgid "You cannot use the following characters in the name: %1"
+msgstr ""
+
+msgid "Clone"
+msgstr ""
+
+msgid "Failed to create directory for cloned VM"
+msgstr ""
+
+msgid "Failed to clone VM."
+msgstr ""
+
+msgid "Directory in use"
+msgstr ""
+
+msgid "The selected directory is already in use. Please select a different directory."
+msgstr ""
+
+msgid "Create directory failed"
+msgstr ""
+
+msgid "Unable to create the directory for the new system"
+msgstr ""
+
+msgid "Configuration write failed"
+msgstr ""
+
+msgid "Unable to open the configuration file at %1 for writing"
+msgstr ""
+
+msgid "Error adding system"
+msgstr ""
+
+msgid "Remove directory failed"
+msgstr ""
+
+msgid "Some files in the machine's directory were unable to be deleted. Please delete them manually."
+msgstr ""
+
+msgid "Build"
+msgstr ""
+
+msgid "Version"
+msgstr ""
+
+msgid "An update to 86Box is available: %1 %2"
+msgstr ""
+
+msgid "An error has occurred while checking for updates: %1"
+msgstr ""
+
+msgid "<b>An update to 86Box is available!</b>"
+msgstr ""
+
+msgid "Warning"
+msgstr ""
+
+msgid "&Kill"
+msgstr ""
+
+msgid "Killing a virtual machine can cause data loss. Only do this if the 86Box process gets stuck.\n\nDo you really wish to kill the virtual machine \"%1\"?"
+msgstr ""
+
+msgid "&Delete"
+msgstr ""
+
+msgid "Do you really want to delete the virtual machine \"%1\" and all its files? This action cannot be undone!"
+msgstr ""
+
+msgid "Show &config file"
+msgstr ""
+
+msgid "No screenshot"
+msgstr ""
+
+msgid "Search"
+msgstr ""
+
+msgid "Searching for VMs..."
+msgstr ""
+
+msgid "Found %1"
+msgstr ""
+
+msgid "System"
+msgstr ""
+
+msgid "Storage"
+msgstr ""
+
+msgid "Disk %1: "
+msgstr ""
+
+msgid "No disks"
+msgstr ""
+
+msgid "Audio"
+msgstr ""
+
+msgid "Audio:"
 msgstr ""
 
 msgid "ACPI shutdown"
@@ -1302,9 +1632,6 @@ msgstr ""
 msgid "&Tablet tool"
 msgstr ""
 
-msgid "Qt (OpenGL &ES)"
-msgstr ""
-
 msgid "About &Qt"
 msgstr ""
 
@@ -1345,6 +1672,9 @@ msgid "Unknown Bus"
 msgstr ""
 
 msgid "Null Driver"
+msgstr ""
+
+msgid "NIC:"
 msgstr ""
 
 msgid "NIC %1 (%2) %3"
@@ -1414,6 +1744,9 @@ msgid "No MCA devices."
 msgstr ""
 
 msgid "MiB"
+msgstr ""
+
+msgid "GiB"
 msgstr ""
 
 msgid "Network Card #1"
@@ -1588,6 +1921,12 @@ msgid "Address"
 msgstr ""
 
 msgid "IRQ"
+msgstr ""
+
+msgid "Serial port IRQ"
+msgstr ""
+
+msgid "Parallel port IRQ"
 msgstr ""
 
 msgid "BIOS Revision"
@@ -1813,6 +2152,9 @@ msgid "Raise CODEC interrupt on CODEC setup (needed by some drivers)"
 msgstr ""
 
 msgid "SB Address"
+msgstr ""
+
+msgid "Adlib Address"
 msgstr ""
 
 msgid "Use EEPROM setting"
@@ -2103,6 +2445,9 @@ msgstr ""
 msgid "Composite"
 msgstr ""
 
+msgid "True color"
+msgstr ""
+
 msgid "Old"
 msgstr ""
 
@@ -2214,6 +2559,9 @@ msgstr ""
 msgid "3Dfx Voodoo Graphics"
 msgstr ""
 
+msgid "3Dfx Voodoo 2"
+msgstr ""
+
 msgid "Obsidian SB50 + Amethyst (2 TMUs)"
 msgstr ""
 
@@ -2244,7 +2592,7 @@ msgstr ""
 msgid "Generic Text Printer"
 msgstr ""
 
-msgid "Generic ESC/P Dot-Matrix Printer"
+msgid "Generic ESC/P 2 Dot-Matrix Printer"
 msgstr ""
 
 msgid "Generic PostScript Printer"
@@ -2346,7 +2694,7 @@ msgstr ""
 msgid "Unable to find Dot-Matrix fonts"
 msgstr ""
 
-msgid "TrueType fonts in the \"roms/printer/fonts\" directory are required for the emulation of the Generic ESC/P Dot-Matrix Printer."
+msgid "TrueType fonts in the \"roms/printer/fonts\" directory are required for the emulation of the Generic ESC/P 2 Dot-Matrix Printer."
 msgstr ""
 
 msgid "Inhibit multimedia keys"
@@ -2464,4 +2812,175 @@ msgid "ROM files"
 msgstr ""
 
 msgid "SoundFont files"
+msgstr ""
+
+msgid "Local Switch"
+msgstr ""
+
+msgid "Remote Switch"
+msgstr ""
+
+msgid "Switch:"
+msgstr ""
+
+msgid "Hub Mode"
+msgstr ""
+
+msgid "Hostname:"
+msgstr ""
+
+msgid "ISA RAM:"
+msgstr ""
+
+msgid "ISA ROM:"
+msgstr ""
+
+msgid "&Wipe NVRAM"
+msgstr ""
+
+msgid "This will delete all NVRAM (and related) files of the virtual machine located in the \"nvr\" subdirectory. You'll have to reconfigure the BIOS (and possibly other devices inside the VM) settings again if applicable.\n\nAre you sure you want to wipe all NVRAM contents of the virtual machine \"%1\"?"
+msgstr ""
+
+msgid "Success"
+msgstr ""
+
+msgid "Successfully wiped the NVRAM contents of the virtual machine \"%1\""
+msgstr ""
+
+msgid "An error occurred trying to wipe the NVRAM contents of the virtual machine \"%1\""
+msgstr ""
+
+msgid "%1 VM Manager"
+msgstr ""
+
+msgid "%n disk(s)"
+msgstr ""
+
+msgid "Unknown Status"
+msgstr ""
+
+msgid "No Machines Found!"
+msgstr ""
+
+msgid "Check for updates on startup"
+msgstr ""
+
+msgid "Unable to determine release information"
+msgstr ""
+
+msgid "There was an error checking for updates:\n\n%1\n\nPlease try again later."
+msgstr ""
+
+msgid "Update check complete"
+msgstr ""
+
+msgid "stable"
+msgstr ""
+
+msgid "beta"
+msgstr ""
+
+msgid "You are running the latest %1 version of 86Box: %2"
+msgstr ""
+
+msgid "version"
+msgstr ""
+
+msgid "build"
+msgstr ""
+
+msgid "You are currently running version <b>%1</b>."
+msgstr ""
+
+msgid "<b>Version %1</b> is now available."
+msgstr ""
+
+msgid "You are currently running build <b>%1</b>."
+msgstr ""
+
+msgid "<b>Build %1</b> is now available."
+msgstr ""
+
+msgid "Would you like to visit the download page?"
+msgstr ""
+
+msgid "Visit download page"
+msgstr ""
+
+msgid "Update check"
+msgstr ""
+
+msgid "Checking for updates..."
+msgstr ""
+
+msgid "86Box Update"
+msgstr ""
+
+msgid "Release notes:"
+msgstr ""
+
+msgid "%1 Hz"
+msgstr ""
+
+msgid "Virtual machine crash"
+msgstr ""
+
+msgid "The virtual machine \"%1\"'s process has unexpectedly terminated with exit code %2."
+msgstr ""
+
+msgid "The system will not be added."
+msgstr ""
+
+msgid "&Update mouse every CPU frame"
+msgstr ""
+
+msgid "Hue"
+msgstr ""
+
+msgid "Saturation"
+msgstr ""
+
+msgid "Contrast"
+msgstr ""
+
+msgid "Brightness"
+msgstr ""
+
+msgid "Sharpness"
+msgstr ""
+
+msgid "&CGA composite settings..."
+msgstr ""
+
+msgid "CGA composite settings"
+msgstr ""
+
+msgid "Monitor EDID"
+msgstr ""
+
+msgid "Export..."
+msgstr ""
+
+msgid "Export EDID"
+msgstr ""
+
+msgid "EDID file \"%ls\" is too large."
+msgstr ""
+
+msgid "OpenGL input scale"
+msgstr ""
+
+msgid "OpenGL input stretch mode"
+msgstr ""
+
+msgid "Color scheme"
+msgstr ""
+
+msgid "System"
+msgstr ""
+
+msgid "Light"
+msgstr ""
+
+msgid "Dark"
 msgstr ""

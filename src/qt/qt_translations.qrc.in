@@ -1,6 +1,5 @@
 <RCC>
     <qresource prefix="/">
-        <file>pcbox_ca-ES.qm</file>
         <file>pcbox_cs-CZ.qm</file>
         <file>pcbox_de-DE.qm</file>
         <file>pcbox_en-US.qm</file>
@@ -9,10 +8,10 @@
         <file>pcbox_fi-FI.qm</file>
         <file>pcbox_fr-FR.qm</file>
         <file>pcbox_hr-HR.qm</file>
-        <file>pcbox_hu-HU.qm</file>
         <file>pcbox_it-IT.qm</file>
         <file>pcbox_ja-JP.qm</file>
         <file>pcbox_ko-KR.qm</file>
+        <file>pcbox_nb-NO.qm</file>
         <file>pcbox_nl-NL.qm</file>
         <file>pcbox_pl-PL.qm</file>
         <file>pcbox_pt-BR.qm</file>

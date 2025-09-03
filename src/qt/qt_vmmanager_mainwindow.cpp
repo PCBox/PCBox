@@ -18,17 +18,29 @@
 #include "qt_vmmanager_mainwindow.hpp"
 #include "qt_vmmanager_main.hpp"
 #include "qt_vmmanager_preferences.hpp"
+#include "qt_vmmanager_windarkmodefilter.hpp"
 #include "ui_qt_vmmanager_mainwindow.h"
 #if EMU_BUILD_NUM != 0
 #    include "qt_updatecheckdialog.hpp"
 #endif
 #include "qt_about.hpp"
+#include "qt_progsettings.hpp"
+#include "qt_util.hpp"
 
 #include <QLineEdit>
 #include <QStringListModel>
 #include <QCompleter>
 #include <QCloseEvent>
-#include <QDesktopServices> 
+#include <QDesktopServices>
+
+extern "C"
+{
+extern void config_load_global();
+extern void config_save_global();
+}
+
+VMManagerMainWindow* vmm_main_window = nullptr;
+extern WindowsDarkModeFilter* vmm_dark_mode_filter;
 
 VMManagerMainWindow::
 VMManagerMainWindow(QWidget *parent)
@@ -38,6 +50,8 @@ VMManagerMainWindow(QWidget *parent)
     , statusRight(new QLabel)
 {
     ui->setupUi(this);
+
+    vmm_main_window = this;
 
     // Connect signals from the VMManagerMain widget
     connect(vmm, &VMManagerMain::selectionChanged, this, &VMManagerMainWindow::vmmSelectionChanged);
@@ -74,7 +88,7 @@ VMManagerMainWindow(QWidget *parent)
 
     const auto searchBar = new QLineEdit();
     searchBar->setMinimumWidth(150);
-    searchBar->setPlaceholderText(" " + tr("Search"));
+    searchBar->setPlaceholderText(tr("Search"));
     searchBar->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
     searchBar->setClearButtonEnabled(true);
     // Spacer to make the search go all the way to the right
@@ -113,6 +127,37 @@ VMManagerMainWindow(QWidget *parent)
 
     // Inform the main view when preferences are updated
     connect(this, &VMManagerMainWindow::preferencesUpdated, vmm, &VMManagerMain::onPreferencesUpdated);
+    connect(this, &VMManagerMainWindow::languageUpdated, vmm, &VMManagerMain::onLanguageUpdated);
+#ifdef Q_OS_WINDOWS
+    connect(this, &VMManagerMainWindow::darkModeUpdated, vmm, &VMManagerMain::onDarkModeUpdated);
+    connect(this, &VMManagerMainWindow::preferencesUpdated, [] () { vmm_dark_mode_filter->reselectDarkMode(); });
+#endif
+
+    {
+        auto config = new VMManagerConfig(VMManagerConfig::ConfigType::General);
+        this->ui->actionRemember_size_and_position->setChecked(!!config->getStringValue("window_remember").toInt());
+        if (ui->actionRemember_size_and_position->isChecked()) {
+            QStringList list = config->getStringValue("window_coordinates").split(',');
+            for (auto& cur : list) {
+                cur = cur.trimmed();
+            }
+            QRect geom;
+            geom.setX(list[0].toInt());
+            geom.setY(list[1].toInt());
+            geom.setWidth(list[2].toInt());
+            geom.setHeight(list[3].toInt());
+
+            setGeometry(geom);
+            if (!!config->getStringValue("window_maximized").toInt()) {
+                setWindowState(windowState() | Qt::WindowMaximized);
+            }
+        } else {
+            config->setStringValue("window_remember", "");
+            config->setStringValue("window_coordinates", "");
+            config->setStringValue("window_maximized", "");
+        }
+        delete config;
+    }
 
 }
 
@@ -151,7 +196,16 @@ VMManagerMainWindow::preferencesTriggered()
     const auto prefs = new VMManagerPreferences();
     if (prefs->exec() == QDialog::Accepted) {
         emit preferencesUpdated();
+        updateLanguage();
     }
+}
+
+void
+VMManagerMainWindow::updateSettings()
+{
+    config_load_global();
+    emit preferencesUpdated();
+    updateLanguage();
 }
 
 void
@@ -160,8 +214,47 @@ VMManagerMainWindow::saveSettings() const
     const auto currentSelection = vmm->getCurrentSelection();
     const auto config = new VMManagerConfig(VMManagerConfig::ConfigType::General);
     config->setStringValue("last_selection", currentSelection);
+    config->setStringValue("window_remember", QString::number(ui->actionRemember_size_and_position->isChecked()));
+    if (ui->actionRemember_size_and_position->isChecked()) {
+        config->setStringValue("window_coordinates", QString::asprintf("%i, %i, %i, %i", this->geometry().x(), this->geometry().y(), this->geometry().width(), this->geometry().height()));
+        config->setStringValue("window_maximized", this->isMaximized() ? "1" : "");
+    } else {
+        config->setStringValue("window_remember", "");
+        config->setStringValue("window_coordinates", "");
+        config->setStringValue("window_maximized", "");
+    }
     // Sometimes required to ensure the settings save before the app exits
     config->sync();
+}
+
+void
+VMManagerMainWindow::updateLanguage()
+{
+    ProgSettings::loadTranslators(QCoreApplication::instance());
+    ProgSettings::reloadStrings();
+    ui->retranslateUi(this);
+    setWindowTitle(tr("%1 VM Manager").arg(EMU_NAME));
+    emit languageUpdated();
+}
+
+
+#ifdef Q_OS_WINDOWS
+void
+VMManagerMainWindow::updateDarkMode()
+{
+    emit darkModeUpdated();
+}
+#endif
+
+void
+VMManagerMainWindow::changeEvent(QEvent *event)
+{
+#ifdef Q_OS_WINDOWS
+    if (event->type() == QEvent::LanguageChange) {
+        QApplication::setFont(QFont(ProgSettings::getFontName(lang_id), 9));
+    }
+#endif
+    QWidget::changeEvent(event);
 }
 
 void

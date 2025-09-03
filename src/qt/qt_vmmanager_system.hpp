@@ -46,7 +46,10 @@ enum class Name {
     Disks,
     Floppy,
     CD,
+    RDisk,
+    MO,
     SCSIController,
+    StorageController,
     MidiOut,
     Joystick,
     Serial,
@@ -54,7 +57,11 @@ enum class Name {
     Audio,
     Voodoo,
     NIC,
+    Keyboard,
     Mouse,
+    IsaRtc,
+    IsaMem,
+    IsaRom,
     Unknown
 };
 Q_ENUM_NS(Name)
@@ -122,6 +129,7 @@ public slots:
     void shutdownForceButtonPressed();
     void cadButtonPressed();
     void reloadConfig();
+    void sendGlobalConfigurationChanged();
 public:
     QDateTime timestamp();
     void setIcon(const QString &newIcon);
@@ -129,6 +137,7 @@ public:
     QProcess *process = new QProcess();
 
     bool window_obscured;
+    bool config_signal_connected = false;
 
     QString getDisplayValue(VMManager::Display::Name key);
     QFileInfoList getScreenshots();
@@ -149,6 +158,7 @@ signals:
     void itemDataChanged();
     void clientProcessStatusChanged();
     void configurationChanged(const QString &uuid);
+    void globalConfigurationChanged();
 
 private:
     void loadSettings();

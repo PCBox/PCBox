@@ -66,6 +66,7 @@ extern "C" {
 #    include "qt_rendererstack.hpp"
 #    include "qt_winrawinputfilter.hpp"
 #    include "qt_winmanagerfilter.hpp"
+#    include "qt_vmmanager_windarkmodefilter.hpp"
 #    include <86box/win.h>
 #    include <shobjidl.h>
 #    include <windows.h>
@@ -515,13 +516,14 @@ main_thread_fn()
 static std::thread *main_thread;
 
 #ifdef Q_OS_WINDOWS
-extern bool windows_is_light_theme();
+WindowsDarkModeFilter* vmm_dark_mode_filter = nullptr;
 #endif
 
 int
 main(int argc, char *argv[])
 {
 #ifdef Q_OS_WINDOWS
+    bool wasDarkTheme = false;
     /* Check if Windows supports UTF-8 */
     if (GetACP() == CP_UTF8)
 	    acp_utf8 = 1;
@@ -548,7 +550,7 @@ main(int argc, char *argv[])
     }
     QApplication::setAttribute(Qt::AA_NativeWindows);
 
-    if (!windows_is_light_theme()) {
+    if (!util::isWindowsLightTheme()) {
         QFile f(":qdarkstyle/dark/darkstyle.qss");
 
         if (!f.exists())   {
@@ -557,7 +559,12 @@ main(int argc, char *argv[])
             f.open(QFile::ReadOnly | QFile::Text);
             QTextStream ts(&f);
             qApp->setStyleSheet(ts.readAll());
+            wasDarkTheme = true;
         }
+        QPalette palette(qApp->palette());
+        palette.setColor(QPalette::Link, Qt::white);
+        palette.setColor(QPalette::LinkVisited, Qt::lightGray);
+        qApp->setPalette(palette);
     }
 #endif
 
@@ -584,7 +591,17 @@ main(int argc, char *argv[])
         return 0;
     }
 
-    if (!vmm_enabled)
+#ifdef Q_OS_WINDOWS
+    if (util::isWindowsLightTheme() && wasDarkTheme) {
+        qApp->setStyleSheet("");
+        QPalette palette(qApp->palette());
+        palette.setColor(QPalette::Link, Qt::blue);
+        palette.setColor(QPalette::LinkVisited, Qt::magenta);
+        qApp->setPalette(palette);
+    }
+#endif
+
+    if (!start_vmm)
 #ifdef Q_OS_MACOS
         qt_set_sequence_auto_mnemonic(false);
 #else
@@ -616,7 +633,7 @@ main(int argc, char *argv[])
 #    endif
 #endif
 
-    if (!pc_init_modules()) {
+    if (!pc_init_roms()) {
         QMessageBox fatalbox(QMessageBox::Icon::Critical, QObject::tr("No ROMs found"),
                              QObject::tr("PCBox could not find any usable ROM images.\n\nPlease <a href=\"https://github.com/PCBox/roms/releases/latest\">download</a> a ROM set and extract it into the \"roms\" directory."),
                              QMessageBox::Ok);
@@ -625,18 +642,35 @@ main(int argc, char *argv[])
         return 6;
     }
 
-    if (vmm_enabled) {
+    if (start_vmm) {
         // VMManagerMain vmm;
         // // Hackish until there is a proper solution
         // QApplication::setApplicationName("86Box VM Manager");
         // QApplication::setApplicationDisplayName("86Box VM Manager");
         // vmm.show();
         // vmm.exec();
-        const auto vmm_main_window = new VMManagerMainWindow();
-        vmm_main_window->show();
+#ifdef Q_OS_WINDOWS
+        auto darkModeFilter = std::unique_ptr<WindowsDarkModeFilter>(new WindowsDarkModeFilter());
+        if (darkModeFilter) {
+            qApp->installNativeEventFilter(darkModeFilter.get());
+        }
+        QTimer::singleShot(0, [&darkModeFilter] {
+#else
+        QTimer::singleShot(0, [] {
+#endif
+            const auto vmm_main_window = new VMManagerMainWindow();
+#ifdef Q_OS_WINDOWS
+            darkModeFilter.get()->setWindow(vmm_main_window);
+            // HACK
+            vmm_dark_mode_filter = darkModeFilter.get();
+#endif
+            vmm_main_window->show();
+        });
         QApplication::exec();
         return 0;
     }
+
+    pc_init_modules();
 
     // UUID / copy / move detection
     if(!util::compareUuid()) {
@@ -815,6 +849,7 @@ main(int argc, char *argv[])
         });
         QObject::connect(main_window, &MainWindow::vmmRunningStateChanged, &manager_socket, &VMManagerClientSocket::clientRunningStateChanged);
         QObject::connect(main_window, &MainWindow::vmmConfigurationChanged, &manager_socket, &VMManagerClientSocket::configurationChanged);
+        QObject::connect(main_window, &MainWindow::vmmGlobalConfigurationChanged, &manager_socket, &VMManagerClientSocket::globalConfigurationChanged);
         main_window->installEventFilter(&manager_socket);
 
         manager_socket.sendWinIdMessage(main_window->winId());
@@ -848,6 +883,10 @@ main(int argc, char *argv[])
 
     /* Initialize the rendering window, or fullscreen. */
     QTimer::singleShot(0, &app, [] {
+#ifdef Q_OS_WINDOWS
+        extern bool NewDarkMode;
+        NewDarkMode = util::isWindowsLightTheme();
+#endif
         pc_reset_hard_init();
 
         /* Set the PAUSE mode depending on the renderer. */

@@ -62,6 +62,26 @@ if(APPLE AND USE_QT6)
     find_package(Qt6Gui/Qt6QICNSPlugin REQUIRED)
 endif()
 
+if (UNIX)
+    find_path(HAS_VDE "libvdeplug.h" PATHS ${VDE_INCLUDE_DIR} "/usr/include /usr/local/include" "/opt/homebrew/include" )
+    if(HAS_VDE)
+        find_library(VDE_LIB vdeplug)
+        if (NOT VDE_LIB)
+            message(WARNING "Could not find VDE. The library will not be bundled and any related features will be disabled.")
+        else()
+            add_compile_definitions(HAS_VDE)
+        endif()
+    endif()
+endif()
+if (UNIX AND NOT APPLE) # Support for TAP on Linux and BSD, supposedly.
+    find_path(HAS_TAP "linux/if_tun.h" PATHS ${TAP_INCLUDE_DIR} "/usr/include /usr/local/include" "/opt/homebrew/include" )
+    if(HAS_TAP)
+        add_compile_definitions(HAS_TAP)
+    else()
+        message(WARNING "TAP support not available. Are you on some BSD?")
+    endif()
+endif()
+
 add_library(plat STATIC
     qt.c
     qt_main.cpp
@@ -245,6 +265,7 @@ add_library(ui STATIC
 
     qt_iconindicators.hpp
     qt_iconindicators.cpp
+    qt_cgasettingsdialog.hpp qt_cgasettingsdialog.cpp qt_cgasettingsdialog.ui
 )
 
 if(EMU_BUILD_NUM)
@@ -258,6 +279,10 @@ if(EMU_BUILD_NUM)
         qt_updatedetails.hpp
         qt_updatedetails.ui
     )
+endif()
+
+if(NETSWITCH)
+    target_compile_definitions(ui PRIVATE USE_NETSWITCH)
 endif()
 
 if(RTMIDI)
@@ -357,6 +382,8 @@ if (WIN32)
     target_sources(ui PRIVATE
         qt_winrawinputfilter.hpp
         qt_winrawinputfilter.cpp
+        qt_vmmanager_windarkmodefilter.hpp
+        qt_vmmanager_windarkmodefilter.cpp
         qt_winmanagerfilter.hpp
         qt_winmanagerfilter.cpp
     )
@@ -559,7 +586,6 @@ foreach(po_file ${po_files})
         string(REGEX MATCH "[A-Z]+$" PO_COUNTRY ${PO_FILE_NAME})
 
         # Find the base Qt translation for the language and country
-        set(qt_translation_file_dest "qt_${PO_LANGUAGE}_${PO_COUNTRY}.qm")
         if (EXISTS "${QT_TRANSLATIONS_DIR}/qtbase_${PO_LANGUAGE}_${PO_COUNTRY}.qm")
             set(qt_translation_file "qtbase_${PO_LANGUAGE}_${PO_COUNTRY}.qm")
         # Fall back to just the language if country isn't found
@@ -578,13 +604,9 @@ foreach(po_file ${po_files})
         # Copy the translation file to the build directory
         if (qt_translation_file)
             file(COPY "${QT_TRANSLATIONS_DIR}/${qt_translation_file}" DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
-            if (NOT (qt_translation_file STREQUAL qt_translation_file_dest))
-                # Rename the file for consistency
-                file(RENAME "${CMAKE_CURRENT_BINARY_DIR}/${qt_translation_file}" "${CMAKE_CURRENT_BINARY_DIR}/${qt_translation_file_dest}")
-            endif()
             # Add the file to the translations list
-            string(APPEND QT_TRANSLATIONS_LIST "        <file>${qt_translation_file_dest}</file>\n")
-            list(APPEND QM_FILES "${CMAKE_CURRENT_BINARY_DIR}/${qt_translation_file_dest}")
+            string(APPEND QT_TRANSLATIONS_LIST "        <file>${qt_translation_file}</file>\n")
+            list(APPEND QM_FILES "${CMAKE_CURRENT_BINARY_DIR}/${qt_translation_file}")
         endif()
     endif()
 
