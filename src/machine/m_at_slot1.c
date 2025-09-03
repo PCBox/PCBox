@@ -661,7 +661,7 @@ machine_at_p6sba_init(const machine_t *model)
     return ret;
 }
 
-int
+/*int
 machine_at_dfip2x_init(const machine_t *model)
 {
     int ret;
@@ -690,14 +690,14 @@ machine_at_dfip2x_init(const machine_t *model)
     device_add(&intel_flash_bxt_device);
     spd_register(SPD_TYPE_SDRAM, 0x7, 256);
     device_add(&w83781d_device);    /* fans: CPU1, CPU2, Thermal Control; temperatures: unused, CPU1, CPU2? */
-    device_add(&i82093aa_ioapic_device);
-    hwm_values.fans[1]         = 0; /* no CPU2 fan */
-    hwm_values.temperatures[0] = 0; /* unused */
-    hwm_values.temperatures[2] = 0; /* CPU2? */
+    //device_add(&i82093aa_ioapic_device);
+    //hwm_values.fans[1]         = 0; /* no CPU2 fan */
+    //hwm_values.temperatures[0] = 0; /* unused */
+    //hwm_values.temperatures[2] = 0; /* CPU2? */
     /* no CPU2 voltage */
 
-    return ret;
-}
+    //return ret;
+//}
 
 int
 machine_at_s1846_init(const machine_t *model)
