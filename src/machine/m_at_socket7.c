@@ -42,6 +42,7 @@
 #include <86box/thread.h>
 #include <86box/network.h>
 #include <86box/pci.h>
+#include <86box/apic.h>
 
 /* i430HX */
 int
