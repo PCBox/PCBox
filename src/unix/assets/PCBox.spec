@@ -15,7 +15,7 @@
 %global romver 5.1
 
 Name:		PCBox
-Version:	6.0
+Version:	5.2
 Release:	1%{?dist}
 Summary:	Classic PC emulator
 License:	GPLv2+
@@ -121,9 +121,5 @@ popd
 %{_datadir}/%{name}/roms
 
 %changelog
-<<<<<<< HEAD:src/unix/assets/PCBox.spec
-* Sun Sep 14 2025 Jasmine Iwanek <jriwanek[AT]gmail.com> 6.0-1
-=======
-* Sat Aug 31 Jasmine Iwanek <jriwanek[AT]gmail.com> 6.0-1
->>>>>>> 38759c1ae0cfaebecf3a838db17171ed23d1b1f4:src/unix/assets/86Box.spec
+* Sat Aug 31 2025 Jasmine Iwanek <jriwanek[AT]gmail.com> 5.2-1
 - Bump release
