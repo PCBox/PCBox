@@ -18,6 +18,7 @@
 // NON-modal dialogs
 #include "qt_gpudebug_vram.hpp"
 #include "qt_gpudebug_visualnv.hpp"
+extern QTimer discordupdate;
 
 class MediaMenu;
 class RendererStack;
