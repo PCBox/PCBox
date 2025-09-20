@@ -71,6 +71,7 @@
         CLOCK_CYCLES(1);                                  \
     } else {                                              \
         SEG_CHECK_READ(cpu_state.ea_seg);                 \
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 15) \
         if (cpu_state.eaaddr & 0xf) {                     \
             x86gpf(NULL, 0);                              \
             if (cpu_state.abrt)                           \
@@ -147,4 +148,5 @@ static int softfloat_status_word_to_mxcsr(struct softfloat_status_t status)
             x86_int(0x13);
         ILLEGAL_ON(!(cr4 & CR4_OSXMMEXCPT));
     }
+    return 0;
 }

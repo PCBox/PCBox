@@ -831,7 +831,13 @@ codegen_MMX_ENTER(codeblock_t *block, uop_t *uop)
     uint32_t *branch_offset;
 
     host_x86_MOV32_REG_ABS(block, REG_ECX, &cr0);
-    host_x86_TEST32_REG_IMM(block, REG_ECX, 0xc);
+    host_x86_TEST32_REG_IMM(block, REG_ECX, 0x4);
+    branch_offset = host_x86_JZ_long(block);
+    host_x86_CALL(block, x86illegal);
+    host_x86_JMP(block, codegen_exit_rout);
+    *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
+    
+    host_x86_TEST32_REG_IMM(block, REG_ECX, 0x8);
     branch_offset = host_x86_JZ_long(block);
     host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
 #    if _WIN64
@@ -842,6 +848,7 @@ codegen_MMX_ENTER(codeblock_t *block, uop_t *uop)
     host_x86_CALL(block, x86_int);
     host_x86_JMP(block, codegen_exit_rout);
     *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
+
     host_x86_MOV32_ABS_IMM(block, &cpu_state.tag[0], 0x01010101);
     host_x86_MOV32_ABS_IMM(block, &cpu_state.tag[4], 0x01010101);
     host_x86_MOV32_ABS_IMM(block, &cpu_state.TOP, 0);

@@ -351,7 +351,7 @@ plat_put_backslash(char *s)
 
 /* Return the last element of a pathname. */
 char *
-plat_get_basename(const char *path)
+path_get_basename(const char *path)
 {
     int c = (int) strlen(path);
 
@@ -405,11 +405,19 @@ path_append_filename(char *dest, const char *s1, const char *s2)
 int
 plat_dir_check(char *path)
 {
-    struct stat dummy;
-    if (stat(path, &dummy) < 0) {
+    struct stat stats;
+    if (stat(path, &stats) < 0)
         return 0;
-    }
-    return S_ISDIR(dummy.st_mode);
+    return S_ISDIR(stats.st_mode);
+}
+
+int
+plat_file_check(const char *path)
+{
+    struct stat stats;
+    if (stat(path, &stats) < 0)
+        return 0;
+    return !S_ISDIR(stats.st_mode);
 }
 
 int
@@ -1038,12 +1046,8 @@ monitor_thread(UNUSED(void *param))
 #        define EMU_GIT_HASH "0000000"
 #    endif
 
-#    if defined(__arm__) || defined(__TARGET_ARCH_ARM)
-#        define ARCH_STR "arm"
-#    elif defined(__aarch64__) || defined(_M_ARM64)
+#    if defined(__aarch64__) || defined(_M_ARM64)
 #        define ARCH_STR "arm64"
-#    elif defined(__i386) || defined(__i386__) || defined(_M_IX86)
-#        define ARCH_STR "i386"
 #    elif defined(__x86_64) || defined(__x86_64__) || defined(__amd64) || defined(_M_X64)
 #        define ARCH_STR "x86_64"
 #    else
@@ -1420,6 +1424,7 @@ main(int argc, char **argv)
         f_rl_callback_handler_remove();
     return 0;
 }
+
 char *
 plat_vidapi_name(UNUSED(int i))
 {

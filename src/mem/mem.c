@@ -68,9 +68,6 @@ mem_mapping_t bios_mapping;
 mem_mapping_t bios_high_mapping;
 
 page_t  *pages;       /* RAM page table */
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-page_t **page_lookup; /* pagetable lookup */
-#endif
 uint32_t pages_sz;    /* #pages in table */
 
 uint8_t *ram;  /* the virtual RAM */
@@ -88,23 +85,16 @@ uint8_t *pccache2;
 
 int        readlnext;
 int        readlookup[256];
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-uintptr_t *readlookup2;
-#endif
 uintptr_t  old_rl2;
 uint8_t    uncached = 0;
 int        writelnext;
 int        writelookup[256];
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-uintptr_t *writelookup2;
-#endif
 
-#if (defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64)
 /* The lookup tables. */
 page_t *page_lookup[1048576] = { 0 };
 uintptr_t readlookup2[1048576] = { 0 };
 uintptr_t writelookup2[1048576] = { 0 };
-#endif
+
 
 uint32_t mem_logical_addr;
 
@@ -152,12 +142,7 @@ static uint8_t        mtrr_area_refcounts[MEM_MAPPINGS_NO];
 
 static uint32_t       remap_start_addr;
 static uint32_t       remap_start_addr2;
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
 static size_t ram_size = 0;
-static size_t ram2_size = 0;
-#else
-static size_t ram_size = 0;
-#endif
 
 #ifdef ENABLE_MEM_LOG
 int mem_do_log = ENABLE_MEM_LOG;
@@ -279,24 +264,10 @@ void
 mem_flush_write_page(uint32_t addr, uint32_t virt)
 {
     const page_t *page_target = &pages[addr >> 12];
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-    uint32_t a;
-#endif
 
     for (uint16_t c = 0; c < 256; c++) {
         if (writelookup[c] != (int) 0xffffffff) {
-#if (defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64)
             uintptr_t target = (uintptr_t) &ram[(uintptr_t) (addr & ~0xfff) - (virt & ~0xfff)];
-#else
-            a = (uintptr_t) (addr & ~0xfff) - (virt & ~0xfff);
-            uintptr_t target;
-
-            if ((addr & ~0xfff) >= (1 << 30))
-                target = (uintptr_t) &ram2[a - (1 << 30)];
-            else
-                target = (uintptr_t) &ram[a];
-#endif
-
             if (writelookup2[writelookup[c]] == target || page_lookup[writelookup[c]] == page_target) {
                 writelookup2[writelookup[c]] = LOOKUP_INV;
                 page_lookup[writelookup[c]]  = NULL;
@@ -638,10 +609,6 @@ mem_addr_translate(uint32_t addr, uint32_t chunk_start, uint32_t len)
 void
 addreadlookup(uint32_t virt, uint32_t phys)
 {
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-    uint32_t a;
-#endif
-
     if (virt == 0xffffffff)
         return;
 
@@ -654,16 +621,7 @@ addreadlookup(uint32_t virt, uint32_t phys)
         readlookup2[readlookup[readlnext]] = LOOKUP_INV;
     }
 
-#if (defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64)
     readlookup2[virt >> 12] = (uintptr_t) &ram[(uintptr_t) (phys & ~0xFFF) - (uintptr_t) (virt & ~0xfff)];
-#else
-    a = ((uint32_t) (phys & ~0xfff) - (uint32_t) (virt & ~0xfff));
-
-    if ((phys & ~0xfff) >= (1 << 30))
-        readlookup2[virt >> 12] = (uintptr_t) &ram2[a - (1 << 30)];
-    else
-        readlookup2[virt >> 12] = (uintptr_t) &ram[a];
-#endif
 
     readlookup[readlnext++] = virt >> 12;
     readlnext &= (cachesize - 1);
@@ -674,10 +632,6 @@ addreadlookup(uint32_t virt, uint32_t phys)
 void
 addwritelookup(uint32_t virt, uint32_t phys)
 {
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-    uint32_t a;
-#endif
-
     if (virt == 0xffffffff)
         return;
 
@@ -704,16 +658,8 @@ addwritelookup(uint32_t virt, uint32_t phys)
 #endif
         page_lookup[virt >> 12]  = &pages[phys >> 12];
     } else {
-#if (defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64)
-        writelookup2[virt >> 12] = (uintptr_t) &ram[(uintptr_t) (phys & ~0xFFF) - (uintptr_t) (virt & ~0xfff)];
-#else
-        a = ((uint32_t) (phys & ~0xfff) - (uint32_t) (virt & ~0xfff));
 
-        if ((phys & ~0xfff) >= (1 << 30))
-            writelookup2[virt >> 12] = (uintptr_t) &ram2[a - (1 << 30)];
-        else
-            writelookup2[virt >> 12] = (uintptr_t) &ram[a];
-#endif
+        writelookup2[virt >> 12] = (uintptr_t) &ram[(uintptr_t) (phys & ~0xFFF) - (uintptr_t) (virt & ~0xfff)];
     }
 
     writelookup[writelnext++] = virt >> 12;
@@ -766,9 +712,7 @@ uint8_t *
 getpccache(uint32_t a)
 {
     uint64_t a64 = (uint64_t) a;
-#if (defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64)
     uint8_t *p;
-#endif
     uint32_t a2;
 
     a2 = a;
@@ -789,12 +733,8 @@ getpccache(uint32_t a)
                 cpu_prefetch_cycles = cpu_mem_prefetch_cycles;
         }
 
-#if (defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64)
         p = &_mem_exec[a64 >> MEM_GRANULARITY_BITS][(uintptr_t) (a64 & MEM_GRANULARITY_PAGE) - (uintptr_t) (a2 & ~0xfff)];
         return (uint8_t *) (((uintptr_t) p & 0x00000000ffffffffULL) | ((uintptr_t) &_mem_exec[a64 >> MEM_GRANULARITY_BITS][0] & 0xffffffff00000000ULL));
-#else
-        return &_mem_exec[a64 >> MEM_GRANULARITY_BITS][(uintptr_t) (a64 & MEM_GRANULARITY_PAGE) - (uintptr_t) (a2 & ~0xfff)];
-#endif
     }
 
     mem_log("Bad getpccache %08X%08X\n", (uint32_t) (a64 >> 32), (uint32_t) (a64 & 0xffffffffULL));
@@ -2977,11 +2917,6 @@ mem_init_ram_mapping(mem_mapping_t *mapping, uint32_t base, uint32_t size)
 void
 mem_zero(void)
 {
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-    if (mem_size > 1048576)
-        memset(ram2, 0x00, ram2_size + 16);
-#endif
-
     memset(ram, 0x00, ram_size + 16);
 }
 
@@ -3016,55 +2951,17 @@ mem_reset(void)
         ram      = NULL;
         ram_size = 0;
     }
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-    if (ram2 != NULL) {
-        plat_munmap(ram2, ram2_size);
-        ram2      = NULL;
-        ram2_size = 0;
-    }
-
-    if (mem_size > 2097152)
-        mem_size = 2097152;
-#endif
 
     m = 1024UL * (size_t) mem_size;
 
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-    if (mem_size > 1048576) {
-        ram_size = 1 << 30;
-        ram      = (uint8_t *) plat_mmap(ram_size, 0); /* allocate and clear the RAM block of the first 1 GB */
-        if (ram == NULL) {
-            fatal("Failed to allocate primary RAM block. Make sure you have enough RAM available.\n");
-            return;
-        }
-        memset(ram, 0x00, ram_size);
-        ram2_size = m - (1 << 30);
-        /* Allocate 16 extra bytes of RAM to mitigate some dynarec recompiler memory access quirks. */
-        ram2      = (uint8_t *) plat_mmap(ram2_size + 16, 0); /* allocate and clear the RAM block above 1 GB */
-        if (ram2 == NULL) {
-            if (config_changed == 2)
-                fatal(EMU_NAME " must be restarted for the memory amount change to be applied.\n");
-            else
-                fatal("Failed to allocate secondary RAM block. Make sure you have enough RAM available.\n");
-            return;
-        }
-        memset(ram2, 0x00, ram2_size + 16);
-    } else
-#endif
-    {
-        ram_size = m;
-        /* Allocate 16 extra bytes of RAM to mitigate some dynarec recompiler memory access quirks. */
-        ram      = (uint8_t *) plat_mmap(ram_size + 16, 0); /* allocate and clear the RAM block */
-        if (ram == NULL) {
-            fatal("Failed to allocate RAM block. Make sure you have enough RAM available.\n");
-            return;
-        }
-        memset(ram, 0x00, ram_size + 16);
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-        if (mem_size > 1048576)
-            ram2 = &(ram[1 << 30]);
-#endif
+    ram_size = m;
+    /* Allocate 16 extra bytes of RAM to mitigate some dynarec recompiler memory access quirks. */
+    ram      = (uint8_t *) plat_mmap(ram_size + 16, 0); /* allocate and clear the RAM block */
+    if (ram == NULL) {
+        fatal("Failed to allocate RAM block. Make sure you have enough RAM available.\n");
+        return;
     }
+    memset(ram, 0x00, ram_size + 16);
 
     /*
      * Allocate the page table based on how much RAM we have.
@@ -3119,17 +3016,8 @@ mem_reset(void)
         if ((c << 12) >= (mem_size << 10))
             pages[c].mem = page_ff;
         else {
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-            if (mem_size > 1048576) {
-                if ((c << 12) < (1 << 30))
-                    pages[c].mem = &ram[c << 12];
-                else
-                    pages[c].mem = &ram2[(c << 12) - (1 << 30)];
-            } else
-                pages[c].mem = &ram[c << 12];
-#else
+
             pages[c].mem = &ram[c << 12];
-#endif
         }
         if (c < m) {
             pages[c].write_b = mem_write_ramb_page;
@@ -3165,22 +3053,7 @@ mem_reset(void)
         else if (cpu_16bitbus && is6117 && mem_size > 65408)
             mem_init_ram_mapping(&ram_high_mapping, 0x100000, (65408 - 1024) * 1024);
         else {
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-            if (mem_size > 1048576) {
-                mem_init_ram_mapping(&ram_high_mapping, 0x100000, (1048576 - 1024) * 1024);
-
-                mem_set_mem_state_both((1 << 30), (mem_size - 1048576) * 1024,
-                                       MEM_READ_INTERNAL | MEM_WRITE_INTERNAL);
-                mem_mapping_add(&ram_2gb_mapping, (1 << 30),
-                                ((mem_size - 1048576) * 1024),
-                                mem_read_ram_2gb, mem_read_ram_2gbw, mem_read_ram_2gbl,
-                                mem_write_ram, mem_write_ramw, mem_write_raml,
-                                ram2, MEM_MAPPING_INTERNAL, NULL);
-            } else
-                mem_init_ram_mapping(&ram_high_mapping, 0x100000, (mem_size - 1024) * 1024);
-#else
-            mem_init_ram_mapping(&ram_high_mapping, 0x100000, (mem_size - 1024) * 1024);
-#endif
+           mem_init_ram_mapping(&ram_high_mapping, 0x100000, (mem_size - 1024) * 1024);
         }
     }
 
@@ -3221,25 +3094,7 @@ mem_init(void)
     pages     = NULL;
 
     memset(mtrr_areas, 0x00, MEM_MAPPINGS_NO * sizeof(uint8_t *));
-
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-    /* Allocate the lookup tables. */
-    page_lookup  = (page_t **) malloc((1 << 20) * sizeof(page_t *));
-    readlookup2  = malloc((1 << 20) * sizeof(uintptr_t));
-    writelookup2 = malloc((1 << 20) * sizeof(uintptr_t));
-#endif
 }
-
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-void
-mem_free(void)
-{
-    free(page_lookup);
-    free(readlookup2);
-    free(writelookup2);
-}
-#endif
-
 
 static void
 umc_page_recalc(uint32_t c, uint32_t phys, int set)
@@ -3341,17 +3196,7 @@ mem_remap_top_ex_common(int kb, uint32_t start, int mid)
         if (sis_mode || ((c << 12) >= (mem_size << 10)))
             pages[c].mem = page_ff;
         else {
-#if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-            if (mem_size > 1048576) {
-                if ((c << 12) < (1 << 30))
-                    pages[c].mem = &ram[c << 12];
-                else
-                    pages[c].mem = &ram2[(c << 12) - (1 << 30)];
-            } else
-                pages[c].mem = &ram[c << 12];
-#else
             pages[c].mem = &ram[c << 12];
-#endif
         }
         if (!sis_mode && (c < addr_space_size)) {
             pages[c].write_b = mem_write_ramb_page;

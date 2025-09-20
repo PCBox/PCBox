@@ -36,7 +36,7 @@ if(MUNT_EXTERNAL)
 endif()
 
 project(PCBox
-    VERSION 5.1
+    VERSION 5.2
     DESCRIPTION "Emulator of x86-based systems"
     HOMEPAGE_URL "https://pcbox-emu.xyz/"
     LANGUAGES C CXX)
@@ -150,7 +150,7 @@ if (NV_LOG_ULTRA)
     add_compile_definitions(ENABLE_NV_LOG_ULTRA)
 endif()
 
-if((ARCH STREQUAL "arm64") OR (ARCH STREQUAL "arm"))
+if((ARCH STREQUAL "arm64"))
     set(NEW_DYNAREC ON)
 else()
     option(NEW_DYNAREC "Use the PCem v15 (\"new\") dynamic recompiler" OFF)

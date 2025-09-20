@@ -211,7 +211,7 @@ load_general(void)
     rctrl_is_lalt = ini_section_get_int(cat, "rctrl_is_lalt", 0);
     update_icons  = ini_section_get_int(cat, "update_icons", 1);
 
-    start_in_fullscreen = ini_section_get_int(cat, "start_in_fullscreen", 0);
+    start_in_fullscreen |= ini_section_get_int(cat, "start_in_fullscreen", 0);
 
     window_remember = ini_section_get_int(cat, "window_remember", 0);
 
@@ -572,7 +572,7 @@ load_input_devices(void)
     p = ini_section_get_string(cat, "keyboard_type", NULL);
     if (p != NULL)
         keyboard_type = keyboard_get_from_internal_name(p);
-    else if (strstr(machine_get_internal_name(), "pc5086"))
+    else if (machines[machine].init == machine_xt_pc5086_init)
         keyboard_type = KEYBOARD_TYPE_PC_XT;
     else if (machine_has_bus(machine, MACHINE_BUS_PS2_PORTS)) {
         if (machine_has_flags(machine, MACHINE_KEYBOARD_JIS))
@@ -1034,7 +1034,7 @@ load_storage_controllers(void)
                 if (!hdc_current[j]) {
                     if (!legacy_cards[i]) {
                         if (!p) {
-                            hdc_current[j] = hdc_get_from_internal_name("internal");
+                            hdc_current[j] = hdc_get_from_internal_name((j == 0) ? "internal" : "none");
                         } else if (!strcmp(p, "xtide_plus")) {
                             hdc_current[j] = hdc_get_from_internal_name("xtide");
                             sprintf(temp, "PC/XT XTIDE #%i", j + 1);
@@ -3063,7 +3063,7 @@ save_storage_controllers(void)
         else
             def_hdc = "none";
 
-        if (!strcmp(hdc_get_internal_name(hdc_current[c]), def_hdc))
+        if (!strcmp(hdc_get_internal_name(hdc_current[c]), def_hdc) || ((c > 0) && (hdc_current[c] == 1)))
             ini_section_delete_var(cat, temp);
         else
             ini_section_set_string(cat, temp,

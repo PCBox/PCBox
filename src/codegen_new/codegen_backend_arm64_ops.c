@@ -180,11 +180,10 @@
 #    define OPCODE_SQSUB_V8B          (0x0e202c00)
 #    define OPCODE_SQSUB_V4H          (0x0e602c00)
 #    define OPCODE_SQXTN_V8B_8H       (0x0e214800)
-#    define OPCODE_SQXTUN_V8B_8H      (0x7e212800)
 #    define OPCODE_SQXTN_V4H_4S       (0x0e614800)
 #    define OPCODE_SHL_VD             (0x0f005400)
 #    define OPCODE_SHL_VQ             (0x4f005400)
-#    define OPCODE_SHRN               (0x0f008400)
+#    define OPCODE_SQSHRN             (0x0f008400)
 #    define OPCODE_SMULL_V4S_4H       (0x0e60c000)
 #    define OPCODE_SSHR_VD            (0x0f000400)
 #    define OPCODE_SSHR_VQ            (0x4f000400)
@@ -1187,11 +1186,11 @@ host_arm64_SCVTF_V2S(codeblock_t *block, int dst_reg, int src_reg)
 }
 
 void
-host_arm64_SHRN_V4H_4S(codeblock_t *block, int dst_reg, int src_n_reg, int shift)
+host_arm64_SQSHRN_V4H_4S(codeblock_t *block, int dst_reg, int src_n_reg, int shift)
 {
     if (shift > 16)
         fatal("host_arm64_SHRN_V4H_4S : shift > 16\n");
-    codegen_addlong(block, OPCODE_SHRN | Rd(dst_reg) | Rn(src_n_reg) | SHRN_SHIFT_IMM_V4S(16 - shift));
+    codegen_addlong(block, OPCODE_SQSHRN | Rd(dst_reg) | Rn(src_n_reg) | SHRN_SHIFT_IMM_V4S(16 - shift));
 }
 
 void
@@ -1226,12 +1225,6 @@ host_arm64_SQXTN_V8B_8H(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_addlong(block, OPCODE_SQXTN_V8B_8H | Rd(dst_reg) | Rn(src_reg));
 }
-
-void host_arm64_SQXTUN_V8B_8H(codeblock_t *block, int dst_reg, int src_reg)
-{
-    codegen_addlong(block, OPCODE_SQXTUN_V8B_8H | Rd(dst_reg) | Rn(src_reg));
-}
-
 void
 host_arm64_SQXTN_V4H_4S(codeblock_t *block, int dst_reg, int src_reg)
 {
