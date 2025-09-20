@@ -15475,7 +15475,7 @@ const machine_t machines[] = {
         .gpio_acpi_handler = NULL,
         .cpu = {
             .package = CPU_PKG_SOCKET5_7,
-            .block = CPU_BLOCK_NONE,
+            .block = CPU_BLOCK(CPU_Cx6x86MX),
             .min_bus = 50000000,
             .max_bus = 75000000,
             .min_voltage = 2100,
@@ -19619,7 +19619,7 @@ machine_has_bus(int m, int bus_flags)
     if ((bus_flags & MACHINE_BUS_XT_KBD) &&
         !(machines[m].bus_flags & MACHINE_BUS_ISA16) &&
         (!(machines[m].bus_flags & MACHINE_BUS_PS2_PORTS) ||
-        !(strcmp(machine_get_internal_name(), "pc5086"))))
+        (machines[m].init == machine_xt_pc5086_init)))
         ret |= MACHINE_BUS_XT_KBD;
 
 #ifdef ONLY_AT_KBD_ON_AT_KBC
