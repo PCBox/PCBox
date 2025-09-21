@@ -8,8 +8,6 @@
  *
  *          Implementation of ISA Plug and Play.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          RichardG, <richardg867@gmail.com>
  *
@@ -1117,6 +1115,8 @@ isapnp_enable_card(void *priv, uint8_t enable)
             /* Enable or disable the card. */
             if (!!enable ^ !!card->enable)
                 card->state = (enable == ISAPNP_CARD_FORCE_CONFIG) ? PNP_STATE_CONFIG : PNP_STATE_WAIT_FOR_KEY;
+            if (enable == ISAPNP_CARD_FORCE_SLEEP)
+                card->state = PNP_STATE_SLEEP;
             int old_enable = card->enable;
             card->enable = enable;
 
