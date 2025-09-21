@@ -150,7 +150,7 @@ typedef struct cpu_t {
     const char *name;
     uint64_t    cpu_type;
     const FPU  *fpus;
-    uint32_t    rspeed;
+    uint64_t    rspeed;
     double      multi;
     uint16_t    voltage;
     uint32_t    edx_reset;
