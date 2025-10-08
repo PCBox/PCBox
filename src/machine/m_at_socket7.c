@@ -66,6 +66,7 @@ machine_at_acerm3a_init(const machine_t *model)
     pci_register_slot(0x0E, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x0F, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x10, PCI_CARD_VIDEO,       4, 0, 0, 0);
+
     device_add(&i430hx_device);
     device_add(&piix3_device);
     device_add_params(&fdc37c93x_device, (void *) (FDC37XXX5 | FDC37C93X_NORMAL));
@@ -95,6 +96,7 @@ machine_at_p55t2p4_init(const machine_t *model)
     pci_register_slot(0x0A, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x09, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430hx_device);
     device_add(&piix3_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -117,6 +119,7 @@ machine_at_p65up5_common_init(const machine_t *model, const device_t *northbridg
     pci_register_slot(0x0B, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x0C, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_slot(0x0D, PCI_CARD_NORMAL,      4, 1, 2, 3);
+
     device_add(northbridge);
     device_add(&piix3_ioapic_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -145,28 +148,49 @@ machine_at_p65up5_cp55t2d_init(const machine_t *model)
 static const device_config_t cu430hx_config[] = {
     // clang-format off
     {
-        .name = "bios",
-        .description = "BIOS Version",
-        .type = CONFIG_BIOS,
+        .name           = "bios",
+        .description    = "BIOS Version",
+        .type           = CONFIG_BIOS,
         .default_string = "cu430hx",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .bios = {
-            { .name = "Intel AMIBIOS - Revision 1.00.03.DK08 (Toshiba Equium 5xx0D)", .internal_name = "equium5200", .bios_type = BIOS_NORMAL, 
-              .files_no = 5, .local = 0, .size = 262144, .files = { "roms/machines/cu430hx/1003DK08.BIO", "roms/machines/cu430hx/1003DK08.BI1",
-                                                                    "roms/machines/cu430hx/1003DK08.BI2", "roms/machines/cu430hx/1003DK08.BI3",
-                                                                    "roms/machines/cu430hx/1003DK08.RCV", "" } },
-            { .name = "Intel AMIBIOS - Revision 1.00.04.DK0K (NEC PowerMate V2xxx/P2xxx)", .internal_name = "powermatev2p2", .bios_type = BIOS_NORMAL, 
-              .files_no = 5, .local = 0, .size = 262144, .files = { "roms/machines/cu430hx/1004DK0K.BIO", "roms/machines/cu430hx/1004DK0K.BI1",
-                                                                    "roms/machines/cu430hx/1004DK0K.BI2", "roms/machines/cu430hx/1004DK0K.BI3",
-                                                                    "roms/machines/cu430hx/1004DK0K.RCV", "" } },
-            { .name = "Intel AMIBIOS - Revision 1.00.06.DK0", .internal_name = "cu430hx", .bios_type = BIOS_NORMAL, 
-              .files_no = 5, .local = 0, .size = 262144, .files = { "roms/machines/cu430hx/1006DK0_.BIO", "roms/machines/cu430hx/1006DK0_.BI1",
-                                                                    "roms/machines/cu430hx/1006DK0_.BI2", "roms/machines/cu430hx/1006DK0_.BI3",
-                                                                    "roms/machines/cu430hx/1006DK0_.RCV", "" } },
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            {
+                .name          = "Intel AMIBIOS - Revision 1.00.03.DK08 (Toshiba Equium 5xx0D)",
+                .internal_name = "equium5200",
+                .bios_type     = BIOS_NORMAL, 
+                .files_no      = 5,
+                .local         = 0,
+                .size          = 262144,
+                .files         = { "roms/machines/cu430hx/1003DK08.BIO", "roms/machines/cu430hx/1003DK08.BI1",
+                                   "roms/machines/cu430hx/1003DK08.BI2", "roms/machines/cu430hx/1003DK08.BI3",
+                                   "roms/machines/cu430hx/1003DK08.RCV", "" } },
+            {
+                .name          = "Intel AMIBIOS - Revision 1.00.04.DK0K (NEC PowerMate V2xxx/P2xxx)",
+                .internal_name = "powermatev2p2",
+                .bios_type     = BIOS_NORMAL, 
+                .files_no      = 5,
+                .local         = 0,
+                .size          = 262144,
+                .files         = { "roms/machines/cu430hx/1004DK0K.BIO", "roms/machines/cu430hx/1004DK0K.BI1",
+                                   "roms/machines/cu430hx/1004DK0K.BI2", "roms/machines/cu430hx/1004DK0K.BI3",
+                                   "roms/machines/cu430hx/1004DK0K.RCV", "" }
+            },
+            {
+                .name          = "Intel AMIBIOS - Revision 1.00.06.DK0",
+                .internal_name = "cu430hx",
+                .bios_type     = BIOS_NORMAL, 
+                .files_no      = 5,
+                .local         = 0,
+                .size          = 262144,
+                .files         = { "roms/machines/cu430hx/1006DK0_.BIO", "roms/machines/cu430hx/1006DK0_.BI1",
+                                   "roms/machines/cu430hx/1006DK0_.BI2", "roms/machines/cu430hx/1006DK0_.BI3",
+                                   "roms/machines/cu430hx/1006DK0_.RCV", "" }
+            },
             { .files_no = 0 }
-        },
+        }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
@@ -220,8 +244,8 @@ machine_at_cu430hx_gpio_init(void)
 int
 machine_at_cu430hx_init(const machine_t *model)
 {
-    int ret = 0;
-    const char* fn[5];
+    int         ret = 0;
+    const char *fn[5];
 
     /* No ROMs available */
     if (!device_available(model->device))
@@ -260,24 +284,39 @@ machine_at_cu430hx_init(const machine_t *model)
 static const device_config_t tc430hx_config[] = {
     // clang-format off
     {
-        .name = "bios",
-        .description = "BIOS Version",
-        .type = CONFIG_BIOS,
+        .name           = "bios",
+        .description    = "BIOS Version",
+        .type           = CONFIG_BIOS,
         .default_string = "tc430hx",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .bios = {
-            { .name = "Intel AMIBIOS - Revision 1.00.07.DH0", .internal_name = "tc430hx", .bios_type = BIOS_NORMAL, 
-              .files_no = 5, .local = 0, .size = 262144, .files = { "roms/machines/tc430hx/1007DH0_.BIO", "roms/machines/tc430hx/1007DH0_.BI1",
-                                                                    "roms/machines/tc430hx/1007DH0_.BI2", "roms/machines/tc430hx/1007DH0_.BI3",
-                                                                    "roms/machines/tc430hx/1007DH0_.RCV", "" } },
-            { .name = "Intel AMIBIOS - Revision 1.00.08.DH08 (Toshiba Infinia 7xx1)", .internal_name = "infinia7200", .bios_type = BIOS_NORMAL, 
-              .files_no = 5, .local = 0, .size = 262144, .files = { "roms/machines/tc430hx/1008DH08.BIO", "roms/machines/tc430hx/1008DH08.BI1",
-                                                                    "roms/machines/tc430hx/1008DH08.BI2", "roms/machines/tc430hx/1008DH08.BI3",
-                                                                    "roms/machines/tc430hx/1008DH08.RCV", "" } },
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            {
+                .name          = "Intel AMIBIOS - Revision 1.00.07.DH0",
+                .internal_name = "tc430hx",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 5,
+                .local         = 0,
+                .size          = 262144,
+                .files         = { "roms/machines/tc430hx/1007DH0_.BIO", "roms/machines/tc430hx/1007DH0_.BI1",
+                                   "roms/machines/tc430hx/1007DH0_.BI2", "roms/machines/tc430hx/1007DH0_.BI3",
+                                   "roms/machines/tc430hx/1007DH0_.RCV", "" }
+            },
+            {
+                .name          = "Intel AMIBIOS - Revision 1.00.08.DH08 (Toshiba Infinia 7xx1)",
+                .internal_name = "infinia7200",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 5,
+                .local         = 0,
+                .size          = 262144,
+                .files         = { "roms/machines/tc430hx/1008DH08.BIO", "roms/machines/tc430hx/1008DH08.BI1",
+                                   "roms/machines/tc430hx/1008DH08.BI2", "roms/machines/tc430hx/1008DH08.BI3",
+                                   "roms/machines/tc430hx/1008DH08.RCV", "" }
+            },
             { .files_no = 0 }
-        },
+        }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
@@ -331,8 +370,8 @@ machine_at_tc430hx_gpio_init(void)
 int
 machine_at_tc430hx_init(const machine_t *model)
 {
-    int ret = 0;
-    const char* fn[5];
+    int         ret = 0;
+    const char *fn[5];
 
     /* No ROMs available */
     if (!device_available(model->device))
@@ -373,20 +412,35 @@ machine_at_tc430hx_init(const machine_t *model)
 static const device_config_t m7shi_config[] = {
     // clang-format off
     {
-        .name = "bios",
-        .description = "BIOS Version",
-        .type = CONFIG_BIOS,
+        .name           = "bios",
+        .description    = "BIOS Version",
+        .type           = CONFIG_BIOS,
         .default_string = "m7shi",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .bios = {
-            { .name = "PhoenixBIOS 4.0 Release 6.0 - Revision 05/20/97", .internal_name = "m7shi", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 262144, .files = { "roms/machines/m7shi/m7shi2n.rom", "" } },
-            { .name = "PhoenixBIOS 4.0 Release 6.0 - Revision 01/21/98", .internal_name = "m7shi_4", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 262144, .files = { "roms/machines/m7shi/M7ns04.rom", "" } },
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            {
+                .name          = "PhoenixBIOS 4.0 Release 6.0 - Revision 05/20/97",
+                .internal_name = "m7shi_97",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 262144,
+                .files         = { "roms/machines/m7shi/m7shi2n.rom", "" }
+            },
+            {
+                .name          = "PhoenixBIOS 4.0 Release 6.0 - Revision 01/21/98",
+                .internal_name = "m7shi",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 262144,
+                .files         = { "roms/machines/m7shi/M7ns04.rom", "" }
+            },
             { .files_no = 0 }
-        },
+        }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
@@ -409,15 +463,15 @@ const device_t m7shi_device = {
 int
 machine_at_m7shi_init(const machine_t *model)
 {
-    int ret = 0;
-    const char* fn;
+    int         ret = 0;
+    const char *fn;
 
     /* No ROMs available */
     if (!device_available(model->device))
         return ret;
 
     device_context(model->device);
-    fn = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
+    fn  = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
     ret = bios_load_linear(fn, 0x000c0000, 262144, 0);
     device_context_restore();
 
@@ -430,6 +484,7 @@ machine_at_m7shi_init(const machine_t *model)
     pci_register_slot(0x10, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x0F, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430hx_device);
     device_add(&piix3_device);
     device_add_params(&fdc37c93x_device, (void *) (FDC37XXX5 | FDC37C93X_NORMAL));
@@ -459,6 +514,7 @@ machine_at_epc2102_init(const machine_t *model)
     pci_register_slot(0x0F, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x10, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430hx_device);
     device_add(&piix3_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -499,6 +555,7 @@ machine_at_pcv90_init(const machine_t *model)
     pci_register_slot(0x0F, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x10, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430hx_device);
     device_add(&piix3_device);
     device_add_params(&pc87306_device, (void *) PCX730X_AMI);
@@ -530,6 +587,7 @@ machine_at_p55t2s_init(const machine_t *model)
     pci_register_slot(0x14, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x11, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430hx_device);
     device_add(&piix3_device);
     device_add_params(&pc87306_device, (void *) PCX730X_AMI);
@@ -563,6 +621,7 @@ machine_at_ap5vm_init(const machine_t *model)
     pci_register_slot(0x0B, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x0C, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430vx_device);
     device_add(&piix3_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -593,6 +652,7 @@ machine_at_p55tvp4_init(const machine_t *model)
     pci_register_slot(0x0B, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x0C, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430vx_device);
     device_add(&piix3_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -621,6 +681,7 @@ machine_at_5ivg_init(const machine_t *model)
     pci_register_slot(0x12, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x13, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430vx_device);
     device_add(&piix3_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -650,6 +711,7 @@ machine_at_8500tvxa_init(const machine_t *model)
     pci_register_slot(0x09, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x0A, PCI_CARD_NORMAL,      3, 4, 2, 1);
     pci_register_slot(0x0B, PCI_CARD_NORMAL,      4, 3, 2, 1);
+
     device_add(&i430vx_device);
     device_add(&piix3_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -744,6 +806,7 @@ machine_at_dellhannibalp_init(const machine_t *model)
     pci_register_slot(0x0F, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x10, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 4);
+
     device_add(&i430vx_device);
     device_add(&piix3_device);
     device_add_params(&fdc37c93x_device, (void *) (FDC37XXX2 | FDC37C93X_FR));
@@ -772,6 +835,7 @@ machine_at_p5vxb_init(const machine_t *model)
     pci_register_slot(0x08, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x09, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 4);
+
     device_add(&i430vx_device);
     device_add(&piix3_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -801,6 +865,7 @@ machine_at_p55va_init(const machine_t *model)
     pci_register_slot(0x0A, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x0B, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430vx_device);
     device_add(&piix3_device);
     device_add_params(&fdc37c93x_device, (void *) (FDC37XXX2 | FDC37C93X_FR));
@@ -866,6 +931,7 @@ machine_at_brio80xx_init(const machine_t *model)
     pci_register_slot(0x12, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x11, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430vx_device);
     device_add(&piix3_device);
     device_add_params(&fdc37c93x_device, (void *) (FDC37XXX5 | FDC37C93X_NORMAL | FDC37XXXX_370));
@@ -877,20 +943,35 @@ machine_at_brio80xx_init(const machine_t *model)
 static const device_config_t lgibmx52_config[] = {
     // clang-format off
     {
-        .name = "bios",
-        .description = "BIOS Version",
-        .type = CONFIG_BIOS,
+        .name           = "bios",
+        .description    = "BIOS Version",
+        .type           = CONFIG_BIOS,
         .default_string = "lgibmx52",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .bios = {
-            { .name = "PhoenixBIOS 4.05 - Revision 08/21/97", .internal_name = "lgibmx52_082197", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/lgibmx52/BIOS.ROM", "" } },
-            { .name = "PhoenixBIOS 4.05 - Revision 03/26/99", .internal_name = "lgibmx52", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/lgibmx52/MS5136 LG IBM OEM.ROM", "" } },
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            {
+                .name          = "PhoenixBIOS 4.05 - Revision 08/21/97",
+                .internal_name = "lgibmx52_082197",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/lgibmx52/BIOS.ROM", "" }
+            },
+            {
+                .name          = "PhoenixBIOS 4.05 - Revision 03/26/99",
+                .internal_name = "lgibmx52",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/lgibmx52/MS5136 LG IBM OEM.ROM", "" }
+            },
             { .files_no = 0 }
-        },
+        }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
@@ -913,15 +994,15 @@ const device_t lgibmx52_device = {
 int
 machine_at_lgibmx52_init(const machine_t *model)
 {
-    int ret = 0;
-    const char* fn;
+    int         ret = 0;
+    const char *fn;
 
     /* No ROMs available */
     if (!device_available(model->device))
         return ret;
 
     device_context(model->device);
-    fn = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
+    fn  = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
     ret = bios_load_linear(fn, 0x000e0000, 131072, 0);
     device_context_restore();
 
@@ -934,6 +1015,7 @@ machine_at_lgibmx52_init(const machine_t *model)
     pci_register_slot(0x0F, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x10, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430vx_device);
     device_add(&piix3_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -999,9 +1081,9 @@ machine_at_pb810_init(const machine_t *model)
 
     pci_init(PCI_CONFIG_TYPE_1);
     pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0);
-    pci_register_slot(0x13, PCI_CARD_NORMAL, 2, 1, 3, 4);
-    pci_register_slot(0x11, PCI_CARD_NORMAL, 1, 3, 2, 4);
-    pci_register_slot(0x0b, PCI_CARD_NORMAL, 1, 2, 3, 4);
+    pci_register_slot(0x13, PCI_CARD_NORMAL,      2, 1, 3, 4);
+    pci_register_slot(0x11, PCI_CARD_NORMAL,      1, 3, 2, 4);
+    pci_register_slot(0x0b, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
 
     if (sound_card_current[0] == SOUND_INTERNAL)
@@ -1035,6 +1117,7 @@ machine_at_mb520n_init(const machine_t *model)
     pci_register_slot(0x12, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x11, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430vx_device);
     device_add(&piix3_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -1064,6 +1147,7 @@ machine_at_i430vx_init(const machine_t *model)
     pci_register_slot(0x14, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x13, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 0, 0, 0, 0);
+
     device_add(&i430vx_device);
     device_add(&piix3_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -1136,6 +1220,7 @@ machine_at_tx97_init(const machine_t *model)
     pci_register_slot(0x01, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4); /* PIIX4 */
     pci_register_slot(0x0D, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_slot(0x08, PCI_CARD_NORMAL,      1, 2, 3, 4);
+
     device_add(&i430tx_device);
     device_add(&piix4_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -1157,6 +1242,7 @@ void
 machine_at_optiplex_21152_init(void)
 {
     uint8_t bus_index = pci_bridge_get_bus_index(device_add(&dec21152_device));
+
     pci_register_bus_slot(bus_index, 0x09, PCI_CARD_NORMAL, 1, 2, 3, 4);
     pci_register_bus_slot(bus_index, 0x0a, PCI_CARD_NORMAL, 4, 2, 1, 3);
     pci_register_bus_slot(bus_index, 0x0b, PCI_CARD_NORMAL, 1, 3, 4, 2);
@@ -1221,6 +1307,7 @@ machine_at_tomahawk_init(const machine_t *model)
     pci_register_slot(0x06, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_slot(0x07, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x08, PCI_CARD_NORMAL,      3, 4, 1, 2);
+
     device_add(&i430tx_device);
     device_add(&piix4_device);
     device_add_params(&fdc37c67x_device, (void *) (FDC37XXX2 | FDC37XXXX_370));
@@ -1263,6 +1350,7 @@ machine_at_ym430tx_init(const machine_t *model)
     pci_register_slot(0x01, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4); /* PIIX4 */
     pci_register_slot(0x0D, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_slot(0x08, PCI_CARD_NORMAL,      1, 2, 3, 4);
+
     device_add(&i430tx_device);
     device_add(&piix4_device);
     device_add_params(&w83977_device, (void *) (W83977TF | W83977_AMI | W83977_NO_NVR));
@@ -1292,6 +1380,7 @@ machine_at_thunderbolt_init(const machine_t *model)
     pci_register_slot(0x12, PCI_CARD_NORMAL,      1, 2, 3, 0);
     pci_register_slot(0x13, PCI_CARD_NORMAL,      2, 3, 0, 1);
     pci_register_slot(0x14, PCI_CARD_NORMAL,      3, 0, 1, 2);
+
     device_add(&i430tx_device);
     device_add(&piix4_device);
     device_add_params(&fdc37c93x_device, (void *) (FDC37XXX5 | FDC37C93X_NORMAL | FDC37C93X_NO_NVR));
@@ -1321,6 +1410,7 @@ machine_at_ma23c_init(const machine_t *model)
     pci_register_slot(0x0C, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4);
     pci_register_slot(0x0B, PCI_CARD_VIDEO,       3, 4, 1, 2);
+
     device_add(&i430tx_device);
     device_add(&piix4_device);
     device_add(&nec_mate_unk_device);
@@ -1331,20 +1421,61 @@ machine_at_ma23c_init(const machine_t *model)
     return ret;
 }
 
+static const device_config_t an430tx_config[] = {
+    // clang-format off
+    {
+        .name = "bios",
+        .description = "BIOS Version",
+        .type = CONFIG_BIOS,
+        .default_string = "pb79x",
+        .default_int = 0,
+        .file_filter = "",
+        .spinner = { 0 },
+        .bios = {
+            { .name = "PhoenixBIOS 4.0 Release 6.0 - Revision P02-0011 (Sony Vaio PCV-130/150)", .internal_name = "vaio150", .bios_type = BIOS_NORMAL,
+              .files_no = 5, .local = 0, .size = 262144, .files = { "roms/machines/an430tx/P02-0011.BIO", "roms/machines/an430tx/P02-0011.BI1",
+                                                                    "roms/machines/an430tx/P02-0011.BI2", "roms/machines/an430tx/P02-0011.BI3",
+                                                                    "roms/machines/an430tx/P02-0011.RCV", "" } },
+            { .name = "PhoenixBIOS 4.0 Release 6.0 - Revision P09-0006 (Packard Bell PB79x)", .internal_name = "pb79x", .bios_type = BIOS_NORMAL,
+              .files_no = 5, .local = 0, .size = 262144, .files = { "roms/machines/an430tx/ANP0911A.BIO", "roms/machines/an430tx/ANP0911A.BI1",
+                                                                    "roms/machines/an430tx/ANP0911A.BI2", "roms/machines/an430tx/ANP0911A.BI3",
+                                                                    "roms/machines/an430tx/ANP0911A.RCV", "" } },
+            { .files_no = 0 }
+        },
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+    // clang-format on
+};
+
+const device_t an430tx_device = {
+    .name          = "Intel AN430TX (Anchorage)",
+    .internal_name = "an430tx_device",
+    .flags         = 0,
+    .local         = 0,
+    .init          = NULL,
+    .close         = NULL,
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = an430tx_config
+};
+
 int
 machine_at_an430tx_init(const machine_t *model)
 {
-    int ret;
+    int ret = 0;
+    const char* fn[5];
 
-    ret = bios_load_linear_combined2("roms/machines/an430tx/ANP0911A.BIO",
-                                     "roms/machines/an430tx/ANP0911A.BI1",
-                                     "roms/machines/an430tx/ANP0911A.BI2",
-                                     "roms/machines/an430tx/ANP0911A.BI3",
-                                     "roms/machines/an430tx/ANP0911A.RCV",
-                                     0x3a000, 160);
-
-    if (bios_only || !ret)
+    /* No ROMs available */
+    if (!device_available(model->device))
         return ret;
+
+    device_context(model->device);
+    for (int i = 0; i < 5; i++)
+        fn[i] = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), i);
+    ret = bios_load_linear_combined2(fn[0], fn[1], fn[2], fn[3], fn[4], 0x3a000, 160);
+    device_context_restore();
 
     machine_at_common_init_ex(model, 2);
 
@@ -1356,6 +1487,7 @@ machine_at_an430tx_init(const machine_t *model)
     pci_register_slot(0x0F, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x10, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x08, PCI_CARD_VIDEO,       4, 0, 0, 0);
+
     device_add(&i430tx_device);
     device_add(&piix4_device);
 #ifdef FOLLOW_THE_SPECIFICATION
@@ -1366,6 +1498,9 @@ machine_at_an430tx_init(const machine_t *model)
 #endif
     device_add(&intel_flash_bxt_ami_device);
     spd_register(SPD_TYPE_SDRAM, 0x3, 128);
+
+    if (sound_card_current[0] == SOUND_INTERNAL)
+        machine_snd = device_add(machine_get_snd_device(machine));
 
     return ret;
 }
@@ -1390,6 +1525,7 @@ machine_at_mb540n_init(const machine_t *model)
     pci_register_slot(0x13, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x14, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4); /* PIIX4 */
+
     device_add(&i430tx_device);
     device_add(&piix4_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -1421,6 +1557,7 @@ machine_at_56a5_init(const machine_t *model)
     pci_register_slot(0x14, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4); /* PIIX4 */
     pci_register_slot(0x10, PCI_CARD_NORMAL,      1, 2, 3, 4);
+
     device_add(&i430tx_device);
     device_add(&piix4_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -1451,6 +1588,7 @@ machine_at_p5mms98_init(const machine_t *model)
     pci_register_slot(0x12, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x13, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x14, PCI_CARD_NORMAL,      4, 1, 2, 3);
+
     device_add(&i430tx_device);
     device_add(&piix4_device);
     /* This actually has the Winbond W83967AF, for which I can not find any datasheet at all. */
@@ -1483,6 +1621,7 @@ machine_at_richmond_init(const machine_t *model)
     pci_register_slot(0x12, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x13, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x14, PCI_CARD_NORMAL,      4, 1, 2, 3);
+
     device_add(&i430tx_device);
     device_add(&piix4_device);
     device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
@@ -1516,6 +1655,7 @@ machine_at_ficva502_init(const machine_t *model)
     pci_register_slot(0x0A, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x0B, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4);
+
     device_add(&via_vpx_device);
     device_add(&via_vt82c586b_device);
     device_add_params(&fdc37c669_device, (void *) FDC37C6XX_370);
@@ -1648,20 +1788,35 @@ machine_at_ms5146_init(const machine_t *model)
 static const device_config_t r534f_config[] = {
     // clang-format off
     {
-        .name = "bios",
-        .description = "BIOS Version",
-        .type = CONFIG_BIOS,
-        .default_string = "r534f_1998",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .bios = {
-            { .name = "Award Modular BIOS v4.51PG - Revision 06/12/1998", .internal_name = "r534f_1998", .bios_type = BIOS_NORMAL,
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/r534f/r534f008-1998.bin", "" } },
-            { .name = "Award Modular BIOS v4.51PG - Revision 03/13/2000 (by Unicore Software)", .internal_name = "r534f", .bios_type = BIOS_NORMAL,
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/r534f/r534f008.bin", "" } },
+        .name           = "bios",
+        .description    = "BIOS Version",
+        .type           = CONFIG_BIOS,
+        .default_string = "r534f",
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            {
+                .name          = "Award Modular BIOS v4.51PG - Revision 06/12/1998",
+                .internal_name = "r534f",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/r534f/r534f008-1998.bin", "" }
+            },
+            {
+                .name          = "Award Modular BIOS v4.51PG - Revision 03/13/2000 (by Unicore Software)",
+                .internal_name = "r534f_unicore",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/r534f/r534f008.bin", "" }
+            },
             { .files_no = 0 }
-        },
+        }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
@@ -1684,15 +1839,15 @@ const device_t r534f_device = {
 int
 machine_at_r534f_init(const machine_t *model)
 {
-    int ret = 0;
-    const char* fn;
+    int         ret = 0;
+    const char *fn;
 
     /* No ROMs available */
     if (!device_available(model->device))
         return ret;
 
     device_context(model->device);
-    fn = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
+    fn  = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
     ret = bios_load_linear(fn, 0x000e0000, 131072, 0);
     device_context_restore();
 
@@ -1735,6 +1890,7 @@ machine_at_sp97xv_init(const machine_t *model)
     pci_register_slot(0x0A, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x09, PCI_CARD_NORMAL,      4, 1, 2, 3);
     pci_register_slot(0x13, PCI_CARD_VIDEO,       1, 2, 3, 4);    /* On-chip SiS graphics, absent here. */
+
     device_add(&sis_5581_device);
     device_add_params(&w83877_device, (void *) (W83877F | W83877_3F0));
     device_add(&sst_flash_29ee010_device);
@@ -1761,6 +1917,7 @@ machine_at_sq578_init(const machine_t *model)
     pci_register_slot(0x0D, PCI_CARD_NORMAL,      3, 4, 1, 2);
     pci_register_slot(0x0B, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x09, PCI_CARD_NORMAL,      1, 2, 3, 4);
+
     device_add(&sis_5581_device);
     device_add_params(&w83877_device, (void *) (W83877TF | W83877_3F0));
     device_add(&sst_flash_29ee010_device);
@@ -1789,6 +1946,7 @@ machine_at_ms5172_init(const machine_t *model)
     pci_register_slot(0x09, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_slot(0x0A, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_slot(0x0B, PCI_CARD_NORMAL,      3, 4, 1, 2);
+
     device_add(&sis_5591_1997_device);
     device_add_params(&w83877_device, (void *) (W83877TF | W83877_3F0));
     device_add(&sst_flash_29ee010_device);
@@ -1800,20 +1958,35 @@ machine_at_ms5172_init(const machine_t *model)
 static const device_config_t m5ata_config[] = {
     // clang-format off
     {
-        .name = "bios",
-        .description = "BIOS Version",
-        .type = CONFIG_BIOS,
+        .name           = "bios",
+        .description    = "BIOS Version",
+        .type           = CONFIG_BIOS,
         .default_string = "m5ata",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .bios = {
-            { .name = "Award Modular BIOS v4.51PG - Revision 12/23/97", .internal_name = "m5ata_1223", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/m5ata/ATA1223.BIN", "" } },
-            { .name = "Award Modular BIOS v4.51PG - Revision 05/27/98", .internal_name = "m5ata", .bios_type = BIOS_NORMAL, 
-              .files_no = 1, .local = 0, .size = 131072, .files = { "roms/machines/m5ata/ATA0527B.BIN", "" } },
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            {
+                .name          = "Award Modular BIOS v4.51PG - Revision 12/23/97",
+                .internal_name = "m5ata_1223",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/m5ata/ATA1223.BIN", "" }
+            },
+            {
+                .name          = "Award Modular BIOS v4.51PG - Revision 05/27/98",
+                .internal_name = "m5ata",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 131072,
+                .files         = { "roms/machines/m5ata/ATA0527B.BIN", "" }
+            },
             { .files_no = 0 }
-        },
+        }
     },
     { .name = "", .description = "", .type = CONFIG_END }
     // clang-format on
@@ -1836,15 +2009,15 @@ const device_t m5ata_device = {
 int
 machine_at_m5ata_init(const machine_t *model)
 {
-    int ret = 0;
-    const char* fn;
+    int         ret = 0;
+    const char *fn;
 
     /* No ROMs available */
     if (!device_available(model->device))
         return ret;
 
     device_context(model->device);
-    fn = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
+    fn  = device_get_bios_file(machine_get_device(machine), device_get_config_bios("bios"), 0);
     ret = bios_load_linear(fn, 0x000e0000, 131072, 0);
     device_context_restore();
 
@@ -1922,6 +2095,7 @@ machine_at_m560_init(const machine_t *model)
     pci_register_slot(0x04, PCI_CARD_NORMAL,          2, 3, 4, 1);
     pci_register_slot(0x05, PCI_CARD_NORMAL,          3, 4, 1, 2);
     pci_register_slot(0x06, PCI_CARD_NORMAL,          4, 1, 2, 3);
+
     device_add(&ali1531_device);
     device_add(&ali1543_device); /* -5 */
     device_add(&sst_flash_29ee010_device);

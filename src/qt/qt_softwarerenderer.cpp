@@ -8,8 +8,6 @@
  *
  *          Software renderer module.
  *
- *
- *
  * Authors: Joakim L. Gilje <jgilje@jgilje.net>
  *          Cacodemon345
  *          Teemu Korhonen
@@ -71,6 +69,12 @@ SoftwareRenderer::render()
 
     m_backingStore->endPaint();
     m_backingStore->flush(rect);
+}
+
+void
+SoftwareRenderer::exposeEvent(QExposeEvent* event)
+{
+    render();
 }
 
 void

@@ -29,9 +29,7 @@ x87_emms(void)
     uint64_t *p;
     if (fpu_softfloat) {
         fpu_state.tag = 0xffff;
-        fpu_state.tos = 0; /* reset FPU Top-Of-Stack */
     } else {
-        cpu_state.TOP = 0;
         p  = (uint64_t *) cpu_state.tag;
         *p = 0;
     }

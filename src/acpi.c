@@ -8,8 +8,6 @@
  *
  *          ACPI emulation.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Tiseno100
  *
