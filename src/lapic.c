@@ -377,7 +377,7 @@ apic_lapic_readl(uint32_t addr, void *priv)
             break;
 
         case 0x090:
-            ret = 0;
+            ret = lapic_get_apr(dev);
             break;
 
         case 0x0a0:
@@ -438,11 +438,11 @@ apic_lapic_readl(uint32_t addr, void *priv)
 
         case 0x390:
             //pclog("APIC: Read current timer count %u\n", dev->lapic_timer_current_count);
-            ret = dev->lapic_timer_current_count;
 #ifdef USE_DYNAREC
             if (cpu_use_dynarec)
                 update_tsc();
 #endif
+            ret = dev->lapic_timer_current_count;
             break;
 
         case 0x3e0:
