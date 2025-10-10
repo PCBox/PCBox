@@ -3105,7 +3105,7 @@ const machine_t machines[] = {
         .flags     = MACHINE_XTA | MACHINE_VIDEO_FIXED,
         .ram       = {
             .min  = 512,
-            .max  = 16384,
+            .max  = 4096,
             .step = 512
         },
         .nvrmask                  = 127,
@@ -4959,7 +4959,7 @@ const machine_t machines[] = {
         .flags     = MACHINE_VIDEO,
         .ram       = {
             .min  = 1024,
-            .max  = 10240,
+            .max  = 12288,
             .step = 1024
         },
         .nvrmask                  = 63,
@@ -10546,10 +10546,10 @@ const machine_t machines[] = {
         .snd_device               = NULL,
         .net_device               = NULL
     },
-    /* Compaq Presario 7100 / 7200 Series, using MiTAC/Trigon PL4600C (486). */
+    /* Compaq Presario 7100 Series, using MiTAC/Trigon PL4600C (486). */
     /* Has a VIA VT82C42N KBC. */
     {
-        .name              = "[UMC 8881] Compaq Presario 7100/7200 Series 486",
+        .name              = "[UMC 8881] Compaq Presario 7100 Series 486",
         .internal_name     = "pl4600c",
         .type              = MACHINE_TYPE_486_S3_PCI,
         .chipset           = MACHINE_CHIPSET_UMC_UM8881,
