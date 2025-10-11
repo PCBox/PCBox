@@ -11577,7 +11577,7 @@ const machine_t machines[] = {
         .snd_device               = NULL,
         .net_device               = NULL
     },
-    /* The M5Pi appears to have a Phoenix MultiKey KBC firmware according to photos. */	
+    /* The M5Pi appears to have a Phoenix MultiKey KBC firmware according to photos. */
     {
         .name              = "[i430LX] Micronics M5Pi",
         .internal_name     = "m5pi",
@@ -12431,7 +12431,7 @@ const machine_t machines[] = {
         .net_device               = NULL
     },
     {
-        .name = "[i430FX] IBM PC 330/350 type 65x6 (Intel Advanced/MN OEM)",
+        .name = "[i430FX] IBM PC 3x0 (type 65x6) (Morrison64)",
         .internal_name = "pc330_65x6",
         .type = MACHINE_TYPE_SOCKET5,
         .chipset = MACHINE_CHIPSET_INTEL_430FX,
@@ -13041,7 +13041,7 @@ const machine_t machines[] = {
             .min  = 4096,
             .max  = 131072,
             .step = 4096
-        }, 
+        },
         .nvrmask = 127,
         .jumpered_ecp_dma = MACHINE_DMA_USE_CONFIG,
         .default_jumpered_ecp_dma = -1,
@@ -13060,7 +13060,7 @@ const machine_t machines[] = {
     },
     /* Has a VIA KBC chip */
     {
-        .name              = "[VLSI SuperCore] DFI G586VPM Rev C",
+        .name              = "[VLSI SuperCore] DFI G586VPM (rev. C)",
         .internal_name     = "g586vpmc",
         .type              = MACHINE_TYPE_SOCKET5,
         .chipset           = MACHINE_CHIPSET_VLSI_SUPERCORE,
@@ -16519,14 +16519,14 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_SOCKET5_7,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 66666667,
+            .min_bus     = 60000000,
             .max_bus     = 100000000,
-            .min_voltage = 2000,
+            .min_voltage = 1300,
             .max_voltage = 3520,
             .min_multi   = 1.5,
             .max_multi   = 5.5
         },
-        .bus_flags = MACHINE_PS2_PCIONLY | MACHINE_BUS_USB,
+        .bus_flags = MACHINE_PS2_PCI | MACHINE_BUS_USB,
         .flags     = MACHINE_IDE_DUAL | MACHINE_SOUND | MACHINE_APM | MACHINE_ACPI | MACHINE_GAMEPORT | MACHINE_USB, /* Has internal video: ATI 3D Rage Pro Turbo AGP and sound: Ensoniq ES1373 */
         .ram       = {
             .min  = 8192,
@@ -16758,6 +16758,51 @@ const machine_t machines[] = {
             .min  = 8192,
             .max  = 1048576,
             .step = 8192
+        },
+        .nvrmask                  = 255,
+        .jumpered_ecp_dma         = 0,
+        .default_jumpered_ecp_dma = -1,
+        .kbc_device               = NULL,
+        .kbc_params               = 0x00000000,
+        .kbc_p1                   = 0x00000cf0,
+        .gpio                     = 0xffffffff,
+        .gpio_acpi                = 0xffffffff,
+        .device                   = NULL,
+        .kbd_device               = NULL,
+        .fdc_device               = NULL,
+        .sio_device               = NULL,
+        .vid_device               = NULL,
+        .snd_device               = NULL,
+        .net_device               = NULL
+    },
+    /* Has the VIA VT82C586B southbridge with on-chip KBC identical to the VIA
+       VT82C42N. */
+    {
+        .name              = "[VIA MVP3] DFI K6BV3+ (rev. A+)",
+        .internal_name     = "k6bv3p_a",
+        .type              = MACHINE_TYPE_SOCKETS7,
+        .chipset           = MACHINE_CHIPSET_VIA_APOLLO_MVP3,
+        .init              = machine_at_k6bv3p_a_init,
+        .p1_handler        = machine_generic_p1_handler,
+        .gpio_handler      = NULL,
+        .available_flag    = MACHINE_AVAILABLE,
+        .gpio_acpi_handler = NULL,
+        .cpu               = {
+            .package     = CPU_PKG_SOCKET5_7,
+            .block       = CPU_BLOCK_NONE,
+            .min_bus     = 66666667,
+            .max_bus     = 100000000,
+            .min_voltage = 2000,
+            .max_voltage = 3500,
+            .min_multi   = 1.5,
+            .max_multi   = 5.5
+        },
+        .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .ram       = {
+            .min  = 16384,
+            .max  = 786432,
+            .step = 16384
         },
         .nvrmask                  = 255,
         .jumpered_ecp_dma         = 0,
