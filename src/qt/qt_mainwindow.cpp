@@ -1064,6 +1064,7 @@ void MainWindow::updateShortcuts()
 void
 MainWindow::resizeEvent(QResizeEvent *event)
 {
+#ifdef MOVE_WINDOW
     //qDebug() << pos().x() + event->size().width();
     //qDebug() << pos().y() + event->size().height();
     if (vid_resize == 1 || video_fullscreen)
@@ -1083,6 +1084,7 @@ MainWindow::resizeEvent(QResizeEvent *event)
         if (newY < 1) newY = 1;
     }
     move(newX, newY);
+#endif
 }
 
 void
