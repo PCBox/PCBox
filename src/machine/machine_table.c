@@ -13441,7 +13441,7 @@ const machine_t machines[] = {
             .max_multi   = 2.0
         },
         .bus_flags = MACHINE_PS2_PCI | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 131072,
@@ -14435,7 +14435,7 @@ const machine_t machines[] = {
             .max_multi   = 3.0
         },
         .bus_flags = MACHINE_PS2_PCI | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 786432,
@@ -15068,7 +15068,7 @@ const machine_t machines[] = {
             .max_multi   = 3.5
         },
         .bus_flags = MACHINE_PS2_PCI,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_APM | MACHINE_ACPI,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_APM,
         .ram       = {
             .min  = 16384,
             .max  = 49152,
@@ -15113,7 +15113,7 @@ const machine_t machines[] = {
             .max_multi   = 3.5
         },
         .bus_flags = MACHINE_PS2_PCI,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_APM | MACHINE_ACPI,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_APM,
         .ram       = {
             .min  = 16384,
             .max  = 49152,
@@ -15655,7 +15655,7 @@ const machine_t machines[] = {
             .max_multi   = 3.5
         },
         .bus_flags = MACHINE_PS2_PCI | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 262144,
@@ -15798,7 +15798,7 @@ const machine_t machines[] = {
             .max_multi   = 3.5
         },
         .bus_flags = MACHINE_PS2_PCI,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_SOUND | MACHINE_GAMEPORT, /* Machine has internal video: ATI Mach64GT-B 3D Rage II */
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_SOUND | MACHINE_GAMEPORT, /* Machine has internal video: ATI Mach64GT-B 3D Rage II */
         .ram       = {
             .min  = 8192,
             .max  = 262144,
@@ -15843,7 +15843,7 @@ const machine_t machines[] = {
             .max_multi   = 3.5
         },
         .bus_flags = MACHINE_PS2_PCI | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 4096,
             .max  = 262144,
@@ -15894,7 +15894,7 @@ const machine_t machines[] = {
         },
         .bus_flags = MACHINE_PS2_PCI | MACHINE_BUS_USB,
         /* Machine has internal sound: Yamaha YMF701-S */
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_GAMEPORT | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_GAMEPORT | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 262144,
@@ -16028,7 +16028,7 @@ const machine_t machines[] = {
             .max_multi   = 5.5
         },
         .bus_flags = MACHINE_PS2_PCI | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 4096,
             .max  = 262144,
@@ -16296,7 +16296,7 @@ const machine_t machines[] = {
             .max_multi   = 3.0
         },
         .bus_flags = MACHINE_PS2_PCI | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 1572864,
@@ -16340,7 +16340,7 @@ const machine_t machines[] = {
             .max_multi   = 3.0
         },
         .bus_flags = MACHINE_PS2_PCI | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 1572864,
@@ -16386,7 +16386,7 @@ const machine_t machines[] = {
             .max_multi   = 3.0
         },
         .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 786432,
@@ -16433,7 +16433,7 @@ const machine_t machines[] = {
             .max_multi   = 3.0
         },
         .bus_flags = MACHINE_PS2_PCI | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 524288,
@@ -16480,7 +16480,7 @@ const machine_t machines[] = {
             .max_multi   = 5.5
         },
         .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 1048576,
@@ -16525,7 +16525,7 @@ const machine_t machines[] = {
             .max_multi   = 5.5
         },
         .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 1048576,
@@ -16749,7 +16749,7 @@ const machine_t machines[] = {
             .max_multi   = 5.5
         },
         .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB, /* Machine has internal sound: C-Media CMI8330 */
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB, /* Machine has internal sound: C-Media CMI8330 */
         .ram       = {
             .min  = 8192,
             .max  = 1572864,
@@ -16887,7 +16887,7 @@ const machine_t machines[] = {
             .max_multi   = 5.5
         },
         .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 16384,
             .max  = 786432,
@@ -17834,7 +17834,7 @@ const machine_t machines[] = {
             .max_multi   = 5.5
         },
         .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 1048576,
@@ -17879,7 +17879,7 @@ const machine_t machines[] = {
             .max_multi   = 5.0
         },
         .bus_flags = MACHINE_PS2_PCI | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_SOUND | MACHINE_APM | MACHINE_ACPI | MACHINE_USB, /* Video: ATi 3D Rage Pro, Network: 3Com 3C905, Sound: Crystal CS4236B */
+        .flags     = MACHINE_IDE_DUAL | MACHINE_SOUND | MACHINE_APM | MACHINE_USB, /* Video: ATi 3D Rage Pro, Network: 3Com 3C905, Sound: Crystal CS4236B */
         .ram       = {
             .min  = 8192,
             .max  = 786432,
@@ -17924,7 +17924,7 @@ const machine_t machines[] = {
             .max_multi   = 8.0
         },
         .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB, /* Machine has internal sound: Yamaha YMF701 */
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB, /* Machine has internal sound: Yamaha YMF701 */
         .ram       = {
             .min  = 8192,
             .max  = 1048576,
@@ -18510,7 +18510,7 @@ const machine_t machines[] = {
             .max_multi   = 8.0
         },
         .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 786432,
