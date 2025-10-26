@@ -12,7 +12,7 @@
 # After a successful build, you can install the RPMs as follows:
 #  sudo dnf install RPMS/$(uname -m)/86Box-3* RPMS/noarch/86Box-roms*
 
-%global romver 5.1
+%global romver 5.2
 
 Name:		PCBox
 Version:	6.0
