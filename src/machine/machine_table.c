@@ -13487,7 +13487,7 @@ const machine_t machines[] = {
             .max_multi   = 3.0
         },
         .bus_flags = MACHINE_PS2_PCI,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_APM,  /* Machine has onboard sound: Crystal CS4232-KQ */
+        .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_SOUND | MACHINE_GAMEPORT | MACHINE_APM,  /* Machine has onboard sound: Crystal CS4232-KQ */
         .ram       = {
             .min  = 8192,
             .max  = 131072,
@@ -13506,7 +13506,7 @@ const machine_t machines[] = {
         .fdc_device               = NULL,
         .sio_device               = NULL,
         .vid_device               = &mach64ct_device_onboard,
-        .snd_device               = NULL,
+        .snd_device               = &cs4232_onboard_device,
         .net_device               = NULL
     },
     /* According to tests from real hardware: This has AMI MegaKey KBC firmware on the
@@ -13533,7 +13533,7 @@ const machine_t machines[] = {
             .max_multi   = 3.0
         },
         .bus_flags = MACHINE_PS2_PCI,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_APM | MACHINE_GAMEPORT, /* Machine has optional onboard sound: Crystal CS4232-KQ */
+        .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_APM | MACHINE_SOUND | MACHINE_GAMEPORT, /* Machine has optional onboard sound: Crystal CS4232-KQ */
         .ram       = {
             .min  = 8192,
             .max  = 131072,
@@ -13552,7 +13552,7 @@ const machine_t machines[] = {
         .fdc_device               = NULL,
         .sio_device               = NULL,
         .vid_device               = &s3_phoenix_trio64vplus_onboard_pci_device,
-        .snd_device               = NULL,
+        .snd_device               = &cs4232_onboard_device,
         .net_device               = NULL
     },
     /* According to tests from real hardware: This has AMI MegaKey KBC firmware on the
@@ -13625,7 +13625,7 @@ const machine_t machines[] = {
             .max_multi   = 3.0
         },
         .bus_flags = MACHINE_PS2_PCI,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_APM,  /* Machine has onboard sound: Crystal CS4232-KQ */
+        .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_SOUND | MACHINE_GAMEPORT | MACHINE_APM,  /* Machine has onboard sound: Crystal CS4232-KQ */
         .ram       = {
             .min  = 8192,
             .max  = 131072,
@@ -13644,7 +13644,7 @@ const machine_t machines[] = {
         .fdc_device               = NULL,
         .sio_device               = NULL,
         .vid_device               = &mach64ct_device_onboard,
-        .snd_device               = NULL,
+        .snd_device               = &cs4232_onboard_device,
         .net_device               = NULL
     },
     /* This has an AMIKey-2, which is type 'H'. */
