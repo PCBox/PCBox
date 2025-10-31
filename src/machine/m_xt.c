@@ -896,13 +896,71 @@ machine_xt_compaq_portable_init(const machine_t *model)
     return ret;
 }
 
+static const device_config_t dtk_config[] = {
+    // clang-format off
+    {
+        .name           = "bios",
+        .description    = "BIOS Version",
+        .type           = CONFIG_BIOS,
+        .default_string = "dtk",
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios = {
+            {
+                .name          = "2.39",
+                .internal_name = "dtk_239",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 8192,
+                .files         = { "roms/machines/dtk/PIM-TB10-Z.BIN", ""}
+            },
+            {
+                .name          = "2.42",
+                .internal_name = "dtk",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 8192,
+                .files         = { "roms/machines/dtk/dtk_erso_2.42_2764.bin", ""}
+            },
+            { .files_no = 0 }
+        }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+    // clang-format on
+};
+
+const device_t dtk_device = {
+    .name          = "DTK PIM-TB10-Z",
+    .internal_name = "dtk_device",
+    .flags         = 0,
+    .local         = 0,
+    .init          = NULL,
+    .close         = NULL,
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = dtk_config
+};
+
 int
 machine_xt_dtk_init(const machine_t *model)
 {
-    int ret;
+    int         ret = 0;
+    const char *fn;
 
-    ret = bios_load_linear("roms/machines/dtk/dtk_erso_2.42_2764.bin",
-                           0x000fe000, 8192, 0);
+    /* No ROMs available. */
+    if (!device_available(model->device))
+        return ret;
+
+    device_context(model->device);
+    fn = device_get_bios_file(model->device, device_get_config_bios("bios"), 0);
+    ret = bios_load_linear(fn, 0x000fe000, 8192, 0);
+    device_context_restore();
 
     if (bios_only || !ret)
         return ret;
@@ -1201,7 +1259,7 @@ static const device_config_t pc500_config[] = {
     {
         .name           = "rtc_port",
         .description    = "RTC Port Address",
-        .type           = CONFIG_HEX16,
+        .type           = CONFIG_SELECTION,
         .default_string = NULL,
         .default_int    = 0,
         .file_filter    = NULL,
@@ -1252,7 +1310,7 @@ machine_xt_pc500_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    device_add(&kbc_pc_device);
+    device_add(&kbc_pc82_device);
 
     machine_xt_common_init(model, 0);
 
@@ -1268,7 +1326,7 @@ static const device_config_t pc500plus_config[] = {
         .name       = "bios",
         .description    = "BIOS Version",
         .type           = CONFIG_BIOS,
-        .default_string = "pc500plus_404",
+        .default_string = "pc500plus",
         .default_int    = 0,
         .file_filter    = NULL,
         .spinner        = { 0 },
@@ -1284,7 +1342,7 @@ static const device_config_t pc500plus_config[] = {
             },
             {
                 .name          = "4.04",
-                .internal_name = "pc500plus_404",
+                .internal_name = "pc500plus",
                 .bios_type     = BIOS_NORMAL,
                 .files_no      = 1,
                 .local         = 0,
@@ -1321,7 +1379,7 @@ static const device_config_t pc500plus_config[] = {
     {
         .name           = "rtc_port",
         .description    = "Onboard RTC",
-        .type           = CONFIG_HEX16,
+        .type           = CONFIG_SELECTION,
         .default_string = NULL,
         .default_int    = 0,
         .file_filter    = NULL,
@@ -1371,9 +1429,7 @@ machine_xt_pc500plus_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    device_add(&kbc_pc_device);
-
-    machine_xt_common_init(model, 0);
+    machine_xt_clone_init(model, 0);
 
     if (rtc_port != 0)
         device_add(&rtc58167_device);
@@ -1387,14 +1443,14 @@ static const device_config_t pc700_config[] = {
         .name           = "bios",
         .description    = "BIOS Version",
         .type           = CONFIG_BIOS,
-        .default_string = "pc700_330",
+        .default_string = "pc700",
         .default_int    = 0,
         .file_filter    = NULL,
         .spinner        = { 0 },
         .bios           = {
             {
                 .name           = "3.30",
-                .internal_name  = "pc700_330",
+                .internal_name  = "pc700",
                 .bios_type      = BIOS_NORMAL,
                 .files_no       = 1,
                 .local          = 0,
@@ -1449,7 +1505,7 @@ machine_xt_pc700_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    device_add(&kbc_pc_device);
+    device_add(&kbc_pc82_device);
 
     machine_xt_common_init(model, 0);
 
