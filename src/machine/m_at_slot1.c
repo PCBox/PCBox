@@ -1120,7 +1120,6 @@ machine_at_p6sba_init(const machine_t *model)
     return ret;
 }
 
-<<<<<<< HEAD
 /*int
 machine_at_dfip2x_init(const machine_t *model)
 {
@@ -1158,7 +1157,6 @@ machine_at_dfip2x_init(const machine_t *model)
 
     //return ret;
 //}
-=======
 static const device_config_t s1846_config[] = {
     // clang-format off
     {
@@ -1209,7 +1207,6 @@ const device_t s1846_device = {
     .force_redraw  = NULL,
     .config        = s1846_config
 };
->>>>>>> pcbox
 
 int
 machine_at_s1846_init(const machine_t *model)
