@@ -2499,8 +2499,8 @@ MainWindow::on_actionACPI_Shutdown_triggered()
     acpi_pwrbut_pressed = 1;
 }
 
-<<<<<<< HEAD
-void MainWindow::on_actionDebug_GPUDebug_VRAM_triggered()
+void
+MainWindow::on_actionDebug_GPUDebug_VRAM_triggered()
 {
     debugVramDialog = new GPUDebugVRAMDialog(this);
     debugVramDialog->setWindowFlag(Qt::CustomizeWindowHint, true);
@@ -2514,7 +2514,8 @@ void MainWindow::on_actionDebug_GPUDebug_VRAM_triggered()
 }
 
 
-void MainWindow::on_actionDebug_GPUDebug_VisualNv_triggered()
+void
+MainWindow::on_actionDebug_GPUDebug_VisualNv_triggered()
 {
     visualNvDialog = new VisualNVDialog(this);
     visualNvDialog->setWindowFlag(Qt::CustomizeWindowHint, true);
@@ -2525,11 +2526,8 @@ void MainWindow::on_actionDebug_GPUDebug_VisualNv_triggered()
     //visualNvDialog->show();
     visualNvDialog->exec();
 }
-void MainWindow::on_actionCGA_composite_settings_triggered()
-=======
 void
 MainWindow::on_actionCGA_composite_settings_triggered()
->>>>>>> 3ff20c7899c05b74c022cb3ada79866561526d56
 {
     isNonPause = true;
     CGASettingsDialog dialog;
