@@ -1321,6 +1321,7 @@ extern int             machine_at_cuv4xls_init(const machine_t *);
 extern const device_t  ms6318_device;
 #endif
 extern int             machine_at_ms6318_init(const machine_t *);
+extern int             machine_at_cairo5_init(const machine_t *);
 
 /* m_at_slota.c */
 extern int machine_at_k7m_init(const machine_t *);
