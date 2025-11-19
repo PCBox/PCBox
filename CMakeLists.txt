@@ -198,6 +198,7 @@ cmake_dependent_option(XL24           "ATI VGA Wonder XL24 (ATI-28800-6)"       
 cmake_dependent_option(NV3            "NVidia RIVA 128/128ZX (NV3/NV3T)"         ON    "DEV_BRANCH"  OFF)
 cmake_dependent_option(NETSWITCH      "Network Switch Support"                   ON    "DEV_BRANCH"  OFF)
 cmake_dependent_option(VFIO           "Virtual Function I/O"                     ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(SOFTMODEM      "AC'97 Softmodem"                          ON    "DEV_BRANCH"  OFF)
 
 # Ditto but for Qt
 if(QT)
