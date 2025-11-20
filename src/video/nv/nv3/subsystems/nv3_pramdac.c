@@ -43,7 +43,7 @@ void nv3_pramdac_init(void)
     nv3->pramdac.memory_clock_p = nv3->pramdac.pixel_clock_p = 0x0c;
 
     nv3_pramdac_set_pixel_clock();
-    nv3_pramdac_set_vram_clock();
+    nv3_pramdac_set_core_clock();
 
     nv_log("Initialising PRAMDAC: Done\n");
 }
@@ -74,7 +74,7 @@ void nv3_pramdac_pixel_clock_poll(double real_time)
 
 // Polls the memory clock.
 // This updates the 2D/3D engine PGRAPH, PTIMER and more 
-void nv3_pramdac_memory_clock_poll(double real_time)
+void nv3_pramdac_core_clock_poll(double real_time)
 {
     nv3_ptimer_tick(real_time);
 
@@ -84,7 +84,7 @@ void nv3_pramdac_memory_clock_poll(double real_time)
 }
 
 // Gets the vram clock register.
-uint32_t nv3_pramdac_get_vram_clock_register(void)
+uint32_t nv3_pramdac_get_core_clock_register(void)
 {
     // the clock format is packed into 19 bits
     // M divisor            [7-0]
@@ -102,13 +102,13 @@ uint32_t nv3_pramdac_get_pixel_clock_register(void)
     + (nv3->pramdac.pixel_clock_p << 16); // 0-3
 }
 
-void nv3_pramdac_set_vram_clock_register(uint32_t value)
+void nv3_pramdac_set_core_clock_register(uint32_t value)
 {
     nv3->pramdac.memory_clock_m = value & 0xFF;
     nv3->pramdac.memory_clock_n = (value >> 8) & 0xFF;
     nv3->pramdac.memory_clock_p = (value >> 16) & 0x07;
     
-    nv3_pramdac_set_vram_clock();
+    nv3_pramdac_set_core_clock();
 }
 
 void nv3_pramdac_set_pixel_clock_register(uint32_t value)
@@ -120,7 +120,7 @@ void nv3_pramdac_set_pixel_clock_register(uint32_t value)
     nv3_pramdac_set_pixel_clock();
 }
 
-void nv3_pramdac_set_vram_clock(void)
+void nv3_pramdac_set_core_clock(void)
 {
     // from driver and vbios source
     float frequency = 13500000.0f;
@@ -144,7 +144,7 @@ void nv3_pramdac_set_vram_clock(void)
     // Create and start if it it's not running.
     if (!nv3->nvbase.memory_clock_timer)
     {
-        nv3->nvbase.memory_clock_timer = rivatimer_create(time, nv3_pramdac_memory_clock_poll);
+        nv3->nvbase.memory_clock_timer = rivatimer_create(time, nv3_pramdac_core_clock_poll);
         rivatimer_start(nv3->nvbase.memory_clock_timer);
     }
 
@@ -200,142 +200,85 @@ void nv3_pramdac_set_pixel_clock(void)
 }
 
 //
-// ****** PRAMDAC register list START ******
-//
-
-// NULL means handle in read functions
-nv_register_t pramdac_registers[] = 
-{
-    { NV3_PRAMDAC_CURSOR_START, "PRAMDAC - Cursor Start Position"},
-    { NV3_PRAMDAC_CLOCK_PIXEL, "PRAMDAC - NV3 GPU Core - Pixel clock", nv3_pramdac_get_pixel_clock_register, nv3_pramdac_set_pixel_clock_register },
-    { NV3_PRAMDAC_CLOCK_MEMORY, "PRAMDAC - NV3 GPU Core - Memory clock", nv3_pramdac_get_vram_clock_register, nv3_pramdac_set_vram_clock_register },
-    { NV3_PRAMDAC_COEFF_SELECT, "PRAMDAC - PLL Clock Coefficient Select", NULL, NULL},
-    { NV3_PRAMDAC_GENERAL_CONTROL, "PRAMDAC - General Control", NULL, NULL },
-    { NV3_PRAMDAC_VSERR_WIDTH, "PRAMDAC - Vertical Sync Error Width", NULL, NULL},
-    { NV3_PRAMDAC_VEQU_END, "PRAMDAC - VEqu End", NULL, NULL},
-    { NV3_PRAMDAC_VBBLANK_START, "PRAMDAC - VBBlank Start", NULL, NULL},
-    { NV3_PRAMDAC_VBBLANK_END, "PRAMDAC - VBBlank End", NULL, NULL},
-    { NV3_PRAMDAC_HBLANK_END, "PRAMDAC - Horizontal Blanking Interval End", NULL, NULL},
-    { NV3_PRAMDAC_HBLANK_START, "PRAMDAC - Horizontal Blanking Interval Start", NULL, NULL},
-    { NV3_PRAMDAC_VBLANK_END, "PRAMDAC - Vertical Blanking Interval End", NULL, NULL},
-    { NV3_PRAMDAC_VBLANK_START, "PRAMDAC - Vertical Blanking Interval Start", NULL, NULL},
-    { NV3_PRAMDAC_VEQU_START, "PRAMDAC - VEqu Start", NULL, NULL},
-    { NV3_PRAMDAC_VTOTAL, "PRAMDAC - Total Vertical Lines", NULL, NULL},
-    { NV3_PRAMDAC_HSYNC_WIDTH, "PRAMDAC - Horizontal Sync Pulse Width", NULL, NULL},
-    { NV3_PRAMDAC_HBURST_START, "PRAMDAC - Horizontal Burst Signal Start", NULL, NULL},
-    { NV3_PRAMDAC_HBURST_END, "PRAMDAC - Horizontal Burst Signal Start", NULL, NULL},
-    { NV3_PRAMDAC_HTOTAL, "PRAMDAC - Total Horizontal Lines", NULL, NULL},
-    { NV3_PRAMDAC_HEQU_WIDTH, "PRAMDAC - HEqu End", NULL, NULL},
-    { NV3_PRAMDAC_HSERR_WIDTH, "PRAMDAC - Horizontal Sync Error", NULL, NULL},
-    { NV3_USER_DAC_PIXEL_MASK, "PRAMDAC - User DAC Pixel Mask", NULL, NULL},
-    { NV3_USER_DAC_READ_MODE_ADDRESS, "PRAMDAC - User DAC Read Mode Address", NULL, NULL},
-    { NV3_USER_DAC_WRITE_MODE_ADDRESS, "PRAMDAC - User DAC Write Mode Address", NULL, NULL},
-    { NV3_USER_DAC_PALETTE_DATA, "PRAMDAC - User DAC Palette Data", NULL, NULL},
-    { NV_REG_LIST_END, NULL, NULL, NULL}, // sentinel value 
-};
-
-//
 // ****** Read/Write functions start ******
 //
 
 uint32_t nv3_pramdac_read(uint32_t address) 
 { 
-    nv_register_t* reg = nv_get_register(address, pramdac_registers, sizeof(pramdac_registers)/sizeof(pramdac_registers[0]));
-
     uint32_t ret = 0x00;
 
     // todo: friendly logging
 
-    nv_log_verbose_only("PRAMDAC Read from 0x%08x\n", address);
 
-    // if the register actually exists
-    if (reg)
+    //s hould be pretty easy to understand
+    switch (address)
     {
-        // on-read function
-        if (reg->on_read)
-            ret = reg->on_read();
-        else
-        {
-            //s hould be pretty easy to understand
-            switch (reg->address)
-            {
-                case NV3_PRAMDAC_COEFF_SELECT:
-                    ret = nv3->pramdac.coeff_select;
-                    break;
-                case NV3_PRAMDAC_GENERAL_CONTROL:
-                    ret = nv3->pramdac.general_control;
-                    break;
-                case NV3_PRAMDAC_VSERR_WIDTH:
-                    ret = nv3->pramdac.vserr_width;
-                    break;
-                case NV3_PRAMDAC_VBBLANK_END:
-                    ret = nv3->pramdac.vbblank_end;
-                    break;
-                case NV3_PRAMDAC_VBLANK_END:
-                    ret = nv3->pramdac.vblank_end;
-                    break;
-                case NV3_PRAMDAC_VBLANK_START:
-                    ret = nv3->pramdac.vblank_start;
-                    break;
-                case NV3_PRAMDAC_VEQU_START:
-                    ret = nv3->pramdac.vequ_start;
-                    break;
-                case NV3_PRAMDAC_VTOTAL:
-                    ret = nv3->pramdac.vtotal;
-                    break;
-                case NV3_PRAMDAC_HSYNC_WIDTH:
-                    ret = nv3->pramdac.hsync_width;
-                    break;
-                case NV3_PRAMDAC_HBURST_START:
-                    ret = nv3->pramdac.hburst_start;
-                    break;
-                case NV3_PRAMDAC_HBURST_END:
-                    ret = nv3->pramdac.hburst_end;
-                    break;
-                case NV3_PRAMDAC_HBLANK_START:
-                    ret = nv3->pramdac.hblank_start;
-                    break;
-                case NV3_PRAMDAC_HBLANK_END:
-                    ret =  nv3->pramdac.hblank_end;
-                    break;
-                case NV3_PRAMDAC_HTOTAL:
-                    ret = nv3->pramdac.htotal;
-                    break;
-                case NV3_PRAMDAC_HEQU_WIDTH:
-                    ret = nv3->pramdac.hequ_width;
-                    break;
-                case NV3_PRAMDAC_HSERR_WIDTH:
-                    ret = nv3->pramdac.hserr_width;
-                    break;
-                case NV3_USER_DAC_PIXEL_MASK:
-                    ret = nv3->pramdac.user_pixel_mask;
-                    break;
-                case NV3_USER_DAC_READ_MODE_ADDRESS:
-                    ret = nv3->pramdac.user_read_mode_address;
-                    break; 
-                case NV3_USER_DAC_WRITE_MODE_ADDRESS:
-                    ret = nv3->pramdac.user_write_mode_address;
-                    break; 
-                case NV3_USER_DAC_PALETTE_DATA:  
-                    /* I doubt NV actually read this in their drivers, but it's worth doing anyway */
-                    /* Bit 1 is listed as "read or write mode" and 7:0 as "Write-only address", but NV only ever set this to 0 too, so i think this should be fine for now */
-                    ret = nv3->pramdac.palette[nv3->pramdac.user_read_mode_address];
-                    nv3->pramdac.user_read_mode_address++; 
-                    break;
-                case NV3_PRAMDAC_CURSOR_START:
-                    ret = (nv3->pramdac.cursor_start.y << 16) | nv3->pramdac.cursor_start.x;
-                    break; 
-            }
-        }
-
-        if (reg->friendly_name)
-            nv_log_verbose_only(": 0x%08x <- %s\n", ret, reg->friendly_name);
-        else   
-            nv_log_verbose_only("\n");
-    }
-    else
-    {
-        nv_log(": Unknown register read (address=0x%08x), returning 0x00\n", address);
+        case NV3_PRAMDAC_COEFF_SELECT:
+            ret = nv3->pramdac.coeff_select;
+            break;
+        case NV3_PRAMDAC_GENERAL_CONTROL:
+            ret = nv3->pramdac.general_control;
+            break;
+        case NV3_PRAMDAC_VSERR_WIDTH:
+            ret = nv3->pramdac.vserr_width;
+            break;
+        case NV3_PRAMDAC_VBBLANK_END:
+            ret = nv3->pramdac.vbblank_end;
+            break;
+        case NV3_PRAMDAC_VBLANK_END:
+            ret = nv3->pramdac.vblank_end;
+            break;
+        case NV3_PRAMDAC_VBLANK_START:
+            ret = nv3->pramdac.vblank_start;
+            break;
+        case NV3_PRAMDAC_VEQU_START:
+            ret = nv3->pramdac.vequ_start;
+            break;
+        case NV3_PRAMDAC_VTOTAL:
+            ret = nv3->pramdac.vtotal;
+            break;
+        case NV3_PRAMDAC_HSYNC_WIDTH:
+            ret = nv3->pramdac.hsync_width;
+            break;
+        case NV3_PRAMDAC_HBURST_START:
+            ret = nv3->pramdac.hburst_start;
+            break;
+        case NV3_PRAMDAC_HBURST_END:
+            ret = nv3->pramdac.hburst_end;
+            break;
+        case NV3_PRAMDAC_HBLANK_START:
+            ret = nv3->pramdac.hblank_start;
+            break;
+        case NV3_PRAMDAC_HBLANK_END:
+            ret =  nv3->pramdac.hblank_end;
+            break;
+        case NV3_PRAMDAC_HTOTAL:
+            ret = nv3->pramdac.htotal;
+            break;
+        case NV3_PRAMDAC_HEQU_WIDTH:
+            ret = nv3->pramdac.hequ_width;
+            break;
+        case NV3_PRAMDAC_HSERR_WIDTH:
+            ret = nv3->pramdac.hserr_width;
+            break;
+        case NV3_USER_DAC_PIXEL_MASK:
+            ret = nv3->pramdac.user_pixel_mask;
+            break;
+        case NV3_USER_DAC_READ_MODE_ADDRESS:
+            ret = nv3->pramdac.user_read_mode_address;
+            break; 
+        case NV3_USER_DAC_WRITE_MODE_ADDRESS:
+            ret = nv3->pramdac.user_write_mode_address;
+            break; 
+        case NV3_USER_DAC_PALETTE_DATA:  
+            /* I doubt NV actually read this in their drivers, but it's worth doing anyway */
+            /* Bit 1 is listed as "read or write mode" and 7:0 as "Write-only address", but NV only ever set this to 0 too, so i think this should be fine for now */
+            ret = nv3->pramdac.palette[nv3->pramdac.user_read_mode_address];
+            nv3->pramdac.user_read_mode_address++; 
+            break;
+        case NV3_PRAMDAC_CURSOR_START:
+            ret = (nv3->pramdac.cursor_start.y << 16) | nv3->pramdac.cursor_start.x;
+            break; 
     }
 
     return ret; 
@@ -343,118 +286,96 @@ uint32_t nv3_pramdac_read(uint32_t address)
 
 void nv3_pramdac_write(uint32_t address, uint32_t value) 
 {
-    nv_register_t* reg = nv_get_register(address, pramdac_registers, sizeof(pramdac_registers)/sizeof(pramdac_registers[0]));
 
-    nv_log_verbose_only("PRAMDAC Write 0x%08x -> 0x%08x\n", value, address);
-
-    // if the register actually exists
-    if (reg)
+    //s hould be pretty easy to understand
+    // we also update the SVGA state here
+    switch (address)
     {
-        // on-read function
-        if (reg->on_write)
-            reg->on_write(value);
-        else
-        {
-            //s hould be pretty easy to understand
-            // we also update the SVGA state here
-            switch (reg->address)
-            {
-                case NV3_PRAMDAC_COEFF_SELECT:
-                    nv3->pramdac.coeff_select = value;
-                    break;
-                case NV3_PRAMDAC_GENERAL_CONTROL:
-                    nv3->pramdac.general_control = value;
-                    nv3_recalc_timings(&nv3->nvbase.svga);
-                    break;
-                case NV3_PRAMDAC_VSERR_WIDTH:
-                    //vslines?
-                    nv3->pramdac.vserr_width = value;
-                    break;
-                case NV3_PRAMDAC_VBBLANK_END:
-                    nv3->pramdac.vbblank_end = value;
-                    break;
-                case NV3_PRAMDAC_VBLANK_END:
-                    nv3->pramdac.vblank_end = value;
-                    break;
-                case NV3_PRAMDAC_VBLANK_START:
-                    //nv3->nvbase.svga.vblankstart = value;
-                    nv3->pramdac.vblank_start = value;
-                    break;
-                case NV3_PRAMDAC_VEQU_START:
-                    nv3->pramdac.vequ_start = value;
-                    break;
-                case NV3_PRAMDAC_VTOTAL:
-                    //nv3->pramdac.vtotal = value;
-                    nv3->nvbase.svga.vtotal = value;
-                    break;
-                case NV3_PRAMDAC_HSYNC_WIDTH:
-                    nv3->pramdac.hsync_width = value;
-                    break;
-                case NV3_PRAMDAC_HBURST_START:
-                    nv3->pramdac.hburst_start = value;
-                    break;
-                case NV3_PRAMDAC_HBURST_END:
-                    nv3->pramdac.hburst_end = value;
-                    break;
-                case NV3_PRAMDAC_HBLANK_START:
-                    //nv3->nvbase.svga.hblankstart = value;
-                    nv3->pramdac.hblank_start = value;
-                    break;
-                case NV3_PRAMDAC_HBLANK_END:
-                    //nv3->nvbase.svga.hblank_end_val = value;
-                    nv3->pramdac.hblank_end = value;
-                    break;
-                case NV3_PRAMDAC_HTOTAL:
-                    nv3->pramdac.htotal = value;
-                    //nv3->nvbase.svga.htotal = value;
-                    break;
-                case NV3_PRAMDAC_HEQU_WIDTH:
-                    nv3->pramdac.hequ_width = value;
-                    break;
-                case NV3_PRAMDAC_HSERR_WIDTH:
-                    nv3->pramdac.hserr_width = value;
-                    break;
-                case NV3_USER_DAC_PIXEL_MASK:
-                    nv3->pramdac.user_pixel_mask = value;
-                    break;
-                case NV3_USER_DAC_READ_MODE_ADDRESS:
-                    nv3->pramdac.user_read_mode_address = value;
-                    break; 
-                case NV3_USER_DAC_WRITE_MODE_ADDRESS:
-                    /* 
-                        This seems to get reset to 0 after 256 writes, but, the palette is 768 bytes in size. 
-                        Clearly there's some mechanism here, but I'm not sure what it is. So let's just reset if we reach 768.
-                    */
-                    if (nv3->pramdac.user_write_mode_address >= NV3_USER_DAC_PALETTE_SIZE)
-                        nv3->pramdac.user_write_mode_address = value;
+        case NV3_PRAMDAC_COEFF_SELECT:
+            nv3->pramdac.coeff_select = value;
+            break;
+        case NV3_PRAMDAC_GENERAL_CONTROL:
+            nv3->pramdac.general_control = value;
+            nv3_recalc_timings(&nv3->nvbase.svga);
+            break;
+        case NV3_PRAMDAC_VSERR_WIDTH:
+            //vslines?
+            nv3->pramdac.vserr_width = value;
+            break;
+        case NV3_PRAMDAC_VBBLANK_END:
+            nv3->pramdac.vbblank_end = value;
+            break;
+        case NV3_PRAMDAC_VBLANK_END:
+            nv3->pramdac.vblank_end = value;
+            break;
+        case NV3_PRAMDAC_VBLANK_START:
+            //nv3->nvbase.svga.vblankstart = value;
+            nv3->pramdac.vblank_start = value;
+            break;
+        case NV3_PRAMDAC_VEQU_START:
+            nv3->pramdac.vequ_start = value;
+            break;
+        case NV3_PRAMDAC_VTOTAL:
+            //nv3->pramdac.vtotal = value;
+            nv3->nvbase.svga.vtotal = value;
+            break;
+        case NV3_PRAMDAC_HSYNC_WIDTH:
+            nv3->pramdac.hsync_width = value;
+            break;
+        case NV3_PRAMDAC_HBURST_START:
+            nv3->pramdac.hburst_start = value;
+            break;
+        case NV3_PRAMDAC_HBURST_END:
+            nv3->pramdac.hburst_end = value;
+            break;
+        case NV3_PRAMDAC_HBLANK_START:
+            //nv3->nvbase.svga.hblankstart = value;
+            nv3->pramdac.hblank_start = value;
+            break;
+        case NV3_PRAMDAC_HBLANK_END:
+            //nv3->nvbase.svga.hblank_end_val = value;
+            nv3->pramdac.hblank_end = value;
+            break;
+        case NV3_PRAMDAC_HTOTAL:
+            nv3->pramdac.htotal = value;
+            //nv3->nvbase.svga.htotal = value;
+            break;
+        case NV3_PRAMDAC_HEQU_WIDTH:
+            nv3->pramdac.hequ_width = value;
+            break;
+        case NV3_PRAMDAC_HSERR_WIDTH:
+            nv3->pramdac.hserr_width = value;
+            break;
+        case NV3_USER_DAC_PIXEL_MASK:
+            nv3->pramdac.user_pixel_mask = value;
+            break;
+        case NV3_USER_DAC_READ_MODE_ADDRESS:
+            nv3->pramdac.user_read_mode_address = value;
+            break; 
+        case NV3_USER_DAC_WRITE_MODE_ADDRESS:
+            /* 
+                This seems to get reset to 0 after 256 writes, but, the palette is 768 bytes in size. 
+                Clearly there's some mechanism here, but I'm not sure what it is. So let's just reset if we reach 768.
+            */
+            if (nv3->pramdac.user_write_mode_address >= NV3_USER_DAC_PALETTE_SIZE)
+                nv3->pramdac.user_write_mode_address = value;
 
-                    break; 
-                case NV3_USER_DAC_PALETTE_DATA:  
-                    /* I doubt NV actually read this in their drivers, but it's worth doing anyway */
-                    /* Bit 1 is listed as "read or write mode" and 7:0 as "Write-only address", but NV only ever set this to 0 too, so i think this should be fine for now */
-                    nv3->pramdac.palette[nv3->pramdac.user_write_mode_address] = value;
+            break; 
+        case NV3_USER_DAC_PALETTE_DATA:  
+            /* I doubt NV actually read this in their drivers, but it's worth doing anyway */
+            /* Bit 1 is listed as "read or write mode" and 7:0 as "Write-only address", but NV only ever set this to 0 too, so i think this should be fine for now */
+            nv3->pramdac.palette[nv3->pramdac.user_write_mode_address] = value;
 
-                    nv3->pramdac.user_write_mode_address++; 
-                    
-                    break;
-                /* cursor start location */
-                case NV3_PRAMDAC_CURSOR_START: 
-                    // only 12 bits are used here instead of 16 for some stupid reason
-                    nv3->pramdac.cursor_start.y = (value >> 16) & 0xFFF;  
-                    nv3->pramdac.cursor_start.x = (value) & 0xFFF;
-                    nv3_draw_cursor(&nv3->nvbase.svga, 0);//drawline doesn't matter here
-                    break; 
-            }
-        }
-
-        if (reg->friendly_name)
-            nv_log_verbose_only(": %s\n", reg->friendly_name);
-        else   
-            nv_log_verbose_only("\n");
-    }
-    else /* Completely unknown */
-    {
-        nv_log(": Unknown register write (address=0x%08x)\n", address);
+            nv3->pramdac.user_write_mode_address++; 
+            
+            break;
+        /* cursor start location */
+        case NV3_PRAMDAC_CURSOR_START: 
+            // only 12 bits are used here instead of 16 for some stupid reason
+            nv3->pramdac.cursor_start.y = (value >> 16) & 0xFFF;  
+            nv3->pramdac.cursor_start.x = (value) & 0xFFF;
+            nv3_draw_cursor(&nv3->nvbase.svga, 0);//drawline doesn't matter here
+            break; 
     }
 }
 

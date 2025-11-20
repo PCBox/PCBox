@@ -26,13 +26,13 @@ VGA 			0x000C0000-0x000C7FFF	VGA sequencer + graph controller registers (PRMVIO)
 (All of this up to 0x0000FFFF can be traced)
 
 PFB (Framebuffer)	0x00100000-0x00100FFF	Interface to vram
-PEXTDEV 		0x00101000-0x00101FFF	External device interface - contains straps
+pstraps 		0x00101000-0x00101FFF	External device interface - contains straps
 	Straps		0x00101000		11 bits of cfg
 
 ROM (VBIOS?)		0x00110000-0x0011FFFF
 PALT (?)		0x00120000-0x00120FFF
 
-PEXTDEV 		0x00101000-0x00101FFF	External Devices
+pstraps 		0x00101000-0x00101FFF	External Devices
 
 Media Engine (PME)	0x00200000-0x00200FFF	Allows for external video capture according to envytools?
 

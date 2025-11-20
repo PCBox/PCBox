@@ -49,8 +49,8 @@ void nv3_svga_write(uint16_t addr, uint8_t val, void* priv);
 
 bool nv3_is_svga_redirect_address(uint32_t addr)
 {
-    return (addr >= NV3_PRMVIO_START && addr <= NV3_PRMVIO_END)                     // VGA
-    || (addr >= NV3_PRMCIO_START && addr <= NV3_PRMCIO_END)                         // CRTC
+    return (addr >= NV3_PRMVIO_START && addr <= NV3_PRMVIO_END)                    // VGA
+    || (addr >= NV3_PRMCIO_START && addr <= NV3_PRMCIO_END)                       // CRTC
     || (addr >= NV3_USER_DAC_START && addr <= NV3_USER_DAC_END);                  // Note: 6813c6-6813c9 are ignored somewhere else
 }
 
@@ -137,7 +137,6 @@ uint32_t nv3_mmio_read32(uint32_t addr, void* priv)
 
         return ret; 
     }
-
 
     ret = nv3_mmio_arbitrate_read(addr);
 
@@ -338,7 +337,7 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, void* priv)
 
         // pci status register
         case PCI_REG_STATUS_L:
-            if (nv3->pextdev.straps 
+            if (nv3->straps 
             & NV3_PSTRAPS_BUS_SPEED_66MHZ)
                 ret = (nv3->pci_config.pci_regs[PCI_REG_STATUS_L] | NV3_PCI_STATUS_L_66MHZ_CAPABLE);
             else
@@ -656,7 +655,7 @@ void nv3_recalc_timings(svga_t* svga)
     {
         // set clocks
         nv3_pramdac_set_pixel_clock();
-        nv3_pramdac_set_vram_clock();
+        nv3_pramdac_set_core_clock();
     }
 }
 
@@ -1423,7 +1422,7 @@ void* nv3_init(const device_t *info)
 
     nv_log("Initialising GPU core...\n");
 
-    nv3_pextdev_init();             // Initialise Straps
+    nv3_pstraps_init();             // Initialise Straps
     nv3_pmc_init();                 // Initialise Master Control
     nv3_pbus_init();                // Initialise Bus (the 128 part of riva)
     nv3_pfb_init();                 // Initialise Framebuffer Interface

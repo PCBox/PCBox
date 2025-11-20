@@ -49,7 +49,8 @@ void nv3_debug_ramin_print_context_info(uint32_t name, nv3_ramin_context_t conte
 // Read 8-bit ramin
 uint8_t nv3_ramin_read8(uint32_t addr, void* priv)
 {
-    if (!nv3) return 0x00;
+    if (!nv3) 
+        return 0x00;
 
     addr &= (nv3->nvbase.svga.vram_max - 1);
     uint32_t raw_addr = addr; // saved after and
@@ -70,7 +71,8 @@ uint8_t nv3_ramin_read8(uint32_t addr, void* priv)
 // Read 16-bit ramin
 uint16_t nv3_ramin_read16(uint32_t addr, void* priv)
 {
-    if (!nv3) return 0x00;
+    if (!nv3) 
+        return 0x00;
 
     addr &= (nv3->nvbase.svga.vram_max - 1);
 
@@ -167,8 +169,6 @@ void nv3_ramin_write16(uint32_t addr, uint16_t val, void* priv)
         vram_16bit[addr] = val;
         nv_log_verbose_only("Write word to PRAMIN addr=0x%08x val=0x%04x (raw address=0x%08x)\n", addr, val, raw_addr);
     }
-
-
 }
 
 // Write 32-bit ramin
@@ -196,7 +196,7 @@ void nv3_ramin_write32(uint32_t addr, uint32_t val, void* priv)
 
 void nv3_pfifo_interrupt(uint32_t id, bool fire_now)
 {
-    nv3->pfifo.interrupt_status |= (1 << id);
+    nv3->pfifo.intr |= (1 << id);
     nv3_pmc_handle_interrupts(fire_now);
 }
 
@@ -210,38 +210,20 @@ Returns true if a valid "non-generic" address was found (e.g. RAMFC/RAMRO/RAMHT)
 */
 bool nv3_ramin_arbitrate_read(uint32_t address, uint32_t* value)
 {
-    if (!nv3) return 0x00;
+    if (!nv3) 
+        return 0x00;
 
-    uint32_t ramht_size = ((nv3->pfifo.ramht_config >> NV3_PFIFO_CONFIG_RAMHT_SIZE) & 0x03);
     uint32_t ramro_size = ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01);
 
     // Get the addresses of RAMHT, RAMFC, RAMRO
     // They must be within first 64KB of PRAMIN!
-    uint32_t ramht_start = ((nv3->pfifo.ramht_config >> NV3_PFIFO_CONFIG_RAMHT_BASE_ADDRESS) & 0x0F) << 12;  // Must be 0x1000 aligned
     uint32_t ramfc_start = ((nv3->pfifo.ramfc_config >> NV3_PFIFO_CONFIG_RAMFC_BASE_ADDRESS) & 0x7F) << 9;   // Must be 0x200 aligned
     uint32_t ramro_start = ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_BASE_ADDRESS) & 0x7F) << 9;   // Must be 0x200 aligned
 
     // Calculate the RAMHT and RAMRO end points.
     // (RAMFC is always 0x1000 bytes on NV3.)
-    uint32_t ramht_end = ramht_start;
     uint32_t ramfc_end = ramfc_start + 0x1000;
     uint32_t ramro_end = ramro_start;
-
-    switch (ramht_size)
-    {
-        case NV3_PFIFO_CONFIG_RAMHT_SIZE_4K:
-            ramht_end = ramht_start + NV3_RAMIN_RAMHT_SIZE_0;
-            break;
-        case NV3_PFIFO_CONFIG_RAMHT_SIZE_8K:
-            ramht_end = ramht_start + NV3_RAMIN_RAMHT_SIZE_1;
-            break;
-        case NV3_PFIFO_CONFIG_RAMHT_SIZE_16K:
-            ramht_end = ramht_start + NV3_RAMIN_RAMHT_SIZE_2;
-            break;
-        case NV3_PFIFO_CONFIG_RAMHT_SIZE_32K:
-            ramht_end = ramht_start + NV3_RAMIN_RAMHT_SIZE_3;
-            break;
-    }
 
     switch (ramro_size)
     {
@@ -253,13 +235,8 @@ bool nv3_ramin_arbitrate_read(uint32_t address, uint32_t* value)
             break;
     }
 
-    if (address >= ramht_start 
-    && address <= ramht_end)
-    {
-        *value = nv3_ramht_read(address);
-        return true;
-    }
-    else if (address >= ramfc_start 
+    // RAMHT is written like normal RAMIN. Todo: Is RAMFC the same?
+    if (address >= ramfc_start 
     && address <= ramfc_end)
     {
         *value = nv3_ramfc_read(address);
@@ -278,38 +255,20 @@ bool nv3_ramin_arbitrate_read(uint32_t address, uint32_t* value)
 
 bool nv3_ramin_arbitrate_write(uint32_t address, uint32_t value) 
 {
-    if (!nv3) return 0x00;
+    if (!nv3) 
+        return 0x00;
 
-    uint32_t ramht_size = ((nv3->pfifo.ramht_config >> NV3_PFIFO_CONFIG_RAMHT_SIZE) & 0x03);
     uint32_t ramro_size = ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01);
 
     // Get the addresses of RAMHT, RAMFC, RAMRO
     // They must be within first 64KB of PRAMIN!
-    uint32_t ramht_start = ((nv3->pfifo.ramht_config >> NV3_PFIFO_CONFIG_RAMHT_BASE_ADDRESS) & 0x0F) << 12;  // Must be 0x1000 aligned
     uint32_t ramfc_start = ((nv3->pfifo.ramfc_config >> NV3_PFIFO_CONFIG_RAMFC_BASE_ADDRESS) & 0x7F) << 9;   // Must be 0x200 aligned
     uint32_t ramro_start = ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_BASE_ADDRESS) & 0x7F) << 9;   // Must be 0x200 aligned
 
     // Calculate the RAMHT and RAMRO end points.
     // (RAMFC is always 0x1000 bytes on NV3.)
-    uint32_t ramht_end = ramht_start;
     uint32_t ramfc_end = ramfc_start + 0x1000;
     uint32_t ramro_end = ramro_start;
-
-    switch (ramht_size)
-    {
-        case NV3_PFIFO_CONFIG_RAMHT_SIZE_4K:
-            ramht_end = ramht_start + NV3_RAMIN_RAMHT_SIZE_0;
-            break;
-        case NV3_PFIFO_CONFIG_RAMHT_SIZE_8K:
-            ramht_end = ramht_start + NV3_RAMIN_RAMHT_SIZE_1;
-            break;
-        case NV3_PFIFO_CONFIG_RAMHT_SIZE_16K:
-            ramht_end = ramht_start + NV3_RAMIN_RAMHT_SIZE_2;
-            break;
-        case NV3_PFIFO_CONFIG_RAMHT_SIZE_32K:
-            ramht_end = ramht_start + NV3_RAMIN_RAMHT_SIZE_3;
-            break;
-    }
 
     switch (ramro_size)
     {
@@ -321,14 +280,8 @@ bool nv3_ramin_arbitrate_write(uint32_t address, uint32_t value)
             break;
     }
 
-    // send the addresses to the right part
-    if (address >= ramht_start 
-    && address <= ramht_end)
-    {
-        nv3_ramht_write(address, value);
-        return true;
-    }
-    else if (address >= ramfc_start 
+    // RAMHT is written like normal RAMIN, not needed here . Todo: Is RAMFC the same?
+    if (address >= ramfc_start 
     && address <= ramfc_end)
     {
         nv3_ramfc_write(address, value);
@@ -496,6 +449,20 @@ bool nv3_ramin_find_object(uint32_t name, uint32_t cache_num, uint8_t channel, u
     // Ok we found it. Lol
     return true; 
     
+}
+
+
+/* This implements the hash that all the objects are stored within.
+It is used to get the offset within RAMHT of a graphics object.
+ */
+
+uint32_t nv3_ramht_hash(uint32_t name, uint32_t channel)
+{
+    // the official nvidia hash algorithm, tweaked for readability
+    uint32_t hash = ((name ^ (name >> 8) ^ (name >> 16) ^ (name >> 24)) & 0xFF) ^ (channel & NV3_DMA_CHANNELS_TOTAL); 
+    // is this the right endianness?
+    nv_log_verbose_only("Generated RAMHT hash 0x%04x (RAMHT slot=0x%04x (from name 0x%08x for DMA channel 0x%04x)\n)\n", hash, (hash/8), name, channel);
+    return hash;
 }
 
 

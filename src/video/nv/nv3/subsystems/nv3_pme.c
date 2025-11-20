@@ -28,12 +28,6 @@
 #include <86box/nv/vid_nv.h>
 #include <86box/nv/vid_nv3.h>
 
-nv_register_t pme_registers[] = {
-    { NV3_PME_INTR, "PME - Interrupt Status", NULL, NULL},
-    { NV3_PME_INTR_EN, "PME - Interrupt Enable", NULL, NULL,},
-    { NV_REG_LIST_END, NULL, NULL, NULL}, // sentinel value 
-};
-
 void nv3_pme_init(void)
 {  
     nv_log("Initialising PME...");
@@ -43,47 +37,25 @@ void nv3_pme_init(void)
 
 uint32_t nv3_pme_read(uint32_t address) 
 { 
-    nv_register_t* reg = nv_get_register(address, pme_registers, sizeof(pme_registers)/sizeof(pme_registers[0]));
 
     uint32_t ret = 0x00;
 
     // todo: friendly logging
 
-    nv_log_verbose_only("PME Read from 0x%08x", address);
-
-    // if the register actually exists
-    if (reg)
+    // Interrupt state:
+    // Bit 0 - Image Notifier
+    // Bit 4 - Vertical Blank Interval Notifier
+    // Bit 8 - Video Notifier
+    // Bit 12 - Audio Notifier
+    // Bit 16 - VMI Notifer
+    switch (address)
     {
-        // on-read function
-        if (reg->on_read)
-            ret = reg->on_read();
-        else
-        {   
-            // Interrupt state:
-            // Bit 0 - Image Notifier
-            // Bit 4 - Vertical Blank Interval Notifier
-            // Bit 8 - Video Notifier
-            // Bit 12 - Audio Notifier
-            // Bit 16 - VMI Notifer
-            switch (reg->address)
-            {
-                case NV3_PME_INTR:
-                    ret = nv3->pme.interrupt_status;
-                    break;
-                case NV3_PME_INTR_EN:
-                    ret = nv3->pme.interrupt_enable;
-                    break;
-            }
-        }
-
-        if (reg->friendly_name)
-            nv_log_verbose_only(": 0x%08x <- %s\n", ret, reg->friendly_name);
-        else   
-            nv_log_verbose_only("\n");
-    }
-    else
-    {
-        nv_log(": Unknown register read (address=0x%08x), returning 0x00\n", address);
+        case NV3_PME_INTR:
+            ret = nv3->pme.intr;
+            break;
+        case NV3_PME_INTR_EN:
+            ret = nv3->pme.intr_en;
+            break;
     }
 
     return ret;
@@ -91,46 +63,22 @@ uint32_t nv3_pme_read(uint32_t address)
 
 void nv3_pme_write(uint32_t address, uint32_t value) 
 {
-    nv_register_t* reg = nv_get_register(address, pme_registers, sizeof(pme_registers)/sizeof(pme_registers[0]));
-
-    nv_log_verbose_only("PME Write 0x%08x -> 0x%08x\n", value, address);
-
-    // if the register actually exists
-    if (reg)
+    switch (address)
     {
-        if (reg->friendly_name)
-            nv_log_verbose_only(": %s\n", reg->friendly_name);
-        else   
-            nv_log_verbose_only("\n");
+        // Interrupt state:
+        // Bit 0 - Image Notifier
+        // Bit 4 - Vertical Blank Interfal Notifier
+        // Bit 8 - Video Notifier
+        // Bit 12 - Audio Notifier
+        // Bit 16 - VMI Notifer
 
-        // on-read function
-        if (reg->on_write)
-            reg->on_write(value);   
-        else
-        {
-            switch (reg->address)
-            {
-                // Interrupt state:
-                // Bit 0 - Image Notifier
-                // Bit 4 - Vertical Blank Interfal Notifier
-                // Bit 8 - Video Notifier
-                // Bit 12 - Audio Notifier
-                // Bit 16 - VMI Notifer
-
-                case NV3_PME_INTR:
-                    nv3->pme.interrupt_status &= ~value;
-                    nv3_pmc_clear_interrupts();
-                    break;
-                case NV3_PME_INTR_EN:
-                    nv3->pme.interrupt_enable = value & 0x00001111;
-                    break;
-            }
-        }
-
-    }
-    else /* Completely unknown */
-    {
-        nv_log(": Unknown register write (address=0x%08x)\n", address);
+        case NV3_PME_INTR:
+            nv3->pme.intr &= ~value;
+            nv3_pmc_clear_interrupts();
+            break;
+        case NV3_PME_INTR_EN:
+            nv3->pme.intr_en = value & 0x00001111;
+            break;
     }
 
 }

@@ -28,20 +28,7 @@
 #include <86box/nv/vid_nv.h>
 #include <86box/nv/vid_nv3.h>
 
-// Functions only used in this translation unit
-uint32_t nv3_pfb_config0_read(void);
-void nv3_pfb_config0_write(uint32_t val);
 
-nv_register_t pfb_registers[] = {
-    { NV3_PFB_BOOT, "PFB Boot Config", NULL, NULL},
-    { NV3_PFB_DELAY, "PFB Delay", NULL, NULL},
-    { NV3_PFB_DEBUG_0, "PFB Debug", NULL, NULL },
-    { NV3_PFB_GREEN_0, "PFB Green / Power Saving", NULL, NULL,},
-    { NV3_PFB_CONFIG_0, "PFB Framebuffer Config 0", nv3_pfb_config0_read, nv3_pfb_config0_write },
-    { NV3_PFB_CONFIG_1, "PFB Framebuffer Config 1", NULL, NULL },
-    { NV3_PFB_RTL, "PFB RTL (Part of memory timings)", NULL, NULL },
-    { NV_REG_LIST_END, NULL, NULL, NULL}, // sentinel value 
-};
 
 void nv3_pfb_init(void)
 {  
@@ -69,55 +56,35 @@ void nv3_pfb_init(void)
 
 uint32_t nv3_pfb_read(uint32_t address) 
 { 
-    nv_register_t* reg = nv_get_register(address, pfb_registers, sizeof(pfb_registers)/sizeof(pfb_registers[0]));
-
     uint32_t ret = 0x00;
 
     // todo: friendly logging
 
-    nv_log_verbose_only("PFB Read from 0x%08x", address);
-
-    // if the register actually exists
-    if (reg)
+    switch (address)
     {
-        // on-read function
-        if (reg->on_read)
-            ret = reg->on_read();
-        else
-        {
-            switch (reg->address)
-            {
-                case NV3_PFB_BOOT:
-                    ret = nv3->pfb.boot;
-                    break;
-                case NV3_PFB_DEBUG_0:
-                    ret = nv3->pfb.debug_0;
-                    break;
-                // Config 0 has a read/write function
-                case NV3_PFB_CONFIG_1:
-                    ret = nv3->pfb.config_1;
-                    break;
-                case NV3_PFB_GREEN_0:
-                    ret = nv3->pfb.green;
-                    break;
-                case NV3_PFB_DELAY:
-                    ret = nv3->pfb.delay;
-                    break;
-                case NV3_PFB_RTL:
-                    ret = nv3->pfb.rtl;
-                    break;
-                
-            }
-        }
-
-        if (reg->friendly_name)
-            nv_log_verbose_only(": 0x%08x <- %s\n", ret, reg->friendly_name);
-        else   
-            nv_log_verbose_only("\n");
-    }
-    else
-    {
-        nv_log(": Unknown register read (address=0x%08x), returning 0x00\n", address);
+        case NV3_PFB_BOOT:
+            ret = nv3->pfb.boot;
+            break;
+        case NV3_PFB_DEBUG_0:
+            ret = nv3->pfb.debug_0;
+            break;
+        case NV3_PFB_CONFIG_0:
+            ret = nv3->pfb.config_0;
+            break;
+        // Config 0 has a read/write function
+        case NV3_PFB_CONFIG_1:
+            ret = nv3->pfb.config_1;
+            break;
+        case NV3_PFB_GREEN_0:
+            ret = nv3->pfb.green;
+            break;
+        case NV3_PFB_DELAY:
+            ret = nv3->pfb.delay;
+            break;
+        case NV3_PFB_RTL:
+            ret = nv3->pfb.rtl;
+            break;
+        
     }
 
     return ret; 
@@ -125,70 +92,40 @@ uint32_t nv3_pfb_read(uint32_t address)
 
 void nv3_pfb_write(uint32_t address, uint32_t value) 
 {
-    nv_register_t* reg = nv_get_register(address, pfb_registers, sizeof(pfb_registers)/sizeof(pfb_registers[0]));
-
-    nv_log_verbose_only("PFB Write 0x%08x -> 0x%08x", value, address);
-
-    // if the register actually exists
-    if (reg)
+    switch (address)
     {
-        if (reg->friendly_name)
-            nv_log_verbose_only(": %s\n", reg->friendly_name);
-        else   
-            nv_log_verbose_only("\n");
-
-        // on-read function
-        if (reg->on_write)
-            reg->on_write(value);   
-        else
-        {
-            switch (reg->address)
-            {
-                // Boot is read only
-                case NV3_PFB_DEBUG_0:
-                    nv3->pfb.debug_0 = value;
-                    break;
-                // Config 0 has a read/write function
-                case NV3_PFB_CONFIG_1:              // Config Register 1
-                    nv3->pfb.config_1 = value;
-                    break;
-                case NV3_PFB_GREEN_0:
-                    nv3->pfb.green = value;
-                    break;
-                case NV3_PFB_DELAY:
-                    nv3->pfb.delay = value;
-                    break;
-                case NV3_PFB_RTL:
-                    nv3->pfb.rtl = value;
-                    break;
-            }
-        }
+        // Boot is read only
+        case NV3_PFB_DEBUG_0:
+            nv3->pfb.debug_0 = value;
+            break;
+        // Config 0 has a read/write function
+        case NV3_PFB_CONFIG_1:              // Config Register 1
+            nv3->pfb.config_1 = value;
+            break;
+        case NV3_PFB_GREEN_0:
+            nv3->pfb.green = value;
+            break;
+        case NV3_PFB_DELAY:
+            nv3->pfb.delay = value;
+            break;
+        case NV3_PFB_RTL:
+            nv3->pfb.rtl = value;
+            break;
     }
-    else /* Completely unknown */
-    {
-        nv_log(": Unknown register write (address=0x%08x)\n", address);
-    }
-}
-
-uint32_t nv3_pfb_config0_read(void)
-{
-    return nv3->pfb.config_0;
 }
 
 void nv3_pfb_config0_write(uint32_t val)
 {
     nv3->pfb.config_0 = val;
 
-    // i think the actual size and pixel depth are set in PRAMDAC
-    // so we don't update things here for now
+    // i think the actual size and pixel depth are set in PRAMDAC so we don't update things here for now
 
     uint32_t new_pfb_htotal = (nv3->pfb.config_0 & 0x3F) << 5;
     // i don't think 16:9 is supported
     uint32_t new_pfb_vtotal = new_pfb_htotal * (3.0/4.0); 
     uint32_t new_bit_depth = (nv3->pfb.config_0 >> 8) & 0x03;
 
-    
-    // This doesn't actually seem very useful
+    // This doesn't actually seem very useful. Only 0x1114 is ever used, even though this functionality is proven to work...NV1 leftover?
 
     nv_log_verbose_only("Framebuffer Config Change\n");
     nv_log_verbose_only("Horizontal Size=%d pixels\n", new_pfb_htotal); 

@@ -28,7 +28,6 @@
 #include <86box/nv/vid_nv.h>
 #include <86box/nv/vid_nv3.h>
 
-
 // PIO Method Submission
 // 128 channels conceptually supported - a hangover from nv1 where multiple windows all directly programming the gpu were supported? total lunacy. 
 uint32_t nv3_user_read(uint32_t address)
@@ -40,7 +39,7 @@ uint32_t nv3_user_read(uint32_t address)
     uint8_t channel = (address - NV3_USER_START) / 0x10000;
     uint8_t subchannel = ((address - NV3_USER_START)) / 0x2000 % NV3_DMA_SUBCHANNELS_PER_CHANNEL;
 
-    nv_log_verbose_only("User Submission Area PIO Channel %d.%d method_offset=0x%04x\n", channel, subchannel, method_offset);
+    //nv_log_verbose_only("User Submission Area PIO Channel %d.%d method_offset=0x%04x\n", channel, subchannel, method_offset);
 
     // 0x10 is free CACHE1 object
     // TODO: THERE ARE OTHER STUFF!

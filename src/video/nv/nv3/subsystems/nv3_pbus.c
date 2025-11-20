@@ -32,13 +32,6 @@
 // This basically works like a shifter, you write one byte at a time from [0x3d0...0x3d3] and it shifts it in to build a 32-bit MMIO address...
 // Putting this in pbus because imo it makes the most sense (related to memory access/memory interface)
 
-nv_register_t pbus_registers[] = {
-    { NV3_PBUS_DEBUG_0, "PBUS - Debug Register", NULL, NULL},
-    { NV3_PBUS_INTR, "PBUS - Interrupt Status", NULL, NULL},
-    { NV3_PBUS_INTR_EN, "PBUS - Interrupt Enable", NULL, NULL,},
-    { NV_REG_LIST_END, NULL, NULL, NULL}, // sentinel value 
-};
-
 void nv3_pbus_init(void)
 {
     nv_log("Initialising PBUS...");
@@ -48,91 +41,44 @@ void nv3_pbus_init(void)
 
 uint32_t nv3_pbus_read(uint32_t address) 
 { 
-    nv_register_t* reg = nv_get_register(address, pbus_registers, sizeof(pbus_registers)/sizeof(pbus_registers[0]));
-
     uint32_t ret = 0x00; 
 
-    // todo: friendly logging
-    
-    nv_log_verbose_only("PBUS Read from 0x%08x", address);
-
-    // if the register actually exists
-    if (reg)
+    switch (address)
     {
-        // on-read function
-        if (reg->on_read)
-            ret = reg->on_read();
-        else 
-        {
-            switch (reg->address)
-            {
-                case NV3_PBUS_DEBUG_0:
-                    ret = nv3->pbus.debug_0;
-                    break;
-                case NV3_PBUS_INTR:
-                    ret = nv3->pbus.interrupt_status;
-                    break;
-                case NV3_PBUS_INTR_EN:
-                    ret = nv3->pbus.interrupt_enable;
-                    break;
-            }
-        }
+        case NV3_PBUS_DEBUG_0:
+            ret = nv3->pbus.debug_0;
+            break;
+        case NV3_PBUS_INTR:
+            ret = nv3->pbus.intr;
+            break;
+        case NV3_PBUS_INTR_EN:
+            ret = nv3->pbus.intr_en;
+            break;
+    }
 
-        if (reg->friendly_name)
-            nv_log_verbose_only(": 0x%08x <- %s\n", ret, reg->friendly_name);
-        else   
-            nv_log_verbose_only("\n");
-    }
-    else
-    {
-        nv_log(": Unknown register read (address=0x%08x), returning 0x00\n", address);
-    }
 
     return ret; 
 }
 
-void nv3_pbus_write(uint32_t address, uint32_t value) 
+void nv3_pbus_write(uint32_t address, uint32_t val) 
 {
-    nv_register_t* reg = nv_get_register(address, pbus_registers, sizeof(pbus_registers)/sizeof(pbus_registers[0]));
-
-    nv_log_verbose_only("PBUS Write 0x%08x -> 0x%08x\n", value, address);
-
-    // if the register actually exists
-    if (reg)
+    switch (address)
     {
-        if (reg->friendly_name)
-            nv_log_verbose_only(": %s\n", reg->friendly_name);
-        else   
-            nv_log_verbose_only("\n");
-
-        // on-read function
-        if (reg->on_write)
-            reg->on_write(value);
-        else 
-        {
-            switch (reg->address)
-            {
-                case NV3_PBUS_DEBUG_0:
-                    nv3->pbus.debug_0 = value;
-                    break;
-                // Interrupt registers
-                // Interrupt state:
-                // Bit 0 - PCI Bus Error
-                case NV3_PBUS_INTR:
-                    nv3->pbus.interrupt_status &= ~value;
-                    nv3_pmc_clear_interrupts();
-                    break;
-                case NV3_PBUS_INTR_EN:
-                    nv3->pbus.interrupt_enable = value & 0x00000001;
-                    break;
-            }
-
-        }
+        case NV3_PBUS_DEBUG_0:
+            nv3->pbus.debug_0 = val;
+            break;
+        // Interrupt registers
+        // Interrupt state:
+        // Bit 0 - PCI Bus Error
+        case NV3_PBUS_INTR:
+            nv3->pbus.intr &= ~val;
+            nv3_pmc_clear_interrupts();
+            break;
+        case NV3_PBUS_INTR_EN:
+            nv3->pbus.intr_en = val & 0x00000001;
+            break;
     }
-    else /* Completely unknown */
-    {
-        nv_log(": Unknown register write (address=0x%08x)\n", address);
-    }
+
 }
 
 uint8_t nv3_pbus_rma_read(uint16_t addr)

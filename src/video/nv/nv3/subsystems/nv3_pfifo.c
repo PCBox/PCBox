@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 #include <86box/86box.h>
 #include <86box/device.h>
 #include <86box/dma.h>
@@ -29,57 +30,30 @@
 #include <86box/nv/vid_nv.h>
 #include <86box/nv/vid_nv3.h>
 
-//
-// ****** PFIFO register list START ******
-//
+uint8_t pfifo_accelerated_index_table[] = { 0x86, 0xB2, 0xB0, 0xB0, 0xB2, 0xA5, 0xA4, 0xF7, 0x91, 0xA2, 0xB4, 0xBC, 0xF7, 0x98, 0xB1, 0xB1 };
 
-nv_register_t pfifo_registers[] = {
-    { NV3_PFIFO_INTR, "PFIFO - Interrupt Status", NULL, NULL},
-    { NV3_PFIFO_INTR_EN, "PFIFO - Interrupt Enable", NULL, NULL,},
-    { NV3_PFIFO_DELAY_0, "PFIFO - DMA Delay/Retry Register", NULL, NULL},
-    { NV3_PFIFO_DEBUG_0, "PFIFO - Debug 0", NULL, NULL, }, 
-    { NV3_PFIFO_CONFIG_0, "PFIFO - Config 0", NULL, NULL, },
-    { NV3_PFIFO_CONFIG_RAMFC, "PFIFO - RAMIN RAMFC Config", NULL, NULL },
-    { NV3_PFIFO_CONFIG_RAMHT, "PFIFO - RAMIN RAMHT Config", NULL, NULL },
-    { NV3_PFIFO_CONFIG_RAMRO, "PFIFO - RAMIN RAMRO Config", NULL, NULL },
-    { NV3_PFIFO_CACHE_REASSIGNMENT, "PFIFO - Allow Cache Channel Reassignment", NULL, NULL },
-    { NV3_PFIFO_CACHE0_PULL0, "PFIFO - Cache0 Puller Control", NULL, NULL},
-    { NV3_PFIFO_CACHE1_PULL0, "PFIFO - Cache1 Puller Control"},
-    { NV3_PFIFO_CACHE0_PULLER_CTX_STATE, "PFIFO - Cache0 Puller State1 (Is context clean?)", NULL, NULL},
-    { NV3_PFIFO_CACHE1_PULL0, "PFIFO - Cache1 Puller State0", NULL, NULL},
-    { NV3_PFIFO_CACHE1_PULLER_CTX_STATE, "PFIFO - Cache1 Puller State1 (Is context clean?)", NULL, NULL},
-    { NV3_PFIFO_CACHE0_PUSH_ENABLED, "PFIFO - Cache0 Access", NULL, NULL, },
-    { NV3_PFIFO_CACHE1_PUSH_ENABLED, "PFIFO - Cache1 Access", NULL, NULL, },
-    { NV3_PFIFO_CACHE0_PUSH_CHANNEL_ID, "PFIFO - Cache0 Push Channel ID", NULL, NULL, },
-    { NV3_PFIFO_CACHE1_PUSH_CHANNEL_ID, "PFIFO - Cache1 Push Channel ID", NULL, NULL, },
-    { NV3_PFIFO_CACHE0_ERROR_PENDING, "PFIFO - Cache0 DMA Error Pending?", NULL, NULL, },
-    { NV3_PFIFO_CACHE0_STATUS, "PFIFO - Cache0 Status", NULL, NULL},
-    { NV3_PFIFO_CACHE1_STATUS, "PFIFO - Cache1 Status", NULL, NULL}, 
-    { NV3_PFIFO_CACHE0_GET, "PFIFO - Cache0 Get", NULL, NULL },
-    { NV3_PFIFO_CACHE0_CTX, "PFIFO - Cache0 Context", NULL, NULL },
-    { NV3_PFIFO_CACHE1_GET, "PFIFO - Cache1 Get", NULL, NULL },
-    { NV3_PFIFO_CACHE0_PUT, "PFIFO - Cache0 Put", NULL, NULL },
-    { NV3_PFIFO_CACHE1_PUT, "PFIFO - Cache1 Put", NULL, NULL },
-    //Cache1 exclusive stuff
-    { NV3_PFIFO_CACHE1_DMA_CONFIG_0, "PFIFO - Cache1 DMA Access (bit 0: is running, bit 4: is busy)"},
-    { NV3_PFIFO_CACHE1_DMA_CONFIG_1, "PFIFO - Cache1 DMA Length"},
-    { NV3_PFIFO_CACHE1_DMA_CONFIG_2, "PFIFO - Cache1 DMA Address"},
-    { NV3_PFIFO_CACHE1_DMA_CONFIG_3, "PFIFO - Cache1 DMA Target Node"},
-    { NV3_PFIFO_CACHE1_DMA_STATUS, "PFIFO - Cache1 DMA Status"},
-    { NV3_PFIFO_CACHE1_DMA_TLB_PT_BASE, "PFIFO - Cache1 DMA TLB - Pagetable Base"},
-    { NV3_PFIFO_CACHE1_DMA_TLB_PTE, "PFIFO - Cache1 DMA TLB - Pagetable Entry (31:12 - Frame Address; bit 0 - Is Present)"},
-    { NV3_PFIFO_CACHE1_DMA_TLB_TAG, "PFIFO - Cache1 DMA TLB - Tag"},
-    //Runout
-    { NV3_PFIFO_RUNOUT_GET, "PFIFO Runout Get Address [8:3 if 512b, otherwise 12:3]"},
-    { NV3_PFIFO_RUNOUT_PUT, "PFIFO Runout Put Address [8:3 if 512b, otherwise 12:3]"},
-    { NV3_PFIFO_RUNOUT_STATUS, "PFIFO Runout Status"},
-    { NV_REG_LIST_END, NULL, NULL, NULL}, // sentinel value 
-};
 
 // PFIFO init code
 void nv3_pfifo_init(void)
 {
     nv_log("Initialising PFIFO...");
+
+    // raw pfifo data size
+    uint32_t pfifo_size = 0;
+
+    for (uint32_t i = 0; i <= NV3_DMA_CHANNELS; i++)
+        pfifo_size += NV3_PFIFO_CACHE1_ACCEL_INDEX_COUNT[i];
+
+    // some testing code
+    if (pfifo_size != NV3_PFIFO_CACHE1_PGRAPH_CACHE_FETCH_SIZE)
+    {
+        for (uint32_t i = 0; i <= 15; i++)
+        {
+            nv3_pfifo_cache1_gray_code_table[i] = pfifo_accelerated_index_table[i] ^ 0xD7;
+            nv3_pfifo_cache1_gray_code_table[i + 16] = pfifo_accelerated_index_table[i] ^ 0xD7;
+            nv3_pfifo_cache1_gray_code_table[i + 32] = pfifo_accelerated_index_table[i] ^ 0xD7;
+        }
+    }
 
     nv_log("Done!\n");    
 }
@@ -97,193 +71,176 @@ uint32_t nv3_pfifo_read(uint32_t address)
 
     uint32_t ret = 0x00;
 
-    nv_register_t* reg = nv_get_register(address, pfifo_registers, sizeof(pfifo_registers)/sizeof(pfifo_registers[0]));
-
     // todo: friendly logging
-    
-    nv_log_verbose_only("PFIFO Read from 0x%08x", address);
 
-    // if the register actually exists
-    if (reg)
+    switch (address)
     {
+        case NV3_PFIFO_INTR:
+            ret = nv3->pfifo.intr;
+            break;
+        case NV3_PFIFO_INTR_EN:
+            ret = nv3->pfifo.intr_en;
+            break;
+        case NV3_PFIFO_DELAY_0:
+            ret = nv3->pfifo.dma_delay_retry;
+            break;
+        // Debug
+        case NV3_PFIFO_DEBUG_0:
+            ret = nv3->pfifo.debug_0;
 
-        // on-read function
-        if (reg->on_read)
-            ret = reg->on_read();
-        else
-        {   
-            // Interrupt state:
-            // Bit 0 - Cache Error
-            // Bit 4 - RAMRO Triggered
-            // Bit 8 - RAMRO Overflow (too many invalid dma objects)
-            // Bit 12 - DMA Pusher 
-            // Bit 16 - DMA Page Table Entry (pagefault?)
-            switch (reg->address)
+            // update the internal cache error state since the cache_error interrupt was serviced by the Resource Manager.
+            // Do thi seven if this interrupt is disabled
+            if (nv3->pfifo.intr & NV3_PFIFO_INTR_CACHE_ERROR)
             {
-                case NV3_PFIFO_INTR:
-                    ret = nv3->pfifo.interrupt_status;
-                    break;
-                case NV3_PFIFO_INTR_EN:
-                    ret = nv3->pfifo.interrupt_enable;
-                    break;
-                case NV3_PFIFO_DELAY_0:
-                    ret = nv3->pfifo.dma_delay_retry;
-                    break;
-                // Debug
-                case NV3_PFIFO_DEBUG_0:
-                    ret = nv3->pfifo.debug_0;
-                    break;
-                case NV3_PFIFO_CONFIG_0:
-                    ret = nv3->pfifo.config_0;
-                    break; 
-                // Some of these may need to become functions.
-                case NV3_PFIFO_CONFIG_RAMFC:
-                    ret = nv3->pfifo.ramfc_config;
-                    break;
-                case NV3_PFIFO_CONFIG_RAMHT:
-                    ret = nv3->pfifo.ramht_config;
-                    break;
-                case NV3_PFIFO_CONFIG_RAMRO:
-                    ret = nv3->pfifo.ramro_config;
-                    break;
-                /* These automatically trigger pulls when 1 is written */
-                case NV3_PFIFO_CACHE0_PULL0:
-                    ret = nv3->pfifo.cache0_settings.pull0;
-                    break;
-                case NV3_PFIFO_CACHE1_PULL0:
-                    ret = nv3->pfifo.cache1_settings.pull0;
-                    break;
-                case NV3_PFIFO_CACHE0_PULLER_CTX_STATE:
-                    ret = (nv3->pfifo.cache0_settings.context_is_dirty) ? (1 << NV3_PFIFO_CACHE0_PULLER_CTX_STATE_DIRTY) : 0;
-                    break;
-                case NV3_PFIFO_CACHE1_PULLER_CTX_STATE:
-                    ret = (nv3->pfifo.cache0_settings.context_is_dirty) ? (1 << NV3_PFIFO_CACHE0_PULLER_CTX_STATE_DIRTY) : 0;
-                    break;
-                /* Does this automatically push? */
-                case NV3_PFIFO_CACHE0_PUSH_ENABLED:
-                    ret = nv3->pfifo.cache0_settings.push0;
-                    break;
-                case NV3_PFIFO_CACHE1_PUSH_ENABLED:
-                    ret = nv3->pfifo.cache1_settings.push0;
-                    break; 
-                case NV3_PFIFO_CACHE0_PUSH_CHANNEL_ID:
-                    ret = nv3->pfifo.cache0_settings.channel;
-                    break;
-                case NV3_PFIFO_CACHE1_PUSH_CHANNEL_ID:
-                    ret = nv3->pfifo.cache1_settings.channel;
-                    break;
-                case NV3_PFIFO_CACHE0_STATUS:  
-                    // CACHE0 has only one entry so it can only ever be empty or full
-
-                    if (nv3->pfifo.cache0_settings.put_address == nv3->pfifo.cache0_settings.get_address)
-                        ret |= 1 << NV3_PFIFO_CACHE0_STATUS_EMPTY;
-                    else
-                        ret |= 1 << NV3_PFIFO_CACHE0_STATUS_FULL;
-    
-                    break;
-                case NV3_PFIFO_CACHE1_STATUS:
-                    // CACHE1 doesn't...
-
-                    if (nv3->pfifo.cache1_settings.put_address == nv3->pfifo.cache1_settings.get_address)
-                        ret |= 1 << NV3_PFIFO_CACHE1_STATUS_EMPTY;
-
-                    // Check if Cache1 (0x7C bytes in size depending on gpu?) is full
-                    // Based on how the drivers do it
-                    if (!nv3_pfifo_cache1_num_free_spaces())
-                        ret |= 1 << NV3_PFIFO_CACHE1_STATUS_FULL;
-                    
-                    if (nv3->pfifo.runout_put != nv3->pfifo.runout_get)
-                        ret |= 1 << NV3_PFIFO_CACHE1_STATUS_RANOUT;
-
-                    break;
-                case NV3_PFIFO_CACHE0_PUT:
-                    ret = nv3->pfifo.cache0_settings.put_address;
-                    break;
-                case NV3_PFIFO_CACHE0_GET:
-                    ret = nv3->pfifo.cache0_settings.get_address;
-                    break;
-                case NV3_PFIFO_CACHE1_PUT:
-                    ret = nv3->pfifo.cache1_settings.put_address;
-                    break; 
-                case NV3_PFIFO_CACHE1_GET: 
-                    ret = nv3->pfifo.cache1_settings.get_address;
-                    break;
-                // Reassignment
-                case NV3_PFIFO_CACHE_REASSIGNMENT:
-                    ret = nv3->pfifo.cache_reassignment & 0x01; //1bit meaningful
-                    break;
-                // Cache1 exclusive stuff
-                // Control
-                case NV3_PFIFO_CACHE1_DMA_CONFIG_0:
-                    ret = nv3->pfifo.cache1_settings.dma_state;
-                    break; 
-                case NV3_PFIFO_CACHE1_DMA_CONFIG_1:
-                    ret = nv3->pfifo.cache1_settings.dma_length & (NV3_VRAM_SIZE_8MB) - 4; //MAX vram size
-                    break;
-                case NV3_PFIFO_CACHE1_DMA_CONFIG_2:
-                    ret = nv3->pfifo.cache1_settings.dma_address;
-                    break;
-                case NV3_PFIFO_CACHE1_DMA_CONFIG_3:
-                    if (nv3->nvbase.bus_generation == nv_bus_pci)
-                        return NV3_PFIFO_CACHE1_DMA_CONFIG_3_TARGET_NODE_PCI;
-                    else 
-                        return NV3_PFIFO_CACHE1_DMA_CONFIG_3_TARGET_NODE_AGP;
-                    break;
-                case NV3_PFIFO_CACHE1_DMA_STATUS:
-                    ret = nv3->pfifo.cache1_settings.dma_status;
-                    break;
-                case NV3_PFIFO_CACHE1_DMA_TLB_PT_BASE:
-                    ret = nv3->pfifo.cache1_settings.dma_tlb_pt_base;
-                    break;
-                case NV3_PFIFO_CACHE1_DMA_TLB_PTE:
-                    ret = nv3->pfifo.cache1_settings.dma_tlb_pte;
-                    break;
-                case NV3_PFIFO_CACHE1_DMA_TLB_TAG:
-                    ret = nv3->pfifo.cache1_settings.dma_tlb_tag;
-                    break;
-                // Runout
-                case NV3_PFIFO_RUNOUT_GET:
-                    ret = nv3->pfifo.runout_get;
-                    break;
-                case NV3_PFIFO_RUNOUT_PUT:
-                    ret = nv3->pfifo.runout_put;
-                    break;
-                case NV3_PFIFO_RUNOUT_STATUS:
-                    if (nv3->pfifo.runout_put == nv3->pfifo.runout_get)
-                        ret |= 1 << NV3_PFIFO_RUNOUT_STATUS_EMPTY; /* good news */
-                    else 
-                        ret |= 1 << NV3_PFIFO_RUNOUT_STATUS_RANOUT; /* bad news */
-
-                    /* TODO: the following code sucks (move to a functio?) */
-
-                    uint32_t new_size_ramro = ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01);
-
-                    if (new_size_ramro == 0)
-                        new_size_ramro = 0x200;
-                    else if (new_size_ramro == 1)
-                        new_size_ramro = 0x2000;
-                    
-                    // WTF?
-                    if ((nv3->pfifo.runout_put + 0x08) & (new_size_ramro - 0x08) == nv3->pfifo.runout_get)
-                        ret |= 1 << NV3_PFIFO_RUNOUT_STATUS_FULL; /* VERY BAD news */
-
-                    break;
-                
-                /* Cache1 is handled below - cache0 only has one entry */
-                case NV3_PFIFO_CACHE0_CTX:
-                    ret = nv3->pfifo.cache0_settings.context[0];
-                    break;
-                
+                nv3->pfifo.debug_0 &= ~(1 << NV3_PFIFO_CACHE0_ERROR_PENDING);
+                nv3->pfifo.debug_0 &= ~(1 << NV3_PFIFO_CACHE1_ERROR_PENDING);
             }
-        }
+    
+            break;
+        case NV3_PFIFO_CONFIG_0:
+            ret = nv3->pfifo.config_0;
+            break; 
+        // Some of these may need to become functions.
+        case NV3_PFIFO_CONFIG_RAMFC:
+            ret = nv3->pfifo.ramfc_config;
+            break;
+        case NV3_PFIFO_CONFIG_RAMHT:
+            ret = nv3->pfifo.ramht_config;
+            break;
+        case NV3_PFIFO_CONFIG_RAMRO:
+            ret = nv3->pfifo.ramro_config;
+            break;
+        /* These automatically trigger pulls when 1 is written */
+        case NV3_PFIFO_CACHE0_PULL0:
+            ret = nv3->pfifo.cache0_settings.pull0;
+            break;
+        case NV3_PFIFO_CACHE1_PULL0:
+            ret = nv3->pfifo.cache1_settings.pull0;
+            break;
+        case NV3_PFIFO_CACHE0_PULLER_CTX_STATE:
+            ret = (nv3->pfifo.cache0_settings.context_is_dirty) ? (1 << NV3_PFIFO_CACHE0_PULLER_CTX_STATE_DIRTY) : 0;
+            break;
+        case NV3_PFIFO_CACHE1_PULLER_CTX_STATE:
+            ret = (nv3->pfifo.cache0_settings.context_is_dirty) ? (1 << NV3_PFIFO_CACHE0_PULLER_CTX_STATE_DIRTY) : 0;
+            break;
+        /* Does this automatically push? */
+        case NV3_PFIFO_CACHE0_PUSH_ENABLED:
+            ret = nv3->pfifo.cache0_settings.push0;
+            break;
+        case NV3_PFIFO_CACHE1_PUSH_ENABLED:
+            ret = nv3->pfifo.cache1_settings.push0;
+            break; 
+        case NV3_PFIFO_CACHE0_PUSH_CHANNEL_ID:
+            ret = nv3->pfifo.cache0_settings.channel;
+            break;
+        case NV3_PFIFO_CACHE1_PUSH_CHANNEL_ID:
+            ret = nv3->pfifo.cache1_settings.channel;
+            break;
+        case NV3_PFIFO_CACHE0_STATUS:  
+            // CACHE0 has only one entry so it can only ever be empty or full
 
-        if (reg->friendly_name)
-            nv_log_verbose_only(": 0x%08x <- %s\n", ret, reg->friendly_name);
-        else   
-            nv_log_verbose_only("\n");
+            if (nv3->pfifo.cache0_settings.put_address == nv3->pfifo.cache0_settings.get_address)
+                ret |= 1 << NV3_PFIFO_CACHE0_STATUS_EMPTY;
+            else
+                ret |= 1 << NV3_PFIFO_CACHE0_STATUS_FULL;
+
+            break;
+        case NV3_PFIFO_CACHE1_STATUS:
+            // CACHE1 doesn't...
+
+            if (nv3->pfifo.cache1_settings.put_address == nv3->pfifo.cache1_settings.get_address)
+                ret |= 1 << NV3_PFIFO_CACHE1_STATUS_EMPTY;
+
+            // Check if Cache1 (0x7C bytes in size depending on gpu?) is full
+            // Based on how the drivers do it
+            if (!nv3_pfifo_cache1_num_free_spaces())
+                ret |= 1 << NV3_PFIFO_CACHE1_STATUS_FULL;
+            
+            if (nv3->pfifo.runout_put != nv3->pfifo.runout_get)
+                ret |= 1 << NV3_PFIFO_CACHE1_STATUS_RANOUT;
+
+            break;
+        case NV3_PFIFO_CACHE0_PUT:
+            ret = nv3->pfifo.cache0_settings.put_address;
+            break;
+        case NV3_PFIFO_CACHE0_GET:
+            ret = nv3->pfifo.cache0_settings.get_address;
+            break;
+        case NV3_PFIFO_CACHE1_PUT:
+            ret = nv3->pfifo.cache1_settings.put_address;
+            break; 
+        case NV3_PFIFO_CACHE1_GET: 
+            ret = nv3->pfifo.cache1_settings.get_address;
+            break;
+        // Reassignment
+        case NV3_PFIFO_CACHE_REASSIGNMENT:
+            ret = nv3->pfifo.cache_reassignment & 0x01; //1bit meaningful
+            break;
+        // Cache1 exclusive stuff
+        // Control
+        case NV3_PFIFO_CACHE1_DMA_CONFIG_0:
+            ret = nv3->pfifo.cache1_settings.dma_state;
+            break; 
+        case NV3_PFIFO_CACHE1_DMA_CONFIG_1:
+            ret = nv3->pfifo.cache1_settings.dma_length & (NV3_VRAM_SIZE_8MB) - 4; //MAX vram size
+            break;
+        case NV3_PFIFO_CACHE1_DMA_CONFIG_2:
+            ret = nv3->pfifo.cache1_settings.dma_address;
+            break;
+        case NV3_PFIFO_CACHE1_DMA_CONFIG_3:
+            if (nv3->nvbase.bus_generation == nv_bus_pci)
+                return NV3_PFIFO_CACHE1_DMA_CONFIG_3_TARGET_NODE_PCI;
+            else 
+                return NV3_PFIFO_CACHE1_DMA_CONFIG_3_TARGET_NODE_AGP;
+            break;
+        case NV3_PFIFO_CACHE1_DMA_STATUS:
+            ret = nv3->pfifo.cache1_settings.dma_status;
+            break;
+        case NV3_PFIFO_CACHE1_DMA_TLB_PT_BASE:
+            ret = nv3->pfifo.cache1_settings.dma_tlb_pt_base;
+            break;
+        case NV3_PFIFO_CACHE1_DMA_TLB_PTE:
+            ret = nv3->pfifo.cache1_settings.dma_tlb_pte;
+            break;
+        case NV3_PFIFO_CACHE1_DMA_TLB_TAG:
+            ret = nv3->pfifo.cache1_settings.dma_tlb_tag;
+            break;
+        // Runout
+        case NV3_PFIFO_RUNOUT_GET:
+            ret = nv3->pfifo.runout_get;
+            break;
+        case NV3_PFIFO_RUNOUT_PUT:
+            ret = nv3->pfifo.runout_put;
+            break;
+        case NV3_PFIFO_RUNOUT_STATUS:
+            if (nv3->pfifo.runout_put == nv3->pfifo.runout_get)
+                ret |= 1 << NV3_PFIFO_RUNOUT_STATUS_EMPTY; /* good news */
+            else 
+                ret |= 1 << NV3_PFIFO_RUNOUT_STATUS_RANOUT; /* bad news */
+
+            /* TODO: the following code sucks (move to a functio?) */
+
+            uint32_t new_size_ramro = ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01);
+
+            if (new_size_ramro == 0)
+                new_size_ramro = 0x200;
+            else if (new_size_ramro == 1)
+                new_size_ramro = 0x2000;
+            
+            // WTF?
+            if (nv3->pfifo.runout_put + 0x08 & (new_size_ramro - 0x08) == nv3->pfifo.runout_get)
+                ret |= 1 << NV3_PFIFO_RUNOUT_STATUS_FULL; /* VERY BAD news */
+
+            break;
+        
+        /* Cache1 is handled below - cache0 only has one entry */
+        case NV3_PFIFO_CACHE0_CTX:
+            ret = nv3->pfifo.cache0_settings.context[0];
+            break;
     }
+
     /* Handle some special memory areas */
-    else if (address >= NV3_PFIFO_CACHE1_CTX_START && address <= NV3_PFIFO_CACHE1_CTX_END)
+    if (address >= NV3_PFIFO_CACHE1_CTX_START && address < NV3_PFIFO_CACHE1_CTX_END)
     {
         uint32_t ctx_entry_id = ((address - NV3_PFIFO_CACHE1_CTX_START) / 16) % 8;
         ret = nv3->pfifo.cache1_settings.context[ctx_entry_id];
@@ -291,7 +248,7 @@ uint32_t nv3_pfifo_read(uint32_t address)
         nv_log_verbose_only("PFIFO Cache1 CTX Read Entry=%d Value=0x%04x\n", ctx_entry_id, ret);
     }
     /* Direct cache read  stuff */
-    else if (address >= NV3_PFIFO_CACHE0_METHOD_START && address <= NV3_PFIFO_CACHE0_METHOD_END)
+    else if (address >= NV3_PFIFO_CACHE0_METHOD_START && address < NV3_PFIFO_CACHE0_METHOD_END)
     {
         nv_log_verbose_only("PFIFO Cache0 Read\n");
 
@@ -299,20 +256,16 @@ uint32_t nv3_pfifo_read(uint32_t address)
         if (address & 4)
         {
             nv_log_verbose_only("Data=0x%08x\n", nv3->pfifo.cache0_entry.data);
-
-            return nv3->pfifo.cache0_entry.data;
+            ret = nv3->pfifo.cache0_entry.data;
         }
         else
         {
             uint32_t final = nv3->pfifo.cache0_entry.method | (nv3->pfifo.cache0_entry.subchannel << NV3_PFIFO_CACHE1_METHOD_SUBCHANNEL);
-
             nv_log_verbose_only("Param (subchannel=15:13, method=12:2)=0x%08x\n", final);
-
-
-            return final;
+            ret = final;
         }
     }
-    else if (address >= NV3_PFIFO_CACHE1_METHOD_START && address <= NV3_PFIFO_CACHE1_METHOD_END)
+    else if (address >= NV3_PFIFO_CACHE1_METHOD_START && address < NV3_PFIFO_CACHE1_METHOD_END)
     {       
         // Not sure if REV C changes this. It should...
         uint32_t slot = 0;
@@ -329,19 +282,15 @@ uint32_t nv3_pfifo_read(uint32_t address)
         if (address & 4)
         {
             nv_log_verbose_only("Data=0x%08x\n", nv3->pfifo.cache1_entries[slot].data);
-            return nv3->pfifo.cache1_entries[slot].data;
+            ret = nv3->pfifo.cache1_entries[slot].data;
         }
         else
         {
             uint32_t final = nv3->pfifo.cache1_entries[slot].method | (nv3->pfifo.cache1_entries[slot].subchannel << NV3_PFIFO_CACHE1_METHOD_SUBCHANNEL);
             nv_log_verbose_only("Param (subchannel=15:13, method=12:2)=0x%08x\n", final);
-            return final;
+            ret = final;
         }
             
-    }
-    else
-    {
-        nv_log(": Unknown register read (address=0x%08x), returning 0x00\n", address);
     }
 
     return ret; 
@@ -359,16 +308,14 @@ void nv3_pfifo_trigger_dma_if_required(void)
     {
         uint32_t bytes_to_send = nv3->pfifo.cache1_settings.dma_length;
         uint32_t where_to_send = nv3->pfifo.cache1_settings.dma_address;
-        uint32_t target_node = nv3->pfifo.cache1_settings.dma_target_node; //2=pci, 3=agp. 
+        uint32_t target_node = nv3->pfifo.cache1_settings.dma_target_node;          // 0=vram, 1=cartridge (nv2 leftover), 2=pci, 3=agp. 
 
         /* Pagetable information */
         uint32_t tlb_pt_base = nv3->pfifo.cache1_settings.dma_tlb_pt_base;                      
-        uint32_t tlb_pt_entry = nv3->pfifo.cache1_settings.dma_tlb_pte;                         // notify_obj_page
-        uint32_t tlb_pt_tag = nv3->pfifo.cache1_settings.dma_tlb_tag; // 0xFFFFFFFF usually?
+        uint32_t tlb_pt_entry = nv3->pfifo.cache1_settings.dma_tlb_pte;             // notify_obj_page
+        uint32_t tlb_pt_tag = nv3->pfifo.cache1_settings.dma_tlb_tag;               // 0xFFFFFFFF usually?
     
-        /* 
-            going to treat the format the same as notifiers
-        */
+        // format seems to be the same as notifications
         if (!(tlb_pt_entry & NV3_PFIFO_CACHE1_DMA_TLB_PTE_IS_PRESENT))
         {
             warning("NV3: Tried to DMA to a non-existent page! Big Problem!");
@@ -377,14 +324,12 @@ void nv3_pfifo_trigger_dma_if_required(void)
 
         uint32_t final_page_base = tlb_pt_entry & 0xFFFFF000; /* pull out 31:12 */
 
-        /* 
-            page size is 0x1000 
-        */
+        // page size is 0x1000
         uint32_t final_address = final_page_base + (tlb_pt_entry << 10) + where_to_send; //x86 page size is 0x1000 (maybe rsh where_to_send by 2)
 
         nv_log_verbose_only("DMA Engine: DMA to %08x length=%08x", final_address, bytes_to_send);
 
-        //-dma_bm_write()
+        //TODO: dma_bm_write()
     }
 
     //we're done
@@ -402,200 +347,180 @@ void nv3_pfifo_write(uint32_t address, uint32_t val)
         return;
     }
 
-    nv_register_t* reg = nv_get_register(address, pfifo_registers, sizeof(pfifo_registers)/sizeof(pfifo_registers[0]));
-
-    nv_log_verbose_only("PFIFO Write 0x%08x -> 0x%08x", val, address);
-
-    // if the register actually exists
-    if (reg)
+    switch (address)
     {
-        // on-read function
-        if (reg->on_write)
-            reg->on_write(val);
-        else
-        {
-            switch (reg->address)
-            {
-                // Interrupt state:
-                // Bit 0 - Cache Error
-                // Bit 4 - RAMRO Triggered
-                // Bit 8 - RAMRO Overflow (too many invalid dma objects)
-                // Bit 12 - DMA Pusher 
-                // Bit 16 - DMA Page Table Entry (pagefault?)
-                case NV3_PFIFO_INTR:
-                    nv3->pfifo.interrupt_status &= ~val;
-                    nv3_pmc_clear_interrupts();
+        // Interrupt state:
+        // Bit 0 - Cache Error
+        // Bit 4 - RAMRO Triggered
+        // Bit 8 - RAMRO Overflow (too many invalid dma objects)
+        // Bit 12 - DMA Pusher 
+        // Bit 16 - DMA Page Table Entry (pagefault?)
+        case NV3_PFIFO_INTR:
+            nv3->pfifo.intr &= ~val;
+            nv3_pmc_clear_interrupts();
 
-                    // update the internal cache error state
-                    if (!(nv3->pfifo.interrupt_status & NV3_PFIFO_INTR_CACHE_ERROR))
-                        nv3->pfifo.debug_0 &= ~NV3_PFIFO_INTR_CACHE_ERROR;
-                    break;
-                case NV3_PFIFO_INTR_EN:
-                    nv3->pfifo.interrupt_enable = val & 0x00011111;
-                    nv3_pmc_handle_interrupts(true);
-                    break;
-                case NV3_PFIFO_DELAY_0:
-                    nv3->pfifo.dma_delay_retry = val;
-                    break;
-                case NV3_PFIFO_CONFIG_0:
-                    nv3->pfifo.config_0 = val;
-                    break;
 
-                case NV3_PFIFO_CONFIG_RAMHT:
-                    nv3->pfifo.ramht_config = val;
+            break;
+        case NV3_PFIFO_INTR_EN:
+            nv3->pfifo.intr_en = val & 0x00011111;
+            nv3_pmc_handle_interrupts(true);
+            break;
+        case NV3_PFIFO_DELAY_0:
+            nv3->pfifo.dma_delay_retry = val;
+            break;
+        case NV3_PFIFO_CONFIG_0:
+            nv3->pfifo.config_0 = val;
+            break;
+
+        case NV3_PFIFO_CONFIG_RAMHT:
+            nv3->pfifo.ramht_config = val;
 // This code sucks a bit fix it later
 #ifdef ENABLE_NV_LOG
-                    uint32_t new_size_ramht = ((val >> 16) & 0x03);
+            uint32_t new_size_ramht = ((val >> 16) & 0x03);
 
-                    if (new_size_ramht == 0)
-                        new_size_ramht = 0x1000;
-                    else if (new_size_ramht == 1)
-                        new_size_ramht = 0x2000;
-                    else if (new_size_ramht == 2)
-                        new_size_ramht = 0x4000;
-                    else if (new_size_ramht == 3)
-                        new_size_ramht = 0x8000;  
+            if (new_size_ramht == 0)
+                new_size_ramht = 0x1000;
+            else if (new_size_ramht == 1)
+                new_size_ramht = 0x2000;
+            else if (new_size_ramht == 2)
+                new_size_ramht = 0x4000;
+            else if (new_size_ramht == 3)
+                new_size_ramht = 0x8000;  
 
-                    nv_log("RAMHT Reconfiguration\n"
-                    "Base Address in RAMIN: %d\n"
-                    "Size: 0x%08x bytes\n", ((nv3->pfifo.ramht_config >> NV3_PFIFO_CONFIG_RAMHT_BASE_ADDRESS) & 0x0F) << 12, new_size_ramht); 
+            nv_log("RAMHT Reconfiguration\n"
+            "Base Address in RAMIN: %d\n"
+            "Size: 0x%08x bytes\n", ((nv3->pfifo.ramht_config >> NV3_PFIFO_CONFIG_RAMHT_BASE_ADDRESS) & 0x0F) << 12, new_size_ramht); 
 #endif
-                    break;
-                case NV3_PFIFO_CONFIG_RAMFC:
-                    nv3->pfifo.ramfc_config = val;
+            break;
+        case NV3_PFIFO_CONFIG_RAMFC:
+            nv3->pfifo.ramfc_config = val;
 
-                    nv_log("RAMFC Reconfiguration\n"
-                    "Base Address in RAMIN: %d\n", ((nv3->pfifo.ramfc_config >> NV3_PFIFO_CONFIG_RAMFC_BASE_ADDRESS) & 0x7F) << 9); 
-                    break;
-                case NV3_PFIFO_CONFIG_RAMRO:
-                    nv3->pfifo.ramro_config = val;
+            nv_log("RAMFC Reconfiguration\n"
+            "Base Address in RAMIN: %d\n", ((nv3->pfifo.ramfc_config >> NV3_PFIFO_CONFIG_RAMFC_BASE_ADDRESS) & 0x7F) << 9); 
+            break;
+        case NV3_PFIFO_CONFIG_RAMRO:
+            nv3->pfifo.ramro_config = val;
 
-                    uint32_t new_size_ramro = ((val >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01);
+            uint32_t new_size_ramro = ((val >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01);
 
-                    if (new_size_ramro == 0)
-                        new_size_ramro = 0x200;
-                    else if (new_size_ramro == 1)
-                        new_size_ramro = 0x2000;
-                    
-                    nv_log("RAMRO Reconfiguration\n"
-                    "Base Address in RAMIN: %d\n"
-                    "Size: 0x%08x bytes\n", ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_BASE_ADDRESS) & 0x7F) << 9, new_size_ramro); 
-                    break;
-                case NV3_PFIFO_DEBUG_0:
-                    nv3->pfifo.debug_0 = val;
-                    break;
-                // Reassignment
-                case NV3_PFIFO_CACHE_REASSIGNMENT:
-                    nv3->pfifo.cache_reassignment = val & 0x01; //1bit meaningful
-                    break;
-                // Control - these can trigger pulls
-                case NV3_PFIFO_CACHE0_PULL0:
-                    nv3->pfifo.cache0_settings.pull0 = val; // 8bits meaningful
-                    
-                    if (nv3->pfifo.cache0_settings.pull0 & (1 >> NV3_PFIFO_CACHE0_PULL0_ENABLED))
-                        nv3_pfifo_cache0_pull();
+            if (new_size_ramro == 0)
+                new_size_ramro = 0x200;
+            else if (new_size_ramro == 1)
+                new_size_ramro = 0x2000;
+            
+            nv_log("RAMRO Reconfiguration\n"
+            "Base Address in RAMIN: %d\n"
+            "Size: 0x%08x bytes\n", ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_BASE_ADDRESS) & 0x7F) << 9, new_size_ramro); 
+            break;
+        case NV3_PFIFO_DEBUG_0:
+            nv3->pfifo.debug_0 = val;
+            break;
+        // Reassignment
+        case NV3_PFIFO_CACHE_REASSIGNMENT:
+            nv3->pfifo.cache_reassignment = val & 0x01; //1bit meaningful
+            break;
+        // Control - these can trigger pulls
+        case NV3_PFIFO_CACHE0_PULL0:
+            nv3->pfifo.cache0_settings.pull0 = val; // 8bits meaningful
+            
+            if (nv3->pfifo.cache0_settings.pull0 & (1 >> NV3_PFIFO_CACHE0_PULL0_ENABLED))
+                nv3_pfifo_cache0_pull();
 
-                    break;
-                case NV3_PFIFO_CACHE1_PULL0:
-                    nv3->pfifo.cache1_settings.pull0 = val; // 8bits meaningful
-                    
-                    if (nv3->pfifo.cache1_settings.pull0 & (1 >> NV3_PFIFO_CACHE1_PULL0_ENABLED))
-                        nv3_pfifo_cache1_pull();
+            break;
+        case NV3_PFIFO_CACHE1_PULL0:
+            nv3->pfifo.cache1_settings.pull0 = val; // 8bits meaningful
+            
+            if (nv3->pfifo.cache1_settings.pull0 & (1 >> NV3_PFIFO_CACHE1_PULL0_ENABLED))
+                nv3_pfifo_cache1_pull();
 
-                    break;
-                case NV3_PFIFO_CACHE0_PULLER_CTX_STATE:
-                    nv3->pfifo.cache0_settings.context_is_dirty = (val >> NV3_PFIFO_CACHE0_PULLER_CTX_STATE_DIRTY) & 0x01;
-                    break;
-                case NV3_PFIFO_CACHE1_PULLER_CTX_STATE:
-                    nv3->pfifo.cache1_settings.context_is_dirty = (val >> NV3_PFIFO_CACHE0_PULLER_CTX_STATE_DIRTY) & 0x01;
-                    break;
-                case NV3_PFIFO_CACHE0_PUSH_ENABLED:
-                    nv3->pfifo.cache0_settings.push0 = val;
-                    break;
-                case NV3_PFIFO_CACHE1_PUSH_ENABLED:
-                    nv3->pfifo.cache1_settings.push0 = val;
-                    break; 
-                case NV3_PFIFO_CACHE0_PUSH_CHANNEL_ID:
-                    nv3->pfifo.cache0_settings.channel = val;
-                    break;
-                case NV3_PFIFO_CACHE1_PUSH_CHANNEL_ID:
-                    nv3->pfifo.cache1_settings.channel = val;
-                    break;
-                // CACHE0_STATUS and CACHE1_STATUS are not writable
-                // DMA configuration
-                case NV3_PFIFO_CACHE1_DMA_CONFIG_0:
-                    nv3->pfifo.cache1_settings.dma_state = val;
-                    break; 
-                case NV3_PFIFO_CACHE1_DMA_CONFIG_1:
-                    nv3->pfifo.cache1_settings.dma_length = val;
-                    break;
-                case NV3_PFIFO_CACHE1_DMA_CONFIG_2:
-                    nv3->pfifo.cache1_settings.dma_address = val;
-                    break;
-                case NV3_PFIFO_CACHE1_DMA_STATUS:
-                    nv3->pfifo.cache1_settings.dma_status = val;
-                    break;
-                case NV3_PFIFO_CACHE1_DMA_TLB_PT_BASE:
-                    nv3->pfifo.cache1_settings.dma_tlb_pt_base = val;
-                    break;
-                case NV3_PFIFO_CACHE1_DMA_TLB_PTE:
-                    nv3->pfifo.cache1_settings.dma_tlb_pte = val;
-                    break;
-                case NV3_PFIFO_CACHE1_DMA_TLB_TAG:
-                    nv3->pfifo.cache1_settings.dma_tlb_tag = val;
-                    break;
-                /* Put and Get addresses */
-                case NV3_PFIFO_CACHE0_PUT:
-                    nv3->pfifo.cache0_settings.put_address = val;
-                    break;
-                case NV3_PFIFO_CACHE0_GET:
-                    nv3->pfifo.cache0_settings.get_address = val;
-                    break;
-                case NV3_PFIFO_CACHE1_PUT:
-                    nv3->pfifo.cache1_settings.put_address = val;
-                    break; 
-                case NV3_PFIFO_CACHE1_GET: 
-                    nv3->pfifo.cache1_settings.get_address = val;
-                    break;
-                case NV3_PFIFO_RUNOUT_GET:
-                {
-                    uint32_t size_get = ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01);
+            break;
+        case NV3_PFIFO_CACHE0_PULLER_CTX_STATE:
+            nv3->pfifo.cache0_settings.context_is_dirty = (val >> NV3_PFIFO_CACHE0_PULLER_CTX_STATE_DIRTY) & 0x01;
+            break;
+        case NV3_PFIFO_CACHE1_PULLER_CTX_STATE:
+            nv3->pfifo.cache1_settings.context_is_dirty = (val >> NV3_PFIFO_CACHE0_PULLER_CTX_STATE_DIRTY) & 0x01;
+            break;
+        case NV3_PFIFO_CACHE0_PUSH_ENABLED:
+            nv3->pfifo.cache0_settings.push0 = val;
+            break;
+        case NV3_PFIFO_CACHE1_PUSH_ENABLED:
+            nv3->pfifo.cache1_settings.push0 = val;
+            break; 
+        case NV3_PFIFO_CACHE0_PUSH_CHANNEL_ID:
+            nv3->pfifo.cache0_settings.channel = val;
+            break;
+        case NV3_PFIFO_CACHE1_PUSH_CHANNEL_ID:
+            nv3->pfifo.cache1_settings.channel = val;
+            break;
+        // CACHE0_STATUS and CACHE1_STATUS are not writable
+        // DMA configuration
+        case NV3_PFIFO_CACHE1_DMA_CONFIG_0:
+            nv3->pfifo.cache1_settings.dma_state = val;
+            break; 
+        case NV3_PFIFO_CACHE1_DMA_CONFIG_1:
+            nv3->pfifo.cache1_settings.dma_length = val;
+            break;
+        case NV3_PFIFO_CACHE1_DMA_CONFIG_2:
+            nv3->pfifo.cache1_settings.dma_address = val;
+            break;
+        case NV3_PFIFO_CACHE1_DMA_STATUS:
+            nv3->pfifo.cache1_settings.dma_status = val;
+            break;
+        case NV3_PFIFO_CACHE1_DMA_TLB_PT_BASE:
+            nv3->pfifo.cache1_settings.dma_tlb_pt_base = val;
+            break;
+        case NV3_PFIFO_CACHE1_DMA_TLB_PTE:
+            nv3->pfifo.cache1_settings.dma_tlb_pte = val;
+            break;
+        case NV3_PFIFO_CACHE1_DMA_TLB_TAG:
+            nv3->pfifo.cache1_settings.dma_tlb_tag = val;
+            break;
+        /* Put and Get addresses */
+        case NV3_PFIFO_CACHE0_PUT:
+            nv3->pfifo.cache0_settings.put_address = val;
+            break;
+        case NV3_PFIFO_CACHE0_GET:
+            nv3->pfifo.cache0_settings.get_address = val;
+            break;
+        case NV3_PFIFO_CACHE1_PUT:
+            nv3->pfifo.cache1_settings.put_address = val;
+            break; 
+        case NV3_PFIFO_CACHE1_GET: 
+            nv3->pfifo.cache1_settings.get_address = val;
+            break;
+        case NV3_PFIFO_RUNOUT_GET:
+        {
+            uint32_t size_get = ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01);
 
-                    if (size_get == 0) //512b
-                        nv3->pfifo.runout_get = val & (NV3_RAMIN_RAMRO_SIZE_0 - 0x07);
-                    else 
-                        nv3->pfifo.runout_get = val & (NV3_RAMIN_RAMRO_SIZE_1 - 0x07);
-                    break;
-                }
-                case NV3_PFIFO_RUNOUT_PUT:
-                {
-                    uint32_t size_put = ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01);
-
-                    if (size_put == 0) //512b
-                        nv3->pfifo.runout_put = val & (NV3_RAMIN_RAMRO_SIZE_0 - 0x07);
-                    else 
-                        nv3->pfifo.runout_put = val & (NV3_RAMIN_RAMRO_SIZE_1 - 0x07);
-
-                    break;
-                }
-                /* Cache1 Context is handled below */
-                case NV3_PFIFO_CACHE0_CTX:
-                    nv3->pfifo.cache0_settings.context[0] = val;
-                    break;
-            }
+            if (size_get == 0) //512b
+                nv3->pfifo.runout_get = val & (NV3_RAMIN_RAMRO_SIZE_0 - 0x07);
+            else 
+                nv3->pfifo.runout_get = val & (NV3_RAMIN_RAMRO_SIZE_1 - 0x07);
+            break;
         }
+        case NV3_PFIFO_RUNOUT_PUT:
+        {
+            uint32_t size_put = ((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01);
 
-        if (reg->friendly_name)
-            nv_log_verbose_only(": %s\n", reg->friendly_name);
-        else   
-            nv_log_verbose_only("\n");
+            if (size_put == 0) //512b
+                nv3->pfifo.runout_put = val & (NV3_RAMIN_RAMRO_SIZE_0 - 0x07);
+            else 
+                nv3->pfifo.runout_put = val & (NV3_RAMIN_RAMRO_SIZE_1 - 0x07);
+
+            break;
+        }
+        /* Cache1 Context is handled below */
+        case NV3_PFIFO_CACHE0_CTX:
+            nv3->pfifo.cache0_settings.context[0] = val;
+            break;
     }
-    else if (address >= NV3_PFIFO_CACHE0_METHOD_START && address <= NV3_PFIFO_CACHE0_METHOD_END)
+
+    if (address >= NV3_PFIFO_CACHE0_METHOD_START && address <= NV3_PFIFO_CACHE0_METHOD_END)
     {
         nv_log_verbose_only("PFIFO Cache0 Write\n");
 
         // 3104 always written after 3100
-        if (address & 4)
+        if (address & 0x04)
         {   
             nv_log_verbose_only("Name = 0x%08x\n", val);
             nv3->pfifo.cache0_entry.data = val;
@@ -643,10 +568,6 @@ void nv3_pfifo_write(uint32_t address, uint32_t val)
         nv3->pfifo.cache1_settings.context[ctx_entry_id] = val;
 
         nv_log_verbose_only("PFIFO Cache1 CTX Write Entry=%d value=0x%04x\n", ctx_entry_id, val);
-    }
-    else /* Completely unknown */
-    {
-        nv_log(": Unknown register write (address=0x%08x)\n", address);
     }
 
     /* Trigger DMA for notifications if we need to */
@@ -754,16 +675,12 @@ void nv3_pfifo_cache0_pull(void)
     nv3->pfifo.cache0_settings.get_address ^= 0x04;
 
     #ifndef RELEASE_BUILD
-
     nv_log_verbose_only("***** DEBUG: CACHE0 PULLED ****** Contextual information below\n");
-
-            
     nv3_ramin_context_t context_structure = *(nv3_ramin_context_t*)&current_context;
-
     nv3_debug_ramin_print_context_info(current_param, context_structure);
-    
-    nv3_pgraph_submit(current_param, current_method, current_channel, current_subchannel, class_id & 0x1F, context_structure);
     #endif
+
+    nv3_pgraph_submit(current_param, current_method, current_channel, current_subchannel, class_id & 0x1F, context_structure);
 
 }
 
@@ -925,10 +842,7 @@ void nv3_pfifo_cache1_pull(void)
 
     // should this be obtained from the grobj? Test on real nv3 h/w after drawrect.nvp works
     uint32_t current_context = nv3->pfifo.cache1_settings.context[current_subchannel]; // get the current subchannel
-
     uint8_t class_id = ((nv3_ramin_context_t*)&current_context)->class_id;
-
-
 
     // start by incrementing
     uint32_t next_get_address = nv3_pfifo_cache1_gray2normal(get_index) + 1;
@@ -955,18 +869,12 @@ void nv3_pfifo_cache1_pull(void)
     nv3->pfifo.cache1_settings.get_address = nv3_pfifo_cache1_normal2gray(next_get_address) << 2;
 
     #ifndef RELEASE_BUILD
-
     nv_log_verbose_only("***** DEBUG: CACHE1 PULLED ****** Contextual information below\n");
-
     nv3_ramin_context_t context_structure = *(nv3_ramin_context_t*)&current_context;
-
     nv3_debug_ramin_print_context_info(current_param, context_structure);
     #endif
     
     nv3_pgraph_submit(current_param, current_method, current_channel, current_subchannel, class_id & 0x1F, context_structure);
-    
-
-    //Todo: finish it
 }
 
 // THIS IS PER SUBCHANNEL!
@@ -981,5 +889,5 @@ uint32_t nv3_pfifo_cache1_num_free_spaces(void)
     uint32_t real_put_address = nv3_pfifo_cache1_gray2normal(put_index) << 2;
     
     // There is no hope of being able to understand it. Nobody can understand
-    return (real_get_address - real_put_address - 4) & 0x7C; // there are 64 entries what
+    return (real_get_address - real_put_address - 4) & 0x7C; // 0x7C is GUARANTEED_FIFO_DEPTH
 }

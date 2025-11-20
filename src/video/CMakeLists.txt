@@ -147,19 +147,19 @@ add_library(vid OBJECT
     nv/nv3/nv3_core.c 
     nv/nv3/nv3_core_config.c 
     nv/nv3/nv3_core_arbiter.c  
+    nv/nv3/nv3_debug_register_list.c
 
     nv/nv3/subsystems/nv3_pramdac.c 
     nv/nv3/subsystems/nv3_pfifo.c
     nv/nv3/subsystems/nv3_pgraph.c 
     nv/nv3/subsystems/nv3_pmc.c 
     nv/nv3/subsystems/nv3_pme.c
-    nv/nv3/subsystems/nv3_pextdev.c
+    nv/nv3/subsystems/nv3_pstraps.c
     nv/nv3/subsystems/nv3_pfb.c
     nv/nv3/subsystems/nv3_pbus.c 
     nv/nv3/subsystems/nv3_pbus_dma.c
     nv/nv3/subsystems/nv3_ptimer.c
     nv/nv3/subsystems/nv3_pramin.c 
-    nv/nv3/subsystems/nv3_pramin_ramht.c 
     nv/nv3/subsystems/nv3_pramin_ramfc.c 
     nv/nv3/subsystems/nv3_pramin_ramro.c 
     nv/nv3/subsystems/nv3_pvideo.c
@@ -195,6 +195,15 @@ add_library(vid OBJECT
     nv/nv3/render/nv3_render_core.c
     nv/nv3/render/nv3_render_primitives.c   
     nv/nv3/render/nv3_render_blit.c   
+
+    # NVidia RIVA TNT/TNT2 - Core
+    nv/nv4/nv4_core.c
+    nv/nv4/nv4_core_io.c
+    nv/nv4/nv4_core_config.c
+    nv/nv4/nv4_debug_register_list.c
+    nv/nv4/subsystems/nv4_pmc.c
+    nv/nv4/subsystems/nv4_pramdac.c
+    nv/nv4/subsystems/nv4_ptimer.c
 
     # Generic
     vid_bochs_vbe.c

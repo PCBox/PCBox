@@ -127,6 +127,10 @@ typedef struct nv_base_s
     bool pixel_clock_enabled;                   // Pixel Clock Enabled - stupid crap used to prevent us enabling the timer multiple times
     double memory_clock_frequency;              // Source Frequency for PTIMER
     rivatimer_t* memory_clock_timer;            // Timer for measuring memory/gpu clock
+    
+    // VCLK / NVCLK do not have timers set here.
+    pc_timer_t nv4_vclk_timer;                  // NV4+ MCLK (Video RAM) timer
+
     bool memory_clock_enabled;                  // Memory Clock Enabled - stupid crap used to prevent us eanbling the timer multiple times
     void* i2c;                                  // I2C for monitor EDID
     void* ddc;                                  // Display Data Channel for EDID
@@ -142,7 +146,7 @@ typedef struct nv_base_s
 #define NV_REG_LIST_END                         0xD15EA5E
 
 // The NV architectures are very complex.
-// There are hundreds of registers at minimum, and implementing these in a standard way would lead to 
+// There are hundreds of registers ven in the earliest designs, and implementing these in a standard way would lead to 
 // unbelievably large switch statements and horrifically unreadable code.
 // So this is used to abstract it and allow for more readable code.
 // This is mostly just used for logging and stuff.
@@ -151,14 +155,14 @@ typedef struct nv_base_s
 // Typically, unless they are for a special purpose (and handled specially) e.g. vga all register reads and writes are also 32-bit aligned
 typedef struct nv_register_s
 {
-    int32_t     address;                        // MMIO Address
+    int32_t     addr;                           // The MMIO register of this address
     char*       friendly_name;                  // Friendly name
     // reg_ptr not needed as a parameter, because we implicitly know which register si being tiwddled
     uint32_t    (*on_read)(void);               // Optional on-read function
     void        (*on_write)(uint32_t value);    // Optional on-write fucntion
 } nv_register_t; 
 
-nv_register_t* nv_get_register(uint32_t address, nv_register_t* register_list, uint32_t num_regs);
+nv_register_t* nv_get_register(uint32_t address, nv_register_t* register_list); // MUST BE NULL TERMIANTED
 
 
 #endif
