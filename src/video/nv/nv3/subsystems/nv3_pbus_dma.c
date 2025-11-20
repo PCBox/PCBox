@@ -105,8 +105,8 @@ void nv3_perform_dma_m2mf(nv3_grobj_t grobj)
 
     uint32_t bytes_per_scanline = nv3->pgraph.m2mf.scanline_length;
 
-    uint8_t increment_in = (nv3->pgraph.m2mf.format) & 0x07;
-    uint8_t increment_out = (nv3->pgraph.m2mf.format >> NV3_M2MF_FORMAT_INPUT) & 0x07;
+    uint8_t increment_in = (nv3->pgraph.m2mf.format >> NV3_M2MF_FORMAT_INPUT) & 0x07;
+    uint8_t increment_out = (nv3->pgraph.m2mf.format >> NV3_M2MF_FORMAT_OUTPUT) & 0x07;
  
     for (uint32_t scanline = 0; scanline < nv3->pgraph.m2mf.num_scanlines; scanline++)
     {
