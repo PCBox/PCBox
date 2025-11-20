@@ -193,7 +193,7 @@ bool nv3_render_chroma_test(uint32_t color, nv3_grobj_t grobj)
 uint32_t nv3_render_to_chroma(nv3_color_expanded_t expanded)
 {
     // convert the alpha to 1 bit. then return packed rgb10
-    return !!expanded.a | (expanded.r << 30) | (expanded.g << 20) | (expanded.b << 10);
+    return !!expanded.a | (expanded.r << 21) | (expanded.g << 11) | (expanded.b << 1);
 }
 
 /* Get a colour for a palette index. (The colours are 24 bit RGB888 with a 0xFF alpha added for some purposes.) */

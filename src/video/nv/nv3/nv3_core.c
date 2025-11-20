@@ -905,7 +905,7 @@ uint16_t nv3_dfb_read16(uint32_t addr, void* priv)
 uint32_t nv3_dfb_read32(uint32_t addr, void* priv)
 {
     addr &= (nv3->nvbase.svga.vram_mask);
-    return (nv3->nvbase.svga.vram[addr + 3] << 24) | (nv3->nvbase.svga.vram[addr + 2] << 16) +
+    return (nv3->nvbase.svga.vram[addr + 3] << 24) | (nv3->nvbase.svga.vram[addr + 2] << 16) |
     (nv3->nvbase.svga.vram[addr + 1] << 8) | nv3->nvbase.svga.vram[addr];
 }
 
