@@ -1408,6 +1408,8 @@ typedef struct nv3_pme_s                // Mediaport
 typedef struct nv3_s
 {
     nv_base_t nvbase;   // Base Nvidia structure
+
+    nv3_pci_config_t pci_config;
     
     // Config
     /*

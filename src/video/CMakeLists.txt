@@ -197,13 +197,13 @@ add_library(vid OBJECT
     nv/nv3/render/nv3_render_blit.c   
 
     # NVidia RIVA TNT/TNT2 - Core
-    nv/nv4/nv4_core.c
-    nv/nv4/nv4_core_io.c
-    nv/nv4/nv4_core_config.c
-    nv/nv4/nv4_debug_register_list.c
-    nv/nv4/subsystems/nv4_pmc.c
-    nv/nv4/subsystems/nv4_pramdac.c
-    nv/nv4/subsystems/nv4_ptimer.c
+    #nv/nv4/nv4_core.c
+    #nv/nv4/nv4_core_io.c
+    #nv/nv4/nv4_core_config.c
+    #nv/nv4/nv4_debug_register_list.c
+    #nv/nv4/subsystems/nv4_pmc.c
+    #nv/nv4/subsystems/nv4_pramdac.c
+    #nv/nv4/subsystems/nv4_ptimer.c
 
     # Generic
     vid_bochs_vbe.c
