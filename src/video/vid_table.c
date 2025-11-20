@@ -264,7 +264,8 @@ video_cards[] = {
     { .device = &compaq_voodoo_3_3500_agp_device,               .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &voodoo_3_3500_se_agp_device,                   .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &voodoo_3_3500_si_agp_device,                   .flags = VIDEO_FLAG_TYPE_NONE },
-    { .device = &riva128_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE }
+    { .device = &riva128_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE },
+    { .device = NULL,                                           .flags = VIDEO_FLAG_TYPE_NONE }
   // clang-format on
 };
 
