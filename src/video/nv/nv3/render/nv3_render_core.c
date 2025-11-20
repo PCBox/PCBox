@@ -82,9 +82,9 @@ nv3_color_expanded_t nv3_render_expand_color(uint32_t color, nv3_grobj_t grobj)
             break;
         case nv3_pgraph_pixel_format_r10g10b10:
             color_final.a = (color >> 31) & 0x01;
-            color_final.r = (color >> 30) & 0x3FF;
-            color_final.g = (color >> 20) & 0x1FF;
-            color_final.b = (color >> 10);
+            color_final.r = (color >> 21) & 0x3FF;
+            color_final.g = (color >> 11) & 0x3FF;
+            color_final.b = (color >> 1) & 0x3FF;
 
             break;
         case nv3_pgraph_pixel_format_y8:
