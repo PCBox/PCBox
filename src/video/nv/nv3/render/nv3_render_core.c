@@ -345,7 +345,7 @@ uint16_t nv3_render_read_pixel_16(nv3_coord_16_t position, nv3_grobj_t grobj)
     return vram_16[vram_address];
 }
 
-/* Read an 16bpp pixel from the framebuffer. */
+/* Read an 32bpp pixel from the framebuffer. */
 uint32_t nv3_render_read_pixel_32(nv3_coord_16_t position, nv3_grobj_t grobj)
 { 
     // hope you call it with the right bit
@@ -751,7 +751,7 @@ void nv3_render_16bpp(uint32_t vram_start, nv3_coord_16_t screen_size)
             data = *(uint32_t*)&nv3->nvbase.svga.vram[vram_current_position];
             
             /* should just "tip over" to the next line */
-            *p = nv3->nvbase.svga.conv_16to32(&nv3->nvbase.svga, data & 0xFFFF, 15);
+            *p = nv3->nvbase.svga.conv_16to32(&nv3->nvbase.svga, data & 0xFFFF, 16);
             
             vram_current_position += 2;
 
