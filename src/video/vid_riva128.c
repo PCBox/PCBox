@@ -206,6 +206,7 @@ typedef struct riva128_t
 	} pgraph;
 	
 	struct {
+        uint32_t gen_ctrl;
 		uint32_t nvpll, mpll, vpll;
 	} pramdac;
 
@@ -1138,6 +1139,8 @@ riva128_pramdac_read(uint32_t addr, void *p)
 		return riva128->pramdac.mpll;
 	case 0x680508:
 		return riva128->pramdac.vpll;
+    case 0x680600:
+        return riva128->pramdac.gen_ctrl;
 	}
 	return 0;
 }
@@ -1156,6 +1159,9 @@ riva128_pramdac_write(uint32_t addr, uint32_t val, void *p)
 	case 0x680508:
 		riva128->pramdac.vpll = val;
 		break;
+    case 0x680600:
+        riva128->pramdac.gen_ctrl = val;
+        break;
 	}
 	svga_recalctimings(&riva128->svga);
 }
@@ -1549,19 +1555,11 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			uint16_t endy = starty +
 					riva128->pgraph.gdi_rect_h[
 							(method & 0x1fc) >> 2];
-			for(uint16_t y = starty; y <= endy; y++) {
-				for(uint16_t x = startx; x <= endx; x++) {
-					riva128_pgraph_write_pixel(x, y,
-						riva128->pgraph.gdi_color,
-						0xff, riva128);
-				}
-			}
 		}
 		else switch(method) {
 		case 0x104:
 			if (riva128->pgraph.notify_impending) {
 				riva128_pgraph_invalid_interrupt(12, riva128);
-				riva128->pgraph.fifo_access = 0;
 				break;
 			}
 			riva128->pgraph.notify_impending = 2;
@@ -1707,7 +1705,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			) | ((logical_addr + adjust) & 0xfff);
 	if (target) {
 		pclog("[RIVA 128] PCI notifier at %08x\n", paged_addr);
-		dma_bm_write(paged_addr, (uint8_t*)notifier, 4, 4);
+		dma_bm_write(paged_addr, (uint8_t*)notifier, 16, 4);
 		return;
 	}
 	pclog("[RIVA 128] VRAM notifier at %08x\n", unpaged_addr);
@@ -2538,7 +2536,6 @@ riva128_recalctimings(svga_t *svga)
 	riva128_t *riva128 = (riva128_t *)svga->priv;
 
 	svga->memaddr_latch += (svga->crtc[0x19] & 0x1f) << 16;
-	svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 3;
 	if (svga->crtc[0x25] & 0x01)
 		svga->vtotal += 0x400;
 	if (svga->crtc[0x25] & 0x02)
@@ -2560,16 +2557,25 @@ riva128_recalctimings(svga_t *svga)
 
 	switch(svga->crtc[0x28] & 3) {
 	case 1:
+        svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 1;
 		svga->bpp = 8;
 		svga->lowres = 0;
 		svga->render = svga_render_8bpp_highres;
 		break;
 	case 2:
-		svga->bpp = 16;
+        if(svga->vsyncstart & 1)
+            svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 2;
+        else
+            svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 3;
+        if(riva128->pramdac.gen_ctrl & (1 << 12))
+		    svga->bpp = 16;
+        else
+            svga->bpp = 15;
 		svga->lowres = 0;
 		svga->render = svga_render_16bpp_highres;
 		break;
 	case 3:
+        svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 3;
 		svga->bpp = 32;
 		svga->lowres = 0;
 		svga->render = svga_render_32bpp_highres;
