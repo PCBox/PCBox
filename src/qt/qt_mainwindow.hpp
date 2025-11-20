@@ -16,8 +16,6 @@
 #include "qt_vmmanager_protocol.hpp"
 
 // NON-modal dialogs
-#include "qt_gpudebug_vram.hpp"
-#include "qt_gpudebug_visualnv.hpp"
 extern QTimer discordupdate;
 
 class MediaMenu;
@@ -141,8 +139,6 @@ private slots:
     void on_actionPreferences_triggered();
     void on_actionEnable_Discord_integration_triggered(bool checked);
     void on_actionRenderer_options_triggered();
-    void on_actionDebug_GPUDebug_VRAM_triggered();
-    void on_actionDebug_GPUDebug_VisualNv_triggered();
     
     void refreshMediaMenu();
     void showMessage_(int flags, const QString &header, const QString &message, bool richText, std::atomic_bool *done = nullptr);
@@ -183,9 +179,7 @@ private slots:
 private:
     Ui::MainWindow                *ui;
 
-    // NON-modal dialogs - these use ::show() and therefore have to be maintained as objects
-    GPUDebugVRAMDialog            *debugVramDialog;
-    VisualNVDialog                *visualNvDialog;          
+    // NON-modal dialogs - these use ::show() and therefore have to be maintained as objects     
     std::unique_ptr<MachineStatus> status;
     std::shared_ptr<MediaMenu>     mm;
 
