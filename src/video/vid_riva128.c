@@ -1361,11 +1361,12 @@ riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 			|| ((y < clipy_min) || (y > clipy_max)))
 		return;
 
-	uint32_t addr = ((x + (riva128->pgraph.surf_pitch[buffer]
-			* y))) + riva128->pgraph.surf_offset[buffer];
+    uint32_t addr;
 
 	switch(riva128->pfb.bpp) {
 	case 8: {
+        uint32_t addr = ((x + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
 		uint32_t src = color & 0xff;
 		uint32_t dst =
 			svga->vram[addr & riva128->vram_mask];
@@ -1374,7 +1375,10 @@ riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 					src, dst) & 0xff;
 		break;
 	}
+    case 15:
 	case 16: {
+        uint32_t addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
 		uint32_t src = color & 0xffff;
 		uint32_t dst = vram_w[(addr & riva128->vram_mask) >> 1];
 		vram_w[(addr & riva128->vram_mask) >> 1] =
@@ -1383,6 +1387,8 @@ riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 		break;
 	}
 	case 32: {
+        uint32_t addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
 		uint32_t src = color;
 		uint32_t dst = vram_l[(addr & riva128->vram_mask) >> 2];
 		vram_l[(addr & riva128->vram_mask) >> 2] =
@@ -1396,14 +1402,15 @@ riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 }
 
 void
-riva128_pgraph_write_pixel(uint16_t x, uint16_t y,
+riva128_pgraph_write_pixel(uint32_t graphobj0, uint16_t x, uint16_t y,
 		uint32_t color, uint8_t a, void *p)
 {
     riva128_t *riva128 = (riva128_t *)p;
-    if((riva128->pgraph.ctx_switch_a >> 20) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 0, riva128);
-    if((riva128->pgraph.ctx_switch_a >> 21) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 1, riva128);
-    if((riva128->pgraph.ctx_switch_a >> 22) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 2, riva128);
-    if((riva128->pgraph.ctx_switch_a >> 23) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 3, riva128);
+    //riva128_pgraph_write_pixel_to_buffer(x, y, color, a, (riva128->pgraph.ctx_switch_a >> 16) & 3, riva128);
+    if((graphobj0 >> 20) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 0, riva128);
+    if((graphobj0 >> 21) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 1, riva128);
+    if((graphobj0 >> 22) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 2, riva128);
+    if((graphobj0 >> 23) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 3, riva128);
 }
 
 void
@@ -1529,7 +1536,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							(method & 0x1fc) >> 3];
 			for(uint16_t y = starty; y <= endy; y++) {
 				for(uint16_t x = startx; x <= endx; x++) {
-					riva128_pgraph_write_pixel(x, y,
+					riva128_pgraph_write_pixel(graphobj0, x, y,
 						riva128->pgraph.gdi_color,
 						0xff, riva128);
 				}
@@ -1559,7 +1566,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				for(int y = riva128->pgraph.lin_start_y;
 						y < riva128->pgraph.lin_end_y;
 						y++) {
-					riva128_pgraph_write_pixel(
+					riva128_pgraph_write_pixel(graphobj0,
 						riva128->pgraph.lin_start_x,
 						y, riva128->pgraph.lin_color,
 						0xff, riva128);
@@ -1569,7 +1576,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				for(int x = riva128->pgraph.lin_start_x;
 						x < riva128->pgraph.lin_end_x;
 						x++) {
-					riva128_pgraph_write_pixel(x,
+					riva128_pgraph_write_pixel(graphobj0, x,
 						riva128->pgraph.lin_start_y,
 						riva128->pgraph.lin_color,
 						0xff, riva128);
@@ -1645,7 +1652,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	case 0x1c:
 		switch(method) {
 		case 0x300: {
-			int surf_num = (riva128->pgraph.ctx_switch_a >> 16) & 3;
+			int surf_num = (graphobj0 >> 16) & 3;
 			uint32_t format = 1;
 			if (param & 1)
 				format = 0;
@@ -1663,12 +1670,12 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			riva128_pgraph_invalid_interrupt(0, riva128);
 			break;
 		case 0x308: {
-			int surf_num = (riva128->pgraph.ctx_switch_a >> 16) & 3;
+			int surf_num = (graphobj0 >> 16) & 3;
 			riva128->pgraph.surf_pitch[surf_num] = param & 0x1ff0;
 			break;
 		}
 		case 0x30c: {
-			int surf_num = (riva128->pgraph.ctx_switch_a >> 16) & 3;
+			int surf_num = (graphobj0 >> 16) & 3;
 			riva128->pgraph.surf_offset[surf_num] =
 					param & 0x3ffff0;
 			break;
