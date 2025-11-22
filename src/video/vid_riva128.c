@@ -1448,8 +1448,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	case 0x05:
 		switch(method) {
 		case 0x300:
-			riva128->pgraph.clipx_min = (param >> 16) & 0xffff;
-			riva128->pgraph.clipy_min = param & 0xffff;
+			riva128->pgraph.clipx_min = param & 0xffff;
+			riva128->pgraph.clipy_min = (param >> 16) & 0xffff;
 			break;
 		case 0x304:
 			riva128->pgraph.clipw = param & 0xffff;
