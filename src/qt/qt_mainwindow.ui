@@ -251,17 +251,11 @@
     <addaction name="actionAbout_86Box"/>
     <addaction name="actionAbout_Qt"/>
    </widget>
-   <widget class="QMenu" name="menuDebug">
-    <property name="title">
-      <string>&amp;Debugging Tools</string>
-    </property>
-   </widget>
    <addaction name="menuAction"/>
    <addaction name="menuView"/>
    <addaction name="menuMedia"/>
    <addaction name="menuTools"/>
    <addaction name="menuAbout"/>
-   <addaction name="menuDebug"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <widget class="QToolBar" name="toolBar">

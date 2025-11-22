@@ -1343,15 +1343,14 @@ riva128_pgraph_rop(uint8_t rop, uint32_t src, uint32_t dst)
 }
 
 void
-riva128_pgraph_write_pixel(uint16_t x, uint16_t y,
-		uint32_t color, uint8_t a, void *p)
+riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
+		uint32_t color, uint8_t a, int buffer, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
 	svga_t *svga = &riva128->svga;
 
 	uint16_t *vram_w = (uint16_t *)svga->vram;
 	uint32_t *vram_l = (uint32_t *)svga->vram;
-	int surf_num = (riva128->pgraph.ctx_switch_a >> 16) & 3;
 
 	uint16_t clipx_min = riva128->pgraph.clipx_min;
 	uint16_t clipx_max = riva128->pgraph.clipx_min + riva128->pgraph.clipw;
@@ -1362,8 +1361,8 @@ riva128_pgraph_write_pixel(uint16_t x, uint16_t y,
 			|| ((y < clipy_min) || (y > clipy_max)))
 		return;
 
-	uint32_t addr = ((x + (riva128->pgraph.surf_pitch[surf_num]
-			* y))) + riva128->pgraph.surf_offset[surf_num];
+	uint32_t addr = ((x + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
 
 	switch(riva128->pfb.bpp) {
 	case 8: {
@@ -1394,6 +1393,17 @@ riva128_pgraph_write_pixel(uint16_t x, uint16_t y,
 
 	svga->changedvram[(addr & riva128->vram_mask) >> 12] =
 			changeframecount;
+}
+
+void
+riva128_pgraph_write_pixel(uint16_t x, uint16_t y,
+		uint32_t color, uint8_t a, void *p)
+{
+    riva128_t *riva128 = (riva128_t *)p;
+    if((riva128->pgraph.ctx_switch_a >> 20) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 0, riva128);
+    if((riva128->pgraph.ctx_switch_a >> 21) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 1, riva128);
+    if((riva128->pgraph.ctx_switch_a >> 22) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 2, riva128);
+    if((riva128->pgraph.ctx_switch_a >> 23) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 3, riva128);
 }
 
 void
