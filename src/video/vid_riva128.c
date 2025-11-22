@@ -1517,10 +1517,6 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			uint16_t endy = starty +
 					riva128->pgraph.gdi_rect_h[
 							(method & 0x1fc) >> 3];
-            uint16_t startx = riva128->pgraph.gdi_vtx_x[(method & 0x1fc) >> 3];
-			uint16_t starty = riva128->pgraph.gdi_vtx_y[(method & 0x1fc) >> 3];
-			uint16_t endx = startx + riva128->pgraph.gdi_rect_w[(method & 0x1fc) >> 3];
-			uint16_t endy = starty + riva128->pgraph.gdi_rect_h[(method & 0x1fc) >> 3];
 			for(uint16_t y = starty; y <= endy; y++) {
 				for(uint16_t x = startx; x <= endx; x++) {
 					riva128_pgraph_write_pixel(x, y,
@@ -1529,7 +1525,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				}
 			}
 		}
-        switch(method)
+        else switch(method)
         {
             case 0x304:
                 riva128->pgraph.gdi_color = param;
@@ -1576,7 +1572,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		break;
 	case 0x0c:
 		//TODO
-		else switch(method) {
+		switch(method) {
 		case 0x104:
 			if (riva128->pgraph.notify_impending) {
 				riva128_pgraph_invalid_interrupt(12, riva128);
