@@ -657,12 +657,6 @@ msgstr "Naprava ISABugger"
 msgid "POST card"
 msgstr "Kartica POST"
 
-<<<<<<< HEAD
-msgid "PCBox"
-msgstr "PCBox"
-
-=======
->>>>>>> b322ec71d4b9868028ab104b00ec98648a3dd092
 msgid "Error"
 msgstr "Napaka"
 
@@ -1023,16 +1017,8 @@ msgstr "To bo ponovno zagnalo emuliran sistem."
 msgid "Save"
 msgstr "Shrani"
 
-<<<<<<< HEAD
-msgid "About PCBox"
-msgstr "O programu PCBox"
-
-msgid "PCBox v"
-msgstr "PCBox v"
-=======
 msgid "About %1"
 msgstr "O programu %1"
->>>>>>> b322ec71d4b9868028ab104b00ec98648a3dd092
 
 msgid "An emulator of old computers\n\nAuthors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), Tiseno100, reenigne, and others.\n\nWith previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\nReleased under the GNU General Public License version 2 or later. See LICENSE for more information."
 msgstr "Emulator starih računalnikov\n\nAvtorji: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), Tiseno100, reenigne in drugi.\n\nS prejšnjimi prispevki Sarah Walker, leilei, JohnElliott, greatpsycho in drugih.\n\nIzdano pod licenco GNU General Public License različica 2 ali novejša. Glej datoteko LICENSE za več informacij."
