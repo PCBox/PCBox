@@ -155,6 +155,10 @@ if(G100)
     target_compile_definitions(vid PRIVATE USE_G100)
 endif()
 
+if(NV3)
+    target_compile_definitions(vid PRIVATE USE_NV3)
+endif()
+
 if(XL24)
     target_compile_definitions(vid PRIVATE USE_XL24)
 endif()
