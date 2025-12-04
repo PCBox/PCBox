@@ -209,6 +209,7 @@ typedef struct riva128_t
 	struct {
         uint32_t gen_ctrl;
 		uint32_t nvpll, mpll, vpll;
+        uint32_t cursor_pos;
 	} pramdac;
 
 	pc_timer_t nvtimer;
@@ -1133,6 +1134,8 @@ riva128_pramdac_read(uint32_t addr, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
 	switch(addr) {
+    case 0x680300:
+        return riva128->pramdac.cursor_pos;
 	case 0x680500:
 		return riva128->pramdac.nvpll;
 	case 0x680504:
@@ -1150,6 +1153,9 @@ riva128_pramdac_write(uint32_t addr, uint32_t val, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
 	switch(addr) {
+    case 0x680300:
+        riva128->pramdac.cursor_pos = val & 0x0fff0fff;
+        break;
 	case 0x680500:
 		riva128->pramdac.nvpll = val;
 		break;
@@ -2473,6 +2479,8 @@ riva128_out(uint16_t addr, uint8_t val, void *p)
 			case 0x2d:
 				svga_recalctimings(svga);
 				break;
+            case 0x30:
+                break;
 			case 0x38:
 				riva128->rma.rma_mode = val & 0xf;
 				break;
@@ -2659,6 +2667,36 @@ riva128_recalctimings(svga_t *svga)
 	svga->clock = (cpuclock * (double)(1ull << 32)) / freq;
 }
 
+static void
+riva128_hwcursor_draw(svga_t *svga, int displine)
+{
+    riva128_t *riva128 = (riva128_t *) svga->priv;
+    uint32_t ramin_cursor_pos = 0x6000;
+    uint16_t startx = riva128->pramdac.cursor_pos & 0xfff;
+    uint16_t starty = (riva128->pramdac.cursor_pos >> 16) & 0xfff;
+
+    if(startx >= (svga->hdisp + 32) || starty >= (svga->dispend + 32)) return;
+
+    uint32_t cursor_bitmap = 0;
+    int replace_bit = 0;
+    int transparent = 0;
+
+    for(int y = 0; y < 32; y++)
+    {
+        for(int x = 0; x < 32; x++)
+        {
+            uint16_t raw = riva128_ramin_read_w(ramin_cursor_pos, riva128);
+            replace_bit = raw & 0x8000;
+            replace_bit = raw == 0;
+            cursor_bitmap = video_15to32[raw];
+            ramin_cursor_pos += 2;
+            uint32_t current_col = buffer32->line[starty + y][startx + x + svga->x_add];
+            if(replace_bit) buffer32->line[starty + y][startx + x + svga->x_add] = transparent ? current_col : cursor_bitmap;
+            else buffer32->line[starty + y][startx + x + svga->x_add] = transparent ? current_col : current_col ^ cursor_bitmap;
+        }
+    }
+}
+
 
 static void
 *riva128_init(const device_t *info)
@@ -2677,7 +2715,7 @@ static void
 
 	svga_init(info, &riva128->svga, riva128, riva128->vram_size,
 		riva128_recalctimings, riva128_in, riva128_out,
-		NULL, NULL);
+		riva128_hwcursor_draw, NULL);
 
 	svga->decode_mask = riva128->vram_mask;
 	svga->force_old_addr = 1;
