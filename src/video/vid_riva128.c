@@ -2578,11 +2578,16 @@ riva128_recalctimings(svga_t *svga)
         else
             svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 3;
         if(riva128->pramdac.gen_ctrl & (1 << 12))
+        {
 		    svga->bpp = 16;
+            svga->render = svga_render_16bpp_highres;
+        }
         else
+        {
             svga->bpp = 15;
+            svga->render = svga_render_15bpp_highres;
+        }
 		svga->lowres = 0;
-		svga->render = svga_render_16bpp_highres;
 		break;
 	case 3:
         svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 3;
