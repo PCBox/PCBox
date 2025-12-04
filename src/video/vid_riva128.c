@@ -1426,6 +1426,17 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	pclog("[RIVA 128] PGRAPH execute grobj0 %08x objclass %02x method %04x param %08x\n", graphobj0
 			, objclass, method, param);
 
+    switch(method) {
+	case 0x104:
+		if (riva128->pgraph.notify_impending) {
+			riva128_pgraph_invalid_interrupt(12, riva128);
+			break;
+		}
+		riva128->pgraph.notify_impending = 2;
+		riva128->pgraph.notifier_obj = (param & 0xf) << 20;
+		break;
+    }
+    
 	switch(objclass) {
 	case 0x01:
 		switch(method) {
@@ -1590,14 +1601,6 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	case 0x0c:
 		//TODO
 		switch(method) {
-		case 0x104:
-			if (riva128->pgraph.notify_impending) {
-				riva128_pgraph_invalid_interrupt(12, riva128);
-				break;
-			}
-			riva128->pgraph.notify_impending = 2;
-			riva128->pgraph.notifier_obj = (param & 0xf) << 20;
-			break;
 		case 0x3fc:
 			//riva128->pgraph.gdi_color = param;
 			break;
@@ -1605,14 +1608,6 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		break;
 	case 0x14:
 		switch(method) {
-		case 0x104:
-			if (riva128->pgraph.notify_impending) {
-				riva128_pgraph_invalid_interrupt(12, riva128);
-				break;
-			}
-			riva128->pgraph.notify_impending = 2;
-			riva128->pgraph.notifier_obj = (param & 0xf) << 20;
-			break;
 		case 0x308:
 			riva128->pgraph.itm_vtx_x = (param >> 16) & 0xffff;
 			riva128->pgraph.itm_vtx_y = param & 0xffff;
@@ -1690,13 +1685,6 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	riva128->pgraph.notify_impending--;
 	if (riva128->pgraph.notify_impending != 0)
 		return;
-
-	/* TODO: see TODO above. I ask you: will the code below ever run? */
-
-	/* Remove these comments if I'm full of it, I haven't read the rest
-	of your code thoroughly, but you should explore this. The refactored
-	changes here with reduced indentation, have the same behaviour as
-	your original code, just without all that nesting of code. */
 
 	uint32_t *vram_l = (uint32_t *)svga->vram;
 	uint32_t notify_obj_addr = (graphobj1 >> 16) << 4;
