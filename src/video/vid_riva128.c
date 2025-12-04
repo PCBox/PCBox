@@ -194,7 +194,7 @@ typedef struct riva128_t
 		uint16_t gdi_vtx_y[0x40];
 		uint16_t gdi_rect_w[0x40];
 		uint16_t gdi_rect_h[0x40];
-		uint32_t gdi_color;
+		uint32_t rect_color;
 
 		uint16_t itm_vtx_x;
 		uint16_t itm_vtx_y;
@@ -1529,7 +1529,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			for(uint16_t y = starty; y <= endy; y++) {
 				for(uint16_t x = startx; x <= endx; x++) {
 					riva128_pgraph_write_pixel(graphobj0, x, y,
-						riva128->pgraph.gdi_color,
+						riva128->pgraph.rect_color,
 						0xff, riva128);
 				}
 			}
@@ -1537,7 +1537,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
         else switch(method)
         {
             case 0x304:
-                riva128->pgraph.gdi_color = param;
+                riva128->pgraph.rect_color = param;
                 break;
         }
         break;
@@ -1587,6 +1587,18 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			break;
 		}
 		break;
+    case 0x0d:
+        switch(method) {
+            case 0x328:
+            if (riva128->pgraph.notify_impending) {
+    			riva128_pgraph_invalid_interrupt(12, riva128);
+    			break;
+		    }
+		    riva128->pgraph.notify_impending = 2;
+		    riva128->pgraph.notifier_obj = (param & 0xf) << 20;
+		    break;
+        }
+        break;
 	case 0x14:
 		switch(method) {
 		case 0x308:
