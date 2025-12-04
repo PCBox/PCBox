@@ -1363,7 +1363,7 @@ riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 
     uint32_t addr;
 
-	switch(riva128->pfb.bpp) {
+	switch(riva128->svga.bpp) {
 	case 8: {
         uint32_t addr = ((x + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
@@ -1466,12 +1466,12 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	case 0x05:
 		switch(method) {
 		case 0x300:
-			riva128->pgraph.clipx_min = param & 0xffff;
-			riva128->pgraph.clipy_min = (param >> 16) & 0xffff;
+			riva128->pgraph.clipx_min = (param >> 16) & 0xffff;
+			riva128->pgraph.clipy_min = param & 0xffff;
 			break;
 		case 0x304:
-			riva128->pgraph.clipw = param & 0xffff;
-			riva128->pgraph.cliph = (param >> 16) & 0xffff;
+			riva128->pgraph.clipw = (param >> 16) & 0xffff;
+			riva128->pgraph.cliph = param & 0xffff;
 			/* uint16_t startx = riva128->pgraph.clipx_min;
 			uint16_t starty = riva128->pgraph.clipy_min;
 			uint16_t endx = riva128->pgraph.clipx_min
