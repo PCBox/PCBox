@@ -1580,11 +1580,33 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		}
 		break;
 	case 0x0c:
-		//TODO
-		switch(method) {
-		case 0x3fc:
-			//riva128->pgraph.gdi_color = param;
-			break;
+		if (!(method & 4) && (method >= 0x400 && method < 0x480)) {
+			riva128->pgraph.gdi_vtx_x[(method & 0x1fc) >> 3] =
+					param & 0xffff;
+			riva128->pgraph.gdi_vtx_y[(method & 0x1fc) >> 3] =
+					(param >> 16) & 0xffff;
+		} else if ((method & 4) && ((method >= 0x400)
+					&& (method < 0x480))) {
+			riva128->pgraph.gdi_rect_w[(method & 0x1fc) >> 3] =
+					param & 0xffff;
+			riva128->pgraph.gdi_rect_h[(method & 0x1fc) >> 3] =
+					(param >> 16) & 0xffff;
+			uint16_t startx = riva128->pgraph.gdi_vtx_x[
+					(method & 0x1fc) >> 3];
+			uint16_t starty = riva128->pgraph.gdi_vtx_y[
+					(method & 0x1fc) >> 3];
+			uint16_t endx = startx + riva128->pgraph.gdi_rect_w[
+					(method & 0x1fc) >> 3];
+			uint16_t endy = starty +
+					riva128->pgraph.gdi_rect_h[
+							(method & 0x1fc) >> 3];
+			for(uint16_t y = starty; y <= endy; y++) {
+				for(uint16_t x = startx; x <= endx; x++) {
+					riva128_pgraph_write_pixel(graphobj0, x, y,
+						riva128->pgraph.rect_color,
+						0xff, riva128);
+				}
+			}
 		}
 		break;
     case 0x0d:
