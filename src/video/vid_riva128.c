@@ -39,6 +39,7 @@
 #include <86box/vid_ddc.h>
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
+#include <86box/utils/video_stdlib.h>
 
 #define BIOS_RIVA128_PATH "roms/video/nvidia/Diamond_V330_rev-e.vbi"
 
@@ -467,7 +468,7 @@ riva128_ramin_write(uint32_t addr, uint8_t val, void *p)
 
 	addr &= 0x3fffff;
 
-	pclog("[RIVA 128] RAMIN write %08x %02x\n", addr, val);
+	//pclog("[RIVA 128] RAMIN write %08x %02x\n", addr, val);
 
 	svga->vram[addr ^ 0x3ffff0] = val;
 }
@@ -482,7 +483,7 @@ riva128_ramin_write_w(uint32_t addr, uint16_t val, void *p)
 
 	addr &= 0x3fffff;
 
-	pclog("[RIVA 128] RAMIN write %08x %04x\n", addr, val);
+	//pclog("[RIVA 128] RAMIN write %08x %04x\n", addr, val);
 
 	vram_w[(addr ^ 0x3ffff0) >> 1] = val;
 }
@@ -497,7 +498,7 @@ riva128_ramin_write_l(uint32_t addr, uint32_t val, void *p)
 
 	addr &= 0x3fffff;
 
-	pclog("[RIVA 128] RAMIN write %08x %08x\n", addr, val);
+	//pclog("[RIVA 128] RAMIN write %08x %08x\n", addr, val);
 
 	vram_l[(addr ^ 0x3ffff0) >> 2] = val;
 }
@@ -774,14 +775,13 @@ riva128_pfifo_write(uint32_t addr, uint32_t val, void *p)
 				riva128->pfifo.ramht_size = 32768;
 				break;
 		}
-		pclog("[RIVA 128] PFIFO RAMHT at %04x with size %04x\n",
+		/*pclog("[RIVA 128] PFIFO RAMHT at %04x with size %04x\n",
 				riva128->pfifo.ramht_addr,
-				riva128->pfifo.ramht_size);
+				riva128->pfifo.ramht_size);*/
 		break;
 	case 0x002214:
 		riva128->pfifo.ramfc = riva128->pfifo.ramfc_addr = val & 0xfe00;
-		pclog("[RIVA 128] PFIFO RAMFC at %04x\n",
-				riva128->pfifo.ramfc_addr);
+		//pclog("[RIVA 128] PFIFO RAMFC at %04x\n", riva128->pfifo.ramfc_addr);
 		break;
 	case 0x002218:
 		riva128->pfifo.ramro = val & 0x1fe00;
@@ -790,9 +790,9 @@ riva128_pfifo_write(uint32_t addr, uint32_t val, void *p)
 			riva128->pfifo.ramro_size = 8192;
 		else
 			riva128->pfifo.ramro_size = 512;
-		pclog("[RIVA 128] PFIFO RAMRO at %04x with size %04x\n",
+		/*pclog("[RIVA 128] PFIFO RAMRO at %04x with size %04x\n",
 				riva128->pfifo.ramro_addr,
-				riva128->pfifo.ramro_size);
+				riva128->pfifo.ramro_size);*/
 		break;
 	case 0x002410:	
 		riva128->pfifo.runout_put = val & 0x1ff8;
@@ -827,10 +827,10 @@ riva128_pfifo_write(uint32_t addr, uint32_t val, void *p)
 		break;
 	case 0x003104:
 		riva128->pfifo.cache0.param = val;
-		pclog("[RIVA 128] CACHE0 method %04x param %08x subchannel %d\n"
+		/*pclog("[RIVA 128] CACHE0 method %04x param %08x subchannel %d\n"
 				, riva128->pfifo.cache0.method,
 				riva128->pfifo.cache0.param,
-				riva128->pfifo.cache0.subchan);
+				riva128->pfifo.cache0.subchan);*/
 		riva128_do_gpu_work(riva128);
 		break;
 	case 0x003200:
@@ -1057,7 +1057,7 @@ uint32_t
 riva128_pgraph_read(uint32_t addr, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
-	pclog("RIVA 128 PGRAPH read %08x\n", addr);
+	//pclog("RIVA 128 PGRAPH read %08x\n", addr);
 	switch(addr) {
 	case 0x400080:
 		return riva128->pgraph.debug_0;
@@ -1087,7 +1087,7 @@ void
 riva128_pgraph_write(uint32_t addr, uint32_t val, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
-	pclog("[RIVA 128] PGRAPH write %08x data %08x\n", addr, val);
+	//pclog("[RIVA 128] PGRAPH write %08x data %08x\n", addr, val);
 	switch(addr) {
 	case 0x400080:
 		riva128->pgraph.debug_0 = val;
@@ -1199,7 +1199,7 @@ riva128_ramht_lookup(uint32_t handle, int cache_num, uint8_t chanid,
 			((uint32_t)riva128_ramht_hash(handle, chanid)
 					* bucket_entries * 8);
 
-	pclog("[RIVA 128] RAMHT addr to search at %08x\n", ramht_addr);
+	//pclog("[RIVA 128] RAMHT addr to search at %08x\n", ramht_addr);
 
 	int found = 0;
 
@@ -1216,7 +1216,7 @@ riva128_ramht_lookup(uint32_t handle, int cache_num, uint8_t chanid,
 	}
 
 	if (!found) {
-		pclog("[RIVA 128] Cache error: Handle not found!\n");
+		//pclog("[RIVA 128] Cache error: Handle not found!\n");
 		riva128->pfifo.caches[cache_num].pull_ctrl |= 0x010;
 		riva128->pfifo.caches[cache_num].pull_ctrl &= ~1;
 		riva128->pfifo.cache_error |= cache_num ? 0x10 : 0x01;
@@ -1224,17 +1224,16 @@ riva128_ramht_lookup(uint32_t handle, int cache_num, uint8_t chanid,
 		return 1;
 	}
 
-	pclog("[RIVA 128] Object found at RAMHT addr %08x\n",
-			ramht_addr);
+	//pclog("[RIVA 128] Object found at RAMHT addr %08x\n", ramht_addr);
 	uint32_t ctx = riva128_ramin_read_l(ramht_addr + 4, riva128);
 	riva128->pfifo.caches[cache_num].pull_ctrl &= ~0x010;
 	if (cache_num)
 		riva128->pfifo.caches[1].ctx[subchanid] = ctx & 0xffffff;
 	else
 		riva128->pfifo.caches[0].ctx[0] = ctx & 0xffffff;
-	pclog("[RIVA 128] CTX %08x\n", ctx & 0xffffff);
+	//pclog("[RIVA 128] CTX %08x\n", ctx & 0xffffff);
 	if (!(ctx & 0x800000)) {
-		pclog("[RIVA 128] Cache error: Software object!\n");
+		//pclog("[RIVA 128] Cache error: Software object!\n");
 		riva128->pfifo.caches[cache_num].pull_ctrl |= 0x100;
 		riva128->pfifo.caches[cache_num].pull_ctrl &= ~1;
 		riva128->pfifo.cache_error |= cache_num ? 0x10 : 0x01;
@@ -1324,24 +1323,6 @@ riva128_pgraph_to_a1r10g10b10(riva128_pgraph_color_t color)
 	return !!color.a << 30 | color.r << 20 | color.g << 10 | color.b;
 }
 
-uint32_t
-riva128_pgraph_rop(uint8_t rop, uint32_t src, uint32_t dst)
-{
-	switch(rop) {
-	case 0x00:
-		return 0;
-	case 0x66:
-		return src ^ dst;
-	case 0x88:
-		return src & dst;
-	case 0xcc:
-		return src;
-	default:
-		pclog("Unimplemented ROP %02x!\n", rop);
-		return 0;
-	}
-}
-
 void
 riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 		uint32_t color, uint8_t a, int buffer, void *p)
@@ -1371,8 +1352,8 @@ riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 		uint32_t dst =
 			svga->vram[addr & riva128->vram_mask];
 		svga->vram[addr & riva128->vram_mask] =
-			riva128_pgraph_rop(riva128->pgraph.rop,
-					src, dst) & 0xff;
+			video_rop_gdi_ternary(riva128->pgraph.rop,
+					src, dst, 0) & 0xff;
 		break;
 	}
     case 15:
@@ -1382,8 +1363,8 @@ riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 		uint32_t src = color & 0xffff;
 		uint32_t dst = vram_w[(addr & riva128->vram_mask) >> 1];
 		vram_w[(addr & riva128->vram_mask) >> 1] =
-				riva128_pgraph_rop(riva128->pgraph.rop,
-						src, dst) & 0xffff;
+				video_rop_gdi_ternary(riva128->pgraph.rop,
+						src, dst, 0) & 0xffff;
 		break;
 	}
 	case 32: {
@@ -1392,8 +1373,8 @@ riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 		uint32_t src = color;
 		uint32_t dst = vram_l[(addr & riva128->vram_mask) >> 2];
 		vram_l[(addr & riva128->vram_mask) >> 2] =
-				riva128_pgraph_rop(riva128->pgraph.rop,
-						src, dst);
+				video_rop_gdi_ternary(riva128->pgraph.rop,
+						src, dst, 0);
 		break;
 	}}
 
@@ -1714,15 +1695,17 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				+ 8, riva128) & 0xfffff000
 			) | ((logical_addr + adjust) & 0xfff);
 	if (target) {
-		pclog("[RIVA 128] PCI notifier at %08x\n", paged_addr);
+		//pclog("[RIVA 128] PCI notifier at %08x\n", paged_addr);
 		dma_bm_write(paged_addr, (uint8_t*)notifier, 16, 4);
 		return;
 	}
-	pclog("[RIVA 128] VRAM notifier at %08x\n", unpaged_addr);
+	//pclog("[RIVA 128] VRAM notifier at %08x\n", unpaged_addr);
 	vram_l[(unpaged_addr >> 2) & 0xfffff] = notifier[0];
 	vram_l[((unpaged_addr >> 2) + 1) & 0xfffff] = notifier[1];
 	vram_l[((unpaged_addr >> 2) + 2) & 0xfffff] = notifier[2];
 	vram_l[((unpaged_addr >> 2) + 3) & 0xfffff] = notifier[3];
+    svga->changedvram[unpaged_addr >> 12] =
+			changeframecount;
 }
 
 void
@@ -1769,10 +1752,10 @@ riva128_do_cache0_puller(void *p)
 	uint32_t param = riva128->pfifo.cache0.param;
 	uint8_t chanid = riva128->pfifo.caches[0].chanid;
 	int subchanid = riva128->pfifo.cache0.subchan;
-	pclog("[RIVA 128] CACHE0 puller method %04x param %08x ",
+	/*pclog("[RIVA 128] CACHE0 puller method %04x param %08x ",
 			method, param);
 	pclog("channel %02x subchannel %x\n",
-			chanid, subchanid);
+			chanid, subchanid);*/
 	if (method == 0) {
 		int error = riva128_ramht_lookup(param, 0, chanid,
 				subchanid, riva128);
@@ -1790,9 +1773,9 @@ riva128_do_cache0_puller(void *p)
 	}
 
 	uint32_t ctx = riva128->pfifo.caches[0].ctx[0];
-	pclog("[RIVA 128] CTX = %08x\n", ctx);
+	//pclog("[RIVA 128] CTX = %08x\n", ctx);
 	if (!(ctx & 0x800000)) {
-		pclog("[RIVA 128] Cache error: Software method!\n");
+		//pclog("[RIVA 128] Cache error: Software method!\n");
 		riva128->pfifo.caches[0].pull_ctrl |= 0x100;
 		riva128->pfifo.caches[0].pull_ctrl &= ~1;
 		riva128->pfifo.cache_error |= 0x01;
@@ -1833,9 +1816,9 @@ riva128_do_cache1_puller(void *p)
 	uint8_t chanid = riva128->pfifo.caches[1].chanid;
 	int subchanid = riva128->pfifo.cache1[riva128->pfifo.caches[1].get 
 			>> 2].subchan;
-	pclog("[RIVA 128] CACHE1 puller method %04x param %08x ",
+	/*pclog("[RIVA 128] CACHE1 puller method %04x param %08x ",
 			method, param);
-	pclog("channel %02x subchannel %x\n", chanid, subchanid);
+	pclog("channel %02x subchannel %x\n", chanid, subchanid);*/
 	if (method == 0) {
 		int error = riva128_ramht_lookup(param, 1, chanid,
 				subchanid, riva128);
@@ -1851,16 +1834,16 @@ riva128_do_cache1_puller(void *p)
 		uint32_t ctx = riva128->pfifo.caches[1].ctx[subchanid];
 
 		/* TODO: forward to PGRAPH. */
-		pclog("[RIVA 128] CTX = %08x\n", ctx);
+		//pclog("[RIVA 128] CTX = %08x\n", ctx);
 		riva128_pgraph_command_submit(method, chanid,
 				subchanid, param, ctx, riva128);
 		return;
 	}
 
 	uint32_t ctx = riva128->pfifo.caches[1].ctx[subchanid];
-	pclog("[RIVA 128] CTX = %08x\n", ctx);
+	//pclog("[RIVA 128] CTX = %08x\n", ctx);
 	if (!(ctx & 0x800000)) {
-		pclog("[RIVA 128] Cache error: Software method!\n");
+		//pclog("[RIVA 128] Cache error: Software method!\n");
 		riva128->pfifo.caches[1].pull_ctrl |= 0x100;
 		riva128->pfifo.caches[1].pull_ctrl &= ~1;
 		riva128->pfifo.cache_error |= 0x10;
@@ -1957,9 +1940,9 @@ riva128_user_write(uint32_t addr, uint32_t val, void *p)
 
 	if (ranout)
 	{
-		pclog("[RIVA 128] Command rejected to RAMRO! error %08x ",
+		/*pclog("[RIVA 128] Command rejected to RAMRO! error %08x ",
 				err);
-		pclog("value %08x\n", val);
+		pclog("value %08x\n", val);*/
 		riva128_ramin_write_l(riva128->pfifo.ramro_addr
 				+ riva128->pfifo.runout_put, err, riva128);
 		riva128_ramin_write_l(riva128->pfifo.ramro_addr
