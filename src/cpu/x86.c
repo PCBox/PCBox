@@ -388,6 +388,7 @@ reset_common(int hard)
     }
     
     cpu_state.pc_high = cpu_state.oldpc_high = 0;
+    cpu_force_interpreter = 0;
 }
 
 /* Hard reset. */
