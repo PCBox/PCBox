@@ -1648,7 +1648,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		case 0x314:
 			riva128->pgraph.itm_offset = param;
 			riva128->pgraph.m2mf_pending = 1;
-			/*
+			
 			uint16_t startx = riva128->pgraph.itm_vtx_x;
 			uint16_t endx = startx + riva128->pgraph.itm_rect_w;
 			uint16_t starty = riva128->pgraph.itm_vtx_y;
@@ -1659,13 +1659,13 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						riva128->pgraph.itm_offset + x
 						+ (riva128->pgraph.itm_pitch
 								* y);
-					uint8_t itm_val = svga_readb_linear(
+					uint16_t itm_val = svga_readw_linear(
 							offset, svga);
 					riva128_pgraph_write_pixel(x, y,
 							itm_val, 0xff, riva128);
 				}
 			}
-			*/
+			
 			break;
 		}
 		break;
