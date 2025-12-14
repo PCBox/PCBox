@@ -2699,7 +2699,7 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
         for(int x = 0; x < 32; x++)
         {
             uint16_t raw = 0;
-			if(!riva128->vram) riva128_ramin_read_w(cursor_offset, riva128);
+			if(!riva128->cursor_vram) riva128_ramin_read_w(cursor_offset, riva128);
 			else
 			{
 				uint16_t* vram_w = (uint16_t*)svga->vram;
