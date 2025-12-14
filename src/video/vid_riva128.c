@@ -66,7 +66,7 @@ typedef struct riva128_t
 	uint32_t vram_size, vram_mask,
 		mmio_base, lfb_base;
 
-	uint32_t cursor_addr;
+	uint32_t cursor_offset;
 	int cursor_vram;
 	int cursor_enabled;
 
