@@ -66,6 +66,10 @@ typedef struct riva128_t
 	uint32_t vram_size, vram_mask,
 		mmio_base, lfb_base;
 
+	uint32_t cursor_addr;
+	int cursor_vram;
+	int cursor_enabled;
+
 	uint8_t	read_bank, write_bank;
 
 	uint8_t	pci_regs[256];
@@ -2479,7 +2483,16 @@ riva128_out(uint16_t addr, uint8_t val, void *p)
 			case 0x2d:
 				svga_recalctimings(svga);
 				break;
+			case 0x2f:
+				riva128->cursor_offset = (riva128->cursor_offset & ~(0xff << 24)) | (val << 24);
+                break;
             case 0x30:
+				riva128->cursor_offset = (riva128->cursor_offset & ~(0x7f << 17)) | ((val & 0x7f) << 17);
+				riva128->cursor_vram = !!(val & 0x80);
+                break;
+			case 0x31:
+				riva128->cursor_offset = (riva128->cursor_offset & ~(0xfc << 9)) | ((val & 0xfc) << 9);
+				riva128->cursor_enabled = !!(val & 1);
                 break;
 			case 0x38:
 				riva128->rma.rma_mode = val & 0xf;
@@ -2671,7 +2684,6 @@ static void
 riva128_hwcursor_draw(svga_t *svga, int displine)
 {
     riva128_t *riva128 = (riva128_t *) svga->priv;
-    uint32_t ramin_cursor_pos = 0x6000;
     uint16_t startx = riva128->pramdac.cursor_pos & 0xfff;
     uint16_t starty = (riva128->pramdac.cursor_pos >> 16) & 0xfff;
 
@@ -2685,7 +2697,13 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
     {
         for(int x = 0; x < 32; x++)
         {
-            uint16_t raw = riva128_ramin_read_w(ramin_cursor_pos, riva128);
+            uint16_t raw = 0;
+			if(!riva128->vram) riva128_ramin_read_w(riva128->cursor_offset, riva128);
+			else
+			{
+				uint16_t* vram_w = (uint16_t*)svga->vram;
+				raw = vram_w[riva128->cursor_offset & 0x3fffff];
+			}
             replace_bit = raw & 0x8000;
             transparent = raw == 0;
             cursor_bitmap = video_15to32[raw];
