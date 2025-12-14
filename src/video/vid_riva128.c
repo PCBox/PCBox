@@ -1661,7 +1661,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 								* y);
 					uint16_t itm_val = svga_readw_linear(
 							offset, svga);
-					riva128_pgraph_write_pixel(x, y,
+					riva128_pgraph_write_pixel(graphobj0, x, y,
 							itm_val, 0xff, riva128);
 				}
 			}
