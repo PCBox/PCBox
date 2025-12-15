@@ -209,6 +209,7 @@ typedef struct riva128_t
 		uint16_t gdi_clip_bottom_c, gdi_clip_left_c, gdi_clip_right_c, gdi_clip_top_c;
 		uint32_t gdi_color_c;
 		uint16_t gdi_vtx_x_c, gdi_vtx_y_c, gdi_vtx_w_c, gdi_vtx_h_c;
+		uint16_t gdi_cur_x_c, gdi_cur_y_c;
 
 		uint16_t itm_vtx_x;
 		uint16_t itm_vtx_y;
@@ -1662,6 +1663,86 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				}
 			}
 		}
+		else if(method >= 0xc00 && method < 0xc80)
+		{
+			if(riva128->pgraph.gdi_cur_x_c >= riva128->pgraph.gdi_clip_left_c
+			&& riva128->pgraph.gdi_cur_x_c <= riva128->pgraph.gdi_clip_right_c
+			&& riva128->pgraph.gdi_cur_y_c >= riva128->pgraph.gdi_clip_top_c
+			&& riva128->pgraph.gdi_cur_y_c <= riva128->pgraph.gdi_clip_bottom_c)
+			{
+				for(int bit = 7; bit >= 0; bit--)
+				[
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, x, y,
+							riva128->pgraph.gdi_color_c,
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_c++;
+					if(riva128->pgraph.gdi_cur_x_c > riva128.pgraph.gdi_clip_right_c || riva128->pgraph.gdi_cur_x_c > (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
+					{
+						riva128->pgraph.gdi_cur_x_c = riva128->pgraph.gdi_vtx_x_c;
+						riva128->pgraph.gdi_cur_y_c++;
+						if(riva128->pgraph.gdi_cur_y_c > riva128.pgraph.gdi_clip_bottom_c || riva128->pgraph.gdi_cur_y_c > (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+							break;
+					}
+				]
+
+				for(int bit = 15; bit >= 8; bit--)
+				[
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, x, y,
+							riva128->pgraph.gdi_color_c,
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_c++;
+					if(riva128->pgraph.gdi_cur_x_c > riva128.pgraph.gdi_clip_right_c || riva128->pgraph.gdi_cur_x_c > (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
+					{
+						riva128->pgraph.gdi_cur_x_c = riva128->pgraph.gdi_vtx_x_c;
+						riva128->pgraph.gdi_cur_y_c++;
+						if(riva128->pgraph.gdi_cur_y_c > riva128.pgraph.gdi_clip_bottom_c || riva128->pgraph.gdi_cur_y_c > (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+							break;
+					}
+				]
+
+				for(int bit = 23; bit >= 16; bit--)
+				[
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, x, y,
+							riva128->pgraph.gdi_color_c,
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_c++;
+					if(riva128->pgraph.gdi_cur_x_c > riva128.pgraph.gdi_clip_right_c || riva128->pgraph.gdi_cur_x_c > (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
+					{
+						riva128->pgraph.gdi_cur_x_c = riva128->pgraph.gdi_vtx_x_c;
+						riva128->pgraph.gdi_cur_y_c++;
+						if(riva128->pgraph.gdi_cur_y_c > riva128.pgraph.gdi_clip_bottom_c || riva128->pgraph.gdi_cur_y_c > (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+							break;
+					}
+				]
+
+				for(int bit = 31; bit >= 24; bit--)
+				[
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, x, y,
+							riva128->pgraph.gdi_color_c,
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_c++;
+					if(riva128->pgraph.gdi_cur_x_c > riva128.pgraph.gdi_clip_right_c || riva128->pgraph.gdi_cur_x_c > (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
+					{
+						riva128->pgraph.gdi_cur_x_c = riva128->pgraph.gdi_vtx_x_c;
+						riva128->pgraph.gdi_cur_y_c++;
+						if(riva128->pgraph.gdi_cur_y_c > riva128.pgraph.gdi_clip_bottom_c || riva128->pgraph.gdi_cur_y_c > (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+							break;
+					}
+				]
+			}
+		}
 		else switch (method) {
 			case 0x3fc:
 			{
@@ -1683,6 +1764,35 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			case 0x7fc:
 			{
 				riva128->pgraph.gdi_color_b = param;
+				break;
+			}
+			case 0xbec:
+			{
+				riva128->pgraph.gdi_clip_left_c = param & 0xffff;
+				riva128->pgraph.gdi_clip_top_c = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xbf0:
+			{
+				riva128->pgraph.gdi_clip_bottom_c = param & 0xffff;
+				riva128->pgraph.gdi_clip_right_c = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xbf4:
+			{
+				riva128->pgraph.gdi_color_c = param;
+				break;
+			}
+			case 0xbf8:
+			{
+				riva128->pgraph.gdi_vtx_w_c = param & 0xffff;
+				riva128->pgraph.gdi_vtx_h_c = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xbfc:
+			{
+				riva128->pgraph.gdi_vtx_x_c = riva128->pgraph.gdi_cur_x_c = param & 0xffff;
+				riva128->pgraph.gdi_vtx_y_c = riva128->pgraph.gdi_cur_y_c = (param >> 16) & 0xffff;
 				break;
 			}
 		}
