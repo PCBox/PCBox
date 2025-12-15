@@ -1625,7 +1625,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				}
 			}
 		}
-		else switch {
+		else switch (method) {
 			case 0x3fc:
 			{
 				riva128->pgraph.gdi_color_a = param;
