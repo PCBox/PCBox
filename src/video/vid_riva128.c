@@ -1777,10 +1777,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							goto method_end;
 					}
 
-					if(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_left_d
+					if(!(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_left_d
 						&& riva128->pgraph.gdi_cur_x_d <= riva128->pgraph.gdi_clip_right_d
 						&& riva128->pgraph.gdi_cur_y_d >= riva128->pgraph.gdi_clip_top_d
-						&& riva128->pgraph.gdi_cur_y_d <= riva128->pgraph.gdi_clip_bottom_d)
+						&& riva128->pgraph.gdi_cur_y_d <= riva128->pgraph.gdi_clip_bottom_d))
 							goto method_end;
 				}
 
@@ -1801,10 +1801,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							goto method_end;
 					}
 
-					if(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_left_d
+					if(!(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_left_d
 						&& riva128->pgraph.gdi_cur_x_d <= riva128->pgraph.gdi_clip_right_d
 						&& riva128->pgraph.gdi_cur_y_d >= riva128->pgraph.gdi_clip_top_d
-						&& riva128->pgraph.gdi_cur_y_d <= riva128->pgraph.gdi_clip_bottom_d)
+						&& riva128->pgraph.gdi_cur_y_d <= riva128->pgraph.gdi_clip_bottom_d))
 							goto method_end;
 				}
 
@@ -1825,10 +1825,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							goto method_end;
 					}
 
-					if(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_left_d
+					if(!(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_left_d
 						&& riva128->pgraph.gdi_cur_x_d <= riva128->pgraph.gdi_clip_right_d
 						&& riva128->pgraph.gdi_cur_y_d >= riva128->pgraph.gdi_clip_top_d
-						&& riva128->pgraph.gdi_cur_y_d <= riva128->pgraph.gdi_clip_bottom_d)
+						&& riva128->pgraph.gdi_cur_y_d <= riva128->pgraph.gdi_clip_bottom_d))
 							goto method_end;
 				}
 
@@ -1849,10 +1849,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							goto method_end;
 					}
 
-					if(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_left_d
+					if(!(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_left_d
 						&& riva128->pgraph.gdi_cur_x_d <= riva128->pgraph.gdi_clip_right_d
 						&& riva128->pgraph.gdi_cur_y_d >= riva128->pgraph.gdi_clip_top_d
-						&& riva128->pgraph.gdi_cur_y_d <= riva128->pgraph.gdi_clip_bottom_d)
+						&& riva128->pgraph.gdi_cur_y_d <= riva128->pgraph.gdi_clip_bottom_d))
 							goto method_end;
 				}
 			}
