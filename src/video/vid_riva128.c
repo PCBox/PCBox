@@ -200,6 +200,8 @@ typedef struct riva128_t
 		uint16_t gdi_rect_h[0x40];
 		uint32_t rect_color;
 
+		uint32_t gdi_color_a;
+
 		uint16_t itm_vtx_x;
 		uint16_t itm_vtx_y;
 		uint16_t itm_rect_w;
@@ -1618,9 +1620,16 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			for(uint16_t y = starty; y <= endy; y++) {
 				for(uint16_t x = startx; x <= endx; x++) {
 					riva128_pgraph_write_pixel(graphobj0, x, y,
-						riva128->pgraph.rect_color,
+						riva128->pgraph.gdi_color_a,
 						0xff, riva128);
 				}
+			}
+		}
+		else switch {
+			case 0x3fc:
+			{
+				riva128->pgraph.gdi_color_a = param;
+				break;
 			}
 		}
 		break;
@@ -2691,8 +2700,6 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
     uint16_t starty = (riva128->pramdac.cursor_pos >> 16) & 0xfff;
 	uint32_t cursor_offset = riva128->cursor_offset;
 	int         offset = svga->hwcursor_latch.x - svga->hwcursor_latch.xoff;
-
-	pclog("RIVA 128 CURSOR DRAW cursor_offset %08x x %d y %d vram %d\n", riva128->cursor_offset, startx, starty, riva128->cursor_vram);
 
     //if(startx >= (svga->hdisp + 32) || starty >= (svga->dispend + 32)) return;
 
