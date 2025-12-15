@@ -2692,12 +2692,14 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
     int replace_bit = 0;
     int transparent = 0;
 
+	if(!riva128->cursor_vram) cursor_offset <<= 4;
+
     for(int y = 0; y < 32; y++)
     {
         for(int x = 0; x < 32; x++)
         {
             uint16_t raw = 0;
-			if(!riva128->cursor_vram) riva128_ramin_read_w(cursor_offset << 4, riva128);
+			if(!riva128->cursor_vram) riva128_ramin_read_w(cursor_offset, riva128);
 			else
 			{
 				uint16_t* vram_w = (uint16_t*)svga->vram;
@@ -2705,11 +2707,11 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
 			}
             replace_bit = raw & 0x8000;
             transparent = raw == 0;
-            cursor_bitmap = video_15to32[raw & 0x7fff];
+            cursor_bitmap = riva128->svga.conv_16to32(&riva128->svga, current_pixel, 15);;
             cursor_offset += 2;
             uint32_t current_col = buffer32->line[starty + y][startx + x + svga->x_add];
             if(replace_bit) buffer32->line[starty + y][startx + x + svga->x_add] = cursor_bitmap | 0xff000000;
-            else buffer32->line[starty + y][startx + x + svga->x_add] = transparent ? current_col | 0xff000000 : (current_col ^ cursor_bitmap) || 0xff000000;
+            else buffer32->line[starty + y][startx + x + svga->x_add] = transparent ? current_col | 0xff000000 : (current_col ^ cursor_bitmap) | 0xff000000;
         }
     }
 }
