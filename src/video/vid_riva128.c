@@ -1162,6 +1162,8 @@ riva128_pramdac_write(uint32_t addr, uint32_t val, void *p)
         riva128->pramdac.cursor_pos = val & 0x0fff0fff;
 		svga->hwcursor.x = val & 0xfff;
 		svga->hwcursor.y = (val >> 16) & 0xfff;
+		svga->hwcursor.yoff = 32;
+		svga->hwcursor.xoff = 32;
         break;
 	case 0x680500:
 		riva128->pramdac.nvpll = val;
@@ -2699,26 +2701,22 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
     int transparent = 0;
 
 	//if(!riva128->cursor_vram) cursor_offset <<= 4;
-
-    for(int y = 0; y < 32; y++)
+    for(int x = 0; x < 32; x++)
     {
-        for(int x = 0; x < 32; x++)
-        {
-            uint16_t raw = 0;
-			if(!riva128->cursor_vram) riva128_ramin_read_w(cursor_offset, riva128);
-			else
-			{
-				uint16_t* vram_w = (uint16_t*)svga->vram;
-				raw = vram_w[cursor_offset & 0x3fffff];
-			}
-            replace_bit = raw & 0x8000;
-            transparent = raw == 0;
-            cursor_bitmap = riva128->svga.conv_16to32(&riva128->svga, raw & 0x7fff, 15);
-            cursor_offset += 2;
-            uint32_t current_col = buffer32->line[displine][offset + svga->x_add];
-            if(replace_bit) buffer32->line[displine][offset + svga->x_add] = cursor_bitmap | 0xff000000;
-            else buffer32->line[displine][offset + svga->x_add] = transparent ? current_col | 0xff000000 : (current_col ^ cursor_bitmap) | 0xff000000;
-        }
+        uint16_t raw = 0;
+		if(!riva128->cursor_vram) riva128_ramin_read_w(cursor_offset, riva128);
+		else
+		{
+			uint16_t* vram_w = (uint16_t*)svga->vram;
+			raw = vram_w[cursor_offset & 0x3fffff];
+		}
+        replace_bit = raw & 0x8000;
+        transparent = raw == 0;
+        cursor_bitmap = riva128->svga.conv_16to32(&riva128->svga, raw & 0x7fff, 15);
+        cursor_offset += 2;
+        uint32_t current_col = buffer32->line[displine][offset + svga->x_add];
+        if(replace_bit) buffer32->line[displine][offset + svga->x_add] = cursor_bitmap | 0xff000000;
+        else buffer32->line[displine][offset + svga->x_add] = transparent ? current_col | 0xff000000 : (current_col ^ cursor_bitmap) | 0xff000000;
     }
 }
 
