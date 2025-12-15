@@ -1774,8 +1774,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			}
 			case 0xbf0:
 			{
-				riva128->pgraph.gdi_clip_bottom_c = param & 0xffff;
-				riva128->pgraph.gdi_clip_right_c = (param >> 16) & 0xffff;
+				riva128->pgraph.gdi_clip_right_c = param & 0xffff;
+				riva128->pgraph.gdi_clip_bottom_c = (param >> 16) & 0xffff;
 				break;
 			}
 			case 0xbf4:
