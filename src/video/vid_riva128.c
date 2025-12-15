@@ -2707,7 +2707,7 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
 			}
             replace_bit = raw & 0x8000;
             transparent = raw == 0;
-            cursor_bitmap = riva128->svga.conv_16to32(&riva128->svga, current_pixel, 15);;
+            cursor_bitmap = riva128->svga.conv_16to32(&riva128->svga, raw & 0x7fff, 15);;
             cursor_offset += 2;
             uint32_t current_col = buffer32->line[starty + y][startx + x + svga->x_add];
             if(replace_bit) buffer32->line[starty + y][startx + x + svga->x_add] = cursor_bitmap | 0xff000000;
