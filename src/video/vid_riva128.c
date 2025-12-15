@@ -1440,7 +1440,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 
 	uint8_t objclass = (ctx >> 16) & 0x1f;
 
-	pclog("[RIVA 128] PGRAPH execute grobj0 %08x objclass %02x method %04x param %08x\n", graphobj0
+	if(objclass != 0x1c && objclass != 0x0c) pclog("[RIVA 128] PGRAPH execute grobj0 %08x objclass %02x method %04x param %08x\n", graphobj0
 			, objclass, method, param);
 
     switch(method) {
