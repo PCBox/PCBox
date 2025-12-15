@@ -1599,15 +1599,15 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	case 0x0c:
 		if (!(method & 4) && (method >= 0x400 && method < 0x480)) {
 			riva128->pgraph.gdi_vtx_x[(method & 0x1fc) >> 3] =
-					param & 0xffff;
-			riva128->pgraph.gdi_vtx_y[(method & 0x1fc) >> 3] =
 					(param >> 16) & 0xffff;
+			riva128->pgraph.gdi_vtx_y[(method & 0x1fc) >> 3] =
+					param & 0xffff;
 		} else if ((method & 4) && ((method >= 0x400)
 					&& (method < 0x480))) {
 			riva128->pgraph.gdi_rect_w[(method & 0x1fc) >> 3] =
-					param & 0xffff;
-			riva128->pgraph.gdi_rect_h[(method & 0x1fc) >> 3] =
 					(param >> 16) & 0xffff;
+			riva128->pgraph.gdi_rect_h[(method & 0x1fc) >> 3] =
+					param & 0xffff;
 			uint16_t startx = riva128->pgraph.gdi_vtx_x[
 					(method & 0x1fc) >> 3];
 			uint16_t starty = riva128->pgraph.gdi_vtx_y[
