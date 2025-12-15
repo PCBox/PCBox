@@ -2070,7 +2070,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				riva128->pgraph.gdi_color_e[1] = param;
 				break;
 			}
-			case 0x13f8:
+			case 0x13f4:
 			{
 				riva128->pgraph.gdi_vtx_w_e = param & 0xffff;
 				riva128->pgraph.gdi_vtx_h_e = (param >> 16) & 0xffff;
