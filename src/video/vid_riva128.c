@@ -2777,7 +2777,7 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
         	transparent = raw == 0;
         	cursor_bitmap = video_15to32[raw & 0x7fff];
         	cursor_offset += 2;
-        	uint32_t current_col = buffer32->line[displine][offset + x + svga->x_add];
+        	uint32_t current_col = buffer32->line[svga->hwcursor_latch.y + y][offset + x + svga->x_add];
         	if(replace_bit) buffer32->line[svga->hwcursor_latch.y + y][offset + x + svga->x_add] = cursor_bitmap | 0xff000000;
         	else buffer32->line[svga->hwcursor_latch.y + y][offset + x + svga->x_add] = transparent ? current_col | 0xff000000 : (current_col ^ cursor_bitmap) | 0xff000000;
     	}
