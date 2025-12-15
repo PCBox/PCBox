@@ -1160,8 +1160,8 @@ riva128_pramdac_write(uint32_t addr, uint32_t val, void *p)
 	switch(addr) {
     case 0x680300:
         riva128->pramdac.cursor_pos = val & 0x0fff0fff;
-		svga->hwcursor_latch.x = val & 0xfff;
-		svga->hwcursor_latch.y = (val >> 16) & 0xfff;
+		svga->hwcursor.x = val & 0xfff;
+		svga->hwcursor.y = (val >> 16) & 0xfff;
         break;
 	case 0x680500:
 		riva128->pramdac.nvpll = val;
@@ -2493,7 +2493,7 @@ riva128_out(uint16_t addr, uint8_t val, void *p)
 			case 0x31:
 				riva128->cursor_offset = (riva128->cursor_offset & ~(0xf8 << 4)) | ((val & 0xf8) << 4);
 				riva128->cursor_enabled = !!(val & 1);
-				svga->hwcursor_latch.ena = !!(val & 1);
+				svga->hwcursor.ena = !!(val & 1);
                 break;
 			case 0x38:
 				riva128->rma.rma_mode = val & 0xf;
@@ -2689,6 +2689,7 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
     uint16_t startx = riva128->pramdac.cursor_pos & 0xfff;
     uint16_t starty = (riva128->pramdac.cursor_pos >> 16) & 0xfff;
 	uint32_t cursor_offset = riva128->cursor_offset;
+	int         offset = svga->hwcursor_latch.x - svga->hwcursor_latch.xoff;
 
     if(startx >= (svga->hdisp + 32) || starty >= (svga->dispend + 32)) return;
 
@@ -2713,9 +2714,9 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
             transparent = raw == 0;
             cursor_bitmap = riva128->svga.conv_16to32(&riva128->svga, raw & 0x7fff, 15);;
             cursor_offset += 2;
-            uint32_t current_col = buffer32->line[starty + y][startx + x + svga->x_add];
-            if(replace_bit) buffer32->line[starty + y][startx + x + svga->x_add] = cursor_bitmap | 0xff000000;
-            else buffer32->line[starty + y][startx + x + svga->x_add] = transparent ? current_col | 0xff000000 : (current_col ^ cursor_bitmap) | 0xff000000;
+            uint32_t current_col = buffer32->line[displine][offset + svga->x_add];
+            if(replace_bit) buffer32->line[displine][offset + svga->x_add] = cursor_bitmap | 0xff000000;
+            else buffer32->line[displine][offset + svga->x_add] = transparent ? current_col | 0xff000000 : (current_col ^ cursor_bitmap) | 0xff000000;
         }
     }
 }
