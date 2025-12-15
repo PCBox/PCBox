@@ -1156,9 +1156,12 @@ void
 riva128_pramdac_write(uint32_t addr, uint32_t val, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
+	svga_r *svga = &riva128->svga;
 	switch(addr) {
     case 0x680300:
         riva128->pramdac.cursor_pos = val & 0x0fff0fff;
+		svga->hwcursor_latch.x = val & 0xfff;
+		svga->hwcursor_latch.y = (val >> 16) & 0xfff;
         break;
 	case 0x680500:
 		riva128->pramdac.nvpll = val;
@@ -2681,6 +2684,7 @@ riva128_recalctimings(svga_t *svga)
 static void
 riva128_hwcursor_draw(svga_t *svga, int displine)
 {
+	pclog("RIVA 128 CURSOR DRAW\n");
     riva128_t *riva128 = (riva128_t *) svga->priv;
     uint16_t startx = riva128->pramdac.cursor_pos & 0xfff;
     uint16_t starty = (riva128->pramdac.cursor_pos >> 16) & 0xfff;
