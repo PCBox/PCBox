@@ -211,6 +211,16 @@ typedef struct riva128_t
 		uint16_t gdi_vtx_x_c, gdi_vtx_y_c, gdi_vtx_w_c, gdi_vtx_h_c;
 		uint16_t gdi_cur_x_c, gdi_cur_y_c;
 
+		uint16_t gdi_clip_bottom_d, gdi_clip_left_d, gdi_clip_right_d, gdi_clip_top_d;
+		uint32_t gdi_color_d;
+		uint16_t gdi_vtx_x_d, gdi_vtx_y_d, gdi_vtx_w_d, gdi_vtx_h_d;
+		uint16_t gdi_cur_x_d, gdi_cur_y_d;
+
+		uint16_t gdi_clip_bottom_e, gdi_clip_left_e, gdi_clip_right_e, gdi_clip_top_e;
+		uint32_t gdi_color_e[2];
+		uint16_t gdi_vtx_x_e, gdi_vtx_y_e, gdi_vtx_w_e, gdi_vtx_h_e;
+		uint16_t gdi_cur_x_e, gdi_cur_y_e;
+
 		uint16_t itm_vtx_x;
 		uint16_t itm_vtx_y;
 		uint16_t itm_rect_w;
@@ -1679,11 +1689,11 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_c++;
-					if(riva128->pgraph.gdi_cur_x_c > riva128->pgraph.gdi_clip_right_c || riva128->pgraph.gdi_cur_x_c > (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
+					if(riva128->pgraph.gdi_cur_x_c >= riva128->pgraph.gdi_clip_right_c || riva128->pgraph.gdi_cur_x_c >= (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
 					{
 						riva128->pgraph.gdi_cur_x_c = riva128->pgraph.gdi_vtx_x_c;
 						riva128->pgraph.gdi_cur_y_c++;
-						if(riva128->pgraph.gdi_cur_y_c > riva128->pgraph.gdi_clip_bottom_c || riva128->pgraph.gdi_cur_y_c > (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+						if(riva128->pgraph.gdi_cur_y_c >= riva128->pgraph.gdi_clip_bottom_c || riva128->pgraph.gdi_cur_y_c >= (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
 							goto method_end;
 					}
 				}
@@ -1697,11 +1707,11 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_c++;
-					if(riva128->pgraph.gdi_cur_x_c > riva128->pgraph.gdi_clip_right_c || riva128->pgraph.gdi_cur_x_c > (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
+					if(riva128->pgraph.gdi_cur_x_c >= riva128->pgraph.gdi_clip_right_c || riva128->pgraph.gdi_cur_x_c >= (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
 					{
 						riva128->pgraph.gdi_cur_x_c = riva128->pgraph.gdi_vtx_x_c;
 						riva128->pgraph.gdi_cur_y_c++;
-						if(riva128->pgraph.gdi_cur_y_c > riva128->pgraph.gdi_clip_bottom_c || riva128->pgraph.gdi_cur_y_c > (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+						if(riva128->pgraph.gdi_cur_y_c >= riva128->pgraph.gdi_clip_bottom_c || riva128->pgraph.gdi_cur_y_c >= (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
 							goto method_end;
 					}
 				}
@@ -1715,11 +1725,11 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_c++;
-					if(riva128->pgraph.gdi_cur_x_c > riva128->pgraph.gdi_clip_right_c || riva128->pgraph.gdi_cur_x_c > (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
+					if(riva128->pgraph.gdi_cur_x_c >= riva128->pgraph.gdi_clip_right_c || riva128->pgraph.gdi_cur_x_c >= (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
 					{
 						riva128->pgraph.gdi_cur_x_c = riva128->pgraph.gdi_vtx_x_c;
 						riva128->pgraph.gdi_cur_y_c++;
-						if(riva128->pgraph.gdi_cur_y_c > riva128->pgraph.gdi_clip_bottom_c || riva128->pgraph.gdi_cur_y_c > (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+						if(riva128->pgraph.gdi_cur_y_c >= riva128->pgraph.gdi_clip_bottom_c || riva128->pgraph.gdi_cur_y_c >= (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
 							goto method_end;
 					}
 				}
@@ -1733,11 +1743,195 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_c++;
-					if(riva128->pgraph.gdi_cur_x_c > riva128->pgraph.gdi_clip_right_c || riva128->pgraph.gdi_cur_x_c > (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
+					if(riva128->pgraph.gdi_cur_x_c >= riva128->pgraph.gdi_clip_right_c || riva128->pgraph.gdi_cur_x_c >= (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
 					{
 						riva128->pgraph.gdi_cur_x_c = riva128->pgraph.gdi_vtx_x_c;
 						riva128->pgraph.gdi_cur_y_c++;
-						if(riva128->pgraph.gdi_cur_y_c > riva128->pgraph.gdi_clip_bottom_c || riva128->pgraph.gdi_cur_y_c > (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+						if(riva128->pgraph.gdi_cur_y_c >= riva128->pgraph.gdi_clip_bottom_c || riva128->pgraph.gdi_cur_y_c >= (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+							goto method_end;
+					}
+				}
+			}
+		}
+		else if(method >= 0x1000 && method < 0x1080)
+		{
+			if(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_left_d
+			&& riva128->pgraph.gdi_cur_x_d <= riva128->pgraph.gdi_clip_right_d
+			&& riva128->pgraph.gdi_cur_y_d >= riva128->pgraph.gdi_clip_top_d
+			&& riva128->pgraph.gdi_cur_y_d <= riva128->pgraph.gdi_clip_bottom_d)
+			{
+				for(int bit = 7; bit >= 0; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_d, riva128->pgraph.gdi_cur_y_d,
+							riva128->pgraph.gdi_color_d,
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_d++;
+					if(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_right_d || riva128->pgraph.gdi_cur_x_d >= (riva128->pgraph.gdi_vtx_x_d + riva128->pgraph.gdi_vtx_w_d))
+					{
+						riva128->pgraph.gdi_cur_x_d = riva128->pgraph.gdi_vtx_x_d;
+						riva128->pgraph.gdi_cur_y_d++;
+						if(riva128->pgraph.gdi_cur_y_d >= riva128->pgraph.gdi_clip_bottom_d || riva128->pgraph.gdi_cur_y_d >= (riva128->pgraph.gdi_vtx_y_d + riva128->pgraph.gdi_vtx_h_d))
+							goto method_end;
+					}
+				}
+
+				for(int bit = 15; bit >= 8; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_d, riva128->pgraph.gdi_cur_y_d,
+							riva128->pgraph.gdi_color_d,
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_d++;
+					if(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_right_d || riva128->pgraph.gdi_cur_x_d >= (riva128->pgraph.gdi_vtx_x_d + riva128->pgraph.gdi_vtx_w_d))
+					{
+						riva128->pgraph.gdi_cur_x_d = riva128->pgraph.gdi_vtx_x_d;
+						riva128->pgraph.gdi_cur_y_d++;
+						if(riva128->pgraph.gdi_cur_y_d >= riva128->pgraph.gdi_clip_bottom_d || riva128->pgraph.gdi_cur_y_d >= (riva128->pgraph.gdi_vtx_y_d + riva128->pgraph.gdi_vtx_h_d))
+							goto method_end;
+					}
+				}
+
+				for(int bit = 23; bit >= 16; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_d, riva128->pgraph.gdi_cur_y_d,
+							riva128->pgraph.gdi_color_d,
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_d++;
+					if(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_right_d || riva128->pgraph.gdi_cur_x_d >= (riva128->pgraph.gdi_vtx_x_d + riva128->pgraph.gdi_vtx_w_d))
+					{
+						riva128->pgraph.gdi_cur_x_d = riva128->pgraph.gdi_vtx_x_d;
+						riva128->pgraph.gdi_cur_y_d++;
+						if(riva128->pgraph.gdi_cur_y_d >= riva128->pgraph.gdi_clip_bottom_d || riva128->pgraph.gdi_cur_y_d >= (riva128->pgraph.gdi_vtx_y_d + riva128->pgraph.gdi_vtx_h_d))
+							goto method_end;
+					}
+				}
+
+				for(int bit = 31; bit >= 24; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_d, riva128->pgraph.gdi_cur_y_d,
+							riva128->pgraph.gdi_color_d,
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_d++;
+					if(riva128->pgraph.gdi_cur_x_d >= riva128->pgraph.gdi_clip_right_d || riva128->pgraph.gdi_cur_x_d >= (riva128->pgraph.gdi_vtx_x_d + riva128->pgraph.gdi_vtx_w_d))
+					{
+						riva128->pgraph.gdi_cur_x_d = riva128->pgraph.gdi_vtx_x_d;
+						riva128->pgraph.gdi_cur_y_d++;
+						if(riva128->pgraph.gdi_cur_y_d >= riva128->pgraph.gdi_clip_bottom_d || riva128->pgraph.gdi_cur_y_d >= (riva128->pgraph.gdi_vtx_y_d + riva128->pgraph.gdi_vtx_h_d))
+							goto method_end;
+					}
+				}
+			}
+		}
+		else if(method >= 0x1400 && method < 0x1480)
+		{
+			if(riva128->pgraph.gdi_cur_x_e >= riva128->pgraph.gdi_clip_left_e
+			&& riva128->pgraph.gdi_cur_x_e <= riva128->pgraph.gdi_clip_right_e
+			&& riva128->pgraph.gdi_cur_y_e >= riva128->pgraph.gdi_clip_top_e
+			&& riva128->pgraph.gdi_cur_y_e <= riva128->pgraph.gdi_clip_bottom_e)
+			{
+				for(int bit = 7; bit >= 0; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128->pgraph.gdi_color_e[1],
+							0xff, riva128);
+					}
+					else
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128->pgraph.gdi_color_e[0],
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_e++;
+					if(riva128->pgraph.gdi_cur_x_e >= riva128->pgraph.gdi_clip_right_e || riva128->pgraph.gdi_cur_x_e >= (riva128->pgraph.gdi_vtx_x_e + riva128->pgraph.gdi_vtx_w_e))
+					{
+						riva128->pgraph.gdi_cur_x_e = riva128->pgraph.gdi_vtx_x_e;
+						riva128->pgraph.gdi_cur_y_e++;
+						if(riva128->pgraph.gdi_cur_y_e >= riva128->pgraph.gdi_clip_bottom_e || riva128->pgraph.gdi_cur_y_e >= (riva128->pgraph.gdi_vtx_y_e + riva128->pgraph.gdi_vtx_h_e))
+							goto method_end;
+					}
+				}
+
+				for(int bit = 15; bit >= 8; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128->pgraph.gdi_color_e[1],
+							0xff, riva128);
+					}
+					else
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128->pgraph.gdi_color_e[0],
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_e++;
+					if(riva128->pgraph.gdi_cur_x_e >= riva128->pgraph.gdi_clip_right_e || riva128->pgraph.gdi_cur_x_e >= (riva128->pgraph.gdi_vtx_x_e + riva128->pgraph.gdi_vtx_w_e))
+					{
+						riva128->pgraph.gdi_cur_x_e = riva128->pgraph.gdi_vtx_x_e;
+						riva128->pgraph.gdi_cur_y_e++;
+						if(riva128->pgraph.gdi_cur_y_e >= riva128->pgraph.gdi_clip_bottom_e || riva128->pgraph.gdi_cur_y_e >= (riva128->pgraph.gdi_vtx_y_e + riva128->pgraph.gdi_vtx_h_e))
+							goto method_end;
+					}
+				}
+
+				for(int bit = 23; bit >= 16; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128->pgraph.gdi_color_e[1],
+							0xff, riva128);
+					}
+					else
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128->pgraph.gdi_color_e[0],
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_e++;
+					if(riva128->pgraph.gdi_cur_x_e >= riva128->pgraph.gdi_clip_right_e || riva128->pgraph.gdi_cur_x_e >= (riva128->pgraph.gdi_vtx_x_e + riva128->pgraph.gdi_vtx_w_e))
+					{
+						riva128->pgraph.gdi_cur_x_e = riva128->pgraph.gdi_vtx_x_e;
+						riva128->pgraph.gdi_cur_y_e++;
+						if(riva128->pgraph.gdi_cur_y_e >= riva128->pgraph.gdi_clip_bottom_e || riva128->pgraph.gdi_cur_y_e >= (riva128->pgraph.gdi_vtx_y_e + riva128->pgraph.gdi_vtx_h_e))
+							goto method_end;
+					}
+				}
+
+				for(int bit = 31; bit >= 24; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128->pgraph.gdi_color_e[1],
+							0xff, riva128);
+					}
+					else
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128->pgraph.gdi_color_e[0],
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_e++;
+					if(riva128->pgraph.gdi_cur_x_e >= riva128->pgraph.gdi_clip_right_e || riva128->pgraph.gdi_cur_x_e >= (riva128->pgraph.gdi_vtx_x_e + riva128->pgraph.gdi_vtx_w_e))
+					{
+						riva128->pgraph.gdi_cur_x_e = riva128->pgraph.gdi_vtx_x_e;
+						riva128->pgraph.gdi_cur_y_e++;
+						if(riva128->pgraph.gdi_cur_y_e >= riva128->pgraph.gdi_clip_bottom_e || riva128->pgraph.gdi_cur_y_e >= (riva128->pgraph.gdi_vtx_y_e + riva128->pgraph.gdi_vtx_h_e))
 							goto method_end;
 					}
 				}
@@ -1793,6 +1987,69 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			{
 				riva128->pgraph.gdi_vtx_x_c = riva128->pgraph.gdi_cur_x_c = param & 0xffff;
 				riva128->pgraph.gdi_vtx_y_c = riva128->pgraph.gdi_cur_y_c = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xfe8:
+			{
+				riva128->pgraph.gdi_clip_left_d = param & 0xffff;
+				riva128->pgraph.gdi_clip_top_d = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xfec:
+			{
+				riva128->pgraph.gdi_clip_right_d = param & 0xffff;
+				riva128->pgraph.gdi_clip_bottom_d = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xff0:
+			{
+				riva128->pgraph.gdi_color_d = param;
+				break;
+			}
+			case 0xff8:
+			{
+				riva128->pgraph.gdi_vtx_w_d = param & 0xffff;
+				riva128->pgraph.gdi_vtx_h_d = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xffc:
+			{
+				riva128->pgraph.gdi_vtx_x_d = riva128->pgraph.gdi_cur_x_d = param & 0xffff;
+				riva128->pgraph.gdi_vtx_y_d = riva128->pgraph.gdi_cur_y_d = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x13e4:
+			{
+				riva128->pgraph.gdi_clip_left_e = param & 0xffff;
+				riva128->pgraph.gdi_clip_top_e = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x13e8:
+			{
+				riva128->pgraph.gdi_clip_right_e = param & 0xffff;
+				riva128->pgraph.gdi_clip_bottom_e = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x13ec:
+			{
+				riva128->pgraph.gdi_color_e[0] = param;
+				break;
+			}
+			case 0x13f0:
+			{
+				riva128->pgraph.gdi_color_e[1] = param;
+				break;
+			}
+			case 0x13f8:
+			{
+				riva128->pgraph.gdi_vtx_w_e = param & 0xffff;
+				riva128->pgraph.gdi_vtx_h_e = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x13fc:
+			{
+				riva128->pgraph.gdi_vtx_x_e = riva128->pgraph.gdi_cur_x_e = param & 0xffff;
+				riva128->pgraph.gdi_vtx_y_e = riva128->pgraph.gdi_cur_y_e = (param >> 16) & 0xffff;
 				break;
 			}
 		}
