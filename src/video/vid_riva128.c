@@ -1156,7 +1156,7 @@ void
 riva128_pramdac_write(uint32_t addr, uint32_t val, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
-	svga_r *svga = &riva128->svga;
+	svga_t *svga = &riva128->svga;
 	switch(addr) {
     case 0x680300:
         riva128->pramdac.cursor_pos = val & 0x0fff0fff;
