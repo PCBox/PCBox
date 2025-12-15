@@ -208,7 +208,7 @@ typedef struct riva128_t
 
 		uint16_t gdi_clip_bottom_c, gdi_clip_left_c, gdi_clip_right_c, gdi_clip_top_c;
 		uint32_t gdi_color_c;
-		uint16_t gdi_vtx_x_c gdi_vtx_y_c, gdi_vtx_w_c, gdi_vtx_h_c;
+		uint16_t gdi_vtx_x_c, gdi_vtx_y_c, gdi_vtx_w_c, gdi_vtx_h_c;
 
 		uint16_t itm_vtx_x;
 		uint16_t itm_vtx_y;
