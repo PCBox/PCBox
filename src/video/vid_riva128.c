@@ -194,13 +194,17 @@ typedef struct riva128_t
 		uint16_t lin_start_x, lin_end_x, lin_start_y, lin_end_y;
 		uint32_t lin_color;
 
-		uint16_t gdi_vtx_x[0x40];
-		uint16_t gdi_vtx_y[0x40];
-		uint16_t gdi_rect_w[0x40];
-		uint16_t gdi_rect_h[0x40];
+		uint16_t gdi_vtx_x_a[0x40];
+		uint16_t gdi_vtx_y_a[0x40];
+		uint16_t gdi_rect_w_a[0x40];
+		uint16_t gdi_rect_h_a[0x40];
 		uint32_t rect_color;
 
 		uint32_t gdi_color_a;
+
+		uint32_t gdi_color_b;
+		uint16_t gdi_clip_bottom_b, gdi_clip_left_b, gdi_clip_right_b, gdi_clip_top_b;
+		uint16_t gdi_left_b[0x40], gdi_right_b[0x40], gdi_top_b[0x40], gdi_bottom_b[0x40];
 
 		uint16_t itm_vtx_x;
 		uint16_t itm_vtx_y;
@@ -1625,10 +1629,56 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				}
 			}
 		}
+		else if (!(method & 4) && (method >= 0x800 && method < 0x880)) {
+			riva128->pgraph.gdi_bottom_b[(method & 0x1fc) >> 3] =
+					(param >> 16) & 0xffff;
+			riva128->pgraph.gdi_right_b[(method & 0x1fc) >> 3] =
+					param & 0xffff;
+		} else if ((method & 4) && ((method >= 0x800)
+					&& (method < 0x880))) {
+			riva128->pgraph.gdi_top_b[(method & 0x1fc) >> 3] =
+					(param >> 16) & 0xffff;
+			riva128->pgraph.gdi_left_b[(method & 0x1fc) >> 3] =
+					param & 0xffff;
+			uint16_t startx = riva128->pgraph.gdi_left_b[
+					(method & 0x1fc) >> 3];
+			uint16_t starty = riva128->pgraph.gdi_top_b[
+					(method & 0x1fc) >> 3];
+			uint16_t endx = riva128->pgraph.gdi_right_b[
+					(method & 0x1fc) >> 3];
+			uint16_t endy = riva128->pgraph.gdi_bottom_b[
+							(method & 0x1fc) >> 3];
+			for(uint16_t y = starty; y <= endy; y++) {
+				for(uint16_t x = startx; x <= endx; x++) {
+					if(x >= riva128->pgraph.gdi_clip_left_b && x <= riva128->gdi_clip_right_b
+					&& y >= riva128->pgraph.gdi_clip_top_b && y <= riva128->gdi_clip_bottom_b)
+						riva128_pgraph_write_pixel(graphobj0, x, y,
+							riva128->pgraph.gdi_color_a,
+							0xff, riva128);
+				}
+			}
+		}
 		else switch (method) {
 			case 0x3fc:
 			{
 				riva128->pgraph.gdi_color_a = param;
+				break;
+			}
+			case 0x7f4:
+			{
+				riva128->pgraph.gdi_clip_left_b = param & 0xffff;
+				riva128->pgraph.gdi_clip_top_b = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x7f8:
+			{
+				riva128->pgraph.gdi_clip_bottom_b = param & 0xffff;
+				riva128->pgraph.gdi_clip_right_b = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x7fc:
+			{
+				riva128->pgraph.gdi_color_b = param;
 				break;
 			}
 		}
