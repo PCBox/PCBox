@@ -2689,7 +2689,7 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
     riva128_t *riva128 = (riva128_t *) svga->priv;
     uint16_t startx = riva128->pramdac.cursor_pos & 0xfff;
     uint16_t starty = (riva128->pramdac.cursor_pos >> 16) & 0xfff;
-	uint32_t cursor_offset = 0x6000;//riva128->cursor_offset;
+	uint32_t cursor_offset = riva128->cursor_offset;
 	int         offset = svga->hwcursor_latch.x - svga->hwcursor_latch.xoff;
 
 	pclog("RIVA 128 CURSOR DRAW cursor_offset %08x x %d y %d vram %d\n", riva128->cursor_offset, startx, starty, riva128->cursor_vram);
@@ -2703,7 +2703,7 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
 	if(!riva128->cursor_vram) cursor_offset <<= 4;
     for(int x = 0; x < 32; x++)
     {
-		cursor_offset += (displine - svga->hwcursor_latch.yoff) * 64;
+		cursor_offset += (svga->hwcursor_latch.y - svga->hwcursor_latch.yoff) * 64;
         uint16_t raw = 0;
 		if(!riva128->cursor_vram) raw = riva128_ramin_read_w(cursor_offset, riva128);
 		else
