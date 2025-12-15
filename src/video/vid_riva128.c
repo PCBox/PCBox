@@ -1162,8 +1162,8 @@ riva128_pramdac_write(uint32_t addr, uint32_t val, void *p)
         riva128->pramdac.cursor_pos = val & 0x0fff0fff;
 		svga->hwcursor.x = val & 0xfff;
 		svga->hwcursor.y = (val >> 16) & 0xfff;
-		svga->hwcursor.yoff = 32;
-		svga->hwcursor.xoff = 32;
+		svga->hwcursor.yoff = 0;
+		svga->hwcursor.xoff = 0;
         break;
 	case 0x680500:
 		riva128->pramdac.nvpll = val;
