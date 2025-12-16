@@ -2306,8 +2306,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						dma_bm_write(paged_addr + riva128->pgraph.m2mf_out_dma_cur, (uint8_t*)&buf, 1, 1);
 						riva128->pgraph.m2mf_out_dma_cur += inc_out;
 					}
-					riva128->pgraph.m2mf_in_dma_cur = in_dma_start + (riva128->pgraph.m2mf_pitch_in * (scan + 1));
-					riva128->pgraph.m2mf_out_dma_cur = out_dma_start + (riva128->pgraph.m2mf_pitch_out * (scan + 1));
+					riva128->pgraph.m2mf_in_dma_cur = in_dma_start + (riva128->pgraph.m2mf_scan_len * (scan + 1));
+					riva128->pgraph.m2mf_out_dma_cur = out_dma_start + (riva128->pgraph.m2mf_scan_len * (scan + 1));
 				}
 			}
 			else
