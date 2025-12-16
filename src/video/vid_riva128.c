@@ -1108,10 +1108,28 @@ riva128_pgraph_read(uint32_t addr, void *p)
 		return riva128->pgraph.ctx_user;
 	case 0x40062c:
 		return riva128->pgraph.chroma;
+	case 0x400630:
+		return riva128->pgraph.surf_offset[0];
+	case 0x400634:
+		return riva128->pgraph.surf_offset[1];
+	case 0x400638:
+		return riva128->pgraph.surf_offset[2];
+	case 0x40063c:
+		return riva128->pgraph.surf_offset[3];
+	case 0x400650:
+		return riva128->pgraph.surf_pitch[0];
+	case 0x400654:
+		return riva128->pgraph.surf_pitch[1];
+	case 0x400658:
+		return riva128->pgraph.surf_pitch[2];
+	case 0x40065c:
+		return riva128->pgraph.surf_pitch[3];
 	case 0x400684:
 		return riva128->pgraph.notifier_obj;
 	case 0x4006a4:
 		return riva128->pgraph.fifo_access;
+	case 0x4006a8:
+		return riva128->pgraph.surf_config;
 	}
 	return 0;
 }
@@ -1155,8 +1173,35 @@ riva128_pgraph_write(uint32_t addr, uint32_t val, void *p)
 	case 0x40062c:
 		riva128->pgraph.chroma = val;
 		break;
+	case 0x400630:
+		riva128->pgraph.surf_offset[0] = val;
+		break;
+	case 0x400634:
+		riva128->pgraph.surf_offset[1] = val;
+		break;
+	case 0x400638:
+		riva128->pgraph.surf_offset[2] = val;
+		break;
+	case 0x40063c:
+		riva128->pgraph.surf_offset[3] = val;
+		break;
+	case 0x400650:
+		riva128->pgraph.surf_pitch[0] = val;
+		break;
+	case 0x400654:
+		riva128->pgraph.surf_pitch[1] = val;
+		break;
+	case 0x400658:
+		riva128->pgraph.surf_pitch[2] = val;
+		break;
+	case 0x40065c:
+		riva128->pgraph.surf_pitch[3] = val;
+		break;
 	case 0x4006a4:
 		riva128->pgraph.fifo_access = val & 1;
+		break;
+	case 0x4006a8:
+		riva128->pgraph.surf_config = val;
 		break;
 	}
 }
