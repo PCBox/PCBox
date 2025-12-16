@@ -2605,10 +2605,10 @@ method_end:
 	notifier[1] = riva128->ptimer.time >> 32;
 	notifier[2] = notifier[3] = 0;
 	uint32_t notifier_obj = (riva128->pgraph.notifier_obj >> 20) & 0xf;
-	if (notifier_obj == 1) {
+	//if (notifier_obj == 1) {
 		riva128_pgraph_interrupt(28, riva128);
-		notifier_obj = 0;
-	}
+	//	notifier_obj = 0;
+	//}
 	uint32_t logical_addr = notifier_obj << 4;
 	uint32_t unpaged_addr = pte_frame + adjust + logical_addr;
 	uint32_t pte_index = (logical_addr + adjust) >> 12;
