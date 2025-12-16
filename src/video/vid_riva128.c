@@ -1361,7 +1361,7 @@ riva128_pgraph_to_a1r10g10b10(riva128_pgraph_color_t color)
 	return !!color.a << 30 | color.r << 20 | color.g << 10 | color.b;
 }
 
-void
+uint8_t
 riva128_translate_rop(uint32_t graphobj0, uint8_t rop)
 {
 	uint32_t patch_config_rop = (graphobj0 >> 24) & 0x1f;
