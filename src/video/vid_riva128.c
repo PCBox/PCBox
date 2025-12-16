@@ -225,6 +225,8 @@ typedef struct riva128_t
 
 		uint32_t m2mf_in_dma, m2mf_out_dma, m2mf_in_dma_cur, m2mf_out_dma_cur, m2mf_pitch_in, m2mf_pitch_out, m2mf_scan_len, m2mf_scan_num, m2mf_format;
 
+		uint16_t ifc_vtx_x, ifc_vtx_y, ifc_vtx_w, ifc_vtx_h, ifc_cur_x, ifc_cur_y;
+
 		uint16_t itm_vtx_x;
 		uint16_t itm_vtx_y;
 		uint16_t itm_rect_w;
@@ -2301,6 +2303,102 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		    break;
         }
         break;
+	case 0x11:
+		if(method >= 0x400 && method < 0x480)
+		{
+			switch(svga->bpp)
+			{
+				case 8:
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						param & 0xff,
+						0xff, riva128);
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						(param >> 8) & 0xff,
+						0xff, riva128);
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						(param >> 16) & 0xff,
+						0xff, riva128);
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						(param >> 24) & 0xff,
+						0xff, riva128);
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					break;
+				case 15: case 16:
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						param & 0xffff,
+						0xff, riva128);
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						param >> 16,
+						0xff, riva128);
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					break;
+				case 32:
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						param,
+						0xff, riva128);
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					break;
+			}
+		}
+		}
+		else switch(method)
+		{
+		case 0x304:
+			riva128->pgraph.ifc_vtx_x = riva128->pgraph.ifc_cur_x = param & 0xffff;
+			riva128->pgraph.ifc_vtx_y = riva128->pgraph.ifc_cur_y = (param >> 16) & 0xffff;
+			break;
+		case 0x30c:
+			riva128->pgraph.ifc_vtx_w = param & 0xffff;
+			riva128->pgraph.ifc_vtx_h = (param >> 16) & 0xffff;
+			break;
+		}
+		break;
 	case 0x14:
 		switch(method) {
 		case 0x308:
