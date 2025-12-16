@@ -1806,8 +1806,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			uint16_t endy = starty +
 					riva128->pgraph.gdi_rect_h_a[
 							(method & 0x1fc) >> 3];
-			for(uint16_t y = starty; y <= endy; y++) {
-				for(uint16_t x = startx; x <= endx; x++) {
+			for(uint16_t y = starty; y < endy; y++) {
+				for(uint16_t x = startx; x < endx; x++) {
 					riva128_pgraph_write_pixel(graphobj0, x, y,
 						riva128->pgraph.gdi_color_a,
 						0xff, riva128);
@@ -1833,8 +1833,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					(method & 0x1fc) >> 3];
 			uint16_t endy = riva128->pgraph.gdi_bottom_b[
 							(method & 0x1fc) >> 3];
-			for(uint16_t y = starty; y <= endy; y++) {
-				for(uint16_t x = startx; x <= endx; x++) {
+			for(uint16_t y = starty; y < endy; y++) {
+				for(uint16_t x = startx; x < endx; x++) {
 					if(x >= riva128->pgraph.gdi_clip_left_b && x <= riva128->pgraph.gdi_clip_right_b
 					&& y >= riva128->pgraph.gdi_clip_top_b && y <= riva128->pgraph.gdi_clip_bottom_b)
 						riva128_pgraph_write_pixel(graphobj0, x, y,
@@ -3679,18 +3679,13 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
     int replace_bit = 0;
     int transparent = 0;
 
-	if(!riva128->cursor_vram) cursor_offset <<= 4;
+	cursor_offset <<= 4;
     for(int y = 0; y < 32; y++)
 	{
     	for(int x = 0; x < 32; x++)
     	{
         	uint16_t raw = 0;
-			if(!riva128->cursor_vram) raw = riva128_ramin_read_w(cursor_offset, riva128);
-			else
-			{
-				uint16_t* vram_w = (uint16_t*)svga->vram;
-				raw = vram_w[cursor_offset & 0x3fffff];
-			}
+			raw = riva128_ramin_read_w(cursor_offset, riva128);
         	replace_bit = raw & 0x8000;
         	transparent = raw == 0;
         	cursor_bitmap = video_15to32[raw & 0x7fff];
