@@ -225,6 +225,8 @@ typedef struct riva128_t
 
 		uint32_t m2mf_in_dma, m2mf_out_dma, m2mf_in_dma_cur, m2mf_out_dma_cur, m2mf_pitch_in, m2mf_pitch_out, m2mf_scan_len, m2mf_scan_num, m2mf_format;
 
+		uint16_t blit_in_x, blit_in_y, blit_out_x, blit_out_y, blit_size_w, blit_size_h;
+
 		uint16_t ifc_vtx_x, ifc_vtx_y, ifc_vtx_w, ifc_vtx_h, ifc_cur_x, ifc_cur_y;
 
 		uint16_t itm_vtx_x;
@@ -1480,6 +1482,37 @@ riva128_translate_rop(uint32_t graphobj0, uint8_t rop)
 	return result;
 }
 
+uint32_t
+riva128_read_pixel_from_buffer(uint32_t graphobj0, uint16_t x, uint16_t y, int buffer, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+
+	uint16_t *vram_w = (uint16_t *)svga->vram;
+	uint32_t *vram_l = (uint32_t *)svga->vram;
+
+	uint32_t addr;
+
+	switch(riva128->svga.bpp) {
+	case 8: {
+        uint32_t addr = ((x + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		return svga->vram[addr & riva128->vram_mask];
+		}
+	}
+	case 15: case 16: {
+        uint32_t addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		return vram_w[(addr & riva128->vram_mask) >> 1];
+		}
+	case 32: {
+        uint32_t addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		return vram_l[(addr & riva128->vram_mask) >> 2];
+		}
+	}
+}
+
 void
 riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 		uint32_t color, uint8_t a, int buffer, void *p)
@@ -2303,6 +2336,32 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		    break;
         }
         break;
+	case 0x10:
+		switch(method)
+		{
+			case 0x300:
+			riva128->pgraph.blit_in_x = param & 0xffff;
+			riva128->pgraph.blit_in_y = (param >> 16) & 0xffff;
+			break;
+			case 0x304:
+			riva128->pgraph.blit_out_x = param & 0xffff;
+			riva128->pgraph.blit_out_y = (param >> 16) & 0xffff;
+			break;
+			case 0x308:
+			riva128->pgraph.blit_size_w = param & 0xffff;
+			riva128->pgraph.blit_size_h = (param >> 16) & 0xffff;
+			for(int x = 0; x <= riva128->pgraph.blit_size_w; x++)
+			{
+				for(int y = 0; y <= riva128->pgraph.blit_size_h; y++)
+				{
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.blit_out_x, riva128->pgraph.blit_out_y,
+							riva128_read_pixel_from_buffer(graphobj0, riva128->pgraph.blit_in_x, riva128->pgraph.blit_in_y, (graphobj0 >> 16) & 3, riva128),
+							0xff, riva128);
+				}
+			}
+			break;
+		}
+		break;
 	case 0x11:
 		if(method >= 0x400 && method < 0x480)
 		{
