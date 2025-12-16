@@ -2237,6 +2237,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					{
 						uint8_t buf = 0;
 						svga->vram[riva128->pgraph.m2mf_out_dma] = svga->vram[riva128->pgraph.m2mf_in_dma + pixel];
+						svga->changedvram[riva128->pgraph.m2mf_out_dma >> 12] = changeframecount;
 						riva128->pgraph.m2mf_out_dma_cur += inc_out;
 					}
 					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
