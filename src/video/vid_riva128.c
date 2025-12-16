@@ -1499,7 +1499,6 @@ riva128_read_pixel_from_buffer(uint32_t graphobj0, uint16_t x, uint16_t y, int b
 			* y))) + riva128->pgraph.surf_offset[buffer];
 		return svga->vram[addr & riva128->vram_mask];
 		}
-	}
 	case 15: case 16: {
         uint32_t addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
