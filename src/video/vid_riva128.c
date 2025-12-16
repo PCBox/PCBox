@@ -2289,7 +2289,6 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;
 				}
 			}
-			riva128->pgraph.notify_impending = 0;
 			break;
 			}
             case 0x328:
