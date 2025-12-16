@@ -230,6 +230,8 @@ typedef struct riva128_t
 		uint16_t itm_pitch;
 		uint32_t itm_offset;
 
+		uint16_t sifc_vtx_x, sifc_vtx_y, sifc_vtx_w, sifc_vtx_h, sifc_cur_x, sifc_cur_y;
+
 		int m2mf_pending;
 	} pgraph;
 	
@@ -2203,6 +2205,35 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			}
 			
 			break;
+		}
+		break;
+	case 0x15:
+		if(method >= 0x400 && method < 0xb00)
+		{
+			riva128_pgraph_write_pixel(graphobj0, sifc_vtx_x, sifc_vtx_y,
+							param, 0xff, riva128);
+			riva128->pgraph.sifc_cur_x++;
+			if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w))
+			{
+				riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
+				riva128->pgraph.sifc_cur_y++;
+				if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h))
+					goto method_end;
+			}
+		}
+		else switch(method) {
+			case 0x304:
+			{
+				riva128->pgraph.sifc_vtx_w = param & 0xffff;
+				riva128->pgraph.sifc_vtx_h = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x318:
+			{
+				riva128->pgraph.sifc_vtx_x = riva128->pgraph.sifc_cur_x = param & 0xffff;
+				riva128->pgraph.sifc_vtx_y = riva128->pgraph.sifc_cur_y = (param >> 16) & 0xffff;
+				break;
+			}
 		}
 		break;
 	case 0x1c:
