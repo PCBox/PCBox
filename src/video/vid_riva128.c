@@ -2332,7 +2332,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
     			riva128_pgraph_invalid_interrupt(12, riva128);
     			break;
 		    }
-		    riva128->pgraph.notify_impending = 2;
+		    riva128->pgraph.notify_impending = 1;
 		    riva128->pgraph.notifier_obj = (param & 0xf) << 20;
 		    break;
         }
