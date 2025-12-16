@@ -2300,7 +2300,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				pclog("[RIVA 128] PCI M2MF from %08x to %08x in pitch %08x out pitch %08x scan num %08x scan length %08x\n", paged_addr + riva128->pgraph.m2mf_in_dma_cur, paged_addr + riva128->pgraph.m2mf_out_dma_cur, riva128->pgraph.m2mf_pitch_in, riva128->pgraph.m2mf_pitch_out, riva128->pgraph.m2mf_scan_num, riva128->pgraph.m2mf_scan_len);
 				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
 				{
-					for(uint32_t pixel = 0; pixel < iva128->pgraph.m2mf_scan_len; pixel += inc_in)
+					for(uint32_t pixel = 0; pixel < riva128->pgraph.m2mf_scan_len; pixel += inc_in)
 					{
 						uint8_t buf = 0;
 						dma_bm_read(paged_addr + riva128->pgraph.m2mf_in_dma_cur + pixel, (uint8_t*)&buf, 1, 1);
@@ -2315,7 +2315,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			{
 				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
 				{
-					for(uint32_t pixel = 0; pixel < iva128->pgraph.m2mf_scan_len; pixel += inc_in)
+					for(uint32_t pixel = 0; pixel < riva128->pgraph.m2mf_scan_len; pixel += inc_in)
 					{
 						uint8_t buf = 0;
 						svga->vram[unpaged_addr + riva128->pgraph.m2mf_out_dma_cur] = svga->vram[unpaged_addr + riva128->pgraph.m2mf_in_dma_cur + pixel];
