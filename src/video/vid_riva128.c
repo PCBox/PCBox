@@ -2192,7 +2192,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			case 0x324:
 			{
 			riva128->pgraph.m2mf_format = param;
-			uint32_t notify_obj_addr = (graphobj1 >> 16) << 4;
+			uint32_t notify_obj_addr = (graphobj2 >> 16) << 4;
 			uint32_t flags = riva128_ramin_read_l(notify_obj_addr,
 				riva128);
 			/* uint32_t limit = riva128_ramin_read_l(notify_obj_addr
@@ -2208,7 +2208,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			uint32_t notifier_obj = (riva128->pgraph.notifier_obj >> 20) & 0xf;
 
 			uint32_t logical_addr = notifier_obj << 4;
-			uint32_t unpaged_addr = pte_frame + adjust + logical_addr;
+			uint32_t unpaged_addr = pte_frame + adjust;
 			uint32_t pte_index = (logical_addr + adjust) >> 12;
 			uint32_t paged_addr = 
 				(riva128_ramin_read_l(notify_obj_addr + (pte_index << 2) + 8, riva128) & 0xfffff000) | ((logical_addr + adjust) & 0xfff);
