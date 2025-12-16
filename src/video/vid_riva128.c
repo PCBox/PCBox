@@ -2505,8 +2505,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			uint16_t endx = startx + riva128->pgraph.itm_rect_w;
 			uint16_t starty = riva128->pgraph.itm_vtx_y;
 			uint16_t endy = starty + riva128->pgraph.itm_rect_h;
-			for(int y = starty; y <= endy; y++) {
-				for(int x = startx; x <= endx; x++) {
+			for(int y = starty; y < endy; y++) {
+				for(int x = startx; x < endx; x++) {
 					uint32_t offset = 
 						riva128->pgraph.itm_offset + x
 						+ (riva128->pgraph.itm_pitch
