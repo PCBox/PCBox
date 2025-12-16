@@ -1135,6 +1135,10 @@ riva128_pgraph_read(uint32_t addr, void *p)
 		return riva128->pgraph.surf_pitch[3];
 	case 0x400684:
 		return riva128->pgraph.notifier_obj;
+	case 0x400688:
+		return riva128->pgraph.dma_obj;
+	case 0x40068c:
+		return riva128->pgraph.m2mf_obj;
 	case 0x4006a4:
 		return riva128->pgraph.fifo_access;
 	case 0x4006a8:
@@ -1205,6 +1209,15 @@ riva128_pgraph_write(uint32_t addr, uint32_t val, void *p)
 		break;
 	case 0x40065c:
 		riva128->pgraph.surf_pitch[3] = val & 0x1ff0;
+		break;
+	case 0x400684:
+		riva128->pgraph.notifier_obj = val & 0xffffff;
+		break;
+	case 0x400688:
+		riva128->pgraph.dma_obj = val & 0xffff;
+		break;
+	case 0x40068c:
+		riva128->pgraph.m2mf_obj = val & 0xffff;
 		break;
 	case 0x4006a4:
 		riva128->pgraph.fifo_access = val & 1;
