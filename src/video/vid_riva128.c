@@ -223,6 +223,8 @@ typedef struct riva128_t
 		uint16_t gdi_vtx_x_e, gdi_vtx_y_e, gdi_vtx_w_e, gdi_vtx_h_e;
 		uint16_t gdi_cur_x_e, gdi_cur_y_e;
 
+		uint32_t m2mf_in_dma, m2mf_out_dma, m2mf_in_dma_cur, m2mf_out_dma_cur, m2mf_pitch_in, m2mf_pitch_out, m2mf_scan_len, m2mf_scan_num, m2mf_format;
+
 		uint16_t itm_vtx_x;
 		uint16_t itm_vtx_y;
 		uint16_t itm_rect_w;
@@ -2169,6 +2171,72 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		break;
     case 0x0d:
         switch(method) {
+			case 0x30c:
+			riva128->pgraph.m2mf_in_dma = param;
+			break;
+			case 0x310:
+			riva128->pgraph.m2mf_out_dma = riva128->pgraph.m2mf_out_dma_cur = param;
+			break;
+			case 0x314:
+			riva128->pgraph.m2mf_pitch_in = param;
+			break;
+			case 0x318:
+			riva128->pgraph.m2mf_pitch_out = !param ? riva128->pgraph.m2mf_pitch_in : param;
+			break;
+			case 0x31c:
+			riva128->pgraph.m2mf_scan_len = param;
+			break;
+			case 0x320:
+			riva128->pgraph.m2mf_scan_num = param;
+			break;
+			case 0x324:
+			{
+			riva128->pgraph.m2mf_format = param;
+			uint32_t notify_obj_addr = (graphobj1 >> 16) << 4;
+			uint32_t flags = riva128_ramin_read_l(notify_obj_addr,
+				riva128);
+			/* uint32_t limit = riva128_ramin_read_l(notify_obj_addr
+				+ 4, riva128); */
+			uint32_t pte = riva128_ramin_read_l(notify_obj_addr + 8,
+				riva128);
+			uint32_t pte_frame = pte & 0xfffff000;
+			uint32_t adjust = flags & 0xfff;
+			int target = (flags >> 24) & 3;
+			int inc_in = riva128->pgraph.m2mf_format & 7;
+			int inc_out = (riva128->pgraph.m2mf_format >> 8) & 7;
+
+			if (target)
+			{
+				//pclog("[RIVA 128] PCI notifier at %08x\n", paged_addr);
+				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
+				{
+					for(uint32_t pixel = riva128->pgraph.m2mf_in_dma; pixwl < riva128->pgraph.m2mf_in_dma + riva128->pgraph.m2mf_scan_len; pixel += inc_in)
+					{
+						uint8_t buf = 0;
+						dma_bm_read(paged_addr + riva128->pgraph.m2mf_in_dma + pixel, (uint8_t*)buf, 1, 1);
+						dma_bm_write(paged_addr + riva128->pgraph.m2mf_out_dma, (uint8_t*)buf, 1, 1);
+						riva128->pgraph.m2mf_out_dma_cur += inc_out;
+					}
+					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
+					riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;
+				}
+			}
+			else
+			{
+				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
+				{
+					for(uint32_t pixel = riva128->pgraph.m2mf_in_dma; pixwl < riva128->pgraph.m2mf_in_dma + riva128->pgraph.m2mf_scan_len; pixel += inc_in)
+					{
+						uint8_t buf = 0;
+						svga->vram[unpaged_addr + riva128->pgraph.m2mf_out_dma] = svga->vram[unpaged_addr + riva128->pgraph.m2mf_in_dma + pixel]
+						riva128->pgraph.m2mf_out_dma_cur += inc_out;
+					}
+					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
+					riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;
+				}
+			}
+			break;
+			}
             case 0x328:
             if (riva128->pgraph.notify_impending) {
     			riva128_pgraph_invalid_interrupt(12, riva128);
