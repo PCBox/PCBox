@@ -1457,14 +1457,14 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 
 	switch(riva128->pgraph.pattern_shape)
 	{
-		case 0: bit = (x & 7) | ((y & 7) << 3); break;
-		case 1: bit = y & 0x3f; break;
-		case 2: bit = x & 0x3f; break;
+		case 0: pattern_bit = (x & 7) | ((y & 7) << 3); break;
+		case 1: pattern_bit = y & 0x3f; break;
+		case 2: pattern_bit = x & 0x3f; break;
 	}
 
 	int use_color1 = 0;
-	if(bit >= 32) use_color1 = (riva128->pgraph.pattern_bitmap[1] >> (bit - 32))) & 1;
-	else use_color1 = (riva128->pgraph.pattern_bitmap[0] >> bit) & 1;
+	if(bit >= 32) use_color1 = (riva128->pgraph.pattern_bitmap[1] >> (pattern_bit - 32))) & 1;
+	else use_color1 = (riva128->pgraph.pattern_bitmap[0] >> pattern_bit) & 1;
 
 	uint32_t pattern = use_color1 ? riva128->pgraph.pattern_mono_color_rgb[1] : riva128->pgraph.pattern_mono_color_rgb[0];
 
