@@ -2304,8 +2304,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						dma_bm_write(paged_addr + riva128->pgraph.m2mf_out_dma_cur, (uint8_t*)&buf, 1, 1);
 						riva128->pgraph.m2mf_out_dma_cur += inc_out;
 					}
-					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
-					riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;
+					/*riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
+					riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;*/
 				}
 			}
 			else
@@ -2319,8 +2319,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						svga->changedvram[(unpaged_addr + riva128->pgraph.m2mf_out_dma_cur) >> 12] = changeframecount;
 						riva128->pgraph.m2mf_out_dma_cur += inc_out;
 					}
-					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
-					riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;
+					/*riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
+					riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;*/
 				}
 			}
 			break;
@@ -2605,10 +2605,10 @@ method_end:
 	notifier[1] = riva128->ptimer.time >> 32;
 	notifier[2] = notifier[3] = 0;
 	uint32_t notifier_obj = (riva128->pgraph.notifier_obj >> 20) & 0xf;
-	//if (notifier_obj == 1) {
+	if (notifier_obj == 1) {
 		riva128_pgraph_interrupt(28, riva128);
-	//	notifier_obj = 0;
-	//}
+		notifier_obj = 0;
+	}
 	uint32_t logical_addr = notifier_obj << 4;
 	uint32_t unpaged_addr = pte_frame + adjust + logical_addr;
 	uint32_t pte_index = (logical_addr + adjust) >> 12;
