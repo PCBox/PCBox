@@ -2386,7 +2386,6 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					break;
 			}
 		}
-		}
 		else switch(method)
 		{
 		case 0x304:
