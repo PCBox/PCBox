@@ -14,10 +14,12 @@
  * Version:	@(#)vid_riva128.c	1.0.0	2019/09/13
  *
  * Authors:	Miran Grca, <mgrca8@gmail.com>
- *		Melody Goad
+ *		Melody Goad,
+ *		Connor Hyde
  *
  *		Copyright 2019 Miran Grca.
- *		Copyright 2019 Melody Goad.
+ *		Copyright 2025 Melody Goad.
+ *		Copyright 2025 Connor Hyde
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -1360,7 +1362,74 @@ riva128_pgraph_to_a1r10g10b10(riva128_pgraph_color_t color)
 }
 
 void
-riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
+riva128_translate_rop(uint32_t graphobj0, uint8_t rop)
+{
+	uint32_t patch_config_rop = (graphobj0 >> 24) & 0x1f;
+	if(patch_config_rop == 0x17) //SRC_BYPASS
+		return VIDEO_ROP_SRC_COPY;
+	
+	uint8_t result = 0;
+	int swizzle[3];
+
+	if (patch_config_rop < 8) {
+		swizzle[0] = patch_config_rop >> 0 & 1;
+		swizzle[1] = patch_config_rop >> 1 & 1;
+		swizzle[2] = patch_config_rop >> 2 & 1;
+	} else if (patch_config_rop < 0x10) {
+		swizzle[0] = (patch_config_rop >> 0 & 1) + 1;
+		swizzle[1] = (patch_config_rop >> 1 & 1) + 1;
+		swizzle[2] = (patch_config_rop >> 2 & 1) + 1;
+	} else if (patch_config_rop == 0x10) {
+		swizzle[0] = 0, swizzle[1] = 1, swizzle[2] = 2;
+	} else if (patch_config_rop == 0x11) {
+		swizzle[0] = 1, swizzle[1] = 0, swizzle[2] = 2;
+	} else if (patch_config_rop == 0x12) {
+		swizzle[0] = 0, swizzle[1] = 2, swizzle[2] = 1;
+	} else if (patch_config_rop == 0x13) {
+		swizzle[0] = 2, swizzle[1] = 0, swizzle[2] = 1;
+	} else if (patch_config_rop == 0x14) {
+		swizzle[0] = 1, swizzle[1] = 2, swizzle[2] = 0;
+	} else if (patch_config_rop == 0x15) {
+		swizzle[0] = 2, swizzle[1] = 1, swizzle[2] = 0;
+	} else {
+        warning("NV3 ROP: Invalid patch configuration %02x!", rop);
+	}
+
+	if (patch_config_rop == 0) {
+		if (rop & 0x01)
+			result |= 0x11;
+		if (rop & 0x16)
+			result |= 0x44;
+		if (rop & 0x68)
+			result |= 0x22;
+		if (rop & 0x80)
+			result |= 0x88;
+	} else if (patch_config_rop == 0xf) {
+		if (rop & 0x01)
+			result |= 0x03;
+		if (rop & 0x16)
+			result |= 0x0c;
+		if (rop & 0x68)
+			result |= 0x30;
+		if (rop & 0x80)
+			result |= 0xc0;
+	} else {
+		int32_t i;
+		for (i = 0; i < 8; i++) {
+			int32_t s0 = i >> swizzle[0] & 1;
+			int32_t s1 = i >> swizzle[1] & 1;
+			int32_t s2 = i >> swizzle[2] & 1;
+			int32_t s = s2 << 2 | s1 << 1 | s0;
+			if (rop >> s & 1)
+				result |= 1 << i;
+		}
+	}
+
+	return result;
+}
+
+void
+riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 		uint32_t color, uint8_t a, int buffer, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
@@ -1380,6 +1449,8 @@ riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 
     uint32_t addr;
 
+	uint8_t rop = riva128_translate_rop(graphobj0, riva128->pgraph.rop);
+
 	switch(riva128->svga.bpp) {
 	case 8: {
         uint32_t addr = ((x + (riva128->pgraph.surf_pitch[buffer]
@@ -1388,7 +1459,7 @@ riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 		uint32_t dst =
 			svga->vram[addr & riva128->vram_mask];
 		svga->vram[addr & riva128->vram_mask] =
-			video_rop_gdi_ternary(riva128->pgraph.rop,
+			video_rop_gdi_ternary(rop,
 					src, dst, 0) & 0xff;
 		break;
 	}
@@ -1399,7 +1470,7 @@ riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 		uint32_t src = color & 0xffff;
 		uint32_t dst = vram_w[(addr & riva128->vram_mask) >> 1];
 		vram_w[(addr & riva128->vram_mask) >> 1] =
-				video_rop_gdi_ternary(riva128->pgraph.rop,
+				video_rop_gdi_ternary(rop,
 						src, dst, 0) & 0xffff;
 		break;
 	}
@@ -1409,7 +1480,7 @@ riva128_pgraph_write_pixel_to_buffer(uint16_t x, uint16_t y,
 		uint32_t src = color;
 		uint32_t dst = vram_l[(addr & riva128->vram_mask) >> 2];
 		vram_l[(addr & riva128->vram_mask) >> 2] =
-				video_rop_gdi_ternary(riva128->pgraph.rop,
+				video_rop_gdi_ternary(rop,
 						src, dst, 0);
 		break;
 	}}
@@ -1424,10 +1495,10 @@ riva128_pgraph_write_pixel(uint32_t graphobj0, uint16_t x, uint16_t y,
 {
     riva128_t *riva128 = (riva128_t *)p;
     //riva128_pgraph_write_pixel_to_buffer(x, y, color, a, (riva128->pgraph.ctx_switch_a >> 16) & 3, riva128);
-    if((graphobj0 >> 20) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 0, riva128);
-    if((graphobj0 >> 21) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 1, riva128);
-    if((graphobj0 >> 22) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 2, riva128);
-    if((graphobj0 >> 23) & 1) riva128_pgraph_write_pixel_to_buffer(x, y, color, a, 3, riva128);
+    if((graphobj0 >> 20) & 1) riva128_pgraph_write_pixel_to_buffer(graphobj0, x, y, color, a, 0, riva128);
+    if((graphobj0 >> 21) & 1) riva128_pgraph_write_pixel_to_buffer(graphobj0, x, y, color, a, 1, riva128);
+    if((graphobj0 >> 22) & 1) riva128_pgraph_write_pixel_to_buffer(graphobj0, x, y, color, a, 2, riva128);
+    if((graphobj0 >> 23) & 1) riva128_pgraph_write_pixel_to_buffer(graphobj0, x, y, color, a, 3, riva128);
 }
 
 void
