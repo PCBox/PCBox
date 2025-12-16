@@ -231,6 +231,7 @@ typedef struct riva128_t
 		uint32_t itm_offset;
 
 		uint16_t sifc_vtx_x, sifc_vtx_y, sifc_vtx_w, sifc_vtx_h, sifc_cur_x, sifc_cur_y;
+		uint32_t sifc_dx_du, sifc_dy_dv;
 
 		int m2mf_pending;
 	} pgraph;
