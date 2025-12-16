@@ -1174,28 +1174,28 @@ riva128_pgraph_write(uint32_t addr, uint32_t val, void *p)
 		riva128->pgraph.chroma = val;
 		break;
 	case 0x400630:
-		riva128->pgraph.surf_offset[0] = val;
+		riva128->pgraph.surf_offset[0] = val & 0x3ffff0;
 		break;
 	case 0x400634:
-		riva128->pgraph.surf_offset[1] = val;
+		riva128->pgraph.surf_offset[1] = val & 0x3ffff0;
 		break;
 	case 0x400638:
-		riva128->pgraph.surf_offset[2] = val;
+		riva128->pgraph.surf_offset[2] = val & 0x3ffff0;
 		break;
 	case 0x40063c:
-		riva128->pgraph.surf_offset[3] = val;
+		riva128->pgraph.surf_offset[3] = val & 0x3ffff0;
 		break;
 	case 0x400650:
-		riva128->pgraph.surf_pitch[0] = val;
+		riva128->pgraph.surf_pitch[0] = val & 0x1ff0;
 		break;
 	case 0x400654:
-		riva128->pgraph.surf_pitch[1] = val;
+		riva128->pgraph.surf_pitch[1] = val & 0x1ff0;
 		break;
 	case 0x400658:
-		riva128->pgraph.surf_pitch[2] = val;
+		riva128->pgraph.surf_pitch[2] = val & 0x1ff0;
 		break;
 	case 0x40065c:
-		riva128->pgraph.surf_pitch[3] = val;
+		riva128->pgraph.surf_pitch[3] = val & 0x1ff0;
 		break;
 	case 0x4006a4:
 		riva128->pgraph.fifo_access = val & 1;
