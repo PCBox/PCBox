@@ -2492,8 +2492,6 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			uint32_t pte_frame = pte & 0xfffff000;
 			uint32_t adjust = flags & 0xfff;
 			int target = (flags >> 24) & 3;
-			int inc_in = riva128->pgraph.m2mf_format & 7;
-			int inc_out = (riva128->pgraph.m2mf_format >> 8) & 7;
 
 			uint32_t notifier_obj = (riva128->pgraph.notifier_obj >> 20) & 0xf;
 
@@ -2513,6 +2511,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						riva128->pgraph.itm_offset + x
 						+ (riva128->pgraph.itm_pitch
 								* y);
+					pclog("ITM from %08x to x %d y %d w %d h %d pitch %04x\n", paged_addr + offset, riva128->pgraph.itm_vtx_x, riva128->pgraph.itm_vtx_y, riva128->pgraph.itm_rect_w, riva128->pgraph.itm_rect_h, riva128->pgraph.pitch)
 					uint16_t itm_val = 0;
 					dma_bm_read(paged_addr + offset, (uint8_t*)&itm_val, 2, 2);
 					riva128_pgraph_write_pixel(graphobj0, x, y,
