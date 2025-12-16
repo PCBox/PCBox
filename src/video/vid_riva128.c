@@ -2210,7 +2210,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	case 0x15:
 		if(method >= 0x400 && method < 0xb00)
 		{
-			riva128_pgraph_write_pixel(graphobj0, sifc_vtx_x, sifc_vtx_y,
+			riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.sifc_cur_x, riva128->pgraph.sifc_cur_y,
 							param, 0xff, riva128);
 			riva128->pgraph.sifc_cur_x++;
 			if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w))
@@ -2218,7 +2218,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
 				riva128->pgraph.sifc_cur_y++;
 				if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h))
-					goto method_end;
+					goto method_end;	
 			}
 		}
 		else switch(method) {
