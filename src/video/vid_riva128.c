@@ -1453,6 +1453,21 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 
 	uint8_t rop = riva128_translate_rop(graphobj0, riva128->pgraph.rop);
 
+	int pattern_bit = 0;
+
+	switch(riva128->pgraph.pattern_shape)
+	{
+		case 0: bit = (x & 7) | ((y & 7) << 3); break;
+		case 1: bit = y & 0x3f; break;
+		case 2: bit = x & 0x3f; break;
+	}
+
+	int use_color1 = 0;
+	if(bit >= 32) use_color1 = (riva128->pgraph.pattern_bitmap[1] >> (bit - 32))) & 1;
+	else use_color1 = (riva128->pgraph.pattern_bitmap[0] >> bit) & 1;
+
+	uint32_t pattern = use_color1 ? riva128->pgraph.pattern_mono_color_rgb[1] : riva128->pgraph.pattern_mono_color_rgb[0];
+
 	switch(riva128->svga.bpp) {
 	case 8: {
         uint32_t addr = ((x + (riva128->pgraph.surf_pitch[buffer]
@@ -1460,9 +1475,10 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 		uint32_t src = color & 0xff;
 		uint32_t dst =
 			svga->vram[addr & riva128->vram_mask];
+		uint32_t pat = pattern & 0xff;
 		svga->vram[addr & riva128->vram_mask] =
 			video_rop_gdi_ternary(rop,
-					src, dst, 0) & 0xff;
+					src, dst, pat) & 0xff;
 		break;
 	}
     case 15:
@@ -1471,9 +1487,10 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 			* y))) + riva128->pgraph.surf_offset[buffer];
 		uint32_t src = color & 0xffff;
 		uint32_t dst = vram_w[(addr & riva128->vram_mask) >> 1];
+		uint32_t pat = pattern & 0xffff;
 		vram_w[(addr & riva128->vram_mask) >> 1] =
 				video_rop_gdi_ternary(rop,
-						src, dst, 0) & 0xffff;
+						src, dst, pat) & 0xffff;
 		break;
 	}
 	case 32: {
@@ -1481,9 +1498,10 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 			* y))) + riva128->pgraph.surf_offset[buffer];
 		uint32_t src = color;
 		uint32_t dst = vram_l[(addr & riva128->vram_mask) >> 2];
+		uint32_t pat = pattern;
 		vram_l[(addr & riva128->vram_mask) >> 2] =
 				video_rop_gdi_ternary(rop,
-						src, dst, 0);
+						src, dst, pat);
 		break;
 	}}
 
@@ -1587,23 +1605,11 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			riva128->pgraph.pattern_shape = param & 3;
 			break;
 		case 0x310: {
-			riva128_pgraph_color_t color =
-					riva128_pgraph_expand_color(graphobj0,
-							param, riva128);
-			riva128->pgraph.pattern_mono_color_rgb[0] =
-					(color.r << 20) | (color.g << 10)
-							| color.b;
-			riva128->pgraph.pattern_mono_color_a[0] = color.a;
+			riva128->pgraph.pattern_mono_color_rgb[0] = param
 			break;
 		}
 		case 0x314: {
-			riva128_pgraph_color_t color =
-					riva128_pgraph_expand_color(graphobj0,
-							param, riva128);
-			riva128->pgraph.pattern_mono_color_rgb[1] =
-					(color.r << 20) | (color.g << 10)
-							| color.b;
-			riva128->pgraph.pattern_mono_color_a[1] = color.a;
+			riva128->pgraph.pattern_mono_color_rgb[1] = param;
 			break;
 		}
 		case 0x318:
