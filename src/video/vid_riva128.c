@@ -167,6 +167,8 @@ typedef struct riva128_t
 		int notify_impending;
 		uint32_t notifier_obj;
 
+		uint32_t dma_obj, m2mf_obj;
+
 		uint32_t intr_0, intr_1;
 		uint32_t intr_en_0, intr_en_1;
 
