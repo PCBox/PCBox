@@ -200,6 +200,11 @@ typedef struct riva128_t
 		uint16_t gdi_vtx_y_a[0x40];
 		uint16_t gdi_rect_w_a[0x40];
 		uint16_t gdi_rect_h_a[0x40];
+
+		uint16_t rect_vtx_x[0x40];
+		uint16_t rect_vtx_y[0x40];
+		uint16_t rect_vtx_w[0x40];
+		uint16_t rect_vtx_h[0x40];
 		uint32_t rect_color;
 
 		uint32_t gdi_color_a;
@@ -1707,24 +1712,24 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		break;
     case 0x07:
         if (!(method & 4) && (method >= 0x400 && method < 0x480)) {
-			riva128->pgraph.gdi_vtx_x_a[(method & 0x1fc) >> 3] =
+			riva128->pgraph.rect_vtx_x[(method & 0x1fc) >> 3] =
 					param & 0xffff;
-			riva128->pgraph.gdi_vtx_y_a[(method & 0x1fc) >> 3] =
+			riva128->pgraph.rect_vtx_y[(method & 0x1fc) >> 3] =
 					(param >> 16) & 0xffff;
 		} else if ((method & 4) && ((method >= 0x400)
 					&& (method < 0x480))) {
-			riva128->pgraph.gdi_rect_w_a[(method & 0x1fc) >> 3] =
+			riva128->pgraph.rect_vtx_w[(method & 0x1fc) >> 3] =
 					param & 0xffff;
-			riva128->pgraph.gdi_rect_h_a[(method & 0x1fc) >> 3] =
+			riva128->pgraph.rect_vtx_h[(method & 0x1fc) >> 3] =
 					(param >> 16) & 0xffff;
-			uint16_t startx = riva128->pgraph.gdi_vtx_x_a[
+			uint16_t startx = riva128->pgraph.rect_vtx_x[
 					(method & 0x1fc) >> 3];
-			uint16_t starty = riva128->pgraph.gdi_vtx_y_a[
+			uint16_t starty = riva128->pgraph.rect_vtx_y[
 					(method & 0x1fc) >> 3];
-			uint16_t endx = startx + riva128->pgraph.gdi_rect_w_a[
+			uint16_t endx = startx + riva128->pgraph.rect_vtx_w[
 					(method & 0x1fc) >> 3];
 			uint16_t endy = starty +
-					riva128->pgraph.gdi_rect_h_a[
+					riva128->pgraph.rect_vtx_h[
 							(method & 0x1fc) >> 3];
 			for(uint16_t y = starty; y <= endy; y++) {
 				for(uint16_t x = startx; x <= endx; x++) {
