@@ -2251,7 +2251,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
     case 0x0d:
         switch(method) {
 			case 0x30c:
-			riva128->pgraph.m2mf_in_dma = param;
+			riva128->pgraph.m2mf_in_dma = riva128->pgraph.m2mf_in_dma_cur = param;
 			break;
 			case 0x310:
 			riva128->pgraph.m2mf_out_dma = riva128->pgraph.m2mf_out_dma_cur = param;
