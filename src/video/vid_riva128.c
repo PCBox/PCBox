@@ -1605,7 +1605,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			riva128->pgraph.pattern_shape = param & 3;
 			break;
 		case 0x310: {
-			riva128->pgraph.pattern_mono_color_rgb[0] = param
+			riva128->pgraph.pattern_mono_color_rgb[0] = param;
 			break;
 		}
 		case 0x314: {
