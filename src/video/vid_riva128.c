@@ -2236,7 +2236,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					for(uint32_t pixel = riva128->pgraph.m2mf_in_dma; pixel < riva128->pgraph.m2mf_in_dma + riva128->pgraph.m2mf_scan_len; pixel += inc_in)
 					{
 						uint8_t buf = 0;
-						svga->vram[unpaged_addr + riva128->pgraph.m2mf_out_dma] = svga->vram[unpaged_addr + riva128->pgraph.m2mf_in_dma + pixel];
+						svga->vram[riva128->pgraph.m2mf_out_dma] = svga->vram[riva128->pgraph.m2mf_in_dma + pixel];
 						riva128->pgraph.m2mf_out_dma_cur += inc_out;
 					}
 					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
