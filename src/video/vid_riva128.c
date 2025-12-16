@@ -2205,12 +2205,20 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			int inc_in = riva128->pgraph.m2mf_format & 7;
 			int inc_out = (riva128->pgraph.m2mf_format >> 8) & 7;
 
+			uint32_t notifier_obj = (riva128->pgraph.notifier_obj >> 20) & 0xf;
+
+			uint32_t logical_addr = notifier_obj << 4;
+			uint32_t unpaged_addr = pte_frame + adjust + logical_addr;
+			uint32_t pte_index = (logical_addr + adjust) >> 12;
+			uint32_t paged_addr = 
+				(riva128_ramin_read_l(notify_obj_addr + (pte_index << 2) + 8, riva128) & 0xfffff000) | ((logical_addr + adjust) & 0xfff);
+
 			if (target)
 			{
 				//pclog("[RIVA 128] PCI notifier at %08x\n", paged_addr);
 				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
 				{
-					for(uint32_t pixel = riva128->pgraph.m2mf_in_dma; pixwl < riva128->pgraph.m2mf_in_dma + riva128->pgraph.m2mf_scan_len; pixel += inc_in)
+					for(uint32_t pixel = riva128->pgraph.m2mf_in_dma; pixel < riva128->pgraph.m2mf_in_dma + riva128->pgraph.m2mf_scan_len; pixel += inc_in)
 					{
 						uint8_t buf = 0;
 						dma_bm_read(paged_addr + riva128->pgraph.m2mf_in_dma + pixel, (uint8_t*)buf, 1, 1);
@@ -2225,10 +2233,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			{
 				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
 				{
-					for(uint32_t pixel = riva128->pgraph.m2mf_in_dma; pixwl < riva128->pgraph.m2mf_in_dma + riva128->pgraph.m2mf_scan_len; pixel += inc_in)
+					for(uint32_t pixel = riva128->pgraph.m2mf_in_dma; pixel < riva128->pgraph.m2mf_in_dma + riva128->pgraph.m2mf_scan_len; pixel += inc_in)
 					{
 						uint8_t buf = 0;
-						svga->vram[unpaged_addr + riva128->pgraph.m2mf_out_dma] = svga->vram[unpaged_addr + riva128->pgraph.m2mf_in_dma + pixel]
+						svga->vram[unpaged_addr + riva128->pgraph.m2mf_out_dma] = svga->vram[unpaged_addr + riva128->pgraph.m2mf_in_dma + pixel];
 						riva128->pgraph.m2mf_out_dma_cur += inc_out;
 					}
 					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
