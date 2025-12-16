@@ -1450,6 +1450,10 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 			|| ((y < clipy_min) || (y > clipy_max)))
 		return;
 
+	int chroma_key_enabled = (graphobj0 >> 13) & 1;
+
+	if(chroma_key_enabled && (riva128->pgraph.chroma == color)) return;
+
     uint32_t addr;
 
 	uint8_t rop = riva128_translate_rop(graphobj0, riva128->pgraph.rop);
@@ -1562,13 +1566,12 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	case 0x02:
 		if (method == 0x300)
 			riva128->pgraph.rop = param & 0xff;
+		else
+			riva128_pgraph_invalid_interrupt(0, riva128);
 		break;
 	case 0x03:
 		if (method == 0x304)
-			riva128->pgraph.chroma = riva128_pgraph_to_a1r10g10b10(
-					riva128_pgraph_expand_color(
-							graphobj0, param, 
-							riva128));
+			riva128->pgraph.chroma = param;
 		else
 			riva128_pgraph_invalid_interrupt(0, riva128);
 		break;
