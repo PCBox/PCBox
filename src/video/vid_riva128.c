@@ -1567,7 +1567,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		if (method == 0x300)
 			riva128->pgraph.rop = param & 0xff;
 		else
-			riva128_pgraph_invalid_interrupt(0, riva128);
+			riva128_pgraph_invalid_interrupt(0, riva128);	
 		break;
 	case 0x03:
 		if (method == 0x304)
@@ -2182,12 +2182,12 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	case 0x14:
 		switch(method) {
 		case 0x308:
-			riva128->pgraph.itm_vtx_x = (param >> 16) & 0xffff;
-			riva128->pgraph.itm_vtx_y = param & 0xffff;
+			riva128->pgraph.itm_vtx_x = param & 0xffff;
+			riva128->pgraph.itm_vtx_y = (param >> 16) & 0xffff;
 			break;
 		case 0x30c:
-			riva128->pgraph.itm_rect_w = (param >> 16) & 0xffff;
-			riva128->pgraph.itm_rect_h = param & 0xffff;
+			riva128->pgraph.itm_rect_w = param & 0xffff;
+			riva128->pgraph.itm_rect_h = (param >> 16) & 0xffff;
 			break;
 		case 0x310:
 			riva128->pgraph.itm_pitch = param & 0xffff;
