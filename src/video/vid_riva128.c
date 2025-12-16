@@ -1732,8 +1732,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			uint16_t endy = starty +
 					riva128->pgraph.rect_vtx_h[
 							(method & 0x1fc) >> 3];
-			for(uint16_t y = starty; y <= endy; y++) {
-				for(uint16_t x = startx; x <= endx; x++) {
+			for(uint16_t y = starty; y < endy; y++) {
+				for(uint16_t x = startx; x < endx; x++) {
 					riva128_pgraph_write_pixel(graphobj0, x, y,
 						riva128->pgraph.rect_color,
 						0xff, riva128);
