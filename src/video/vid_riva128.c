@@ -2295,7 +2295,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			if (target)
 			{
 				pclog("[RIVA 128] PCI M2MF at %08x\n", paged_addr + riva128->pgraph.m2mf_out_dma_cur);
-				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
+				for(int scan = 0; scan <= riva128->pgraph.m2mf_scan_num; scan++)
 				{
 					uint32_t in_dma_start = riva128->pgraph.m2mf_in_dma;
 					uint32_t out_dma_start = riva128->pgraph.m2mf_out_dma;
@@ -2312,7 +2312,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			}
 			else
 			{
-				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
+				for(int scan = 0; scan <= riva128->pgraph.m2mf_scan_num; scan++)
 				{
 					uint32_t in_dma_start = riva128->pgraph.m2mf_in_dma;
 					uint32_t out_dma_start = riva128->pgraph.m2mf_out_dma;
