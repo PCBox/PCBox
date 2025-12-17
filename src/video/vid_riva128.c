@@ -2310,36 +2310,23 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			uint32_t paged_addr = 
 				(riva128_ramin_read_l(notify_obj_addr + (pte_index << 2) + 8, riva128) & 0xfffff000) | ((notify_obj_addr + adjust) & 0xfff);*/
 
-			if (target)
+			for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
 			{
-				pclog("[RIVA 128] PCI M2MF from %08x to %08x in pitch %08x out pitch %08x scan num %08x scan length %08x\n", unpaged_addr + riva128->pgraph.m2mf_in_dma_cur, unpaged_addr + riva128->pgraph.m2mf_out_dma_cur, riva128->pgraph.m2mf_pitch_in, riva128->pgraph.m2mf_pitch_out, riva128->pgraph.m2mf_scan_num, riva128->pgraph.m2mf_scan_len);
-				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
+				for(uint32_t pixel = 0; pixel < riva128->pgraph.m2mf_scan_len; pixel += inc_in)
 				{
-					for(uint32_t pixel = 0; pixel < riva128->pgraph.m2mf_pitch_out; pixel += inc_in)
+					uint32_t size_in = riva128->pgraph.m2mf_scan_num * riva128->pgraph.m2mf_pitch_in;
+					uint32_t size_out = riva128->pgraph.m2mf_scan_num * riva128->pgraph.m2mf_pitch_out;
+					uint8_t* buf = (uint8_t*)calloc(1, size_out);
+					dma_bm_read(unpaged_addr + riva128->pgraph.m2mf_in_dma_cur, (uint8_t*)buf, size_in, 1);
+					for(int i = 0; i < size_out; i++)
 					{
-						uint8_t buf = 0;
-						dma_bm_read(unpaged_addr + riva128->pgraph.m2mf_in_dma_cur + pixel, (uint8_t*)&buf, 1, 1);
-						dma_bm_write(unpaged_addr + riva128->pgraph.m2mf_out_dma_cur, (uint8_t*)&buf, 1, 1);
-						riva128->pgraph.m2mf_out_dma_cur += inc_out;
+						svga->vram[riva128->pgraph.m2mf_out_dma_cur] = buf[i];
+						svga->changedvram[(riva128->pgraph.m2mf_out_dma_cur) >> 12] = changeframecount;
 					}
-					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
-					riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;
+					riva128->pgraph.m2mf_out_dma_cur += inc_out;
 				}
-			}
-			else
-			{
-				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
-				{
-					for(uint32_t pixel = 0; pixel < riva128->pgraph.m2mf_scan_len; pixel += inc_in)
-					{
-						uint8_t buf = 0;
-						svga->vram[unpaged_addr + riva128->pgraph.m2mf_out_dma_cur] = svga->vram[unpaged_addr + riva128->pgraph.m2mf_in_dma_cur + pixel];
-						svga->changedvram[(unpaged_addr + riva128->pgraph.m2mf_out_dma_cur) >> 12] = changeframecount;
-						riva128->pgraph.m2mf_out_dma_cur += inc_out;
-					}
-					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
-					riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;
-				}
+				riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
+				riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;
 			}
 			break;
 			}
@@ -2562,9 +2549,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
 								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
 									goto method_end;	
-							}
-							final_x = riva128->pgraph.sifc_cur_x;
-							final_y = riva128->pgraph.sifc_cur_y;
+							};
 							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
 									(param >> 8) & 0xff, 0xff, riva128);
 							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
@@ -2575,8 +2560,6 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
 									goto method_end;
 							}
-							final_x = riva128->pgraph.sifc_cur_x;
-							final_y = riva128->pgraph.sifc_cur_y;
 							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
 									(param >> 16) & 0xff, 0xff, riva128);
 							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
@@ -2587,8 +2570,6 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
 									goto method_end;	
 							}
-							final_x = riva128->pgraph.sifc_cur_x;
-							final_y = riva128->pgraph.sifc_cur_y;
 							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
 									(param >> 24) & 0xff, 0xff, riva128);
 							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du ;
@@ -2611,7 +2592,6 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
 									goto method_end;	
 							}
-							final_x = riva128->pgraph.sifc_cur_x;
 							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
 									param >> 16, 0xff, riva128);
 							bytes_per_pixel = 2;
