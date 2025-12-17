@@ -2388,6 +2388,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
 						param & 0xff,
 						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
 					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
 					{
 						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
@@ -2398,6 +2399,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
 						(param >> 8) & 0xff,
 						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
 					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
 					{
 						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
@@ -2408,6 +2410,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
 						(param >> 16) & 0xff,
 						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
 					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
 					{
 						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
@@ -2415,6 +2418,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
 							goto method_end;
 					}
+					riva128->pgraph.ifc_cur_x++;
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
 						(param >> 24) & 0xff,
 						0xff, riva128);
@@ -2430,6 +2434,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
 						param & 0xffff,
 						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
 					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
 					{
 						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
@@ -2440,6 +2445,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
 						param >> 16,
 						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
 					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
 					{
 						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
@@ -2452,6 +2458,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
 						param,
 						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
 					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
 					{
 						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
@@ -3680,7 +3687,7 @@ riva128_hwcursor_draw(svga_t *svga, int displine)
 	uint32_t cursor_offset = riva128->cursor_offset;
 	int         offset = svga->hwcursor_latch.x - svga->hwcursor_latch.xoff;
 
-    //if(startx >= (svga->hdisp + 32) || starty >= (svga->dispend + 32)) return;
+    if(startx >= svga->hdisp || starty >= svga->dispend) return;
 
     uint32_t cursor_bitmap = 0;
     int replace_bit = 0;
