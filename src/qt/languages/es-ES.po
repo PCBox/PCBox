@@ -234,13 +234,8 @@ msgstr "Ay&uda"
 msgid "&Documentation…"
 msgstr "&Documentación…"
 
-<<<<<<< HEAD
-msgid "&About PCBox..."
-msgstr "&Acerca de PCBox..."
-=======
-msgid "&About 86Box…"
-msgstr "&Acerca de 86Box…"
->>>>>>> cc46ea4d8eb3f32019a4fe9f315cfa573187fd9c
+msgid "&About PCBox…"
+msgstr "&Acerca de PCBox…"
 
 msgid "&New image…"
 msgstr "&Nueva imagen…"
