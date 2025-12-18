@@ -2262,11 +2262,11 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			case 0x324:
 			{
 			riva128->pgraph.m2mf_format = param;
-			uint32_t notify_obj_addr = (graphobj2 & 0xffff) << 4;
+			/*uint32_t notify_obj_addr = (graphobj2 & 0xffff) << 4;
 			uint32_t flags = riva128_ramin_read_l(notify_obj_addr,
 				riva128);
-			/* uint32_t limit = riva128_ramin_read_l(notify_obj_addr
-				+ 4, riva128); */
+			 uint32_t limit = riva128_ramin_read_l(notify_obj_addr
+				+ 4, riva128);
 			uint32_t pte = riva128_ramin_read_l(notify_obj_addr + 8,
 				riva128);
 			uint32_t pte_frame = pte & 0xfffff000;
@@ -2278,7 +2278,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			uint32_t unpaged_addr = pte_frame + adjust + notify_obj_addr;
 			/*uint32_t pte_index = (notify_obj_addr + adjust) >> 12;
 			uint32_t paged_addr = 
-				(riva128_ramin_read_l(notify_obj_addr + (pte_index << 2) + 8, riva128) & 0xfffff000) | ((notify_obj_addr + adjust) & 0xfff);*/
+				(riva128_ramin_read_l(notify_obj_addr + (pte_index << 2) + 8, riva128) & 0xfffff000) | ((notify_obj_addr + adjust) & 0xfff);
 
 			uint32_t pitch_in = riva128->pgraph.m2mf_pitch_in > riva128->pgraph.m2mf_pitch_out ? riva128->pgraph.m2mf_pitch_out : riva128->pgraph.m2mf_pitch_in;
 
