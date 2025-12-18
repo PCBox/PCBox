@@ -1575,8 +1575,8 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 
 	uint32_t pattern = use_color1 ? riva128->pgraph.pattern_mono_color_rgb[1] : riva128->pgraph.pattern_mono_color_rgb[0];
 
-	switch(riva128->svga.bpp) {
-	case 8: {
+	switch((riva128->pgraph.surf_config >> (3 * buffer)) & 3) {
+	case 1: {
         uint32_t addr = ((x + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
 		uint32_t src = color & 0xff;
@@ -1588,8 +1588,8 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 					src, dst, pat) & 0xff;
 		break;
 	}
-    case 15:
-	case 16: {
+    case 0:
+	case 2: {
         uint32_t addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
 		uint32_t src = color & 0xffff;
@@ -1600,7 +1600,7 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 						src, dst, pat) & 0xffff;
 		break;
 	}
-	case 32: {
+	case 3: {
         uint32_t addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
 		uint32_t src = color;
