@@ -1548,8 +1548,8 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 	uint16_t clipy_min = riva128->pgraph.clipy_min;
 	uint16_t clipy_max = riva128->pgraph.clipy_min + riva128->pgraph.cliph;
 
-	if (((x < clipx_min) || (x > clipx_max))
-			|| ((y < clipy_min) || (y > clipy_max)))
+	if ((((x < clipx_min) || (x > clipx_max))
+			|| ((y < clipy_min) || (y > clipy_max))) && (graphobj0 & 0x8000))
 		return;
 
 	int chroma_key_enabled = (graphobj0 >> 13) & 1;
