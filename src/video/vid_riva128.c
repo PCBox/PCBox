@@ -1575,7 +1575,7 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 
 	uint32_t pattern = use_color1 ? riva128->pgraph.pattern_mono_color_rgb[1] : riva128->pgraph.pattern_mono_color_rgb[0];
 
-	switch((riva128->pgraph.surf_config >> (3 * buffer)) & 3) {
+	switch((riva128->pgraph.surf_config >> (4 * buffer)) & 3) {
 	case 1: {
         uint32_t addr = ((x + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
