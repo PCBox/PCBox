@@ -160,7 +160,7 @@ msgid "RGB (no brown)"
 msgstr "RGB (sin marrón)"
 
 msgid "&RGB Grayscale"
-msgstr "RGB &Grises"
+msgstr "RGB &grises"
 
 msgid "Generic RGBI color monitor"
 msgstr "Monitor a colores RGBI genérico"
@@ -241,10 +241,10 @@ msgid "&New image…"
 msgstr "&Nueva imagen…"
 
 msgid "&Existing image…"
-msgstr "Imagen &Existente…"
+msgstr "Imagen &existente…"
 
 msgid "Existing image (&Write-protected)…"
-msgstr "Imagen Existente (&Sólo-lectura)…"
+msgstr "Imagen existente (&Sólo-lectura)…"
 
 msgid "&Record"
 msgstr "&Grabar"
@@ -292,7 +292,7 @@ msgid "Settings"
 msgstr "Configuraciones"
 
 msgid "Specify Main Window Dimensions"
-msgstr "Especificar Dimensiones de la Ventana Principal"
+msgstr "Especificar dimensiones de la ventana principal"
 
 msgid "OK"
 msgstr "Aceptar"
@@ -376,7 +376,7 @@ msgid "Enabled (UTC)"
 msgstr "Habilitado (UTC)"
 
 msgid "Dynamic Recompiler"
-msgstr "Recompilador Dinámico"
+msgstr "Recompilador dinámico"
 
 msgid "CPU frame size"
 msgstr "Tamaño de blocos de CPU"
@@ -682,7 +682,7 @@ msgid "&Removable disk %1 (%2): %3"
 msgstr "&Disco removible %1 (%2): %3"
 
 msgid "Removable disk images"
-msgstr "Imagenes de disco removible"
+msgstr "Imágenes de disco removible"
 
 msgid "Image %1"
 msgstr "Imagen %1"
@@ -709,10 +709,10 @@ msgid "All images"
 msgstr "Todas las imagenes"
 
 msgid "Basic sector images"
-msgstr "Basic sector images"
+msgstr "Imaáenes básicas de sector"
 
 msgid "Surface images"
-msgstr "Surface images"
+msgstr "Imágenes de superficie"
 
 msgid "Machine \"%hs\" is not available due to missing ROMs in the roms/machines directory. Switching to an available machine."
 msgstr "La máquina \"%hs\" no está disponible debido a ROMs faltantes en el directorio roms/machines. Cambiando a una máquina disponible."
@@ -733,7 +733,7 @@ msgid "Display"
 msgstr "Vídeo"
 
 msgid "Input devices"
-msgstr "Dispositivos de Entrada"
+msgstr "Dispositivos de entrada"
 
 msgid "Sound"
 msgstr "Sonido"
@@ -946,7 +946,7 @@ msgid "MO images"
 msgstr "Imágenes de MO"
 
 msgid "Welcome to PCBox!"
-msgstr "¡Bienvenido a PCBox!"
+msgstr "¡Bienvenido en PCBox!"
 
 msgid "Internal device"
 msgstr "Dispositivo interno"
@@ -991,7 +991,7 @@ msgid "Hardware not available"
 msgstr "Equipo no disponible"
 
 msgid "Make sure %1 is installed and that you are on a %1-compatible network connection."
-msgstr "Asegúrate de que %1 está instalado y de que estás en una conexión de red compatible con %1."
+msgstr "Asegúree de que %1 está instalado y de que estás en una conexión de red compatible con %1."
 
 msgid "Invalid configuration"
 msgstr "Configuración inválida"
@@ -1018,7 +1018,7 @@ msgid "CD-ROM images"
 msgstr "Imágenes de CD-ROM"
 
 msgid "%1 Device Configuration"
-msgstr "%1 Configuración de Dispositivo"
+msgstr "Configuración de dispositivo %1"
 
 msgid "Monitor in sleep mode"
 msgstr "Monitor en modo ahorro"
@@ -1042,7 +1042,7 @@ msgid "C&assette: %1"
 msgstr "C&assette: %1"
 
 msgid "Cassette images"
-msgstr "Imágenes de Cassette"
+msgstr "Imágenes de cassette"
 
 msgid "Cartridge %1: %2"
 msgstr "Cartucho %1: %2"
@@ -1051,7 +1051,7 @@ msgid "Car&tridge %1: %2"
 msgstr "Car&tucho %1: %2"
 
 msgid "Cartridge images"
-msgstr "Imágenes de Cartucho"
+msgstr "Imágenes de cartucho"
 
 msgid "Resume execution"
 msgstr "Retomar la ejecución"
@@ -1072,13 +1072,13 @@ msgid "Hard reset"
 msgstr "Hard reset"
 
 msgid "Force shutdown"
-msgstr "Apagqar forzadamente"
+msgstr "Apagar forzadamente"
 
 msgid "Start"
 msgstr "Iniciar"
 
 msgid "&Force shutdown"
-msgstr "&Apagqar forzadamente"
+msgstr "&Apagar forzadamente"
 
 msgid "&Start"
 msgstr "&Iniciar"
@@ -2122,7 +2122,7 @@ msgid "MPU-401 Address"
 msgstr "Dirección del MPU-401"
 
 msgid "MPU-401 IRQ"
-msgstr "IQ del MPU-401"
+msgstr "IRQ del MPU-401"
 
 msgid "Receive MIDI input"
 msgstr "Recebir entrada MIDI"
@@ -2218,7 +2218,7 @@ msgid "Display type"
 msgstr "Tipo de pantalla"
 
 msgid "Composite type"
-msgstr "Tipo de pantalla compuesta"
+msgstr "Tipo de pantalla compósita"
 
 msgid "RGB type"
 msgstr "Tipo de pantalla RGB"
@@ -2446,7 +2446,7 @@ msgid "256 KB"
 msgstr "256 KB"
 
 msgid "Composite"
-msgstr "Compuesto"
+msgstr "Compósito"
 
 msgid "True color"
 msgstr "Verdadero color"
@@ -2482,13 +2482,13 @@ msgid "sRGB interpolation"
 msgstr "Interpolación sRGB"
 
 msgid "Linear interpolation"
-msgstr "Interpolación lineare"
+msgstr "Interpolación lineal"
 
 msgid "Has secondary 8x8 character set"
 msgstr "Tiene conjunto de carácteres 8x8 secundário"
 
 msgid "Has Quadcolor II daughter board"
-msgstr "Tiene tarjeta hija Quadcolor II"
+msgstr "Tiene placa hija Quadcolor II"
 
 msgid "Alternate monochrome contrast"
 msgstr "Contraste monocromo alternativo"
@@ -2569,7 +2569,7 @@ msgid "Obsidian SB50 + Amethyst (2 TMUs)"
 msgstr "Obsidian SB50 + Amethyst (2 unidades TMU)"
 
 msgid "8-bit"
-msgstr "8 bitss"
+msgstr "8 bits"
 
 msgid "16-bit"
 msgstr "16 bits"
@@ -2596,7 +2596,7 @@ msgid "Generic Text Printer"
 msgstr "Impresora genérica de texto"
 
 msgid "Generic ESC/P 2 Dot-Matrix Printer"
-msgstr "Impresora matricial ESC/P 2 genérica"
+msgstr "Impresora genérica matricial ESC/P 2"
 
 msgid "Generic PostScript Printer"
 msgstr "Impresora genérica PostScript"
@@ -2698,7 +2698,7 @@ msgid "Unable to find Dot-Matrix fonts"
 msgstr "No fué posible encontrar las fuentes matriciales"
 
 msgid "TrueType fonts in the \"roms/printer/fonts\" directory are required for the emulation of the Generic ESC/P 2 Dot-Matrix Printer."
-msgstr "Las fuentes TrueType en el directorio \"roms/printer/fonts\" son necesarias para la emulación de la impresora matricial ESC/P 2 genérica."
+msgstr "Las fuentes TrueType en el directorio \"roms/printer/fonts\" son necesarias para la emulación de la impresora genérica matricial ESC/P 2."
 
 msgid "Inhibit multimedia keys"
 msgstr "Inhibir teclas multimedia"
@@ -2863,10 +2863,10 @@ msgid "Unknown Status"
 msgstr "Estado desconocido"
 
 msgid "No Machines Found!"
-msgstr "¡No fueron encontradas máquinas!"
+msgstr "¡No fueran encontradas máquinas!"
 
 msgid "Check for updates on startup"
-msgstr "Contorlar actualizaciones al iniciar"
+msgstr "Verificar actualizaciones al iniciar"
 
 msgid "Unable to determine release information"
 msgstr "No fué posible determinar informaciones de la versión"
@@ -2953,19 +2953,19 @@ msgid "Sharpness"
 msgstr "Nitidez"
 
 msgid "&CGA composite settings…"
-msgstr "Configuración del modo compuesto &CGA…"
+msgstr "Configuración del modo compósito &CGA…"
 
 msgid "CGA composite settings"
-msgstr "Configuración del modo compuesto CGA"
+msgstr "Configuración del modo compósito CGA"
 
 msgid "Monitor EDID"
-msgstr "EDID du moniteur"
+msgstr "EDID del monitor"
 
 msgid "Export…"
-msgstr "Exporter…"
+msgstr "Exportar…"
 
 msgid "Export EDID"
-msgstr "EDID exportieren"
+msgstr "Exportar el EDID"
 
 msgid "EDID file \"%ls\" is too large."
 msgstr "El archivo EDID \"%ls\" es demasiado grande."
@@ -2980,7 +2980,7 @@ msgid "Color scheme"
 msgstr "Esquema de colores"
 
 msgid "Light"
-msgstr "Luz"
+msgstr "Claro"
 
 msgid "Dark"
 msgstr "Oscuro"

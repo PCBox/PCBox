@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
+        <file>pcbox_ca-ES.qm</file>
         <file>pcbox_cs-CZ.qm</file>
         <file>pcbox_de-DE.qm</file>
         <file>pcbox_en-US.qm</file>
