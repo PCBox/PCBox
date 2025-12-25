@@ -83,6 +83,10 @@ struct PixmapSetEmpty {
 struct PixmapSetEmptyActive {
     QPixmap normal;
     QPixmap active;
+    QPixmap play;
+    QPixmap pause;
+    QPixmap play_active;
+    QPixmap pause_active;
     QPixmap empty;
     QPixmap empty_active;
     QPixmap write_active;
@@ -169,6 +173,26 @@ struct StateEmptyActive {
     bool                    active       = false;
     bool                    write_active = false;
     bool                    wp           = false;
+    bool                    play         = false;
+    bool                    pause        = false;
+
+    void setPlay(bool b)
+    {
+        if (!label || b == play)
+            return;
+
+        play = b;
+        refresh();
+    }
+
+    void setPause(bool b)
+    {
+        if (!label || b == pause)
+            return;
+
+        pause = b;
+        refresh();
+    }
 
     void setActive(bool b)
     {
@@ -212,10 +236,12 @@ struct StateEmptyActive {
             else
                 label->setPixmap(write_active ? pixmaps->empty_write_active : (active ? pixmaps->empty_active : pixmaps->empty));
         } else {
-            if (wp)
+            if (wp && !(play || pause))
                 label->setPixmap(active ? pixmaps->wp_active : pixmaps->wp);
-            else if (active && write_active)
+            else if (active && write_active && !wp)
                 label->setPixmap(pixmaps->read_write_active);
+            else if ((play || pause) && !write_active)
+                label->setPixmap(play ? (active ? pixmaps->play_active : pixmaps->play) : (active ? pixmaps->pause_active : pixmaps->pause));
             else
                 label->setPixmap(write_active ? pixmaps->write_active : (active ? pixmaps->active : pixmaps->normal));
         }
@@ -252,6 +278,10 @@ void
 PixmapSetEmptyActive::load(const QIcon &icon)
 {
     normal                  = getIconWithIndicator(icon, pixmap_size, QIcon::Normal, None);
+    play                    = getIconWithIndicator(icon, pixmap_size, QIcon::Normal, Play);
+    pause                   = getIconWithIndicator(icon, pixmap_size, QIcon::Normal, Pause);
+    play_active             = getIconWithIndicator(icon, pixmap_size, QIcon::Normal, PlayActive);
+    pause_active            = getIconWithIndicator(icon, pixmap_size, QIcon::Normal, PauseActive);
     wp                      = getIconWithIndicator(icon, pixmap_size, QIcon::Normal, WriteProtected);
     wp_active               = getIconWithIndicator(icon, pixmap_size, QIcon::Normal, WriteProtectedActive);
     active                  = getIconWithIndicator(icon, pixmap_size, QIcon::Normal, Active);
@@ -506,6 +536,8 @@ MachineStatus::refreshIcons()
     for (size_t i = 0; i < CDROM_NUM; ++i) {
         d->cdrom[i].setActive(machine_status.cdrom[i].active);
         d->cdrom[i].setWriteActive(machine_status.cdrom[i].write_active);
+        d->cdrom[i].setPlay(cdrom_is_playing(i));
+        d->cdrom[i].setPause(cdrom_is_paused(i));
         if (machine_status.cdrom[i].active) {
             ui_sb_update_icon(SB_CDROM | i, 0);
         }
