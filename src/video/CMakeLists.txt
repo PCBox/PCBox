@@ -145,6 +145,7 @@ add_library(vid OBJECT
     nv/nv_rivatimer.c
 
     vid_riva128.c
+    vid_rivatnt.c
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")

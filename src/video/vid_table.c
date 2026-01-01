@@ -266,6 +266,7 @@ video_cards[] = {
     { .device = &voodoo_3_3500_si_agp_device,                   .flags = VIDEO_FLAG_TYPE_NONE },
 #ifdef USE_NV3
     { .device = &riva128_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE },
+    { .device = &rivatnt_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE },
 #endif
     { .device = NULL,                                           .flags = VIDEO_FLAG_TYPE_NONE }
   // clang-format on

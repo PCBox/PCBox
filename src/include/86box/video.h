@@ -644,6 +644,7 @@ extern const device_t voodoo_3_3500_si_agp_device;
 extern const device_t velocity_100_agp_device;
 extern const device_t velocity_200_agp_device;
 extern const device_t riva128_pci_device;
+extern const device_t rivatnt_pci_device;
 
 /* Wyse 700 */
 extern const device_t wy700_device;
