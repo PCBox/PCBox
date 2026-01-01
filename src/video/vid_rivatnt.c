@@ -580,7 +580,7 @@ rivatnt_pfb_read(uint32_t addr, void *p)
             {
                 case 4 << 20: return 0x15;
                 case 8 << 20: return 0x16;
-                case 16 << 20: return 0x17;
+                case 16 << 20: return 0x1f;
             }
             break;
     }
@@ -683,7 +683,8 @@ rivatnt_ptimer_tick(void *p)
     //tmp = rivatnt->ptimer.time;
     rivatnt->ptimer.time += (uint64_t)time;
 
-    alarm_check = (uint32_t)(rivatnt->ptimer.time - rivatnt->ptimer.alarm) & 0x80000000;
+    alarm_check = ((uint32_t)rivatnt->ptimer.time
+			>= (uint32_t)rivatnt->ptimer.alarm);
 
     //alarm_check = ((uint32_t)rivatnt->ptimer.time >= (uint32_t)rivatnt->ptimer.alarm);
 
@@ -691,7 +692,7 @@ rivatnt_ptimer_tick(void *p)
 
     if(alarm_check)
     {
-        pclog("[RIVA TNT] PTIMER ALARM interrupt fired!\n");
+        //pclog("[RIVA TNT] PTIMER ALARM interrupt fired!\n");
         rivatnt_ptimer_interrupt(0, rivatnt);
     }
 }
