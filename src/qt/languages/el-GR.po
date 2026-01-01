@@ -237,8 +237,8 @@ msgstr "&Βοήθεια"
 msgid "&Documentation…"
 msgstr "&Εγχειρίδια…"
 
-msgid "&About 86Box…"
-msgstr "&Σχετικά με το 86Box…"
+msgid "&About PCBox…"
+msgstr "&Σχετικά με το PCBox…"
 
 msgid "&New image…"
 msgstr "&Δημιουργία εικόνας…"
@@ -690,8 +690,8 @@ msgstr "Εικόνες αφαιρούμενων δίσκων"
 msgid "Image %1"
 msgstr "Εικόνα %1"
 
-msgid "86Box could not find any usable ROM images.\n\nPlease <a href=\"https://github.com/86Box/roms/releases/latest\">download</a> a ROM set and extract it into the \"roms\" directory."
-msgstr "Το 86Box δεν μπόρεσε να εντοπίσει καμία ROM.\n\nΠαρακαλώ <a href=\"https://github.com/86Box/roms/releases/latest\">κατεβάστε</a> το πακέτο ROM και εξάγετέ το στον κατάλογο \"roms\"."
+msgid "PCBox could not find any usable ROM images.\n\nPlease <a href=\"https://github.com/PCBox/roms/releases/latest\">download</a> a ROM set and extract it into the \"roms\" directory."
+msgstr "Το PCBox δεν μπόρεσε να εντοπίσει καμία ROM.\n\nΠαρακαλώ <a href=\"https://github.com/PCBox/roms/releases/latest\">κατεβάστε</a> το πακέτο ROM και εξάγετέ το στον κατάλογο \"roms\"."
 
 msgid "(empty)"
 msgstr "(κενό)"
@@ -930,8 +930,8 @@ msgstr "Εικόνες Flux"
 msgid "Are you sure you want to hard reset the emulated machine?"
 msgstr "Είστε σίγουρος οτι θέλετε να κάνετε ολική επαναφορά του εξομειωμένου σύστηματος;"
 
-msgid "Are you sure you want to exit 86Box?"
-msgstr "Είστε σίγουρος για την έξοδο απο το 86Box;"
+msgid "Are you sure you want to exit PCBox?"
+msgstr "Είστε σίγουρος για την έξοδο απο το PCBox;"
 
 msgid "Unable to initialize Ghostscript"
 msgstr "Αδυναμία αρχικοποίησης Ghostscript "
@@ -948,8 +948,8 @@ msgstr "&MO %1 (%2): %3"
 msgid "MO images"
 msgstr "Εικόνες MO"
 
-msgid "Welcome to 86Box!"
-msgstr "Καλως ορίσατε στο 86Box!"
+msgid "Welcome to PCBox!"
+msgstr "Καλως ορίσατε στο PCBox!"
 
 msgid "Internal device"
 msgstr "Εσωτερική συσκευή"
@@ -1602,7 +1602,7 @@ msgstr "&Αυτόματο-πάγωμα σε απώλεια εστίασης"
 msgid "WinBox is no longer supported"
 msgstr ""
 
-msgid "Development of the WinBox manager stopped in 2022 due to a lack of maintainers. As we direct our efforts towards making 86Box even better, we have made the decision to no longer support WinBox as a manager.\n\nNo further updates will be provided through WinBox, and you may encounter incorrect behavior should you continue using it with newer versions of 86Box. Any bug reports related to WinBox behavior will be closed as invalid.\n\nGo to 86box.net for a list of other managers you can use."
+msgid "Development of the WinBox manager stopped in 2022 due to a lack of maintainers. As we direct our efforts towards making PCBox even better, we have made the decision to no longer support WinBox as a manager.\n\nNo further updates will be provided through WinBox, and you may encounter incorrect behavior should you continue using it with newer versions of PCBox. Any bug reports related to WinBox behavior will be closed as invalid.\n\nGo to 86box.net for a list of other managers you can use."
 msgstr ""
 
 msgid "Generate"
@@ -1725,7 +1725,7 @@ msgstr ""
 msgid "This machine might have been moved or copied."
 msgstr ""
 
-msgid "In order to ensure proper networking functionality, 86Box needs to know if this machine was moved or copied.\n\nSelect \"I Copied It\" if you are not sure."
+msgid "In order to ensure proper networking functionality, PCBox needs to know if this machine was moved or copied.\n\nSelect \"I Copied It\" if you are not sure."
 msgstr ""
 
 msgid "I Moved It"
@@ -1734,7 +1734,7 @@ msgstr ""
 msgid "I Copied It"
 msgstr ""
 
-msgid "86Box Monitor #%1"
+msgid "PCBox Monitor #%1"
 msgstr ""
 
 msgid "No MCA devices."
