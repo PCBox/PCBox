@@ -1160,9 +1160,10 @@ MediaMenu::nicUpdateMenu(int i)
     if (!netMenus.contains(i))
         return;
 
-    QString netType = tr("Null Driver");
+    QString netType;
     switch (net_cards_conf[i].net_type) {
         default:
+            netType = tr("Null Driver");
             break;
         case NET_TYPE_SLIRP:
             netType = "SLiRP";
@@ -1176,11 +1177,11 @@ MediaMenu::nicUpdateMenu(int i)
         case NET_TYPE_TAP:
             netType = "TAP";
             break;
-        case NET_TYPE_NMSWITCH:
-            netType = "Local Switch";
+        case NET_TYPE_NLSWITCH:
+            netType = tr("Local Switch");
             break;
         case NET_TYPE_NRSWITCH:
-            netType = "Remote Switch";
+            netType = tr("Remote Switch");
             break;
     }
 
