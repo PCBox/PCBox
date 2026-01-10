@@ -747,7 +747,6 @@ read_mem_b(uint32_t addr)
 {
     mem_mapping_t *map;
     uint8_t        ret        = 0xff;
-    int            old_cycles = cycles;
 
     mem_logical_addr = addr;
     addr &= rammask;
@@ -755,8 +754,6 @@ read_mem_b(uint32_t addr)
     map = read_mapping[addr >> MEM_GRANULARITY_BITS];
     if (map && map->read_b)
         ret = map->read_b(addr, map->priv);
-
-    resub_cycles(old_cycles);
 
     return ret;
 }
@@ -766,7 +763,6 @@ read_mem_w(uint32_t addr)
 {
     mem_mapping_t *map;
     uint16_t       ret        = 0xffff;
-    int            old_cycles = cycles;
 
     mem_logical_addr = addr;
     addr &= rammask;
@@ -782,8 +778,6 @@ read_mem_w(uint32_t addr)
             ret = map->read_b(addr, map->priv) | (map->read_b(addr + 1, map->priv) << 8);
     }
 
-    resub_cycles(old_cycles);
-
     return ret;
 }
 
@@ -791,7 +785,6 @@ void
 write_mem_b(uint32_t addr, uint8_t val)
 {
     mem_mapping_t *map;
-    int            old_cycles = cycles;
 
     mem_logical_addr = addr;
     addr &= rammask;
@@ -799,15 +792,12 @@ write_mem_b(uint32_t addr, uint8_t val)
     map = write_mapping[addr >> MEM_GRANULARITY_BITS];
     if (map && map->write_b)
         map->write_b(addr, val, map->priv);
-
-    resub_cycles(old_cycles);
 }
 
 void
 write_mem_w(uint32_t addr, uint16_t val)
 {
     mem_mapping_t *map;
-    int            old_cycles = cycles;
 
     mem_logical_addr = addr;
     addr &= rammask;
@@ -826,8 +816,6 @@ write_mem_w(uint32_t addr, uint16_t val)
             }
         }
     }
-
-    resub_cycles(old_cycles);
 }
 
 uint8_t
