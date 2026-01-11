@@ -719,7 +719,7 @@ ini_section_delete_var(ini_section_t self, const char *name)
 }
 
 int
-ini_section_get_int(ini_section_t self, const char *name, int def)
+ini_section_get_int(ini_section_t self, const char *name, int32_t def)
 {
     section_t     *section = (section_t *) self;
     const entry_t *entry;
@@ -760,6 +760,50 @@ ini_section_get_uint(ini_section_t self, const char *name, uint32_t def)
 
     return value;
 }
+
+int64_t
+ini_section_get_int64(ini_section_t self, const char *name, int64_t def)
+{
+    section_t     *section = (section_t *) self;
+    const entry_t *entry;
+    int64_t            value = 0;
+
+    if (section == NULL)
+        return def;
+
+    entry = find_entry(section, name);
+    if (entry == NULL)
+        return def;
+
+    if (stricmp(entry->data, "true") == 0)
+        return 1;
+    if (stricmp(entry->data, "false") == 0)
+        return 0;
+
+    sscanf(entry->data, "%lli", &value);
+
+    return value;
+}
+
+uint64_t
+ini_section_get_uint64(ini_section_t self, const char *name, uint64_t def)
+{
+    section_t     *section = (section_t *) self;
+    const entry_t *entry;
+    uint64_t       value = 0;
+
+    if (section == NULL)
+        return def;
+
+    entry = find_entry(section, name);
+    if (entry == NULL)
+        return def;
+
+    sscanf(entry->data, "%llu", &value);
+
+    return value;
+}
+
 
 #if 0
 float
@@ -923,7 +967,7 @@ ini_section_get_wstring(ini_section_t self, const char *name, wchar_t *def)
 }
 
 void
-ini_section_set_int(ini_section_t self, const char *name, int val)
+ini_section_set_int(ini_section_t self, const char *name, int32_t val)
 {
     section_t *section = (section_t *) self;
     entry_t   *ent;
@@ -952,7 +996,41 @@ ini_section_set_uint(ini_section_t self, const char *name, uint32_t val)
     if (ent == NULL)
         ent = create_entry(section, name);
 
-    sprintf(ent->data, "%i", val);
+    sprintf(ent->data, "%u", val);
+    mbstowcs(ent->wdata, ent->data, 512);
+}
+
+void
+ini_section_set_int64(ini_section_t self, const char *name, int64_t val)
+{
+    section_t *section = (section_t *) self;
+    entry_t   *ent;
+
+    if (section == NULL)
+        return;
+
+    ent = find_entry(section, name);
+    if (ent == NULL)
+        ent = create_entry(section, name);
+
+    sprintf(ent->data, "%lli", val);
+    mbstowcs(ent->wdata, ent->data, 512);
+}
+
+void
+ini_section_set_uint64(ini_section_t self, const char *name, uint64_t val)
+{
+    section_t *section = (section_t *) self;
+    entry_t   *ent;
+
+    if (section == NULL)
+        return;
+
+    ent = find_entry(section, name);
+    if (ent == NULL)
+        ent = create_entry(section, name);
+
+    sprintf(ent->data, "%llu", val);
     mbstowcs(ent->wdata, ent->data, 512);
 }
 

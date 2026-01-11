@@ -1134,7 +1134,7 @@ pit_change_pas16_consts(double prescale)
 }
 
 void
-pit_set_clock(uint32_t clock)
+pit_set_clock(uint64_t clock)
 {
     /* Set default CPU/crystal clock and xt_cpu_multi. */
     if (cpu_s->cpu_type >= CPU_286) {

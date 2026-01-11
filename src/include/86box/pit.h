@@ -154,7 +154,7 @@ extern void pit_speaker_timer(int new_out, int old_out, void *priv);
 
 extern void pit_nmi_timer_ps2(int new_out, int old_out, void *priv);
 
-extern void pit_set_clock(uint32_t clock);
+extern void pit_set_clock(uint64_t clock);
 extern void pit_handler(int set, uint16_t base, int size, void *priv);
 
 extern uint8_t pit_read_reg(void *priv, uint8_t reg);
