@@ -2281,11 +2281,13 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			{
 				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
 				{
-					for(uint32_t pixel = 0; pixel < riva128->pgraph.m2mf_pitch_out; pixel += inc_in)
+					uint32_t out_dma = riva128->pgraph.m2mf_out_dma_cur;
+					for(uint32_t pixel = 0; pixel < riva128->pgraph.m2mf_scan_len; pixel += inc_in)
 					{
 						uint8_t buf = 0;
-						dma_bm_read(unpaged_addr + riva128->pgraph.m2mf_in_dma_cur, (uint8_t*)&buf, 1, 1);
+						dma_bm_read(unpaged_addr + riva128->pgraph.m2mf_in_dma_cur + pixel, (uint8_t*)&buf, 1, 1);
 						//dma_bm_write(unpaged_addr + riva128->pgraph.m2mf_out_dma_cur, (uint8_t*)&buf, 1, 1);
+						//buf = svga->vram[riva128->pgraph.m2mf_in_dma_cur + pixel];
 						svga->vram[riva128->pgraph.m2mf_out_dma_cur] = buf;
 						svga->changedvram[riva128->pgraph.m2mf_out_dma_cur >> 12] = changeframecount;
 
@@ -2293,7 +2295,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					}
 
 					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
-					riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;
+					riva128->pgraph.m2mf_out_dma_cur = out_dma + riva128->pgraph.m2mf_pitch_out;
 				}
 			}
 			else
