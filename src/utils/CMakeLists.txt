@@ -28,11 +28,9 @@ add_library(utils OBJECT
     ini.c
     log.c
     random.c
-<<<<<<< HEAD
 
     # VIDEO 
     video/video_rop.c
-=======
     utils.c
 
     # Common
@@ -64,5 +62,4 @@ add_library(utils OBJECT
     crypto/twofish.c
     crypto/whirlpool.c
 
->>>>>>> 38b6712eca73a65f008bf9bdae198fda5a2ec272
 )
