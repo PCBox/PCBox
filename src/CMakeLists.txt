@@ -134,6 +134,7 @@ target_link_libraries(PCBox
     scsi
     sio
     snd
+    mdsx_dll
     utils
     vid
     voodoo
