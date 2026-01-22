@@ -8,14 +8,13 @@
  *
  *          Implementation of the OPTi 82C802G/82C895 chipset.
  *
- *
- *
  * Authors: Tiseno100,
  *          Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2008-2020 Tiseno100.
  *          Copyright 2016-2020 Miran Grca.
  */
+#include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -182,6 +181,27 @@ opti895_write(uint16_t addr, uint8_t val, void *priv)
                         smram_state_change(dev->smram, 0, !!(val & 0x80));
                         break;
 
+                    case 0x25: {
+                        double bus_clk;
+                        switch (val & 0x03) {
+                            default:
+                            case 0x00:
+                                 bus_clk = cpu_busspeed / 6.0;
+                                 break;
+                            case 0x01:
+                                 bus_clk = cpu_busspeed / 5.0;
+                                 break;
+                            case 0x02:
+                                 bus_clk = cpu_busspeed / 4.0;
+                                 break;
+                            case 0x03:
+                                 bus_clk = cpu_busspeed / 3.0;
+                                 break;
+                        }
+                        cpu_set_isa_speed((int) round(bus_clk));
+                        break;
+                    }
+
                     case 0xe0:
                         if (!(val & 0x01))
                             dev->forced_green = 0;
@@ -259,8 +279,7 @@ opti895_close(void *priv)
 static void *
 opti895_init(const device_t *info)
 {
-    opti895_t *dev = (opti895_t *) malloc(sizeof(opti895_t));
-    memset(dev, 0, sizeof(opti895_t));
+    opti895_t *dev = (opti895_t *) calloc(1, sizeof(opti895_t));
 
     device_add(&port_92_device);
 
@@ -295,6 +314,8 @@ opti895_init(const device_t *info)
 
     smram_enable(dev->smram, 0x00030000, 0x000b0000, 0x00010000, 0, 1);
 
+    cpu_set_isa_speed((int) round(cpu_busspeed / 6.0));
+
     return dev;
 }
 
@@ -306,7 +327,7 @@ const device_t opti802g_device = {
     .init          = opti895_init,
     .close         = opti895_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -320,7 +341,7 @@ const device_t opti802g_pci_device = {
     .init          = opti895_init,
     .close         = opti895_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -334,7 +355,7 @@ const device_t opti895_device = {
     .init          = opti895_init,
     .close         = opti895_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

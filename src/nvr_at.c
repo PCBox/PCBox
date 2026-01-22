@@ -292,20 +292,21 @@
 
 #define RTC_REGS           14 /* number of registers */
 
-#define FLAG_NO_NMI        0x01
-#define FLAG_AMI_1992_HACK 0x02
-#define FLAG_AMI_1994_HACK 0x04
-#define FLAG_AMI_1995_HACK 0x08
-#define FLAG_P6RP4_HACK    0x10
-#define FLAG_PIIX4         0x20
-#define FLAG_MULTI_BANK    0x40
+#define FLAG_NO_NMI        0x001
+#define FLAG_AMI_1992_HACK 0x002
+#define FLAG_AMI_1994_HACK 0x004
+#define FLAG_AMI_1995_HACK 0x008
+#define FLAG_AMI_1999_HACK 0x010
+#define FLAG_P6RP4_HACK    0x020
+#define FLAG_PIIX4         0x040
+#define FLAG_MULTI_BANK    0x080
+#define FLAG_MARTIN_HACK   0x100
 
 typedef struct local_t {
     int8_t stat;
 
     uint8_t cent;
     uint8_t def;
-    uint8_t flags;
     uint8_t read_addr;
     uint8_t wp_0d;
     uint8_t wp_32;
@@ -318,6 +319,8 @@ typedef struct local_t {
 
     int16_t count;
     int16_t state;
+
+    uint16_t  flags;
 
     uint16_t  addr[8];
 
@@ -578,6 +581,8 @@ nvr_reg_common_write(uint16_t reg, uint8_t val, nvr_t *nvr, local_t *local)
         nvr->is_new = 0;
     if ((reg == 0x52) && (local->flags & FLAG_AMI_1995_HACK))
         nvr->is_new = 0;
+    if ((reg == 0x55) && (local->flags & FLAG_AMI_1999_HACK))
+        nvr->is_new = 0;
     if ((reg >= 0x38) && (reg <= 0x3f) && local->wp[0])
         return;
     if ((reg >= 0xb8) && (reg <= 0xbf) && local->wp[1])
@@ -635,6 +640,13 @@ nvr_reg_write(uint16_t reg, uint8_t val, void *priv)
             if ((reg == 0x32) && (local->cent == RTC_CENTURY_VIA) && local->wp_32)
                 break;
             nvr_reg_common_write(reg, val, nvr, local);
+            break;
+
+        case 0x39:
+            if (machines[machine].init == machine_at_bx6_init)
+                nvr_reg_common_write(reg, val | 0x08, nvr, local);
+            else
+                nvr_reg_common_write(reg, val, nvr, local);
             break;
 
         default: /* non-RTC registers are just NVRAM */
@@ -736,6 +748,13 @@ nvr_read(uint16_t addr, void *priv)
                 ret = REGD_VRT;
                 break;
 
+            case 0x11:
+                if (local->flags & FLAG_MARTIN_HACK)
+                    ret = nvr->regs[local->addr[addr_id]] | 0x02;
+                else
+                    ret = nvr->regs[local->addr[addr_id]];
+                break;
+
             case 0x2c:
                 if (!nvr->is_new && (local->flags & FLAG_AMI_1994_HACK))
                     ret = nvr->regs[local->addr[addr_id]] & 0x7f;
@@ -774,8 +793,27 @@ nvr_read(uint16_t addr, void *priv)
                         ret = checksum >> 8;
                     else
                         ret = checksum & 0xff;
+                } else if (!nvr->is_new && (local->flags & FLAG_MARTIN_HACK)) {
+                    for (i = 0x10; i <= 0x2d; i++) {
+                        if (i == 0x11)
+                            checksum += (nvr->regs[i] | 0x02);
+                        else
+                            checksum += nvr->regs[i];
+                    }
+                    if (local->addr[addr_id] == 0x2e)
+                        ret = checksum >> 8;
+                    else
+                        ret = checksum & 0xff;
                 } else
                     ret = nvr->regs[local->addr[addr_id]];
+                break;
+
+            case 0x39:
+                if (!(local->lock[local->addr[addr_id]] & 0x02)) {
+                    ret = nvr->regs[local->addr[addr_id]];
+                    if (machines[machine].init == machine_at_bx6_init)
+                        ret |= 0x08;
+                }
                 break;
 
             case 0x3e:
@@ -787,6 +825,20 @@ nvr_read(uint16_t addr, void *priv)
                     for (i = 0x40; i <= 0x7f; i++) {
                         if (i == 0x52)
                             checksum += (nvr->regs[i] & 0xf3);
+                        else
+                            checksum += nvr->regs[i];
+                    }
+                    if (local->addr[addr_id] == 0x3e)
+                        ret = checksum >> 8;
+                    else
+                        ret = checksum & 0xff;
+                } else if (!nvr->is_new && (local->flags & FLAG_AMI_1999_HACK)) {
+                    /* The checksum at 3E-3F is for 37-3D and 40-73. */
+                    for (i = 0x37; i <= 0x3d; i++)
+                        checksum += nvr->regs[i];
+                    for (i = 0x40; i <= 0x73; i++) {
+                        if (i == 0x55)
+                            checksum += (nvr->regs[i] & 0xfc);
                         else
                             checksum += nvr->regs[i];
                     }
@@ -822,6 +874,13 @@ nvr_read(uint16_t addr, void *priv)
             case 0x52:
                 if (!nvr->is_new && (local->flags & FLAG_AMI_1995_HACK))
                     ret = nvr->regs[local->addr[addr_id]] & 0xf3;
+                else
+                    ret = nvr->regs[local->addr[addr_id]];
+                break;
+
+            case 0x55:
+                if (!nvr->is_new && (local->flags & FLAG_AMI_1999_HACK))
+                    ret = nvr->regs[local->addr[addr_id]] & 0xfc;
                 else
                     ret = nvr->regs[local->addr[addr_id]];
                 break;
@@ -1135,9 +1194,10 @@ nvr_at_init(const device_t *info)
         case 1: /* standard AT */
         case 5: /* AMI WinBIOS 1994 */
         case 6: /* AMI BIOS 1995 */
-            if ((info->local & 0x1f) == 0x11)
+            if ((info->local & 0x1f) == 0x11) {
                 local->flags |= FLAG_PIIX4;
-            else {
+                local->def = 0x00;
+            } else {
                 local->def = 0x00;
                 if ((info->local & 0x1f) == 0x15)
                     local->flags |= FLAG_AMI_1994_HACK;
@@ -1170,9 +1230,11 @@ nvr_at_init(const device_t *info)
             if (info->local & 0x10) {
                 local->def = 0x00;
                 local->flags |= FLAG_AMI_1992_HACK;
-            } else if (info->local == 36)
+            } else if ((info->local == 36) || (info->local == 68)) {
                 local->def = 0x00;
-            else
+                if (info->local == 68)
+                    local->flags |= FLAG_MARTIN_HACK;
+            } else
                 local->def = 0xff;
             nvr->irq    = 8;
             local->cent = RTC_CENTURY_AT;
@@ -1183,8 +1245,15 @@ nvr_at_init(const device_t *info)
             local->cent = RTC_CENTURY_VIA;
             break;
         case 8: /* Epson Equity LT */
-            nvr->irq    = -1;
-            local->cent = RTC_CENTURY_ELT;
+            if ((info->local & 0x1f) == 0x18) {
+                local->flags |= (FLAG_PIIX4 | FLAG_AMI_1999_HACK);
+                local->def = 0x00;
+                nvr->irq    = 8;
+                local->cent = RTC_CENTURY_AT;
+            } else {
+                nvr->irq    = -1;
+                local->cent = RTC_CENTURY_ELT;
+            }
             break;
 
         default:
@@ -1193,6 +1262,9 @@ nvr_at_init(const device_t *info)
 
     if (info->local & 0x20)
         local->def = 0x00;
+
+    if (machines[machine].init == machine_at_monsoon_init)
+        local->def = 0xff;
 
     if (info->local & 0x40)
         local->flags |= FLAG_MULTI_BANK;
@@ -1206,6 +1278,9 @@ nvr_at_init(const device_t *info)
 
     /* Initialize the generic NVR. */
     nvr_init(nvr);
+
+    if (nvr->is_new && (local->flags & FLAG_MARTIN_HACK))
+        nvr->regs[0x11] = nvr->regs[0x2f] = 0x02;
 
     if (nvr_at_inited == 0) {
         /* Start the timers. */
@@ -1226,13 +1301,21 @@ nvr_at_init(const device_t *info)
             io_sethandler(0x0070, 2,
                           nvr_read, NULL, NULL, nvr_write, NULL, NULL, nvr);
         }
-        if (((info->local & 0x1f) == 0x11) || ((info->local & 0x1f) == 0x17)) {
+        if (((info->local & 0x1f) == 0x11) || ((info->local & 0x1f) == 0x17) ||
+            ((info->local & 0x1f) == 0x18)) {
             io_sethandler(0x0072, 2,
                           nvr_read, NULL, NULL, nvr_write, NULL, NULL, nvr);
         }
 
         nvr_at_inited = 1;
     }
+
+    /* This is a hack but it is required for the machine to boot properly, no idea why. */
+    if (nvr->is_new && (machines[machine].init == machine_at_spitfire_init))
+        nvr->regs[0x33] = nvr->regs[0x34] = 0xff;
+
+    if (nvr->is_new && (machines[machine].init == machine_at_bx6_init))
+        nvr->regs[0x39] = 0x09;
 
     return nvr;
 }
@@ -1266,12 +1349,12 @@ nvr_at_close(void *priv)
 const device_t at_nvr_old_device = {
     .name          = "PC/AT NVRAM (No century)",
     .internal_name = "at_nvr_old",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1280,12 +1363,12 @@ const device_t at_nvr_old_device = {
 const device_t at_nvr_device = {
     .name          = "PC/AT NVRAM",
     .internal_name = "at_nvr",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 1,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1294,12 +1377,12 @@ const device_t at_nvr_device = {
 const device_t at_mb_nvr_device = {
     .name          = "PC/AT NVRAM",
     .internal_name = "at_nvr",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0x40 | 0x20 | 1,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1308,12 +1391,12 @@ const device_t at_mb_nvr_device = {
 const device_t ps_nvr_device = {
     .name          = "PS/1 or PS/2 NVRAM",
     .internal_name = "ps_nvr",
-    .flags         = DEVICE_PS2,
+    .flags         = DEVICE_ISA16,
     .local         = 2,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1322,12 +1405,12 @@ const device_t ps_nvr_device = {
 const device_t amstrad_nvr_device = {
     .name          = "Amstrad NVRAM",
     .internal_name = "amstrad_nvr",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 3,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1336,12 +1419,12 @@ const device_t amstrad_nvr_device = {
 const device_t ibmat_nvr_device = {
     .name          = "IBM AT NVRAM",
     .internal_name = "ibmat_nvr",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 4,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1350,12 +1433,12 @@ const device_t ibmat_nvr_device = {
 const device_t piix4_nvr_device = {
     .name          = "Intel PIIX4 PC/AT NVRAM",
     .internal_name = "piix4_nvr",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0x10 | 1,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1364,12 +1447,12 @@ const device_t piix4_nvr_device = {
 const device_t ps_no_nmi_nvr_device = {
     .name          = "PS/1 or PS/2 NVRAM (No NMI)",
     .internal_name = "ps1_nvr",
-    .flags         = DEVICE_PS2,
+    .flags         = DEVICE_ISA16,
     .local         = 0x10 | 2,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1378,12 +1461,12 @@ const device_t ps_no_nmi_nvr_device = {
 const device_t amstrad_no_nmi_nvr_device = {
     .name          = "Amstrad NVRAM (No NMI)",
     .internal_name = "amstrad_nvr",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0x10 | 3,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1392,12 +1475,12 @@ const device_t amstrad_no_nmi_nvr_device = {
 const device_t ami_1992_nvr_device = {
     .name          = "AMI Color 1992 PC/AT NVRAM",
     .internal_name = "ami_1992_nvr",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0x10 | 4,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1406,12 +1489,12 @@ const device_t ami_1992_nvr_device = {
 const device_t ami_1994_nvr_device = {
     .name          = "AMI WinBIOS 1994 PC/AT NVRAM",
     .internal_name = "ami_1994_nvr",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0x10 | 5,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1420,12 +1503,12 @@ const device_t ami_1994_nvr_device = {
 const device_t ami_1995_nvr_device = {
     .name          = "AMI WinBIOS 1995 PC/AT NVRAM",
     .internal_name = "ami_1995_nvr",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0x10 | 6,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1434,12 +1517,26 @@ const device_t ami_1995_nvr_device = {
 const device_t via_nvr_device = {
     .name          = "VIA PC/AT NVRAM",
     .internal_name = "via_nvr",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0x10 | 7,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
+    .speed_changed = nvr_at_speed_changed,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t piix4_ami_1995_nvr_device = {
+    .name          = "Intel PIIX4 AMI WinBIOS 1995 PC/AT NVRAM",
+    .internal_name = "piix4_ami_1995_nvr",
+    .flags         = DEVICE_ISA16,
+    .local         = 0x10 | 8,
+    .init          = nvr_at_init,
+    .close         = nvr_at_close,
+    .reset         = nvr_at_reset,
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1448,12 +1545,12 @@ const device_t via_nvr_device = {
 const device_t p6rp4_nvr_device = {
     .name          = "ASUS P/I-P6RP4 PC/AT NVRAM",
     .internal_name = "p6rp4_nvr",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 32,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1462,12 +1559,26 @@ const device_t p6rp4_nvr_device = {
 const device_t amstrad_megapc_nvr_device = {
     .name          = "Amstrad MegaPC NVRAM",
     .internal_name = "amstrad_megapc_nvr",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 36,
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
+    .speed_changed = nvr_at_speed_changed,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t martin_nvr_device = {
+    .name          = "Zeos Martin NVRAM",
+    .internal_name = "martin_nvr",
+    .flags         = DEVICE_ISA16,
+    .local         = 68,
+    .init          = nvr_at_init,
+    .close         = nvr_at_close,
+    .reset         = nvr_at_reset,
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1481,7 +1592,7 @@ const device_t elt_nvr_device = {
     .init          = nvr_at_init,
     .close         = nvr_at_close,
     .reset         = nvr_at_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = nvr_at_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL

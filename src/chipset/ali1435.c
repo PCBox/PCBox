@@ -7,8 +7,6 @@
  *          Emulation of ALi M1435 chipset that acts as both the
  *          southbridge.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2020 Miran Grca.
@@ -282,8 +280,7 @@ ali1435_close(void *priv)
 static void *
 ali1435_init(UNUSED(const device_t *info))
 {
-    ali1435_t *dev = (ali1435_t *) malloc(sizeof(ali1435_t));
-    memset(dev, 0, sizeof(ali1435_t));
+    ali1435_t *dev = (ali1435_t *) calloc(1, sizeof(ali1435_t));
 
     dev->cfg_locked = 1;
 
@@ -308,7 +305,7 @@ const device_t ali1435_device = {
     .init          = ali1435_init,
     .close         = ali1435_close,
     .reset         = ali1435_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

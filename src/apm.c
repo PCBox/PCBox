@@ -8,8 +8,6 @@
  *
  *          Advanced Power Management emulation.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2019 Miran Grca.
@@ -122,7 +120,7 @@ const device_t apm_device = {
     .init          = apm_init,
     .close         = apm_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -136,7 +134,7 @@ const device_t apm_pci_device = {
     .init          = apm_init,
     .close         = apm_close,
     .reset         = apm_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -150,7 +148,7 @@ const device_t apm_pci_acpi_device = {
     .init          = apm_init,
     .close         = apm_close,
     .reset         = apm_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

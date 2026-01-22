@@ -9,8 +9,6 @@
  *          Emulation of select Cirrus Logic cards (CL-GD 5428,
  *          CL-GD 5429, CL-GD 5430, CL-GD 5434 and CL-GD 5436 are supported).
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          tonioni,
  *          TheCollector1995,
@@ -33,6 +31,7 @@
 #include <86box/pci.h>
 #include <86box/rom.h>
 #include <86box/device.h>
+#include <86box/machine.h>
 #include <86box/timer.h>
 #include <86box/video.h>
 #include <86box/i2c.h>
@@ -44,6 +43,7 @@
 #include <86box/plat_unused.h>
 
 #define BIOS_GD5401_PATH                "roms/video/cirruslogic/avga1.rom"
+#define BIOS_GD5401_ONBOARD_PATH        "roms/machines/drsm35286/qpaw01-6658237d5e3c2611427518.bin"
 #define BIOS_GD5402_PATH                "roms/video/cirruslogic/avga2.rom"
 #define BIOS_GD5402_ONBOARD_PATH        "roms/machines/cmdsl386sx25/c000.rom"
 #define BIOS_GD5420_PATH                "roms/video/cirruslogic/5420.vbi"
@@ -259,6 +259,8 @@ typedef struct gd54xx_t {
     uint8_t irq_state;
 
     uint8_t pos_regs[8];
+
+    uint32_t vlb_lfb_base;
 
     uint32_t lfb_base;
     uint32_t vgablt_base;
@@ -572,7 +574,7 @@ gd54xx_overlay_draw(svga_t *svga, int displine)
     uint8_t        *src         = &svga->vram[(svga->overlay_latch.addr << shift) & svga->vram_mask];
     int             bpp         = svga->bpp;
     int             bytesperpix = (bpp + 7) / 8;
-    uint8_t        *src2        = &svga->vram[(svga->ma - (svga->hdisp * bytesperpix)) & svga->vram_display_mask];
+    uint8_t        *src2        = &svga->vram[(svga->memaddr - (svga->hdisp * bytesperpix)) & svga->vram_display_mask];
     int             occl;
     int             ckval;
 
@@ -766,6 +768,8 @@ gd54xx_out(uint16_t addr, uint8_t val, void *priv)
                             svga->seqregs[6] = 0x0f;
                         if (svga->crtc[0x27] < CIRRUS_ID_CLGD5429)
                             gd54xx->unlocked = (svga->seqregs[6] == 0x12);
+                        else
+                            gd54xx->unlocked = 1;
                         break;
                     case 0x08:
                         if (gd54xx->i2c)
@@ -1252,7 +1256,7 @@ gd54xx_out(uint16_t addr, uint8_t val, void *priv)
                 if (svga->crtcreg < 0xe || svga->crtcreg > 0x10) {
                     if ((svga->crtcreg == 0xc) || (svga->crtcreg == 0xd)) {
                         svga->fullchange = 3;
-                        svga->ma_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) +
+                        svga->memaddr_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) +
                                            ((svga->crtc[8] & 0x60) >> 5);
                     } else {
                         svga->fullchange = changeframecount;
@@ -1641,6 +1645,10 @@ gd54xx_in(uint16_t addr, void *priv)
                     case 0x24: /*Attribute controller toggle readback (R)*/
                         ret = svga->attrff << 7;
                         break;
+                    case 0x25: /* Part ID */
+                        if (svga->crtc[0x27] == CIRRUS_ID_CLGD5434)
+                            ret = 0xb0;
+                        break;
                     case 0x26: /*Attribute controller index readback (R)*/
                         ret = svga->attraddr & 0x3f;
                         break;
@@ -1699,6 +1707,7 @@ static void
 gd543x_recalc_mapping(gd54xx_t *gd54xx)
 {
     svga_t  *svga = &gd54xx->svga;
+    xga_t   *xga  = (xga_t *) svga->xga;
     uint32_t base;
     uint32_t size;
 
@@ -1725,6 +1734,10 @@ gd543x_recalc_mapping(gd54xx_t *gd54xx)
             case 0x4: /*64k at A0000*/
                 mem_mapping_set_addr(&svga->mapping, 0xa0000, 0x10000);
                 svga->banked_mask = 0xffff;
+                if (xga_active && (svga->xga != NULL)) {
+                    xga->on = 0;
+                    mem_mapping_set_handler(&svga->mapping, svga->read, svga->readw, svga->readl, svga->write, svga->writew, svga->writel);
+                }
                 break;
             case 0x8: /*32k at B0000*/
                 mem_mapping_set_addr(&svga->mapping, 0xb0000, 0x08000);
@@ -1750,7 +1763,8 @@ gd543x_recalc_mapping(gd54xx_t *gd54xx)
         } else
             mem_mapping_disable(&gd54xx->mmio_mapping);
     } else {
-        if ((svga->crtc[0x27] <= CIRRUS_ID_CLGD5429) || (!gd54xx->pci && !gd54xx->vlb)) {
+        if ((svga->crtc[0x27] <= CIRRUS_ID_CLGD5429) ||
+            (!gd54xx->pci && !gd54xx->vlb)) {
             if (svga->gdcreg[0x0b] & CIRRUS_BANKING_GRANULARITY_16K) {
                 base = (svga->seqregs[0x07] & 0xf0) << 16;
                 size = 1 * 1024 * 1024;
@@ -1770,7 +1784,10 @@ gd543x_recalc_mapping(gd54xx_t *gd54xx)
             else
                 size = 4 * 1024 * 1024;
         } else { /*VLB/ISA/MCA*/
-            base = 128 * 1024 * 1024;
+            if (gd54xx->vlb_lfb_base != 0x00000000)
+                base = gd54xx->vlb_lfb_base;
+            else
+                base = 128 * 1024 * 1024;
             if (svga->crtc[0x27] >= CIRRUS_ID_CLGD5436)
                 size = 16 * 1024 * 1024;
             else
@@ -1813,6 +1830,9 @@ gd54xx_recalctimings(svga_t *svga)
     uint8_t         clocksel;
     uint8_t         rdmask;
     uint8_t         linedbl = svga->dispend * 9 / 10 >= svga->hdisp;
+    uint8_t         m = 0;
+    int             d = 0;
+    int             n = 0;
 
     svga->hblankstart = svga->crtc[2];
 
@@ -1854,6 +1874,34 @@ gd54xx_recalctimings(svga_t *svga)
         svga->interlace = 0;
     }
 
+    clocksel = (svga->miscout >> 2) & 3;
+
+    if (!gd54xx->vclk_n[clocksel] || !gd54xx->vclk_d[clocksel])
+        svga->clock = (cpuclock * (float) (1ULL << 32)) /
+                      ((svga->miscout & 0xc) ? 28322000.0 : 25175000.0);
+    else {
+        n    = gd54xx->vclk_n[clocksel] & 0x7f;
+        d    = (gd54xx->vclk_d[clocksel] & 0x3e) >> 1;
+        m    = gd54xx->vclk_d[clocksel] & 0x01 ? 2 : 1;
+        float   freq = (14318184.0F * ((float) n / ((float) d * m)));
+        if (gd54xx_is_5422(svga)) {
+            switch (svga->seqregs[0x07] & (gd54xx_is_5434(svga) ? 0xe : 6)) {
+                case 2:
+                    freq /= 2.0F;
+                    break;
+                case 4:
+                    if (!gd54xx_is_5434(svga))
+                        freq /= 3.0F;
+                    break;
+
+                default:
+                    break;
+            }
+        }
+        svga->clock = (cpuclock * (double) (1ULL << 32)) / freq;
+    }
+
+    svga->bpp = 8;
     svga->map8 = svga->pallook;
     if (svga->seqregs[0x07] & CIRRUS_SR7_BPP_SVGA) {
         if (linedbl)
@@ -1863,14 +1911,13 @@ gd54xx_recalctimings(svga_t *svga)
             if ((svga->dispend == 512) && !svga->interlace && gd54xx_is_5434(svga)) {
                 svga->hdisp <<= 1;
                 svga->dots_per_clock <<= 1;
+                svga->clock *= 2.0;
             }
         }
     } else if (svga->gdcreg[5] & 0x40)
         svga->render = svga_render_8bpp_lowres;
 
-    svga->ma_latch |= ((svga->crtc[0x1b] & 0x01) << 16) | ((svga->crtc[0x1b] & 0xc) << 15);
-
-    svga->bpp = 8;
+    svga->memaddr_latch |= ((svga->crtc[0x1b] & 0x01) << 16) | ((svga->crtc[0x1b] & 0xc) << 15);
 
     if (gd54xx->ramdac.ctrl & 0x80) {
         if (gd54xx->ramdac.ctrl & 0x40) {
@@ -2010,33 +2057,6 @@ gd54xx_recalctimings(svga_t *svga)
                     svga->render = svga_render_15bpp_highres;
             }
         }
-    }
-
-    clocksel = (svga->miscout >> 2) & 3;
-
-    if (!gd54xx->vclk_n[clocksel] || !gd54xx->vclk_d[clocksel])
-        svga->clock = (cpuclock * (float) (1ULL << 32)) /
-                      ((svga->miscout & 0xc) ? 28322000.0 : 25175000.0);
-    else {
-        int     n    = gd54xx->vclk_n[clocksel] & 0x7f;
-        int     d    = (gd54xx->vclk_d[clocksel] & 0x3e) >> 1;
-        uint8_t m    = gd54xx->vclk_d[clocksel] & 0x01 ? 2 : 1;
-        float   freq = (14318184.0F * ((float) n / ((float) d * m)));
-        if (gd54xx_is_5422(svga)) {
-            switch (svga->seqregs[0x07] & (gd54xx_is_5434(svga) ? 0xe : 6)) {
-                case 2:
-                    freq /= 2.0F;
-                    break;
-                case 4:
-                    if (!gd54xx_is_5434(svga))
-                        freq /= 3.0F;
-                    break;
-
-                default:
-                    break;
-            }
-        }
-        svga->clock = (cpuclock * (double) (1ULL << 32)) / freq;
     }
 
     svga->vram_display_mask = (svga->crtc[0x1b] & 2) ? gd54xx->vram_mask : 0x3ffff;
@@ -2257,8 +2277,8 @@ gd54xx_mem_sys_src_write(gd54xx_t *gd54xx, uint8_t val, uint8_t ap)
 static void
 gd54xx_write(uint32_t addr, uint8_t val, void *priv)
 {
-    gd54xx_t *gd54xx = (gd54xx_t *) priv;
-    svga_t   *svga   = &gd54xx->svga;
+    svga_t   *svga   = (svga_t *) priv;
+    gd54xx_t *gd54xx = (gd54xx_t *) svga->local;
 
     if (gd54xx->countminusone && !gd54xx->blt.ms_is_dest &&
         !(gd54xx->blt.status & CIRRUS_BLT_PAUSED)) {
@@ -2276,16 +2296,16 @@ gd54xx_write(uint32_t addr, uint8_t val, void *priv)
 static void
 gd54xx_writew(uint32_t addr, uint16_t val, void *priv)
 {
-    gd54xx_t *gd54xx = (gd54xx_t *) priv;
-    svga_t   *svga   = &gd54xx->svga;
+    svga_t   *svga   = (svga_t *) priv;
+    gd54xx_t *gd54xx = (gd54xx_t *) svga->local;
 
     if (gd54xx->countminusone && !gd54xx->blt.ms_is_dest &&
         !(gd54xx->blt.status & CIRRUS_BLT_PAUSED)) {
         if ((gd54xx->blt.mode & CIRRUS_BLTMODE_COLOREXPAND) && (gd54xx->blt.modeext & CIRRUS_BLTMODEEXT_DWORDGRANULARITY))
             val = (val >> 8) | (val << 8);
 
-        gd54xx_write(addr, val, gd54xx);
-        gd54xx_write(addr + 1, val >> 8, gd54xx);
+        gd54xx_write(addr, val, svga);
+        gd54xx_write(addr + 1, val >> 8, svga);
         return;
     }
 
@@ -2306,18 +2326,18 @@ gd54xx_writew(uint32_t addr, uint16_t val, void *priv)
 static void
 gd54xx_writel(uint32_t addr, uint32_t val, void *priv)
 {
-    gd54xx_t *gd54xx = (gd54xx_t *) priv;
-    svga_t   *svga   = &gd54xx->svga;
+    svga_t   *svga   = (svga_t *) priv;
+    gd54xx_t *gd54xx = (gd54xx_t *) svga->local;
 
     if (gd54xx->countminusone && !gd54xx->blt.ms_is_dest &&
         !(gd54xx->blt.status & CIRRUS_BLT_PAUSED)) {
         if ((gd54xx->blt.mode & CIRRUS_BLTMODE_COLOREXPAND) && (gd54xx->blt.modeext & CIRRUS_BLTMODEEXT_DWORDGRANULARITY))
             val = ((val & 0xff000000) >> 24) | ((val & 0x00ff0000) >> 8) | ((val & 0x0000ff00) << 8) | ((val & 0x000000ff) << 24);
 
-        gd54xx_write(addr, val, gd54xx);
-        gd54xx_write(addr + 1, val >> 8, gd54xx);
-        gd54xx_write(addr + 2, val >> 16, gd54xx);
-        gd54xx_write(addr + 3, val >> 24, gd54xx);
+        gd54xx_write(addr, val, svga);
+        gd54xx_write(addr + 1, val >> 8, svga);
+        gd54xx_write(addr + 2, val >> 16, svga);
+        gd54xx_write(addr + 3, val >> 24, svga);
         return;
     }
 
@@ -2875,8 +2895,8 @@ gd54xx_writel_linear(uint32_t addr, uint32_t val, void *priv)
 static uint8_t
 gd54xx_read(uint32_t addr, void *priv)
 {
-    gd54xx_t *gd54xx = (gd54xx_t *) priv;
-    svga_t   *svga   = &gd54xx->svga;
+    svga_t   *svga   = (svga_t *) priv;
+    gd54xx_t *gd54xx = (gd54xx_t *) svga->local;
 
     if (gd54xx->countminusone && gd54xx->blt.ms_is_dest &&
         !(gd54xx->blt.status & CIRRUS_BLT_PAUSED))
@@ -2892,14 +2912,14 @@ gd54xx_read(uint32_t addr, void *priv)
 static uint16_t
 gd54xx_readw(uint32_t addr, void *priv)
 {
-    gd54xx_t *gd54xx = (gd54xx_t *) priv;
-    svga_t   *svga   = &gd54xx->svga;
+    svga_t   *svga   = (svga_t *) priv;
+    gd54xx_t *gd54xx = (gd54xx_t *) svga->local;
     uint16_t  ret;
 
     if (gd54xx->countminusone && gd54xx->blt.ms_is_dest &&
         !(gd54xx->blt.status & CIRRUS_BLT_PAUSED)) {
-        ret = gd54xx_read(addr, priv);
-        ret |= gd54xx_read(addr + 1, priv) << 8;
+        ret = gd54xx_read(addr, svga);
+        ret |= gd54xx_read(addr + 1, svga) << 8;
         return ret;
     }
 
@@ -2914,16 +2934,16 @@ gd54xx_readw(uint32_t addr, void *priv)
 static uint32_t
 gd54xx_readl(uint32_t addr, void *priv)
 {
-    gd54xx_t *gd54xx = (gd54xx_t *) priv;
-    svga_t   *svga   = &gd54xx->svga;
+    svga_t   *svga   = (svga_t *) priv;
+    gd54xx_t *gd54xx = (gd54xx_t *) svga->local;
     uint32_t  ret;
 
     if (gd54xx->countminusone && gd54xx->blt.ms_is_dest &&
         !(gd54xx->blt.status & CIRRUS_BLT_PAUSED)) {
-        ret = gd54xx_read(addr, priv);
-        ret |= gd54xx_read(addr + 1, priv) << 8;
-        ret |= gd54xx_read(addr + 2, priv) << 16;
-        ret |= gd54xx_read(addr + 3, priv) << 24;
+        ret = gd54xx_read(addr, svga);
+        ret |= gd54xx_read(addr + 1, svga) << 8;
+        ret |= gd54xx_read(addr + 2, svga) << 16;
+        ret |= gd54xx_read(addr + 3, svga) << 24;
         return ret;
     }
 
@@ -3114,7 +3134,7 @@ gd543x_mmio_write(uint32_t addr, uint8_t val, void *priv)
                 break;
         }
     } else if (gd54xx->mmio_vram_overlap)
-        gd54xx_write(addr, val, gd54xx);
+        gd54xx_write(addr, val, svga);
 }
 
 static void
@@ -3147,8 +3167,8 @@ gd543x_mmio_writew(uint32_t addr, uint16_t val, void *priv)
             gd543x_mmio_write(addr, val & 0xff, gd54xx);
             gd543x_mmio_write(addr + 1, val >> 8, gd54xx);
         } else {
-            gd54xx_write(addr, val, gd54xx);
-            gd54xx_write(addr + 1, val >> 8, gd54xx);
+            gd54xx_write(addr, val, svga);
+            gd54xx_write(addr + 1, val >> 8, svga);
         }
     }
 }
@@ -3172,10 +3192,10 @@ gd543x_mmio_writel(uint32_t addr, uint32_t val, void *priv)
             gd543x_mmio_write(addr + 2, val >> 16, gd54xx);
             gd543x_mmio_write(addr + 3, val >> 24, gd54xx);
         } else {
-            gd54xx_write(addr, val, gd54xx);
-            gd54xx_write(addr + 1, val >> 8, gd54xx);
-            gd54xx_write(addr + 2, val >> 16, gd54xx);
-            gd54xx_write(addr + 3, val >> 24, gd54xx);
+            gd54xx_write(addr, val, svga);
+            gd54xx_write(addr + 1, val >> 8, svga);
+            gd54xx_write(addr + 2, val >> 16, svga);
+            gd54xx_write(addr + 3, val >> 24, svga);
         }
     }
 }
@@ -3314,7 +3334,7 @@ gd543x_mmio_read(uint32_t addr, void *priv)
                 break;
         }
     } else if (gd54xx->mmio_vram_overlap)
-        ret = gd54xx_read(addr, gd54xx);
+        ret = gd54xx_read(addr, svga);
     else if (gd54xx->countminusone && gd54xx->blt.ms_is_dest &&
              !(gd54xx->blt.status & CIRRUS_BLT_PAUSED))
         ret = gd54xx_mem_sys_dest_read(gd54xx, 0);
@@ -3332,7 +3352,7 @@ gd543x_mmio_readw(uint32_t addr, void *priv)
     if (gd543x_do_mmio(svga, addr))
         ret = gd543x_mmio_read(addr, gd54xx) | (gd543x_mmio_read(addr + 1, gd54xx) << 8);
     else if (gd54xx->mmio_vram_overlap)
-        ret = gd54xx_read(addr, gd54xx) | (gd54xx_read(addr + 1, gd54xx) << 8);
+        ret = gd54xx_read(addr, svga) | (gd54xx_read(addr + 1, svga) << 8);
     else if (gd54xx->countminusone && gd54xx->blt.ms_is_dest &&
              !(gd54xx->blt.status & CIRRUS_BLT_PAUSED)) {
         ret = gd543x_mmio_read(addr, priv);
@@ -3355,7 +3375,7 @@ gd543x_mmio_readl(uint32_t addr, void *priv)
               (gd543x_mmio_read(addr + 2, gd54xx) << 16) |
               (gd543x_mmio_read(addr + 3, gd54xx) << 24);
     else if (gd54xx->mmio_vram_overlap)
-        ret = gd54xx_read(addr, gd54xx) | (gd54xx_read(addr + 1, gd54xx) << 8) |
+        ret = gd54xx_read(addr, svga) | (gd54xx_read(addr + 1, svga) << 8) |
               (gd54xx_read(addr + 2, gd54xx) << 16) | (gd54xx_read(addr + 3, gd54xx) << 24);
     else if (gd54xx->countminusone && gd54xx->blt.ms_is_dest &&
              !(gd54xx->blt.status & CIRRUS_BLT_PAUSED)) {
@@ -4153,7 +4173,6 @@ gd54xx_reset(void *priv)
 
     memset(gd54xx->pci_regs, 0x00, 256);
 
-    mem_mapping_set_p(&svga->mapping, gd54xx);
     mem_mapping_disable(&gd54xx->mmio_mapping);
     mem_mapping_disable(&gd54xx->linear_mapping);
     mem_mapping_disable(&gd54xx->aperture2_mapping);
@@ -4204,15 +4223,13 @@ gd54xx_reset(void *priv)
 static void *
 gd54xx_init(const device_t *info)
 {
-    gd54xx_t   *gd54xx = malloc(sizeof(gd54xx_t));
+    gd54xx_t   *gd54xx = calloc(1, sizeof(gd54xx_t));
     svga_t     *svga   = &gd54xx->svga;
     int         id     = info->local & 0xff;
     int         vram;
     const char *romfn  = NULL;
     const char *romfn1 = NULL;
     const char *romfn2 = NULL;
-
-    memset(gd54xx, 0, sizeof(gd54xx_t));
 
     gd54xx->pci   = !!(info->flags & DEVICE_PCI);
     gd54xx->vlb   = !!(info->flags & DEVICE_VLB);
@@ -4224,10 +4241,19 @@ gd54xx_init(const device_t *info)
 
     gd54xx->id = id;
 
+    if (gd54xx->vlb && ((gd54xx->id == CIRRUS_ID_CLGD5430) ||
+                        (gd54xx->id == CIRRUS_ID_CLGD5434) ||
+                        (gd54xx->id == CIRRUS_ID_CLGD5434_4) ||
+                        (gd54xx->id == CIRRUS_ID_CLGD5440)))
+        gd54xx->vlb_lfb_base = device_get_config_int("lfb_base") << 20;
+
     switch (id) {
         case CIRRUS_ID_CLGD5401:
-            romfn = BIOS_GD5401_PATH;
-            break;
+        if (info->local & 0x100)
+                romfn = BIOS_GD5401_ONBOARD_PATH;
+            else
+				romfn = BIOS_GD5401_PATH;
+			break;
 
         case CIRRUS_ID_CLGD5402:
             if (info->local & 0x200)
@@ -4237,12 +4263,21 @@ gd54xx_init(const device_t *info)
             break;
 
         case CIRRUS_ID_CLGD5420:
-            romfn = BIOS_GD5420_PATH;
+            if (info->local & 0x200)
+                romfn = NULL;
+            else
+                romfn = BIOS_GD5420_PATH;
             break;
 
         case CIRRUS_ID_CLGD5422:
-        case CIRRUS_ID_CLGD5424:
             romfn = BIOS_GD5422_PATH;
+            break;
+
+        case CIRRUS_ID_CLGD5424:
+            if (info->local & 0x200)
+                romfn = /*NULL*/ "roms/machines/advantage40xxd/AST101.09A";
+            else
+                romfn = BIOS_GD5422_PATH;
             break;
 
         case CIRRUS_ID_CLGD5426:
@@ -4263,7 +4298,10 @@ gd54xx_init(const device_t *info)
             break;
 
         case CIRRUS_ID_CLGD5428:
-            if (info->local & 0x100)
+            if (info->local & 0x200) {
+                romfn            = NULL;
+                gd54xx->has_bios = 0;
+            } else if (info->local & 0x100)
                 if (gd54xx->vlb)
                     romfn = BIOS_GD5428_DIAMOND_B1_VLB_PATH;
                 else {
@@ -4307,7 +4345,8 @@ gd54xx_init(const device_t *info)
             break;
 
         case CIRRUS_ID_CLGD5436:
-            if (info->local & 0x200) {
+            if ((info->local & 0x200) &&
+                (machines[machine].init != machine_at_sb486pv_init)) {
                 romfn            = NULL;
                 gd54xx->has_bios = 0;
             } else
@@ -4382,7 +4421,7 @@ gd54xx_init(const device_t *info)
         rom_init_interleaved(&gd54xx->bios_rom, BIOS_GD5428_BOCA_ISA_PATH_1, BIOS_GD5428_BOCA_ISA_PATH_2, 0xc0000,
                              0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
 
-    if (info->flags & DEVICE_ISA)
+    if ((info->flags & DEVICE_ISA) || (info->flags & DEVICE_ISA16))
         video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_gd54xx_isa);
     else if (info->flags & DEVICE_PCI)
         video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_gd54xx_pci);
@@ -4403,7 +4442,13 @@ gd54xx_init(const device_t *info)
     if ((vram == 1) || (vram >= 256 && vram <= 1024))
         svga->decode_mask = gd54xx->vram_mask;
 
+    svga->read = gd54xx_read;
+    svga->readw = gd54xx_readw;
+    svga->write = gd54xx_write;
+    svga->writew = gd54xx_writew;
     if (gd54xx->bit32) {
+        svga->readl = gd54xx_readl;
+        svga->writel = gd54xx_writel;
         mem_mapping_set_handler(&svga->mapping, gd54xx_read, gd54xx_readw, gd54xx_readl,
                                 gd54xx_write, gd54xx_writew, gd54xx_writel);
         mem_mapping_add(&gd54xx->mmio_mapping, 0, 0,
@@ -4423,6 +4468,8 @@ gd54xx_init(const device_t *info)
                         gd5480_vgablt_write, gd5480_vgablt_writew, gd5480_vgablt_writel,
                         NULL, MEM_MAPPING_EXTERNAL, gd54xx);
     } else {
+        svga->readl = NULL;
+        svga->writel = NULL;
         mem_mapping_set_handler(&svga->mapping, gd54xx_read, gd54xx_readw, NULL,
                                 gd54xx_write, gd54xx_writew, NULL);
         mem_mapping_add(&gd54xx->mmio_mapping, 0, 0,
@@ -4444,8 +4491,8 @@ gd54xx_init(const device_t *info)
     }
     io_sethandler(0x03c0, 0x0020, gd54xx_in, NULL, NULL, gd54xx_out, NULL, NULL, gd54xx);
 
-    if (gd54xx->pci && id >= CIRRUS_ID_CLGD5430) {
-        if (romfn == NULL)
+    if (gd54xx->pci && (id >= CIRRUS_ID_CLGD5430)) {
+        if (info->local & 0x200)
             pci_add_card(PCI_ADD_VIDEO, cl_pci_read, cl_pci_write, gd54xx, &gd54xx->pci_slot);
         else
             pci_add_card(PCI_ADD_NORMAL, cl_pci_read, cl_pci_write, gd54xx, &gd54xx->pci_slot);
@@ -4455,7 +4502,6 @@ gd54xx_init(const device_t *info)
     if ((id <= CIRRUS_ID_CLGD5429) || (!gd54xx->pci && !gd54xx->vlb))
         mem_mapping_set_base_ignore(&gd54xx->linear_mapping, 0xff000000);
 
-    mem_mapping_set_p(&svga->mapping, gd54xx);
     mem_mapping_disable(&gd54xx->mmio_mapping);
     mem_mapping_disable(&gd54xx->linear_mapping);
     mem_mapping_disable(&gd54xx->aperture2_mapping);
@@ -4517,6 +4563,8 @@ gd54xx_init(const device_t *info)
         gd54xx->crtcreg_mask = 0x3f;
 
     gd54xx->overlay.colorkeycompare = 0xff;
+
+    svga->local = gd54xx;
 
     return gd54xx;
 }
@@ -4693,218 +4741,209 @@ gd54xx_force_redraw(void *priv)
 // clang-format off
 static const device_config_t gd542x_config[] = {
     {
-        .name = "memory",
-        .description = "Memory size",
-        .type = CONFIG_SELECTION,
-        .selection = {
-            {
-                .description = "512 KB",
-                .value = 512
-            },
-            {
-                .description = "1 MB",
-                .value = 1024
-            },
-            {
-                .description = ""
-            }
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 512,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "512 KB", .value =  512 },
+            { .description = "1 MB",   .value = 1024 },
+            { .description = ""                      }
         },
-        .default_int = 512
+        .bios           = { { 0 } }
     },
-    {
-        .type = CONFIG_END
-    }
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 
 static const device_config_t gd5426_config[] = {
     {
-        .name = "memory",
-        .description = "Memory size",
-        .type = CONFIG_SELECTION,
-        .selection = {
-            {
-                .description = "512 KB",
-                .value = 512
-            },
-            {
-                .description = "1 MB",
-                .value = 1024
-            },
-            {
-                .description = "2 MB",
-                .value = 2048
-            },
-            {
-                .description = ""
-            }
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2048,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "512 KB", .value =  512 },
+            { .description = "1 MB",   .value = 1024 },
+            { .description = "2 MB",   .value = 2048 },
+            { .description = ""                      }
         },
-        .default_int = 2048
+        .bios           = { { 0 } }
     },
-    {
-        .type = CONFIG_END
-    }
-};
-
-static const device_config_t gd5428_onboard_config[] = {
-    {
-        .name = "memory",
-        .description = "Memory size",
-        .type = CONFIG_SELECTION,
-        .selection = {
-            {
-                .description = "512 KB",
-                .value = 512
-            },
-            {
-                .description = "1 MB",
-                .value = 1024
-            },
-            {
-                .description = "2 MB",
-                .value = 2048
-            },
-            {
-                .description = ""
-            }
-        },
-        .default_int = 2048
-    },
-    {
-        .type = CONFIG_END
-    }
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 
 static const device_config_t gd5429_config[] = {
     {
-        .name = "memory",
-        .description = "Memory size",
-        .type = CONFIG_SELECTION,
-        .selection = {
-            {
-                .description = "1 MB",
-                .value = 1
-            },
-            {
-                .description = "2 MB",
-                .value = 2
-            },
-            {
-                .description = ""
-            }
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1 MB", .value = 1 },
+            { .description = "2 MB", .value = 2 },
+            { .description = ""                 }
         },
-        .default_int = 2
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
+static const device_config_t gd5430_vlb_config[] = {
+    {
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1 MB", .value = 1 },
+            { .description = "2 MB", .value = 2 },
+            { .description = ""                 }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .type = CONFIG_END
-    }
+        .name           = "lfb_base",
+        .description    = "Linear framebuffer base",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2048,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "32 MB", .value = 32 },
+            { .description = "64 MB", .value = 64 },
+            { .description = "2048 MB", .value = 2048 },
+            { .description = ""                 }
+        },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 
 static const device_config_t gd5440_onboard_config[] = {
     {
-        .name = "memory",
-        .description = "Memory size",
-        .type = CONFIG_SELECTION,
-        .selection = {
-            {
-                .description = "1 MB",
-                .value = 1
-            },
-            {
-                .description = "2 MB",
-                .value = 2
-            },
-            {
-                .description = ""
-            }
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1 MB", .value = 1 },
+            { .description = "2 MB", .value = 2 },
+            { .description = ""                 }
         },
-        .default_int = 2
+        .bios           = { { 0 } }
     },
-    {
-        .type = CONFIG_END
-    }
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 
 static const device_config_t gd5434_config[] = {
     {
-        .name = "memory",
-        .description = "Memory size",
-        .type = CONFIG_SELECTION,
-        .selection = {
-            {
-                .description = "1 MB",
-                .value = 1
-            },
-            {
-                .description = "2 MB",
-                .value = 2
-            },
-            {
-                .description = "4 MB",
-                .value = 4
-            },
-            {
-                .description = ""
-            }
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 4,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1 MB", .value = 1 },
+            { .description = "2 MB", .value = 2 },
+            { .description = "4 MB", .value = 4 },
+            { .description = ""                 }
         },
-        .default_int = 4
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
+static const device_config_t gd5434_vlb_config[] = {
+    {
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 4,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1 MB", .value = 1 },
+            { .description = "2 MB", .value = 2 },
+            { .description = "4 MB", .value = 4 },
+            { .description = ""                 }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .type = CONFIG_END
-    }
+        .name           = "lfb_base",
+        .description    = "Linear framebuffer base",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2048,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "32 MB", .value = 32 },
+            { .description = "64 MB", .value = 64 },
+            { .description = "2048 MB", .value = 2048 },
+            { .description = ""                 }
+        },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 
 static const device_config_t gd5434_onboard_config[] = {
     {
-        .name = "memory",
-        .description = "Memory size",
-        .type = CONFIG_SELECTION,
-        .selection = {
-            {
-                .description = "1 MB",
-                .value = 1
-            },
-            {
-                .description = "2 MB",
-                .value = 2
-            },
-            {
-                .description = "4 MB",
-                .value = 4
-            },
-            {
-                .description = ""
-            }
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 4,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1 MB", .value = 1 },
+            { .description = "2 MB", .value = 2 },
+            { .description = "4 MB", .value = 4 },
+            { .description = ""                 }
         },
-        .default_int = 4
+        .bios           = { { 0 } }
     },
-    {
-        .type = CONFIG_END
-    }
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 
 static const device_config_t gd5480_config[] = {
     {
-        .name = "memory",
-        .description = "Memory size",
-        .type = CONFIG_SELECTION,
-        .selection = {
-            {
-                .description = "2 MB",
-                .value = 2
-            },
-            {
-                .description = "4 MB",
-                .value = 4
-            },
-            {
-                .description = ""
-            }
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 4,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "2 MB", .value = 2 },
+            { .description = "4 MB", .value = 4 },
+            { .description = ""                 }
         },
-        .default_int = 4
+        .bios           = { { 0 } }
     },
-    {
-        .type = -1
-    }
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 // clang-format on
 
@@ -4916,7 +4955,21 @@ const device_t gd5401_isa_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5401_available },
+    .available     = gd5401_available,
+    .speed_changed = gd54xx_speed_changed,
+    .force_redraw  = gd54xx_force_redraw,
+    .config        = NULL,
+};
+
+const device_t gd5401_onboard_device = {
+    .name          = "Cirrus Logic GD5401 (ISA) (ACUMOS AVGA1) (On-Board)",
+    .internal_name = "cl_gd5402_onboard",
+    .flags         = DEVICE_ISA16,
+    .local         = CIRRUS_ID_CLGD5401 | 0x100,
+    .init          = gd54xx_init,
+    .close         = gd54xx_close,
+    .reset         = gd54xx_reset,
+    .available     = NULL,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = NULL,
@@ -4930,7 +4983,7 @@ const device_t gd5402_isa_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5402_available },
+    .available     = gd5402_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = NULL,
@@ -4939,12 +4992,12 @@ const device_t gd5402_isa_device = {
 const device_t gd5402_onboard_device = {
     .name          = "Cirrus Logic GD5402 (ISA) (ACUMOS AVGA2) (On-Board)",
     .internal_name = "cl_gd5402_onboard",
-    .flags         = DEVICE_AT | DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = CIRRUS_ID_CLGD5402 | 0x200,
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = NULL,
@@ -4953,12 +5006,26 @@ const device_t gd5402_onboard_device = {
 const device_t gd5420_isa_device = {
     .name          = "Cirrus Logic GD5420 (ISA)",
     .internal_name = "cl_gd5420_isa",
-    .flags         = DEVICE_AT | DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = CIRRUS_ID_CLGD5420,
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5420_available },
+    .available     = gd5420_available,
+    .speed_changed = gd54xx_speed_changed,
+    .force_redraw  = gd54xx_force_redraw,
+    .config        = gd542x_config,
+};
+
+const device_t gd5420_onboard_device = {
+    .name          = "Cirrus Logic GD5420 (ISA) (On-Board)",
+    .internal_name = "cl_gd5420_onboard",
+    .flags         = DEVICE_ISA16,
+    .local         = CIRRUS_ID_CLGD5420 | 0x200,
+    .init          = gd54xx_init,
+    .close         = gd54xx_close,
+    .reset         = gd54xx_reset,
+    .available     = NULL,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd542x_config,
@@ -4967,12 +5034,12 @@ const device_t gd5420_isa_device = {
 const device_t gd5422_isa_device = {
     .name          = "Cirrus Logic GD5422 (ISA)",
     .internal_name = "cl_gd5422_isa",
-    .flags         = DEVICE_AT | DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = CIRRUS_ID_CLGD5422,
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5422_available }, /* Common BIOS between 5422 and 5424 */
+    .available     = gd5422_available, /* Common BIOS between 5422 and 5424 */
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd542x_config,
@@ -4986,7 +5053,21 @@ const device_t gd5424_vlb_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5422_available }, /* Common BIOS between 5422 and 5424 */
+    .available     = gd5422_available, /* Common BIOS between 5422 and 5424 */
+    .speed_changed = gd54xx_speed_changed,
+    .force_redraw  = gd54xx_force_redraw,
+    .config        = gd542x_config,
+};
+
+const device_t gd5424_onboard_device = {
+    .name          = "Cirrus Logic GD5424 (VLB) (On-Board)",
+    .internal_name = "cl_gd5424_onboard",
+    .flags         = DEVICE_VLB,
+    .local         = CIRRUS_ID_CLGD5424 | 0x200,
+    .init          = gd54xx_init,
+    .close         = gd54xx_close,
+    .reset         = gd54xx_reset,
+    .available     = NULL,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd542x_config,
@@ -4995,12 +5076,12 @@ const device_t gd5424_vlb_device = {
 const device_t gd5426_isa_device = {
     .name          = "Cirrus Logic GD5426 (ISA)",
     .internal_name = "cl_gd5426_isa",
-    .flags         = DEVICE_AT | DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = CIRRUS_ID_CLGD5426,
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5428_isa_available },
+    .available     = gd5428_isa_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5426_config
@@ -5010,12 +5091,12 @@ const device_t gd5426_isa_device = {
 const device_t gd5426_diamond_speedstar_pro_a1_isa_device = {
     .name          = "Cirrus Logic GD5426 (ISA) (Diamond SpeedStar Pro Rev. A1)",
     .internal_name = "cl_gd5426_diamond_a1_isa",
-    .flags         = DEVICE_AT | DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = CIRRUS_ID_CLGD5426 | 0x100,
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5426_diamond_a1_available },
+    .available     = gd5426_diamond_a1_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5426_config
@@ -5029,7 +5110,7 @@ const device_t gd5426_vlb_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5428_available },
+    .available     = gd5428_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5426_config
@@ -5043,7 +5124,7 @@ const device_t gd5426_onboard_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = NULL
@@ -5052,12 +5133,12 @@ const device_t gd5426_onboard_device = {
 const device_t gd5428_isa_device = {
     .name          = "Cirrus Logic GD5428 (ISA)",
     .internal_name = "cl_gd5428_isa",
-    .flags         = DEVICE_AT | DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = CIRRUS_ID_CLGD5428,
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5428_isa_available },
+    .available     = gd5428_isa_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5426_config
@@ -5071,7 +5152,7 @@ const device_t gd5428_vlb_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5428_available },
+    .available     = gd5428_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5426_config
@@ -5086,7 +5167,7 @@ const device_t gd5428_diamond_speedstar_pro_b1_vlb_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5428_diamond_b1_available },
+    .available     = gd5428_diamond_b1_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5426_config
@@ -5095,12 +5176,12 @@ const device_t gd5428_diamond_speedstar_pro_b1_vlb_device = {
 const device_t gd5428_boca_isa_device = {
     .name          = "Cirrus Logic GD5428 (ISA) (BOCA Research 4610)",
     .internal_name = "cl_gd5428_boca_isa",
-    .flags         = DEVICE_AT | DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = CIRRUS_ID_CLGD5428 | 0x100,
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5428_boca_isa_available },
+    .available     = gd5428_boca_isa_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5426_config
@@ -5114,7 +5195,7 @@ const device_t gd5428_mca_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5428_mca_available },
+    .available     = gd5428_mca_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = NULL
@@ -5128,7 +5209,7 @@ const device_t gd5426_mca_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5426_mca_available },
+    .available     = gd5426_mca_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5426_config
@@ -5137,15 +5218,15 @@ const device_t gd5426_mca_device = {
 const device_t gd5428_onboard_device = {
     .name          = "Cirrus Logic GD5428 (ISA) (On-Board)",
     .internal_name = "cl_gd5428_onboard",
-    .flags         = DEVICE_AT | DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = CIRRUS_ID_CLGD5428,
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5428_isa_available },
+    .available     = gd5428_isa_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
-    .config        = gd5428_onboard_config
+    .config        = gd5426_config
 };
 
 const device_t gd5428_vlb_onboard_device = {
@@ -5156,21 +5237,35 @@ const device_t gd5428_vlb_onboard_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
-    .config        = gd5428_onboard_config
+    .config        = gd5426_config
+};
+
+const device_t gd5428_onboard_vlb_device = {
+    .name          = "Cirrus Logic GD5428 (VLB) (On-Board) (Dell)",
+    .internal_name = "cl_gd5428_onboard_vlb",
+    .flags         = DEVICE_VLB,
+    .local         = CIRRUS_ID_CLGD5428 | 0x200,
+    .init          = gd54xx_init,
+    .close         = gd54xx_close,
+    .reset         = gd54xx_reset,
+    .available     = NULL,
+    .speed_changed = gd54xx_speed_changed,
+    .force_redraw  = gd54xx_force_redraw,
+    .config        = gd542x_config
 };
 
 const device_t gd5429_isa_device = {
     .name          = "Cirrus Logic GD5429 (ISA)",
     .internal_name = "cl_gd5429_isa",
-    .flags         = DEVICE_AT | DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = CIRRUS_ID_CLGD5429,
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5429_available },
+    .available     = gd5429_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5429_config
@@ -5184,7 +5279,7 @@ const device_t gd5429_vlb_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5429_available },
+    .available     = gd5429_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5429_config
@@ -5199,10 +5294,10 @@ const device_t gd5430_diamond_speedstar_pro_se_a8_vlb_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5430_diamond_a8_available },
+    .available     = gd5430_diamond_a8_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
-    .config        = gd5429_config
+    .config        = gd5430_vlb_config
 };
 
 const device_t gd5430_vlb_device = {
@@ -5213,10 +5308,10 @@ const device_t gd5430_vlb_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5430_orchid_vlb_available },
+    .available     = gd5430_orchid_vlb_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
-    .config        = gd5429_config
+    .config        = gd5430_vlb_config
 };
 
 const device_t gd5430_onboard_vlb_device = {
@@ -5227,10 +5322,10 @@ const device_t gd5430_onboard_vlb_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
-    .config        = gd5429_config
+    .config        = gd5430_vlb_config
 };
 
 const device_t gd5430_pci_device = {
@@ -5241,7 +5336,7 @@ const device_t gd5430_pci_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5430_available },
+    .available     = gd5430_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5429_config
@@ -5255,7 +5350,7 @@ const device_t gd5430_onboard_pci_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5429_config
@@ -5264,12 +5359,12 @@ const device_t gd5430_onboard_pci_device = {
 const device_t gd5434_isa_device = {
     .name          = "Cirrus Logic GD5434 (ISA)",
     .internal_name = "cl_gd5434_isa",
-    .flags         = DEVICE_AT | DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = CIRRUS_ID_CLGD5434,
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5434_isa_available },
+    .available     = gd5434_isa_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5434_config
@@ -5279,12 +5374,12 @@ const device_t gd5434_isa_device = {
 const device_t gd5434_diamond_speedstar_64_a3_isa_device = {
     .name          = "Cirrus Logic GD5434 (ISA) (Diamond SpeedStar 64 Rev. A3)",
     .internal_name = "cl_gd5434_diamond_a3_isa",
-    .flags         = DEVICE_AT | DEVICE_ISA,
+    .flags         = DEVICE_ISA16,
     .local         = CIRRUS_ID_CLGD5434 | 0x100,
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5434_diamond_a3_available },
+    .available     = gd5434_diamond_a3_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5429_config
@@ -5298,7 +5393,7 @@ const device_t gd5434_onboard_pci_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5434_onboard_config
@@ -5312,10 +5407,10 @@ const device_t gd5434_vlb_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5430_orchid_vlb_available },
+    .available     = gd5430_orchid_vlb_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
-    .config        = gd5434_config
+    .config        = gd5434_vlb_config
 };
 
 const device_t gd5434_pci_device = {
@@ -5326,7 +5421,7 @@ const device_t gd5434_pci_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5434_available },
+    .available     = gd5434_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5434_config
@@ -5340,7 +5435,7 @@ const device_t gd5436_onboard_pci_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5434_config
@@ -5354,7 +5449,7 @@ const device_t gd5436_pci_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5436_available },
+    .available     = gd5436_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5434_config
@@ -5368,7 +5463,7 @@ const device_t gd5440_onboard_pci_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5440_onboard_config
@@ -5382,7 +5477,7 @@ const device_t gd5440_pci_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5440_available },
+    .available     = gd5440_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5429_config
@@ -5396,7 +5491,7 @@ const device_t gd5446_pci_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5446_available },
+    .available     = gd5446_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5434_config
@@ -5410,7 +5505,7 @@ const device_t gd5446_stb_pci_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5446_stb_available },
+    .available     = gd5446_stb_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5434_config
@@ -5424,7 +5519,7 @@ const device_t gd5480_pci_device = {
     .init          = gd54xx_init,
     .close         = gd54xx_close,
     .reset         = gd54xx_reset,
-    { .available = gd5480_available },
+    .available     = gd5480_available,
     .speed_changed = gd54xx_speed_changed,
     .force_redraw  = gd54xx_force_redraw,
     .config        = gd5480_config

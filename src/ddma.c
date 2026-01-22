@@ -8,8 +8,6 @@
  *
  *          Distributed DMA emulation.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2020 Miran Grca.
@@ -193,7 +191,7 @@ const device_t ddma_device = {
     .init          = ddma_init,
     .close         = ddma_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

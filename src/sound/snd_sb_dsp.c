@@ -28,6 +28,7 @@
 #include <86box/snd_sb.h>
 #include <86box/plat_fallthrough.h>
 #include <86box/plat_unused.h>
+#include "cpu.h"
 
 /* NON-PCM SAMPLE FORMATS */
 #define ADPCM_4  1
@@ -388,6 +389,7 @@ sb_update_status(sb_dsp_t *dsp, int bit, int set)
 {
     int masked = 0;
 
+    sb_dsp_log("SBIRQ8=%d, irqnum=%d, bit=%x, set=%x.\n", dsp->sb_irq8, dsp->sb_irqnum, bit, set);
     if (dsp->sb_irq8 || dsp->sb_irq16)
         return;
 
@@ -423,6 +425,7 @@ sb_update_status(sb_dsp_t *dsp, int bit, int set)
         }
     }
 
+    sb_dsp_log("Masked=%02x.\n", masked);
     if (set && !masked)
         dsp->irq_update(dsp->irq_priv, 1);
     else if (!set)
@@ -513,7 +516,7 @@ sb_dsp_reset(sb_dsp_t *dsp)
     dsp->sb_command = 0;
 
     dsp->sb_8_length  = 0xffff;
-    dsp->sb_8_autolen = 0xffff;
+    dsp->sb_8_autolen = 0x7fff;
 
     dsp->sb_irq8     = 0;
     dsp->sb_irq16    = 0;
@@ -1039,6 +1042,8 @@ sb_ess_write_reg(sb_dsp_t *dsp, const uint8_t reg, uint8_t data)
 {
     uint8_t chg;
 
+    sb_dsp_log("ESS Write reg=%02x, val=%02x.\n", reg, data);
+
     switch (reg) {
         case 0xA1: /* Extended Mode Sample Rate Generator */
             {
@@ -1110,6 +1115,7 @@ sb_ess_write_reg(sb_dsp_t *dsp, const uint8_t reg, uint8_t data)
                     dsp->sb_irqnum = 10;
                     break;
             }
+            sb_dsp_log("Legacy Audio IRQ control=%d.\n", dsp->sb_irqnum);
             sb_ess_update_irq_drq_readback_regs(dsp, false);
             break;
         case 0xB2: /* DRQ Control */
@@ -1131,6 +1137,7 @@ sb_ess_write_reg(sb_dsp_t *dsp, const uint8_t reg, uint8_t data)
                     dsp->sb_8_dmanum = 3;
                     break;
             }
+            sb_dsp_log("Legacy Audio DRQ control=%d, chg=%02x.\n", dsp->sb_8_dmanum, chg);
             sb_ess_update_irq_drq_readback_regs(dsp, false);
             if (chg & 0x40)
                 sb_ess_update_dma_status(dsp);
@@ -1280,6 +1287,8 @@ sb_exec_command(sb_dsp_t *dsp)
                     sb_add_data(dsp, 0x11); /* AZTECH get type, WASHINGTON/latest - according to devkit. E.g.: The one in the Itautec Infoway Multimidia */
                 else if ((dsp->sb_data[0] == 0x05 || dsp->sb_data[0] == 0x55) && dsp->sb_subtype == SB_SUBTYPE_CLONE_AZT1605_0X0C)
                     sb_add_data(dsp, 0x0C); /* AZTECH get type, CLINTON - according to devkit. E.g.: The one in the Packard Bell Legend 100CD */
+                else if ((dsp->sb_data[0] == 0x05 || dsp->sb_data[0] == 0x55) && dsp->sb_subtype == SB_SUBTYPE_CLONE_AZTPR16_0X09)
+                    sb_add_data(dsp, 0x09); /* AZTECH get type, AZTPR16 */
                 else if (dsp->sb_data[0] == 0x08) {
                     /* EEPROM address to write followed by byte */
                     if (dsp->sb_data[1] < 0 || dsp->sb_data[1] >= AZTECH_EEPROM_SIZE)
@@ -1294,6 +1303,15 @@ sb_exec_command(sb_dsp_t *dsp)
                     sb_dsp_log("EEPROM read = %02x\n", dsp->azt_eeprom[dsp->sb_data[1]]);
                     sb_add_data(dsp, dsp->azt_eeprom[dsp->sb_data[1]]);
                     break;
+                } else if ((dsp->sb_data[0] == 0x01) && (dsp->sb_subtype == SB_SUBTYPE_CLONE_AZT1605_0X0C)) {
+                    /* Unknown command executed by EMUTSR after DSP reset */
+                    sb_dsp_log("AZT1605: Command 0x08 Subcommand 0x01\n");
+                    /* HACK: Aztech HWSET seems to rely on RP being incremented for detection to work after EMUTSR is run */
+                    dsp->sb_read_rp++;
+                    break;
+                } else if ((dsp->sb_data[0] == 0x0f) && (dsp->sb_data[1] == 0xff) && (dsp->sb_subtype == SB_SUBTYPE_CLONE_AZTPR16_0X09)) {
+                    sb_dsp_log("AZTPR16: Command 0x08, Subcommand 0x0f/0xff\n");
+                    sb_add_data(dsp, 0x80);
                 } else
                     sb_dsp_log("AZT2316A: UNKNOWN 0x08 COMMAND: %02X\n", dsp->sb_data[0]); /* 0x08 (when shutting down, driver tries to read 1 byte of response), 0x55, 0x0D, 0x08D seen */
                 break;
@@ -1311,6 +1329,9 @@ sb_exec_command(sb_dsp_t *dsp)
                 } else if (dsp->sb_data[0] == 0x01) {
                     sb_dsp_log("AZT2316A: SB8PROV2 MODE!\n");
                     azt2316a_enable_wss(0, dsp->parent);
+                } else if ((dsp->sb_data[0] == 0x0f) && (dsp->sb_subtype == SB_SUBTYPE_CLONE_AZTPR16_0X09)) {
+                    sb_dsp_log("AZTPR16: Mode switch command, params = %02X, %02X\n", dsp->sb_data[0], dsp->sb_data[1]);
+                    aztpr16_wss_mode(dsp->sb_data[1], dsp->parent);
                 } else
                     sb_dsp_log("AZT2316A: UNKNOWN MODE! = %02x\n", dsp->sb_data[0]); // sequences 0x02->0xFF, 0x04->0xFF seen
             }
@@ -1576,19 +1597,19 @@ sb_exec_command(sb_dsp_t *dsp)
                 timer_set_delay_u64(&dsp->output_timer, (uint64_t) trunc(dsp->sblatcho));
             break;
         case 0x90: /* High speed 8-bit autoinit DMA output */
-            if ((dsp->sb_type >= SB_DSP_201) && (dsp->sb_type < SB16_DSP_404)) // TODO docs need validated
+            if (dsp->sb_type >= SB_DSP_201) // TODO docs need validated
                 sb_start_dma(dsp, 1, 1, 0, dsp->sb_8_autolen);
             break;
         case 0x91: /* High speed 8-bit single cycle DMA output */
-            if ((dsp->sb_type >= SB_DSP_201) && (dsp->sb_type < SB16_DSP_404)) // TODO docs need validated
+            if (dsp->sb_type >= SB_DSP_201) // TODO docs need validated
                 sb_start_dma(dsp, 1, 0, 0, dsp->sb_8_autolen);
             break;
         case 0x98: /* High speed 8-bit autoinit DMA input */
-            if ((dsp->sb_type >= SB_DSP_201) && (dsp->sb_type < SB16_DSP_404)) // TODO docs need validated
+            if (dsp->sb_type >= SB_DSP_201) // TODO docs need validated
                 sb_start_dma_i(dsp, 1, 1, 0, dsp->sb_8_autolen);
             break;
         case 0x99: /* High speed 8-bit single cycle DMA input */
-            if ((dsp->sb_type >= SB_DSP_201) && (dsp->sb_type < SB16_DSP_404)) // TODO docs need validated
+            if (dsp->sb_type >= SB_DSP_201) // TODO docs need validated
                 sb_start_dma_i(dsp, 1, 0, 0, dsp->sb_8_autolen);
             break;
         case 0xA0: /* Set input mode to mono */
@@ -1723,6 +1744,9 @@ sb_exec_command(sb_dsp_t *dsp)
                     sb_add_data(dsp, 0x3);
                     sb_add_data(dsp, 0x1);
                 } else if (dsp->sb_subtype == SB_SUBTYPE_CLONE_AZT1605_0X0C) {
+                    sb_add_data(dsp, 0x2);
+                    sb_add_data(dsp, 0x1);
+                } else if (dsp->sb_subtype == SB_SUBTYPE_CLONE_AZTPR16_0X09) {
                     sb_add_data(dsp, 0x2);
                     sb_add_data(dsp, 0x1);
                 }
@@ -1876,11 +1900,11 @@ sb_write(uint16_t addr, uint8_t val, void *priv)
 {
     sb_dsp_t *dsp = (sb_dsp_t *) priv;
 
-    sb_dsp_log("[%04X:%08X] DSP: [W] %04X = %02X\n", CS, cpu_state.pc, addr, val);
-
     /* Sound Blasters prior to Sound Blaster 16 alias the I/O ports. */
     if ((dsp->sb_type < SB16_DSP_404) && (IS_NOT_ESS(dsp) || ((addr & 0xF) != 0xE)))
         addr &= 0xfffe;
+
+    sb_dsp_log("[%04X:%08X] DSP: [W] %04X = %02X\n", CS, cpu_state.pc, addr, val);
 
     switch (addr & 0xF) {
         case 6: /* Reset */
@@ -1913,13 +1937,6 @@ sb_write(uint16_t addr, uint8_t val, void *priv)
                 if (val == 0x01)
                     sb_add_data(dsp, 0);
                 dsp->sb_data_stat++;
-                if (IS_AZTECH(dsp)) {
-                    /* variable length commands */
-                    if (dsp->sb_command == 0x08 && dsp->sb_data_stat == 1 && dsp->sb_data[0] == 0x08)
-                        sb_commands[dsp->sb_command] = 3;
-                    else if (dsp->sb_command == 0x08 && dsp->sb_data_stat == 1 && dsp->sb_data[0] == 0x07)
-                        sb_commands[dsp->sb_command] = 2;
-                }
                 if (IS_ESS(dsp) && dsp->sb_command >= 0x64 && dsp->sb_command <= 0x6F) {
                     sb_commands[dsp->sb_command] = 2;
                 } else if (IS_ESS(dsp) && dsp->sb_command >= 0xA0 && dsp->sb_command <= 0xCF) {
@@ -1938,13 +1955,22 @@ sb_write(uint16_t addr, uint8_t val, void *priv)
                 }
             } else {
                 dsp->sb_data[dsp->sb_data_stat++] = val;
+                if (IS_AZTECH(dsp)) {
+                    /* variable length commands */
+                    if (dsp->sb_command == 0x08 && dsp->sb_data_stat == 1 && dsp->sb_data[0] == 0x08)
+                        sb_commands[dsp->sb_command] = 3;
+                    else if (dsp->sb_command == 0x08 && dsp->sb_data_stat == 1 && (dsp->sb_data[0] == 0x07 || dsp->sb_data[0] == 0x0f))
+                        sb_commands[dsp->sb_command] = 2;
+                    else if (dsp->sb_command == 0x09 && dsp->sb_data_stat == 1 && dsp->sb_data[0] == 0x0f)
+                        sb_commands[dsp->sb_command] = 2;
+                }
             }
             if (dsp->sb_data_stat == sb_commands[dsp->sb_command] || sb_commands[dsp->sb_command] == -1) {
                 sb_exec_command(dsp);
                 dsp->sb_data_stat = -1;
                 if (IS_AZTECH(dsp)) {
                     /* variable length commands */
-                    if (dsp->sb_command == 0x08)
+                    if (dsp->sb_command == 0x08 || dsp->sb_command == 0x09)
                         sb_commands[dsp->sb_command] = 1;
                 }
             }
@@ -1962,7 +1988,7 @@ sb_read(uint16_t addr, void *priv)
     uint8_t   ret = 0x00;
 
     /* Sound Blasters prior to Sound Blaster 16 alias the I/O ports. */
-    if ((dsp->sb_type < SB16_DSP_404) && (IS_NOT_ESS(dsp) || ((addr & 0xF) != 0xF)))
+    if ((dsp->sb_type < SB16_DSP_404) && (IS_NOT_ESS(dsp) || ((addr & 0xF) != 0xE)))
         /* Exception: ESS AudioDrive does not alias port base+0xf */
             addr &= 0xfffe;
 
@@ -2085,7 +2111,7 @@ sb_read(uint16_t addr, void *priv)
             break;
     }
 
-    sb_dsp_log("[%04X:%08X] DSP: [R] %04X = %02X\n", CS, cpu_state.pc, a, ret);
+    sb_dsp_log("[%04X:%08X] DSP: [R] %04X = %02X\n", CS, cpu_state.pc, addr, ret);
 
     return ret;
 }
@@ -2319,6 +2345,7 @@ pollsb(void *priv)
     if (dsp->sb_8_enable && dsp->sb_pausetime < 0 && dsp->sb_8_output) {
         sb_dsp_update(dsp);
 
+        sb_dsp_log("8-bit format=%02x, pause=%x, length=%d.\n", dsp->sb_8_format, dsp->sb_8_pause, dsp->sb_8_length);
         switch (dsp->sb_8_format) {
             case 0x00: /* Mono unsigned */
                 if (!dsp->sb_8_pause) {
@@ -2761,6 +2788,7 @@ pollsb(void *priv)
                 dsp->ess_dma_counter += 4;
                 break;
             case 0x30: /* Stereo signed */
+            case 0x36:
                 data[0] = dsp->dma_readw(dsp->dma_priv);
                 data[1] = dsp->dma_readw(dsp->dma_priv);
                 if ((data[0] == DMA_NODATA) || (data[1] == DMA_NODATA))

@@ -8,8 +8,6 @@
  *
  *          Video 7 VGA 1024i emulation.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -33,9 +31,12 @@
 #include <86box/rom.h>
 #include <86box/device.h>
 #include <86box/video.h>
+#include <86box/vid_8514a.h>
 #include <86box/vid_xga.h>
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
+#include <86box/vid_ati_eeprom.h>
+#include <86box/vid_ati_mach8.h>
 #include <86box/plat_fallthrough.h>
 #include <86box/plat_unused.h>
 
@@ -48,6 +49,7 @@ typedef struct ht216_t {
 
     uint32_t vram_mask, linear_base;
     uint8_t  adjust_cursor, monitor_type;
+    uint8_t  clk_sel;
 
     int ext_reg_enable;
     int isabus;
@@ -99,7 +101,10 @@ void    ht216_out(uint16_t addr, uint8_t val, void *priv);
 uint8_t ht216_in(uint16_t addr, void *priv);
 
 #define BIOS_G2_GC205_PATH              "roms/video/video7/BIOS.BIN"
-#define BIOS_VIDEO7_VGA_1024I_PATH      "roms/video/video7/Video Seven VGA 1024i - BIOS - v2.19 - 435-0062-05 - U17 - 27C256.BIN"
+#define BIOS_VIDEO7_VGA_1024I_219_PATH  "roms/video/video7/Video Seven VGA 1024i - BIOS - v2.19 - 435-0062-05 - U17 - 27C256.BIN"
+#define BIOS_VIDEO7_VGA_1024I_700_PATH  "roms/video/video7/Headland Video7 VGA 1024i v7.0 32x8 (IP) NMC27C256B@DIP28.BIN"
+#define BIOS_VIDEO7_VGA_1024I_704_HP_LO_PATH  "roms/video/video7/Headland Video 7 VGA 1024i even v7.04 27C256 LO.bin"
+#define BIOS_VIDEO7_VGA_1024I_704_HP_HI_PATH  "roms/video/video7/Headland Video 7 VGA 1024i odd v7.04 27C256 HI.bin"
 #define BIOS_RADIUS_SVGA_MULTIVIEW_PATH "roms/video/video7/U18.BIN"
 #define BIOS_HT216_32_PATH              "roms/video/video7/HT21632.BIN"
 
@@ -131,6 +136,7 @@ dword_remap(svga_t *svga, uint32_t in_addr)
 {
     if (svga->packed_chain4)
         return in_addr;
+
     return ((in_addr & 0xfffc) << 2) | ((in_addr & 0x30000) >> 14) | (in_addr & ~0x3ffff);
 }
 
@@ -181,9 +187,9 @@ ht216_out(uint16_t addr, uint8_t val, void *priv)
     switch (addr) {
         case 0x3c2:
             /*Bit 17 of the display memory address, only active on odd/even modes, has no effect on graphics modes.*/
+            ht216->clk_sel = (ht216->clk_sel & ~0x03) | ((val & 0x0c) >> 2);
             ht216->misc   = val;
-            svga->miscout = val;
-            ht216_log("HT216 misc val = %02x, mode = 0, chain4 = %x\n", val, svga->chain4);
+            ht216_log("HT216 misc val=%02x, mode=0, chain4=%x\n", val, svga->chain4);
             ht216_recalc_bank_regs(ht216, 0);
             ht216_remap(ht216);
             svga_recalctimings(svga);
@@ -250,10 +256,11 @@ ht216_out(uint16_t addr, uint8_t val, void *priv)
                           ht216->ht_regs[0xfc], ht216->ht_regs[0xfd], ht216->ht_regs[0xfe], ht216->ht_regs[0xff]);
                 return;
 #endif
-            } else if (svga->seqaddr >= 0x80 && ht216->ext_reg_enable) {
+            } else if ((svga->seqaddr >= 0x80) && ht216->ext_reg_enable) {
                 old                                  = ht216->ht_regs[svga->seqaddr & 0xff];
                 ht216->ht_regs[svga->seqaddr & 0xff] = val;
 
+                ht216_log("SeqAddr=%02x, val=%02x.\n", svga->seqaddr & 0xff, val);
                 switch (svga->seqaddr & 0xff) {
                     case 0x83:
                         svga->attraddr = val & 0x1f;
@@ -290,7 +297,31 @@ ht216_out(uint16_t addr, uint8_t val, void *priv)
                         break;
 
                     case 0xa4:
+                        if (ht216->id == 0x7861)
+                            ht216->clk_sel = (val >> 2) & 0x0f;
+                        else {
+                            if (svga->getclock == ics1494_getclock) {
+                                if (val & 0x10)
+                                    val &= ~0x10;
+                                else if (!(val & 0x10))
+                                    val |= 0x10;
+                            }
+                            ht216->clk_sel = (val >> 2) & 0x07;
+                        }
+                        if (ht216->id >= 0x7152)
+                            svga->miscout = (svga->miscout & ~0x0c) | ((ht216->clk_sel & 0x03) << 2);
+
+                        svga->fullchange = changeframecount;
+                        svga_recalctimings(svga);
+                        break;
                     case 0xf8:
+                        if (ht216->id != 0x7861) {
+                            if ((val & 0x06) == 0x06)
+                                ht216->clk_sel = (val >> 5) & 0x07;
+                        } else {
+                            if ((val & 0x05) == 0x05)
+                                ht216->clk_sel = (val >> 4) & 0x0f;
+                        }
                         svga->fullchange = changeframecount;
                         svga_recalctimings(svga);
                         break;
@@ -425,9 +456,8 @@ ht216_out(uint16_t addr, uint8_t val, void *priv)
                     svga->banked_mask = 0xffff;
             }
 
-            if (svga->gdcaddr <= 8) {
+            if (svga->gdcaddr <= 8)
                 svga->fast = (svga->gdcreg[8] == 0xff && !(svga->gdcreg[3] & 0x18) && !svga->gdcreg[1]) && svga->chain4 && svga->packed_chain4;
-            }
             break;
 
         case 0x3D4:
@@ -446,7 +476,7 @@ ht216_out(uint16_t addr, uint8_t val, void *priv)
                 if (svga->crtcreg < 0xe || svga->crtcreg > 0x10) {
                     if ((svga->crtcreg == 0xc) || (svga->crtcreg == 0xd)) {
                         svga->fullchange = 3;
-                        svga->ma_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
+                        svga->memaddr_latch   = ((svga->crtc[0xc] << 8) | svga->crtc[0xd]) + ((svga->crtc[8] & 0x60) >> 5);
                     } else {
                         svga->fullchange = changeframecount;
                         svga_recalctimings(svga);
@@ -459,7 +489,7 @@ ht216_out(uint16_t addr, uint8_t val, void *priv)
             io_removehandler(0x03c0, 0x0020, ht216_in, NULL, NULL, ht216_out, NULL, NULL, ht216);
             mem_mapping_disable(&svga->mapping);
             mem_mapping_disable(&ht216->linear_mapping);
-            if (val & 8) {
+            if (val & 0x08) {
                 io_sethandler(0x03c0, 0x0020, ht216_in, NULL, NULL, ht216_out, NULL, NULL, ht216);
                 mem_mapping_enable(&svga->mapping);
                 ht216_remap(ht216);
@@ -539,6 +569,12 @@ ht216_in(uint16_t addr, void *priv)
                             ht216->bg_plane_sel = 0;
                             break;
 
+                        case 0xff:
+                            ret = ht216->ht_regs[0xff];
+                            if (is286 && (ht216->id != 0x7861))
+                                ret |= 0x80;
+                            break;
+
                         default:
                             break;
                     }
@@ -555,6 +591,7 @@ ht216_in(uint16_t addr, void *priv)
         case 0x3c9:
             if (ht216->id == 0x7152)
                 return sc1148x_ramdac_in(addr, 0, svga->ramdac, svga);
+
             return svga_in(addr, svga);
 
         case 0x3cb:
@@ -563,13 +600,14 @@ ht216_in(uint16_t addr, void *priv)
             break;
 
         case 0x3cc:
-            return svga->miscout;
+            return ht216->misc;
 
         case 0x3D4:
             return svga->crtcreg;
         case 0x3D5:
             if (svga->crtcreg == 0x1f)
                 return svga->crtc[0xc] ^ 0xea;
+
             return svga->crtc[svga->crtcreg];
 
         default:
@@ -625,9 +663,12 @@ ht216_remap(ht216_t *ht216)
 void
 ht216_recalctimings(svga_t *svga)
 {
-    ht216_t *ht216        = (ht216_t *) svga->priv;
-    int      high_res_256 = 0;
-
+    ht216_t   *ht216      = (ht216_t *) svga->priv;
+    ibm8514_t *dev        = (ibm8514_t *) svga->dev8514;
+    mach_t    *mach       = (mach_t *) svga->ext8514;
+    int        high_res_256 = 0;
+    int        clock0_override = 0;
+    int        clock_sel;
 
     if (ht216->id == 0x7861) {
         if (ht216->ht_regs[0xe0] & 0x20) {
@@ -638,28 +679,59 @@ ht216_recalctimings(svga_t *svga)
         }
     }
 
-    switch ((((((svga->miscout >> 2) & 3) || ((ht216->ht_regs[0xa4] >> 2) & 3)) | ((ht216->ht_regs[0xa4] >> 2) & 4)) || ((ht216->ht_regs[0xf8] >> 5) & 0x0f)) | ((ht216->ht_regs[0xf8] << 1) & 8)) {
-        case 0:
-        case 1:
-            break;
-        case 4:
-            svga->clock = (cpuclock * (double) (1ULL << 32)) / 50350000.0;
-            break;
-        case 5:
-            svga->clock = (cpuclock * (double) (1ULL << 32)) / 65000000.0;
-            break;
-        case 7:
-            svga->clock = (cpuclock * (double) (1ULL << 32)) / 40000000.0;
-            break;
-        default:
-            svga->clock = (cpuclock * (double) (1ULL << 32)) / 36000000.0;
-            break;
-    }
+    if (ht216->id <= 0x7140) {
+        clock_sel = (ht216->ht_regs[0xa4] >> 2) & 0x07;
 
-    svga->ma_latch |= ((ht216->ht_regs[0xf6] & 0x30) << 12);
+        if (ht216->ht_regs[0xf8] & 0x01) {
+            if (!(ht216->ht_regs[0xf8] & 0x10) && (((ht216->misc >> 2) & 0x03) == 0x03))
+                clock0_override = 1;
+            else if (!(ht216->ht_regs[0xf8] & 0x08) && (((ht216->misc >> 2) & 0x03) == 0x02))
+                clock0_override = 2;
+        }
+        if (!clock0_override) {
+            if (ht216->ht_regs[0xf8] & 0x02) {
+                if (ht216->ht_regs[0xf8] & 0x04)
+                    clock_sel = (ht216->ht_regs[0xf8] >> 5) & 0x07;
+            }
+            switch (clock_sel) {
+                case 1:
+                    if (!(ht216->ht_regs[0xf8] & 0x01))
+                        svga->clock = (cpuclock * (double) (1ULL << 32)) / 48540000.0;
+                    break;
+                case 2:
+                    svga->clock = (cpuclock * (double) (1ULL << 32)) / 38000000.0;
+                    break;
+                case 3:
+                    svga->clock = (cpuclock * (double) (1ULL << 32)) / 32500000.0;
+                    break;
+                case 4:
+                    svga->clock = (cpuclock * (double) (1ULL << 32)) / 50350000.0;
+                    break;
+                case 5:
+                    svga->clock = (cpuclock * (double) (1ULL << 32)) / 65000000.0;
+                    break;
+                case 6:
+                    svga->clock = (cpuclock * (double) (1ULL << 32)) / 38000000.0;
+                    break;
+                case 7:
+                    svga->clock = (cpuclock * (double) (1ULL << 32)) / 40000000.0;
+                    break;
+                default:
+                    break;
+            }
+        } else {
+            if (clock0_override == 2)
+                svga->clock = (cpuclock * (double) (1ULL << 32)) / 38000000.0;
+        }
+        pclog("HT208 Select=%d, clock0override=%d, CRTC17=%02x, MISC=%02x, A4=%02x, FC=%02x, F8=%02x, FF=%02x, reset=%02x.\n", clock_sel, clock0_override, svga->crtc[0x17], ht216->misc & 0x0c, ht216->ht_regs[0xa4], ht216->ht_regs[0xfc], ht216->ht_regs[0xf8], ht216->ht_regs[0xff], svga->seqregs[0] & 0x03);
+    } else {
+        svga->clock = (cpuclock * (double) (1ULL << 32)) / svga->getclock(ht216->clk_sel, svga->clock_gen);
+        ht216_log("ClkSel V7=%02x, regf8=%02x, rega4=%02x, miscout=%x, vidclock=%02x.\n", ht216->clk_sel, ht216->ht_regs[0xf8], ht216->ht_regs[0xa4], (svga->miscout >> 2) & 0x03, svga->vidclock);
+    }
+    svga->memaddr_latch |= ((ht216->ht_regs[0xf6] & 0x30) << 12);
 
     if (ht216->ht_regs[0xf6] & 0x80)
-        svga->ma_latch = ((ht216->ht_regs[0xf6] & 0x30) << 12);
+        svga->memaddr_latch = ((ht216->ht_regs[0xf6] & 0x30) << 12);
 
     svga->interlace = ht216->ht_regs[0xe0] & 0x01;
 
@@ -672,10 +744,16 @@ ht216_recalctimings(svga_t *svga)
 
     if (!svga->scrblank && svga->attr_palette_enable) {
         if (!(svga->gdcreg[6] & 1) && !(svga->attrregs[0x10] & 1)) { /*Text mode*/
-            if (svga->seqregs[1] & 8) /*40 column*/ {
+            if (svga->seqregs[1] & 8) /*40 column*/
                 svga->render = svga_render_text_40;
-            } else {
+            else
                 svga->render = svga_render_text_80;
+
+            if (ibm8514_active && (svga->dev8514 != NULL)) {
+                if (svga->ext8514 != NULL) {
+                    if (!(dev->accel.advfunc_cntl & 0x01) && !(mach->accel.clock_sel & 0x01)) /*FIXME: Possibly a BIOS bug within the V7 chips when it's used with a 8514/A card?*/
+                        dev->on &= ~0x01;
+                }
             }
         } else {
             if (svga->crtc[0x17] == 0xeb) {
@@ -688,14 +766,16 @@ ht216_recalctimings(svga_t *svga)
                 if (((ht216->ht_regs[0xc8] & HT_REG_C8_E256) || (svga->gdcreg[5] & 0x40)) && (!svga->lowres || (ht216->ht_regs[0xf6] & 0x80))) {
                     if (high_res_256) {
                         svga->hdisp >>= 1;
+                        svga->dots_per_clock >>= 1;
                         ht216->adjust_cursor = 1;
                     }
                     svga->render = svga_render_8bpp_highres;
                 } else if (svga->lowres) {
                     if (high_res_256) {
                         svga->hdisp >>= 1;
+                        svga->dots_per_clock >>= 1;
                         ht216->adjust_cursor = 1;
-                        svga->render         = svga_render_8bpp_highres;
+                        svga->render = svga_render_8bpp_highres;
                     } else {
                         ht216_log("8bpp low, packed = %02x, chain4 = %02x\n", svga->packed_chain4, svga->chain4);
                         svga->render = svga_render_8bpp_lowres;
@@ -705,6 +785,7 @@ ht216_recalctimings(svga_t *svga)
                         svga->hdisp = svga->crtc[1] - ((svga->crtc[5] & 0x60) >> 5);
                         if (!(svga->crtc[1] & 1))
                             svga->hdisp--;
+
                         svga->hdisp++;
                         svga->hdisp *= svga->dots_per_clock;
                         svga->rowoffset <<= 1;
@@ -716,8 +797,10 @@ ht216_recalctimings(svga_t *svga)
             } else if (svga->bpp == 15) {
                 svga->rowoffset <<= 1;
                 svga->hdisp >>= 1;
+                svga->dots_per_clock >>= 1;
                 if ((svga->crtc[0x17] & 0x60) == 0x20) /*Would result in a garbled screen with trailing cursor glitches*/
                     svga->crtc[0x17] |= 0x40;
+
                 svga->render = svga_render_15bpp_highres;
             }
         }
@@ -1499,9 +1582,16 @@ ht216_init(const device_t *info, uint32_t mem_size, int has_rom)
 {
     ht216_t *ht216 = malloc(sizeof(ht216_t));
     svga_t  *svga;
+    const char *bios_ver = NULL;
+    const char *fn = NULL;
+    const char *fn2 = NULL;
 
     memset(ht216, 0, sizeof(ht216_t));
     svga = &ht216->svga;
+
+    ht216->id = info->local;
+    ht216->isabus = (info->flags & DEVICE_ISA) || (info->flags & DEVICE_ISA16);
+    ht216->mca = (info->flags & DEVICE_MCA);
 
     if (info->flags & DEVICE_VLB)
         video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_v7vga_vlb);
@@ -1518,10 +1608,18 @@ ht216_init(const device_t *info, uint32_t mem_size, int has_rom)
 
     switch (has_rom) {
         case 1:
-            rom_init(&ht216->bios_rom, BIOS_G2_GC205_PATH, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
+            fn = BIOS_G2_GC205_PATH;
+            rom_init(&ht216->bios_rom, fn, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
             break;
         case 2:
-            rom_init(&ht216->bios_rom, BIOS_VIDEO7_VGA_1024I_PATH, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
+            bios_ver = (char *) device_get_config_bios("bios_ver");
+            fn = (char *) device_get_bios_file(info, bios_ver, 0);
+            if (!strcmp(bios_ver, "v7_04_hp")) {
+                fn2 = (char *) device_get_bios_file(info, bios_ver, 1);
+                rom_init_interleaved(&ht216->bios_rom, fn, fn2,
+                                        0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
+            } else
+                rom_init(&ht216->bios_rom, fn, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
             break;
         case 3:
             ht216->monitor_type = device_get_config_int("monitor_type");
@@ -1569,32 +1667,39 @@ ht216_init(const device_t *info, uint32_t mem_size, int has_rom)
             break;
     }
 
+    svga->bpp     = 8;
+    svga->miscout = 1;
     svga->hwcursor.cur_ysize = 32;
     ht216->vram_mask         = mem_size - 1;
     svga->decode_mask        = mem_size - 1;
 
-    if (has_rom == 4)
+    if (ht216->id == 0x7152) {
         svga->ramdac = device_add(&sc11484_nors2_ramdac_device);
-
+        svga->clock_gen = device_add(&ics1494m_540_radius_ht209_device);
+        svga->getclock  = ics1494_getclock;
+    } else if (ht216->id == 0x7861) {
+        svga->clock_gen = device_add(&icd2047_20_device);
+        svga->getclock  = icd2047_getclock;
+    }
+    svga->read = ht216_read;
+    svga->readw = NULL;
+    svga->readl = NULL;
+    svga->write = ht216_write;
+    svga->writew = ht216_writew;
     if ((info->flags & DEVICE_VLB) || (info->flags & DEVICE_MCA)) {
+        svga->writel = ht216_writel;
         mem_mapping_set_handler(&svga->mapping, ht216_read, NULL, NULL, ht216_write, ht216_writew, ht216_writel);
         mem_mapping_add(&ht216->linear_mapping, 0, 0, ht216_read_linear, NULL, NULL, ht216_write_linear, ht216_writew_linear, ht216_writel_linear, NULL, MEM_MAPPING_EXTERNAL, svga);
     } else {
+        svga->writel = NULL;
         mem_mapping_set_handler(&svga->mapping, ht216_read, NULL, NULL, ht216_write, ht216_writew, NULL);
         mem_mapping_add(&ht216->linear_mapping, 0, 0, ht216_read_linear, NULL, NULL, ht216_write_linear, ht216_writew_linear, NULL, NULL, MEM_MAPPING_EXTERNAL, svga);
     }
     mem_mapping_set_p(&svga->mapping, ht216);
     mem_mapping_disable(&ht216->linear_mapping);
 
-    ht216->id     = info->local;
-    ht216->isabus = (info->flags & DEVICE_ISA);
-    ht216->mca    = (info->flags & DEVICE_MCA);
-
     io_sethandler(0x03c0, 0x0020, ht216_in, NULL, NULL, ht216_out, NULL, NULL, ht216);
     io_sethandler(0x46e8, 0x0001, ht216_in, NULL, NULL, ht216_out, NULL, NULL, ht216);
-
-    svga->bpp     = 8;
-    svga->miscout = 1;
 
     if (ht216->id == 0x7861)
         ht216->ht_regs[0xb4] = 0x08; /*32-bit DRAM bus*/
@@ -1660,7 +1765,7 @@ g2_gc205_available(void)
 static int
 v7_vga_1024i_available(void)
 {
-    return rom_present(BIOS_VIDEO7_VGA_1024I_PATH);
+    return rom_present(BIOS_VIDEO7_VGA_1024I_219_PATH);
 }
 
 static int
@@ -1704,34 +1809,82 @@ ht216_force_redraw(void *priv)
 // clang-format off
 static const device_config_t v7_vga_1024i_config[] = {
     {
-        .name        = "memory",
-        .description = "Memory size",
-        .type        = CONFIG_SELECTION,
-        .default_int = 512,
-        .selection   = {
-            { .description = "256 KB", .value       = 256 },
-            { .description = "512 KB", .value       = 512 },
-            { .description = ""                           }
+        .name           = "bios_ver",
+        .description    = "BIOS Revision",
+        .type           = CONFIG_BIOS,
+        .default_string = "v2_19",
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            {
+                .name          = "Version 2.19",
+                .internal_name = "v2_19",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 32768,
+                .files         = { BIOS_VIDEO7_VGA_1024I_219_PATH, "" }
+            },
+            {
+                .name          = "Version 7.00",
+                .internal_name = "v7_00",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 1,
+                .local         = 0,
+                .size          = 32768,
+                .files         = { BIOS_VIDEO7_VGA_1024I_700_PATH, "" }
+            },
+            {
+                .name          = "Version 7.04 (HP)",
+                .internal_name = "v7_04_hp",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 2,
+                .local         = 0,
+                .size          = 32768,
+                .files         = { BIOS_VIDEO7_VGA_1024I_704_HP_LO_PATH, BIOS_VIDEO7_VGA_1024I_704_HP_HI_PATH,  "" }
+            },
+            { .files_no = 0 }
         }
     },
-    { .type = CONFIG_END }
+    {
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 512,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "256 KB", .value = 256 },
+            { .description = "512 KB", .value = 512 },
+            { .description = ""                     }
+        },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 
 static const device_config_t ht216_32_standalone_config[] = {
     {
-        .name        = "monitor_type",
-        .description = "Monitor type",
-        .type        = CONFIG_SELECTION,
-        .default_int = 0x18,
-        .selection   = {
+        .name           = "monitor_type",
+        .description    = "Monitor type",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 0x18,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "Mono Interlaced",      .value = 0x00 },
             { .description = "Mono Non-Interlaced",  .value = 0x08 },
             { .description = "Color Interlaced",     .value = 0x10 },
             { .description = "Color Non-Interlaced", .value = 0x18 },
-            { .description = "" }
-        }
+            { .description = ""                                    }
+        },
+        .bios           = { { 0 } }
     },
-    { .type = CONFIG_END }
+    { .name = "", .description = "", .type = CONFIG_END }
 };
 // clang-format on
 
@@ -1743,7 +1896,7 @@ const device_t g2_gc205_device = {
     .init          = g2_gc205_init,
     .close         = ht216_close,
     .reset         = NULL,
-    { .available = g2_gc205_available },
+    .available     = g2_gc205_available,
     .speed_changed = ht216_speed_changed,
     .force_redraw  = ht216_force_redraw,
     .config        = NULL
@@ -1757,21 +1910,21 @@ const device_t v7_vga_1024i_device = {
     .init          = v7_vga_1024i_init,
     .close         = ht216_close,
     .reset         = NULL,
-    { .available = v7_vga_1024i_available },
+    .available     = v7_vga_1024i_available,
     .speed_changed = ht216_speed_changed,
     .force_redraw  = ht216_force_redraw,
     .config        = v7_vga_1024i_config
 };
 
 const device_t ht216_32_pb410a_device = {
-    .name          = "Headland HT216-32 (Packard Bell PB410A)",
+    .name          = "Headland HT216-32 On-Board (Packard Bell PB410A)",
     .internal_name = "ht216_32_pb410a",
     .flags         = DEVICE_VLB,
     .local         = 0x7861, /*HT216-32*/
     .init          = ht216_pb410a_init,
     .close         = ht216_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = ht216_speed_changed,
     .force_redraw  = ht216_force_redraw,
     .config        = NULL
@@ -1785,7 +1938,7 @@ const device_t ht216_32_standalone_device = {
     .init          = ht216_standalone_init,
     .close         = ht216_close,
     .reset         = NULL,
-    { .available = ht216_standalone_available },
+    .available     = ht216_standalone_available,
     .speed_changed = ht216_speed_changed,
     .force_redraw  = ht216_force_redraw,
     .config        = ht216_32_standalone_config
@@ -1794,12 +1947,12 @@ const device_t ht216_32_standalone_device = {
 const device_t radius_svga_multiview_isa_device = {
     .name          = "Radius SVGA Multiview ISA (HT209)",
     .internal_name = "radius_isa",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0x7152, /*HT209*/
     .init          = radius_svga_multiview_init,
     .close         = ht216_close,
     .reset         = NULL,
-    { .available = radius_svga_multiview_available },
+    .available     = radius_svga_multiview_available,
     .speed_changed = ht216_speed_changed,
     .force_redraw  = ht216_force_redraw,
     .config        = NULL
@@ -1813,7 +1966,7 @@ const device_t radius_svga_multiview_mca_device = {
     .init          = radius_svga_multiview_init,
     .close         = ht216_close,
     .reset         = NULL,
-    { .available = radius_svga_multiview_available },
+    .available     = radius_svga_multiview_available,
     .speed_changed = ht216_speed_changed,
     .force_redraw  = ht216_force_redraw,
     .config        = NULL

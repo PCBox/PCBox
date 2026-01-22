@@ -16,6 +16,7 @@
 #include <86box/thread.h>
 #include <86box/sound.h>
 #include <86box/plat_unused.h>
+#include <86box/plat.h>
 
 #define RENDER_RATE                100
 #define BUFFER_SEGMENTS            10
@@ -154,6 +155,9 @@ fluidsynth_init(UNUSED(const device_t *info))
 {
     fluidsynth_t  *data = &fsdev;
     midi_device_t *dev;
+#ifdef _WIN32
+    char           path[4096] = { 0 };
+#endif
 
     memset(data, 0, sizeof(fluidsynth_t));
 
@@ -161,6 +165,7 @@ fluidsynth_init(UNUSED(const device_t *info))
 
     fluid_settings_setnum(data->settings, "synth.sample-rate", 44100);
     fluid_settings_setnum(data->settings, "synth.gain", device_get_config_int("output_gain") / 100.0f);
+    fluid_settings_setint(data->settings, "synth.dynamic-sample-loading", device_get_config_int("dynamic_sample_loading"));
 
     data->synth = new_fluid_synth(data->settings);
 
@@ -169,6 +174,17 @@ fluidsynth_init(UNUSED(const device_t *info))
     if (!sound_font || sound_font[0] == 0)
         sound_font = (access("/usr/share/sounds/sf2/FluidR3_GM.sf2", F_OK) == 0 ? "/usr/share/sounds/sf2/FluidR3_GM.sf2" :
                       (access("/usr/share/soundfonts/default.sf2", F_OK) == 0 ? "/usr/share/soundfonts/default.sf2" : ""));
+#elif defined _WIN32
+    if (!sound_font || sound_font[0] == 0) {
+        // FluidSynth 2.5.x and later supports DLS without libinstpatch.
+        int major, minor, patch;
+        fluid_version(&major, &minor, &patch);
+        if ((major == 2 && minor >= 5) || (major >= 3)) {
+            plat_get_system_directory(path);
+            strcat(path, "\\system32\\drivers\\gm.dls");
+            sound_font = plat_file_check(path) ? path : "";
+        }
+    }
 #endif
     data->sound_font = fluid_synth_sfload(data->synth, sound_font, 1);
 
@@ -262,8 +278,7 @@ fluidsynth_init(UNUSED(const device_t *info))
 
     al_set_midi(data->samplerate, data->buf_size);
 
-    dev = malloc(sizeof(midi_device_t));
-    memset(dev, 0, sizeof(midi_device_t));
+    dev = calloc(1, sizeof(midi_device_t));
 
     dev->play_msg   = fluidsynth_msg;
     dev->play_sysex = fluidsynth_sysex;
@@ -320,153 +335,206 @@ fluidsynth_close(void *priv)
 static const device_config_t fluidsynth_config[] = {
   // clang-format off
     {
-        .name = "sound_font",
-        .description = "SoundFont",
-        .type = CONFIG_FNAME,
-        .default_string = "",
-        .file_filter = "SF2 Sound Fonts (*.sf2)|*.sf2"
+        .name           = "sound_font",
+        .description    = "SoundFont",
+        .type           = CONFIG_FNAME,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = "SoundFont files (*.sf2 *.sf3)|*.sf2,*.sf3",
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "output_gain",
-        .description = "Output Gain",
-        .type = CONFIG_SPINNER,
-        .spinner = {
-            .min = 0,
+        .name           = "output_gain",
+        .description    = "Output Gain",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 100,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min =   0,
             .max = 100
         },
-        .default_int = 100
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "chorus",
-        .description = "Chorus",
-        .type = CONFIG_BINARY,
-        .default_int = 1
+        .name           = "chorus",
+        .description    = "Chorus",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "chorus_voices",
-        .description = "Chorus Voices",
-        .type = CONFIG_SPINNER,
+        .name           = "chorus_voices",
+        .description    = "Chorus Voices",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 3,
+        .file_filter    = NULL,
         .spinner = {
-            .min = 0,
+            .min =  0,
             .max = 99
         },
-        .default_int = 3
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "chorus_level",
-        .description = "Chorus Level",
-        .type = CONFIG_SPINNER,
-        .spinner = {
-            .min = 0,
+        .name           = "chorus_level",
+        .description    = "Chorus Level",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 20,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min =   0,
             .max = 100
         },
-        .default_int = 20
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "chorus_speed",
-        .description = "Chorus Speed",
-        .type = CONFIG_SPINNER,
+        .name           = "chorus_speed",
+        .description    = "Chorus Speed",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 30,
+        .file_filter    = NULL,
         .spinner = {
-            .min = 10,
+            .min =  10,
             .max = 500
         },
-        .default_int = 30
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "chorus_depth",
-        .description = "Chorus Depth",
-        .type = CONFIG_SPINNER,
+        .name           = "chorus_depth",
+        .description    = "Chorus Depth",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 80,
+        .file_filter    = NULL,
         .spinner = {
-            .min = 0,
+            .min =    0,
             .max = 2560
         },
-        .default_int = 80
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "chorus_waveform",
-        .description = "Chorus Waveform",
-        .type = CONFIG_SELECTION,
-        .selection = {
-            {
-                .description = "Sine",
-                .value = 0
-            },
-            {
-                .description = "Triangle",
-                .value = 1
-            }
+        .name           = "chorus_waveform",
+        .description    = "Chorus Waveform",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "Sine",     .value = 0 },
+            { .description = "Triangle", .value = 1 },
+            { .description = ""                     }
         },
-        .default_int = 0
+        .bios           = { { 0 } }
     },
     {
-        .name = "reverb",
-        .description = "Reverb",
-        .type = CONFIG_BINARY,
-        .default_int = 1
+        .name           = "reverb",
+        .description    = "Reverb",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "reverb_room_size",
-        .description = "Reverb Room Size",
-        .type = CONFIG_SPINNER,
+        .name           = "reverb_room_size",
+        .description    = "Reverb Room Size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 20,
+        .file_filter    = NULL,
         .spinner = {
-            .min = 0,
+            .min =   0,
             .max = 100
         },
-        .default_int = 20
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "reverb_damping",
-        .description = "Reverb Damping",
-        .type = CONFIG_SPINNER,
+        .name           = "reverb_damping",
+        .description    = "Reverb Damping",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
         .spinner = {
-            .min = 0,
+            .min =   0,
             .max = 100
         },
-        .default_int = 0
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "reverb_width",
-        .description = "Reverb Width",
-        .type = CONFIG_SPINNER,
-        .spinner = {
-            .min = 0,
+        .name           = "reverb_width",
+        .description    = "Reverb Width",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 5,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min =    0,
             .max = 1000
         },
-        .default_int = 5
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "reverb_level",
-        .description = "Reverb Level",
-        .type = CONFIG_SPINNER,
-        .spinner = {
-            .min = 0,
+        .name           = "reverb_level",
+        .description    = "Reverb Level",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 90,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min =   0,
             .max = 100
         },
-        .default_int = 90
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "interpolation",
-        .description = "Interpolation Method",
-        .type = CONFIG_SELECTION,
-        .selection = {
-            {
-                .description = "None",
-                .value = 0
-            },
-            {
-                .description = "Linear",
-                .value = 1
-            },
-            {
-                .description = "4th Order",
-                .value = 2
-            },
-            {
-                .description = "7th Order",
-                .value = 3
-            }
+        .name           = "interpolation",
+        .description    = "Interpolation Method",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "None",      .value = 0 },
+            { .description = "Linear",    .value = 1 },
+            { .description = "4th Order", .value = 2 },
+            { .description = "7th Order", .value = 3 },
+            { .description = ""                      }
         },
-        .default_int = 2
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "dynamic_sample_loading",
+        .description    = "Dynamic Sample Loading",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -485,4 +553,3 @@ const device_t fluidsynth_device = {
     .force_redraw  = NULL,
     .config        = fluidsynth_config
 };
-

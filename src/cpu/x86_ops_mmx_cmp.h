@@ -1,7 +1,7 @@
 static int
 opPCMPEQB_a16(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opPCMPEQB_xmm_a16(fetchdat);
 
     MMX_REG  src;
@@ -30,7 +30,7 @@ opPCMPEQB_a16(uint32_t fetchdat)
 static int
 opPCMPEQB_a32(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opPCMPEQB_xmm_a32(fetchdat);
 
     MMX_REG  src;
@@ -60,7 +60,7 @@ opPCMPEQB_a32(uint32_t fetchdat)
 static int
 opPCMPGTB_a16(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opPCMPGTB_xmm_a16(fetchdat);
 
     MMX_REG  src;
@@ -89,7 +89,7 @@ opPCMPGTB_a16(uint32_t fetchdat)
 static int
 opPCMPGTB_a32(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opPCMPGTB_xmm_a32(fetchdat);
 
     MMX_REG  src;
@@ -119,7 +119,7 @@ opPCMPGTB_a32(uint32_t fetchdat)
 static int
 opPCMPEQW_a16(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opPCMPEQW_xmm_a16(fetchdat);
 
     MMX_REG  src;
@@ -144,7 +144,7 @@ opPCMPEQW_a16(uint32_t fetchdat)
 static int
 opPCMPEQW_a32(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opPCMPEQW_xmm_a32(fetchdat);
 
     MMX_REG  src;
@@ -170,7 +170,7 @@ opPCMPEQW_a32(uint32_t fetchdat)
 static int
 opPCMPGTW_a16(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opPCMPGTW_xmm_a16(fetchdat);
 
     MMX_REG  src;
@@ -195,7 +195,7 @@ opPCMPGTW_a16(uint32_t fetchdat)
 static int
 opPCMPGTW_a32(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opPCMPGTW_xmm_a32(fetchdat);
 
     MMX_REG  src;
@@ -221,7 +221,7 @@ opPCMPGTW_a32(uint32_t fetchdat)
 static int
 opPCMPEQD_a16(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opPCMPEQD_xmm_a16(fetchdat);
 
     MMX_REG  src;
@@ -244,7 +244,7 @@ opPCMPEQD_a16(uint32_t fetchdat)
 static int
 opPCMPEQD_a32(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opPCMPEQD_xmm_a32(fetchdat);
 
     MMX_REG  src;
@@ -268,7 +268,7 @@ opPCMPEQD_a32(uint32_t fetchdat)
 static int
 opPCMPGTD_a16(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opPCMPGTD_xmm_a16(fetchdat);
 
     MMX_REG  src;
@@ -291,7 +291,7 @@ opPCMPGTD_a16(uint32_t fetchdat)
 static int
 opPCMPGTD_a32(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opPCMPGTD_xmm_a32(fetchdat);
 
     MMX_REG  src;

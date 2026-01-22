@@ -9,8 +9,6 @@
  *          Implementation of Ports 61, 62, and 63 used by various
  *          machines.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2021 Miran Grca.
@@ -212,7 +210,7 @@ const device_t port_6x_device = {
     .init          = port_6x_init,
     .close         = port_6x_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -226,7 +224,7 @@ const device_t port_6x_xi8088_device = {
     .init          = port_6x_init,
     .close         = port_6x_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -240,7 +238,7 @@ const device_t port_6x_ps2_device = {
     .init          = port_6x_init,
     .close         = port_6x_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -254,7 +252,7 @@ const device_t port_6x_olivetti_device = {
     .init          = port_6x_init,
     .close         = port_6x_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

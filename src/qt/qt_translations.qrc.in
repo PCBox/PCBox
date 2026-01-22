@@ -3,16 +3,17 @@
         <file>pcbox_ca-ES.qm</file>
         <file>pcbox_cs-CZ.qm</file>
         <file>pcbox_de-DE.qm</file>
+        <file>pcbox_el-GR.qm</file>
         <file>pcbox_en-US.qm</file>
         <file>pcbox_en-GB.qm</file>
         <file>pcbox_es-ES.qm</file>
         <file>pcbox_fi-FI.qm</file>
         <file>pcbox_fr-FR.qm</file>
         <file>pcbox_hr-HR.qm</file>
-        <file>pcbox_hu-HU.qm</file>
         <file>pcbox_it-IT.qm</file>
         <file>pcbox_ja-JP.qm</file>
         <file>pcbox_ko-KR.qm</file>
+        <file>pcbox_nb-NO.qm</file>
         <file>pcbox_nl-NL.qm</file>
         <file>pcbox_pl-PL.qm</file>
         <file>pcbox_pt-BR.qm</file>
@@ -20,6 +21,7 @@
         <file>pcbox_ru-RU.qm</file>
         <file>pcbox_sk-SK.qm</file>
         <file>pcbox_sl-SI.qm</file>
+        <file>pcbox_sv-SE.qm</file>
         <file>pcbox_tr-TR.qm</file>
         <file>pcbox_uk-UA.qm</file>
         <file>pcbox_vi-VN.qm</file>

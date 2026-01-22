@@ -9,8 +9,6 @@
  *          Universal Serial Bus emulation (currently dummy UHCI and
  *          OHCI).
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2020 Miran Grca.
@@ -433,7 +431,7 @@ const device_t usb_device = {
     .init          = usb_init,
     .close         = usb_close,
     .reset         = usb_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

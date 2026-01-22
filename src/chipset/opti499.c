@@ -8,14 +8,13 @@
  *
  *          Implementation of the OPTi 82C493/82C499 chipset.
  *
- *
- *
  * Authors: Tiseno100,
  *          Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2008-2020 Tiseno100.
  *          Copyright 2016-2020 Miran Grca.
  */
+#include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -148,9 +147,28 @@ opti499_write(uint16_t addr, uint8_t val, void *priv)
                     default:
                         break;
 
-                    case 0x20:
+                    case 0x20: {
+                        double coeff   = (val & 0x10) ? 1.0 : 2.0;
+                        double bus_clk;
+                        switch (dev->regs[0x25] & 0x03) {
+                            default:
+                            case 0x00:
+                                 bus_clk = (cpu_busspeed * coeff) / 6.0;
+                                 break;
+                            case 0x01:
+                                 bus_clk = (cpu_busspeed * coeff) / 5.0;
+                                 break;
+                            case 0x02:
+                                 bus_clk = (cpu_busspeed * coeff) / 4.0;
+                                 break;
+                            case 0x03:
+                                 bus_clk = (cpu_busspeed * coeff) / 3.0;
+                                 break;
+                        }
+                        cpu_set_isa_speed((int) round(bus_clk));
                         reset_on_hlt = !(val & 0x02);
                         break;
+                    }
 
                     case 0x21:
                         cpu_cache_ext_enabled = !!(dev->regs[0x21] & 0x10);
@@ -163,6 +181,28 @@ opti499_write(uint16_t addr, uint8_t val, void *priv)
                     case 0x2d:
                         opti499_recalc(dev);
                         break;
+
+                    case 0x25: {
+                        double coeff   = (dev->regs[0x20] & 0x10) ? 1.0 : 2.0;
+                        double bus_clk;
+                        switch (val & 0x03) {
+                            default:
+                            case 0x00:
+                                 bus_clk = (cpu_busspeed * coeff) / 8.0;
+                                 break;
+                            case 0x01:
+                                 bus_clk = (cpu_busspeed * coeff) / 6.0;
+                                 break;
+                            case 0x02:
+                                 bus_clk = (cpu_busspeed * coeff) / 5.0;
+                                 break;
+                            case 0x03:
+                                 bus_clk = (cpu_busspeed * coeff) / 4.0;
+                                 break;
+                        }
+                        cpu_set_isa_speed((int) round(bus_clk));
+                        break;
+                    }
                 }
             }
 
@@ -229,6 +269,8 @@ opti499_reset(void *priv)
     cpu_update_waitstates();
 
     opti499_recalc(dev);
+
+    cpu_set_isa_speed((int) round((cpu_busspeed * 2.0) / 6.0));
 }
 
 static void
@@ -242,8 +284,7 @@ opti499_close(void *priv)
 static void *
 opti499_init(UNUSED(const device_t *info))
 {
-    opti499_t *dev = (opti499_t *) malloc(sizeof(opti499_t));
-    memset(dev, 0, sizeof(opti499_t));
+    opti499_t *dev = (opti499_t *) calloc(1, sizeof(opti499_t));
 
     device_add(&port_92_device);
 
@@ -265,7 +306,7 @@ const device_t opti499_device = {
     .init          = opti499_init,
     .close         = opti499_close,
     .reset         = opti499_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

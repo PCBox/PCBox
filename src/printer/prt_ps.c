@@ -9,15 +9,12 @@
  *          Implementation of a generic PostScript printer and a
  *          generic PCL 5e printer.
  *
- *
- *
  * Authors: David Hrdlička, <hrdlickadavid@outlook.com>
  *          Cacodemon345
  *
  *          Copyright 2019 David Hrdlička.
  *          Copyright 2024 Cacodemon345.
  */
-
 #include <inttypes.h>
 #include <memory.h>
 #include <stdbool.h>
@@ -26,14 +23,17 @@
 #include <string.h>
 #include <wchar.h>
 #include <86box/86box.h>
-#include <86box/lpt.h>
+#include <86box/device.h>
 #include <86box/timer.h>
+#include <86box/device.h>
+#include <86box/lpt.h>
 #include <86box/pit.h>
 #include <86box/path.h>
 #include <86box/plat.h>
 #include <86box/plat_dynld.h>
 #include <86box/ui.h>
 #include <86box/prt_devs.h>
+#include "cpu.h"
 
 #ifdef _WIN32
 #    define GSDLLAPI __stdcall
@@ -45,13 +45,8 @@
 #define gs_error_Quit        -101
 
 #ifdef _WIN32
-#    if (!(defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64))
-#        define PATH_GHOSTSCRIPT_DLL "gsdll32.dll"
-#        define PATH_GHOSTPCL_DLL    "gpcl6dll32.dll"
-#    else
-#        define PATH_GHOSTSCRIPT_DLL "gsdll64.dll"
-#        define PATH_GHOSTPCL_DLL    "gpcl6dll64.dll"
-#    endif
+#    define PATH_GHOSTSCRIPT_DLL "gsdll64.dll"
+#    define PATH_GHOSTPCL_DLL    "gpcl6dll64.dll"
 #elif defined __APPLE__
 #    define PATH_GHOSTSCRIPT_DLL "libgs.dylib"
 #    define PATH_GHOSTPCL_DLL    "libgpcl6.9.54.dylib"
@@ -82,8 +77,12 @@ typedef struct ps_t {
     bool    error;
     bool    autofeed;
     bool    pcl;
-    bool    pcl_escape;
+    bool    pending;
+    bool    pjl;
+    bool    pjl_command;
     uint8_t ctrl;
+    uint8_t pcl_escape;
+    uint16_t pjl_command_start;
 
     char printer_path[260];
 
@@ -120,21 +119,6 @@ static dllimp_t ghostscript_imports[] = {
 };
 
 static void *ghostscript_handle = NULL;
-
-static void
-reset_ps(ps_t *dev)
-{
-    if (dev == NULL)
-        return;
-
-    dev->ack = false;
-
-    dev->buffer[0]  = 0;
-    dev->buffer_pos = 0;
-
-    timer_disable(&dev->pulse_timer);
-    timer_disable(&dev->timeout_timer);
-}
 
 static void
 pulse_timer(void *priv)
@@ -204,12 +188,36 @@ convert_to_pdf(ps_t *dev)
 }
 
 static void
+reset_ps(ps_t *dev)
+{
+    if (dev == NULL)
+        return;
+
+    dev->ack = false;
+
+    if (dev->pending) {
+        if (ghostscript_handle != NULL)
+            convert_to_pdf(dev);
+
+        dev->filename[0] = 0;
+
+        dev->pending     = false;
+    }
+
+    dev->buffer[0]  = 0;
+    dev->buffer_pos = 0;
+
+    timer_disable(&dev->pulse_timer);
+    timer_stop(&dev->timeout_timer);
+}
+
+static void
 write_buffer(ps_t *dev, bool finish)
 {
     char  path[1024];
     FILE *fp;
 
-    if (dev->buffer[0] == 0)
+    if (dev->buffer_pos == 0)
         return;
 
     if (dev->filename[0] == 0)
@@ -240,7 +248,10 @@ write_buffer(ps_t *dev, bool finish)
             convert_to_pdf(dev);
 
         dev->filename[0] = 0;
-    }
+
+        dev->pending     = false;
+    } else
+        dev->pending     = true;
 }
 
 static void
@@ -248,9 +259,18 @@ timeout_timer(void *priv)
 {
     ps_t *dev = (ps_t *) priv;
 
-    write_buffer(dev, true);
+    if (dev->buffer_pos != 0)
+        write_buffer(dev, true);
+    else if (dev->pending) {
+        if (ghostscript_handle != NULL)
+            convert_to_pdf(dev);
 
-    timer_disable(&dev->timeout_timer);
+        dev->filename[0] = 0;
+
+        dev->pending     = false;
+    }
+
+    timer_stop(&dev->timeout_timer);
 }
 
 static void
@@ -269,23 +289,65 @@ process_data(ps_t *dev)
 {
     /* On PCL, check for escape sequences. */
     if (dev->pcl) {
-        if (dev->data == 0x1B)
-            dev->pcl_escape = true;
-        else if (dev->pcl_escape) {
-            dev->pcl_escape = false;
-            if (dev->data == 0xE) {
-                dev->buffer[dev->buffer_pos++] = dev->data;
-                dev->buffer[dev->buffer_pos]   = 0;
+        if (dev->pjl) {
+            dev->buffer[dev->buffer_pos++] = dev->data;
 
-                if (dev->buffer_pos > 2)
-                    write_buffer(dev, true);
-
-                return;
+            /* Filter out any PJL commands. */
+            if (dev->pjl_command && (dev->data == '\n')) {
+                dev->pjl_command = false;
+                if (!memcmp(&(dev->buffer[dev->pjl_command_start]), "@PJL ENTER LANGUAGE=PCL", 0x17))
+                    dev->pjl = false;
+                else if (!memcmp(&(dev->buffer[dev->pjl_command_start]), "@PJL ENTER LANGUAGE=POSTSCRIPT", 0x1e))
+                    fatal("Printing PostScript using the PCL printer is not (yet) supported!\n");
+                dev->buffer_pos = dev->pjl_command_start;
+            } else if (!dev->pjl_command && (dev->buffer_pos >= 0x05) && !memcmp(&(dev->buffer[dev->buffer_pos - 0x5]), "@PJL ", 0x05)) {
+                dev->pjl_command = true;
+                dev->pjl_command_start = dev->buffer_pos - 0x05;
             }
+
+            dev->buffer[dev->buffer_pos]   = 0;
+            return;
+        } else if (dev->data == 0x1b)
+            dev->pcl_escape = 1;
+        else  switch (dev->pcl_escape) {
+            case 1:
+                dev->pcl_escape = (dev->data == 0x25) ? 2 : 0;
+                if (dev->data == 0x0e) {
+                    dev->buffer[dev->buffer_pos++] = dev->data;
+                    dev->buffer[dev->buffer_pos]   = 0;
+
+                    if (dev->buffer_pos > 2)
+                        write_buffer(dev, true);
+
+                    return;
+                }
+                break;
+            case 2:
+                dev->pcl_escape = (dev->data == 0x2d) ? 3 : 0;
+                break;
+            case 3:
+                dev->pcl_escape = (dev->data == 0x31) ? 4 : 0;
+                break;
+            case 4:
+                dev->pcl_escape = (dev->data == 0x32) ? 5 : 0;
+                break;
+            case 5:
+                dev->pcl_escape = (dev->data == 0x33) ? 6 : 0;
+                break;
+            case 6:
+                dev->pcl_escape = (dev->data == 0x34) ? 7 : 0;
+                break;
+            case 7:
+                dev->pcl_escape = (dev->data == 0x35) ? 8 : 0;
+                break;
+            case 8:
+                dev->pcl_escape = 0;
+                if (dev->data == 0x58)
+                    dev->pjl = true;
+                break;
         }
-    }
-    /* On PostScript, check for non-printable characters. */
-    else if ((dev->data < 0x20) || (dev->data == 0x7f)) {
+    } else if ((dev->data < 0x20) || (dev->data == 0x7f)) {
+        /* On PostScript, check for non-printable characters. */
         switch (dev->data) {
             /* The following characters are considered white-space
                by the PostScript specification */
@@ -320,6 +382,32 @@ process_data(ps_t *dev)
 }
 
 static void
+ps_strobe(uint8_t old, uint8_t val, void *priv)
+{
+    ps_t *dev = (ps_t *) priv;
+
+    if (dev == NULL)
+        return;
+
+    if (!(val & 0x01) && (old & 0x01)) {
+        process_data(dev);
+
+        if (timer_is_on(&dev->timeout_timer)) {
+            timer_stop(&dev->timeout_timer);
+#ifdef USE_DYNAREC
+            if (cpu_use_dynarec)
+                update_tsc();
+#endif
+        }
+
+        dev->ack = true;
+
+        timer_set_delay_u64(&dev->pulse_timer, ISACONST);
+        timer_on_auto(&dev->timeout_timer, 5000000.0);
+    }
+}
+
+static void
 ps_write_ctrl(uint8_t val, void *priv)
 {
     ps_t *dev = (ps_t *) priv;
@@ -342,10 +430,18 @@ ps_write_ctrl(uint8_t val, void *priv)
     if (!(val & 0x01) && (dev->ctrl & 0x01)) {
         process_data(dev);
 
+        if (timer_is_on(&dev->timeout_timer)) {
+            timer_stop(&dev->timeout_timer);
+#ifdef USE_DYNAREC
+            if (cpu_use_dynarec)
+                update_tsc();
+#endif
+        }
+
         dev->ack = true;
 
         timer_set_delay_u64(&dev->pulse_timer, ISACONST);
-        timer_set_delay_u64(&dev->timeout_timer, 5000000 * TIMER_USEC);
+        timer_on_auto(&dev->timeout_timer, 5000000.0);
     }
 
     dev->ctrl = val;
@@ -366,13 +462,12 @@ ps_read_status(void *priv)
 static void *
 ps_init(void *lpt)
 {
-    ps_t            *dev;
+    ps_t            *dev = (ps_t *) calloc(1, sizeof(ps_t));
     gsapi_revision_t rev;
 
-    dev = (ps_t *) malloc(sizeof(ps_t));
-    memset(dev, 0x00, sizeof(ps_t));
     dev->ctrl = 0x04;
     dev->lpt  = lpt;
+    dev->pcl  = false;
 
     /* Try loading the DLL. */
     ghostscript_handle = dynld_module(PATH_GHOSTSCRIPT_DLL, ghostscript_imports);
@@ -415,11 +510,9 @@ ps_init(void *lpt)
 static void *
 pcl_init(void *lpt)
 {
-    ps_t            *dev;
+    ps_t            *dev = (ps_t *) calloc(1, sizeof(ps_t));
     gsapi_revision_t rev;
 
-    dev = (ps_t *) malloc(sizeof(ps_t));
-    memset(dev, 0x00, sizeof(ps_t));
     dev->ctrl = 0x04;
     dev->lpt  = lpt;
     dev->pcl  = true;
@@ -482,27 +575,35 @@ ps_close(void *priv)
 }
 
 const lpt_device_t lpt_prt_ps_device = {
-    .name          = "Generic PostScript Printer",
-    .internal_name = "postscript",
-    .init          = ps_init,
-    .close         = ps_close,
-    .write_data    = ps_write_data,
-    .write_ctrl    = ps_write_ctrl,
-    .read_data     = NULL,
-    .read_status   = ps_read_status,
-    .read_ctrl     = NULL
+    .name             = "Generic PostScript Printer",
+    .internal_name    = "postscript",
+    .init             = ps_init,
+    .close            = ps_close,
+    .write_data       = ps_write_data,
+    .write_ctrl       = ps_write_ctrl,
+    .strobe           = ps_strobe,
+    .read_status      = ps_read_status,
+    .read_ctrl        = NULL,
+    .epp_write_data   = NULL,
+    .epp_request_read = NULL,
+    .priv             = NULL,
+    .lpt              = NULL
 };
 
 #ifdef USE_PCL
 const lpt_device_t lpt_prt_pcl_device = {
-    .name          = "Generic PCL5e Printer",
-    .internal_name = "pcl",
-    .init          = pcl_init,
-    .close         = ps_close,
-    .write_data    = ps_write_data,
-    .write_ctrl    = ps_write_ctrl,
-    .read_data     = NULL,
-    .read_status   = ps_read_status,
-    .read_ctrl     = NULL
+    .name             = "Generic PCL5e Printer",
+    .internal_name    = "pcl",
+    .init             = pcl_init,
+    .close            = ps_close,
+    .write_data       = ps_write_data,
+    .write_ctrl       = ps_write_ctrl,
+    .strobe           = ps_strobe,
+    .read_status      = ps_read_status,
+    .read_ctrl        = NULL,
+    .epp_write_data   = NULL,
+    .epp_request_read = NULL,
+    .priv             = NULL,
+    .lpt              = NULL
 };
 #endif

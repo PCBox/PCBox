@@ -1,20 +1,20 @@
 /*
- * 86Box     A hypervisor and IBM PC system emulator that specializes in
- *           running old operating systems and software designed for IBM
- *           PC systems and compatibles from 1981 through fairly recent
- *           system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *           This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *           Roland MPU-401 emulation.
+ *          Roland MPU-401 emulation.
  *
- * Authors:  DOSBox Team,
- *           Miran Grca, <mgrca8@gmail.com>
- *           TheCollector1995, <mariogplayer@gmail.com>
+ * Authors: DOSBox Team,
+ *          Miran Grca, <mgrca8@gmail.com>
+ *          TheCollector1995, <mariogplayer@gmail.com>
  *
- *           Copyright 2008-2024 DOSBox Team.
- *           Copyright 2016-2024 Miran Grca.
- *           Copyright 2016-2024 TheCollector1995.
+ *          Copyright 2008-2024 DOSBox Team.
+ *          Copyright 2016-2024 Miran Grca.
+ *          Copyright 2016-2024 TheCollector1995.
  */
 #include <inttypes.h>
 #include <stdarg.h>
@@ -1804,106 +1804,59 @@ mpu401_standalone_close(void *priv)
 static const device_config_t mpu401_standalone_config[] = {
   // clang-format off
     {
-        .name = "base",
-        .description = "MPU-401 Address",
-        .type = CONFIG_HEX16,
-        .default_string = "",
-        .default_int = 0x330,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
-            {
-                .description = "0x220",
-                .value = 0x220
-            },
-            {
-                .description = "0x230",
-                .value = 0x230
-            },
-            {
-                .description = "0x240",
-                .value = 0x240
-            },
-            {
-                .description = "0x250",
-                .value = 0x250
-            },
-            {
-                .description = "0x300",
-                .value = 0x300
-            },
-            {
-                .description = "0x320",
-                .value = 0x320
-            },
-            {
-                .description = "0x330",
-                .value = 0x330
-            },
-            {
-                .description = "0x332",
-                .value = 0x332
-            },
-            {
-                .description = "0x334",
-                .value = 0x334
-            },
-            {
-                .description = "0x336",
-                .value = 0x336
-            },
-            {
-                .description = "0x340",
-                .value = 0x340
-            },
-            {
-                .description = "0x350",
-                .value = 0x350
-            },
-            { .description = "" }
-        }
+        .name           = "base",
+        .description    = "MPU-401 Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x330,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "0x220", .value = 0x220 },
+            { .description = "0x230", .value = 0x230 },
+            { .description = "0x240", .value = 0x240 },
+            { .description = "0x250", .value = 0x250 },
+            { .description = "0x300", .value = 0x300 },
+            { .description = "0x320", .value = 0x320 },
+            { .description = "0x330", .value = 0x330 },
+            { .description = "0x332", .value = 0x332 },
+            { .description = "0x334", .value = 0x334 },
+            { .description = "0x336", .value = 0x336 },
+            { .description = "0x340", .value = 0x340 },
+            { .description = "0x350", .value = 0x350 },
+            { .description = ""                      }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "irq",
-        .description = "MPU-401 IRQ",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 2,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
-            {
-                .description = "IRQ 2",
-                .value = 2
-            },
-            {
-                .description = "IRQ 3",
-                .value = 3
-            },
-            {
-                .description = "IRQ 4",
-                .value = 4
-            },
-            {
-                .description = "IRQ 5",
-                .value = 5
-            },
-            {
-                .description = "IRQ 6",
-                .value = 6
-            },
-            {
-                .description = "IRQ 7",
-                .value = 7
-            },
-            { .description = "" }
-        }
+        .name           = "irq",
+        .description    = "MPU-401 IRQ",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "IRQ 2", .value = 2 },
+            { .description = "IRQ 3", .value = 3 },
+            { .description = "IRQ 4", .value = 4 },
+            { .description = "IRQ 5", .value = 5 },
+            { .description = "IRQ 6", .value = 6 },
+            { .description = "IRQ 7", .value = 7 },
+            { .description = ""                  }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "receive_input",
-        .description = "Receive MIDI input",
-        .type = CONFIG_BINARY,
-        .default_int = 1
+        .name           = "receive_input",
+        .description    = "Receive MIDI input",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1912,46 +1865,34 @@ static const device_config_t mpu401_standalone_config[] = {
 static const device_config_t mpu401_standalone_mca_config[] = {
   // clang-format off
     {
-        .name = "irq",
-        .description = "MPU-401 IRQ",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 9,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
-            {
-                .description = "IRQ 3",
-                .value = 3
-            },
-            {
-                .description = "IRQ 4",
-                .value = 4
-            },
-            {
-                .description = "IRQ 5",
-                .value = 5
-            },
-            {
-                .description = "IRQ 6",
-                .value = 6
-            },
-            {
-                .description = "IRQ 7",
-                .value = 7
-            },
-            {
-                .description = "IRQ 9",
-                .value = 9
-            },
-            { .description = "" }
-        }
+        .name           = "irq",
+        .description    = "MPU-401 IRQ",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 9,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "IRQ 3", .value = 3 },
+            { .description = "IRQ 4", .value = 4 },
+            { .description = "IRQ 5", .value = 5 },
+            { .description = "IRQ 6", .value = 6 },
+            { .description = "IRQ 7", .value = 7 },
+            { .description = "IRQ 9", .value = 9 },
+            { .description = ""                  }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "receive_input",
-        .description = "Receive MIDI input",
-        .type = CONFIG_BINARY,
-        .default_int = 1
+        .name           = "receive_input",
+        .description    = "Receive MIDI input",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on

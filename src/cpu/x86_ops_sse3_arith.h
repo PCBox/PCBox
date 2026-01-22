@@ -8,12 +8,15 @@ opHADDPS_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     SSE_GETSRC();
 
-    tmp.f2[0] = src.f2[0] + src.f2[1];
-    tmp.f2[1] = src.f2[2] + src.f2[3];
-    tmp.f2[2] = cpu_state_high.XMM[cpu_reg].f2[0] + cpu_state_high.XMM[cpu_reg].f2[1];
-    tmp.f2[3] = cpu_state_high.XMM[cpu_reg].f2[2] + cpu_state_high.XMM[cpu_reg].f2[3];
-    cpu_state_high.XMM[cpu_reg].q[0] = tmp.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = tmp.q[1];
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    tmp.f[0] = f32_add(cpu_state.XMM[cpu_reg].f[0], cpu_state.XMM[cpu_reg].f[1], &status);
+    tmp.f[1] = f32_add(cpu_state.XMM[cpu_reg].f[2], cpu_state.XMM[cpu_reg].f[3], &status);
+    tmp.f[2] = f32_add(src.f[0], src.f[1], &status);
+    tmp.f[3] = f32_add(src.f[2], src.f[3], &status);
+    cpu_state.XMM[cpu_reg].q[0] = tmp.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = tmp.q[1];
+
+    softfloat_status_word_to_mxcsr(status);
     return 0;
 }
 
@@ -26,12 +29,15 @@ opHADDPS_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     SSE_GETSRC();
 
-    tmp.f2[0] = src.f2[0] + src.f2[1];
-    tmp.f2[1] = src.f2[2] + src.f2[3];
-    tmp.f2[2] = cpu_state_high.XMM[cpu_reg].f2[0] + cpu_state_high.XMM[cpu_reg].f2[1];
-    tmp.f2[3] = cpu_state_high.XMM[cpu_reg].f2[2] + cpu_state_high.XMM[cpu_reg].f2[3];
-    cpu_state_high.XMM[cpu_reg].q[0] = tmp.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = tmp.q[1];
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    tmp.f[0] = f32_add(cpu_state.XMM[cpu_reg].f[0], cpu_state.XMM[cpu_reg].f[1], &status);
+    tmp.f[1] = f32_add(cpu_state.XMM[cpu_reg].f[2], cpu_state.XMM[cpu_reg].f[3], &status);
+    tmp.f[2] = f32_add(src.f[0], src.f[1], &status);
+    tmp.f[3] = f32_add(src.f[2], src.f[3], &status);
+    cpu_state.XMM[cpu_reg].q[0] = tmp.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = tmp.q[1];
+
+    softfloat_status_word_to_mxcsr(status);
     return 0;
 }
 
@@ -44,10 +50,12 @@ opHADDPD_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     SSE_GETSRC();
 
-    tmp.d2[0] = src.d2[0] + src.d2[1];
-    tmp.d2[1] = cpu_state_high.XMM[cpu_reg].d2[0] + cpu_state_high.XMM[cpu_reg].d2[1];
-    cpu_state_high.XMM[cpu_reg].q[0] = tmp.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = tmp.q[1];
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    tmp.d[0] = f64_add(cpu_state.XMM[cpu_reg].d[0], cpu_state.XMM[cpu_reg].d[1], &status);
+    tmp.d[1] = f64_add(src.d[0], src.d[1], &status);
+    cpu_state.XMM[cpu_reg].q[0] = tmp.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = tmp.q[1];
+    softfloat_status_word_to_mxcsr(status);
     return 0;
 }
 
@@ -60,10 +68,12 @@ opHADDPD_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     SSE_GETSRC();
 
-    tmp.d2[0] = src.d2[0] + src.d2[1];
-    tmp.d2[1] = cpu_state_high.XMM[cpu_reg].d2[0] + cpu_state_high.XMM[cpu_reg].d2[1];
-    cpu_state_high.XMM[cpu_reg].q[0] = tmp.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = tmp.q[1];
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    tmp.d[0] = f64_add(cpu_state.XMM[cpu_reg].d[0], cpu_state.XMM[cpu_reg].d[1], &status);
+    tmp.d[1] = f64_add(src.d[0], src.d[1], &status);
+    cpu_state.XMM[cpu_reg].q[0] = tmp.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = tmp.q[1];
+    softfloat_status_word_to_mxcsr(status);
     return 0;
 }
 
@@ -76,12 +86,15 @@ opHSUBPS_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     SSE_GETSRC();
 
-    tmp.f2[0] = src.f2[0] - src.f2[1];
-    tmp.f2[1] = src.f2[2] - src.f2[3];
-    tmp.f2[2] = cpu_state_high.XMM[cpu_reg].f2[0] - cpu_state_high.XMM[cpu_reg].f2[1];
-    tmp.f2[3] = cpu_state_high.XMM[cpu_reg].f2[2] - cpu_state_high.XMM[cpu_reg].f2[3];
-    cpu_state_high.XMM[cpu_reg].q[0] = tmp.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = tmp.q[1];
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    tmp.f[0] = f32_sub(cpu_state.XMM[cpu_reg].f[0], cpu_state.XMM[cpu_reg].f[1], &status);
+    tmp.f[1] = f32_sub(cpu_state.XMM[cpu_reg].f[2], cpu_state.XMM[cpu_reg].f[3], &status);
+    tmp.f[2] = f32_sub(src.f[0], src.f[1], &status);
+    tmp.f[3] = f32_sub(src.f[2], src.f[3], &status);
+    cpu_state.XMM[cpu_reg].q[0] = tmp.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = tmp.q[1];
+
+    softfloat_status_word_to_mxcsr(status);
     return 0;
 }
 
@@ -94,12 +107,15 @@ opHSUBPS_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     SSE_GETSRC();
 
-    tmp.f2[0] = src.f2[0] - src.f2[1];
-    tmp.f2[1] = src.f2[2] - src.f2[3];
-    tmp.f2[2] = cpu_state_high.XMM[cpu_reg].f2[0] - cpu_state_high.XMM[cpu_reg].f2[1];
-    tmp.f2[3] = cpu_state_high.XMM[cpu_reg].f2[2] - cpu_state_high.XMM[cpu_reg].f2[3];
-    cpu_state_high.XMM[cpu_reg].q[0] = tmp.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = tmp.q[1];
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    tmp.f[0] = f32_sub(cpu_state.XMM[cpu_reg].f[0], cpu_state.XMM[cpu_reg].f[1], &status);
+    tmp.f[1] = f32_sub(cpu_state.XMM[cpu_reg].f[2], cpu_state.XMM[cpu_reg].f[3], &status);
+    tmp.f[2] = f32_sub(src.f[0], src.f[1], &status);
+    tmp.f[3] = f32_sub(src.f[2], src.f[3], &status);
+    cpu_state.XMM[cpu_reg].q[0] = tmp.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = tmp.q[1];
+
+    softfloat_status_word_to_mxcsr(status);
     return 0;
 }
 
@@ -112,10 +128,12 @@ opHSUBPD_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     SSE_GETSRC();
 
-    tmp.d2[0] = src.d2[0] - src.d2[1];
-    tmp.d2[1] = cpu_state_high.XMM[cpu_reg].d2[0] - cpu_state_high.XMM[cpu_reg].d2[1];
-    cpu_state_high.XMM[cpu_reg].q[0] = tmp.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = tmp.q[1];
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    tmp.d[0] = f64_sub(cpu_state.XMM[cpu_reg].d[0], cpu_state.XMM[cpu_reg].d[1], &status);
+    tmp.d[1] = f64_sub(src.d[0], src.d[1], &status);
+    cpu_state.XMM[cpu_reg].q[0] = tmp.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = tmp.q[1];
+    softfloat_status_word_to_mxcsr(status);
     return 0;
 }
 
@@ -128,10 +146,12 @@ opHSUBPD_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     SSE_GETSRC();
 
-    tmp.d2[0] = src.d2[0] - src.d2[1];
-    tmp.d2[1] = cpu_state_high.XMM[cpu_reg].d2[0] - cpu_state_high.XMM[cpu_reg].d2[1];
-    cpu_state_high.XMM[cpu_reg].q[0] = tmp.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = tmp.q[1];
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    tmp.d[0] = f64_sub(cpu_state.XMM[cpu_reg].d[0], cpu_state.XMM[cpu_reg].d[1], &status);
+    tmp.d[1] = f64_sub(src.d[0], src.d[1], &status);
+    cpu_state.XMM[cpu_reg].q[0] = tmp.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = tmp.q[1];
+    softfloat_status_word_to_mxcsr(status);
     return 0;
 }
 
@@ -144,12 +164,14 @@ opADDSUBPS_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     SSE_GETSRC();
 
-    tmp.f2[0] = cpu_state_high.XMM[cpu_reg].f2[0] - src.f2[0];
-    tmp.f2[1] = cpu_state_high.XMM[cpu_reg].f2[1] + src.f2[1];
-    tmp.f2[2] = cpu_state_high.XMM[cpu_reg].f2[2] - src.f2[2];
-    tmp.f2[3] = cpu_state_high.XMM[cpu_reg].f2[3] + src.f2[3];
-    cpu_state_high.XMM[cpu_reg].q[0] = tmp.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = tmp.q[1];
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    tmp.f[0] = f32_sub(cpu_state.XMM[cpu_reg].f[0], src.f[0], &status);
+    tmp.f[1] = f32_add(cpu_state.XMM[cpu_reg].f[1], src.f[1], &status);
+    tmp.f[2] = f32_sub(cpu_state.XMM[cpu_reg].f[2], src.f[2], &status);
+    tmp.f[3] = f32_add(cpu_state.XMM[cpu_reg].f[3], src.f[3], &status);
+    cpu_state.XMM[cpu_reg].q[0] = tmp.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = tmp.q[1];
+    softfloat_status_word_to_mxcsr(status);
     return 0;
 }
 
@@ -162,12 +184,14 @@ opADDSUBPS_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     SSE_GETSRC();
 
-    tmp.f2[0] = cpu_state_high.XMM[cpu_reg].f2[0] - src.f2[0];
-    tmp.f2[1] = cpu_state_high.XMM[cpu_reg].f2[1] + src.f2[1];
-    tmp.f2[2] = cpu_state_high.XMM[cpu_reg].f2[2] - src.f2[2];
-    tmp.f2[3] = cpu_state_high.XMM[cpu_reg].f2[3] + src.f2[3];
-    cpu_state_high.XMM[cpu_reg].q[0] = tmp.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = tmp.q[1];
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    tmp.f[0] = f32_sub(cpu_state.XMM[cpu_reg].f[0], src.f[0], &status);
+    tmp.f[1] = f32_add(cpu_state.XMM[cpu_reg].f[1], src.f[1], &status);
+    tmp.f[2] = f32_sub(cpu_state.XMM[cpu_reg].f[2], src.f[2], &status);
+    tmp.f[3] = f32_add(cpu_state.XMM[cpu_reg].f[3], src.f[3], &status);
+    cpu_state.XMM[cpu_reg].q[0] = tmp.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = tmp.q[1];
+    softfloat_status_word_to_mxcsr(status);
     return 0;
 }
 
@@ -180,10 +204,12 @@ opADDSUBPD_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     SSE_GETSRC();
 
-    tmp.d2[0] = cpu_state_high.XMM[cpu_reg].d2[0] - src.d2[0];
-    tmp.d2[1] = cpu_state_high.XMM[cpu_reg].d2[1] + src.d2[1];
-    cpu_state_high.XMM[cpu_reg].q[0] = tmp.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = tmp.q[1];
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    tmp.d[0] = f64_sub(cpu_state.XMM[cpu_reg].d[0], src.d[0], &status);
+    tmp.d[1] = f64_add(cpu_state.XMM[cpu_reg].d[1], src.d[1], &status);
+    cpu_state.XMM[cpu_reg].q[0] = tmp.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = tmp.q[1];
+    softfloat_status_word_to_mxcsr(status);
     return 0;
 }
 
@@ -196,9 +222,11 @@ opADDSUBPD_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     SSE_GETSRC();
 
-    tmp.d2[0] = cpu_state_high.XMM[cpu_reg].d2[0] - src.d2[0];
-    tmp.d2[1] = cpu_state_high.XMM[cpu_reg].d2[1] + src.d2[1];
-    cpu_state_high.XMM[cpu_reg].q[0] = tmp.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = tmp.q[1];
+    struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
+    tmp.d[0] = f64_sub(cpu_state.XMM[cpu_reg].d[0], src.d[0], &status);
+    tmp.d[1] = f64_add(cpu_state.XMM[cpu_reg].d[1], src.d[1], &status);
+    cpu_state.XMM[cpu_reg].q[0] = tmp.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = tmp.q[1];
+    softfloat_status_word_to_mxcsr(status);
     return 0;
 }

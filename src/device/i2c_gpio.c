@@ -8,8 +8,6 @@
  *
  *          Emulation of a GPIO-based I2C host controller.
  *
- *
- *
  * Authors: RichardG, <richardg867@gmail.com>
  *
  *          Copyright 2020 RichardG.
@@ -59,8 +57,7 @@ i2c_gpio_log(int level, const char *fmt, ...)
 void *
 i2c_gpio_init(char *bus_name)
 {
-    i2c_gpio_t *dev = (i2c_gpio_t *) malloc(sizeof(i2c_gpio_t));
-    memset(dev, 0, sizeof(i2c_gpio_t));
+    i2c_gpio_t *dev = (i2c_gpio_t *) calloc(1, sizeof(i2c_gpio_t));
 
     i2c_gpio_log(1, "I2C GPIO %s: init()\n", bus_name);
 

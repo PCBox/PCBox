@@ -10,7 +10,7 @@
  *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
- *          Copyright 2020 Miran Grca.
+ *          Copyright 2020-2025 Miran Grca.
  */
 #include <stdarg.h>
 #include <stdint.h>
@@ -34,7 +34,7 @@
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
 #include <86box/hdc_ide_sff8038i.h>
-#include <86box/zip.h>
+#include <86box/rdisk.h>
 #include <86box/mo.h>
 
 typedef struct w83769f_t {
@@ -297,10 +297,10 @@ w83769f_reset(void *priv)
             (cdrom[i].ide_channel <= max_channel) && cdrom[i].priv)
             scsi_cdrom_reset((scsi_common_t *) cdrom[i].priv);
     }
-    for (i = 0; i < ZIP_NUM; i++) {
-        if ((zip_drives[i].bus_type == ZIP_BUS_ATAPI) && (zip_drives[i].ide_channel >= min_channel) &&
-            (zip_drives[i].ide_channel <= max_channel) && zip_drives[i].priv)
-            zip_reset((scsi_common_t *) zip_drives[i].priv);
+    for (i = 0; i < RDISK_NUM; i++) {
+        if ((rdisk_drives[i].bus_type == RDISK_BUS_ATAPI) && (rdisk_drives[i].ide_channel >= min_channel) &&
+            (rdisk_drives[i].ide_channel <= max_channel) && rdisk_drives[i].priv)
+            rdisk_reset((scsi_common_t *) rdisk_drives[i].priv);
     }
     for (i = 0; i < MO_NUM; i++) {
         if ((mo_drives[i].bus_type == MO_BUS_ATAPI) && (mo_drives[i].ide_channel >= min_channel) &&
@@ -353,8 +353,7 @@ w83769f_close(void *priv)
 static void *
 w83769f_init(const device_t *info)
 {
-    w83769f_t *dev = (w83769f_t *) malloc(sizeof(w83769f_t));
-    memset(dev, 0x00, sizeof(w83769f_t));
+    w83769f_t *dev = (w83769f_t *) calloc(1, sizeof(w83769f_t));
 
     dev->id = next_id | 0x60;
 
@@ -410,7 +409,7 @@ const device_t ide_w83769f_vlb_device = {
     .init          = w83769f_init,
     .close         = w83769f_close,
     .reset         = w83769f_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -424,7 +423,7 @@ const device_t ide_w83769f_vlb_34_device = {
     .init          = w83769f_init,
     .close         = w83769f_close,
     .reset         = w83769f_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -438,7 +437,7 @@ const device_t ide_w83769f_pci_device = {
     .init          = w83769f_init,
     .close         = w83769f_close,
     .reset         = w83769f_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -452,7 +451,7 @@ const device_t ide_w83769f_pci_34_device = {
     .init          = w83769f_init,
     .close         = w83769f_close,
     .reset         = w83769f_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -466,9 +465,8 @@ const device_t ide_w83769f_pci_single_channel_device = {
     .init          = w83769f_init,
     .close         = w83769f_close,
     .reset         = w83769f_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
 };
-

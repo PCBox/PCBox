@@ -27,16 +27,20 @@
  *          modern boards even have multiple 'copies' of those registers,
  *          which can be switched very fast, to allow for multitasking.
  *
- * TODO:    The EV159 is supposed to support 16b EMS transfers, but the
+ * TODO:    The EV-159 is supposed to support 16b EMS transfers, but the
  *          EMM.sys driver for it doesn't seem to want to do that..
  *
+ *          EV-125 (It supports backfill)
+ *              https://theretroweb.com/expansioncard/documentation/50250.pdf
  *
+ *          EV-158 (RAM 10000)
+ *              http://web.archive.org/web/19961104093221/http://www.everex.com/supp/techlib/memmem.html
  *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *          Jasmine Iwanek <jriwanek@gmail.com>
  *
  *          Copyright 2018      Fred N. van Kempen.
- *          Copyright 2022-2024 Jasmine Iwanek.
+ *          Copyright 2022-2025 Jasmine Iwanek.
  *
  *          Redistribution and  use  in source  and binary forms, with
  *          or  without modification, are permitted  provided that the
@@ -102,13 +106,18 @@
 #define ISAMEM_BRXT_CARD       13
 #define ISAMEM_BRAT_CARD       14
 #define ISAMEM_EV165A_CARD     15
-#define ISAMEM_LOTECH_CARD     16
+#define ISAMEM_LOTECH_EMS_CARD 16
+#define ISAMEM_MPLUS2_CARD     17
 
 #define ISAMEM_DEBUG           0
 
 #define RAM_TOPMEM             (640 << 10)  /* end of low memory */
 #define RAM_UMAMEM             (384 << 10)  /* upper memory block */
 #define RAM_EXTMEM             (1024 << 10) /* start of high memory */
+
+#define EV159_BASE_MEM         (128 << 10)  /* size of EV-159 base memory in cs8220 mode*/
+#define EV159_EXT_1536         (1536 << 10) /* start of EV-159 high memory in cs8220 mode*/
+#define EV159_EXT_1024         (1024 << 10) /* start of EV-159 high memory in backfill mode*/
 
 #define EMS_MAXSIZE            (2048 << 10) /* max EMS memory size */
 #define EMS_EV159_MAXSIZE      (3072 << 10) /* max EMS memory size for EV-159 cards */
@@ -304,16 +313,13 @@ ems_writew(uint32_t addr, uint16_t val, void *priv)
 static uint8_t
 ems_in(uint16_t port, void *priv)
 {
-    const emsreg_t *dev           = (emsreg_t *) priv;
-    uint8_t         ret           = 0xff;
-#ifdef ENABLE_ISAMEM_LOG
-    int             vpage;
-#endif
-
+    const emsreg_t *dev   = (emsreg_t *) priv;
+    uint8_t         ret   = 0xff;
     /* Get the viewport page number. */
 #ifdef ENABLE_ISAMEM_LOG
-    vpage = (port / EMS_PGSIZE);
+    int             vpage = (port / EMS_PGSIZE);
 #endif
+
     port &= (EMS_PGSIZE - 1);
 
     switch (port & 0x0001) {
@@ -339,13 +345,11 @@ ems_in(uint16_t port, void *priv)
 static uint8_t
 consecutive_ems_in(uint16_t port, void *priv)
 {
-    const memdev_t *dev = (memdev_t *) priv;
-    uint8_t         ret = 0xff;
-    int             vpage;
-
+    const memdev_t *dev   = (memdev_t *) priv;
+    uint8_t         ret   = 0xff;
     /* Get the viewport page number. */
-    vpage = (port - dev->base_addr[0]);
- 
+    int             vpage = (port - dev->base_addr[0]);
+
     ret = dev->ems[vpage].page;
     if (dev->ems[vpage].enabled)
         ret |= 0x80;
@@ -359,11 +363,10 @@ consecutive_ems_in(uint16_t port, void *priv)
 static void
 ems_out(uint16_t port, uint8_t val, void *priv)
 {
-    emsreg_t *dev           = (emsreg_t *) priv;
-    int       vpage;
-
+    emsreg_t *dev   = (emsreg_t *) priv;
     /* Get the viewport page number. */
-    vpage = (port / EMS_PGSIZE);
+    int       vpage = (port / EMS_PGSIZE);
+
     port &= (EMS_PGSIZE - 1);
 
     switch (port & 0x0001) {
@@ -433,11 +436,9 @@ ems_out(uint16_t port, uint8_t val, void *priv)
 static void
 consecutive_ems_out(uint16_t port, uint8_t val, void *priv)
 {
-    memdev_t *dev = (memdev_t *) priv;
-    int       vpage;
-
+    memdev_t *dev   = (memdev_t *) priv;
     /* Get the viewport page number. */
-    vpage = (port - dev->base_addr[0]);
+    int       vpage = (port - dev->base_addr[0]);
 
     isamem_log("ISAMEM: write(%04x, %02x) to page mapping registers! (page=%d)\n", port, val, vpage);
 
@@ -483,8 +484,7 @@ isamem_init(const device_t *info)
     uint8_t  *ptr;
 
     /* Find our device and create an instance. */
-    dev = (memdev_t *) malloc(sizeof(memdev_t));
-    memset(dev, 0x00, sizeof(memdev_t));
+    dev = (memdev_t *) calloc(1, sizeof(memdev_t));
     dev->name  = info->name;
     dev->board = info->local;
 
@@ -500,6 +500,7 @@ isamem_init(const device_t *info)
         case ISAMEM_SYSTEMCARD_CARD: /* Microsoft SystemCard */
         case ISAMEM_P5PAK_CARD:      /* Paradise Systems 5-PAK */
         case ISAMEM_A6PAK_CARD:      /* AST SixPakPlus */
+        case ISAMEM_MPLUS2_CARD:     /* AST MegaPlus II */
             dev->total_size = device_get_config_int("size");
             dev->start_addr = device_get_config_int("start");
             tot             = dev->total_size;
@@ -579,7 +580,7 @@ isamem_init(const device_t *info)
                 dev->flags     |= FLAG_FAST;
             break;
 
-        case ISAMEM_LOTECH_CARD: /* Lotech EMS */
+        case ISAMEM_LOTECH_EMS_CARD: /* Lotech EMS */
             /* The Lotech EMS cannot have more than 4096KB per board. */
             ems_max = EMS_LOTECH_MAXSIZE;
             fallthrough;
@@ -638,6 +639,14 @@ isamem_init(const device_t *info)
          * so check this first.
          */
         t = (addr < RAM_TOPMEM) ? RAM_TOPMEM - addr : 0;
+
+        /* Check for Everex EV-159 cards in CS8220 backfill mode. */
+        if ((addr == RAM_TOPMEM) && (dev->board == ISAMEM_EV159_CARD)) {
+            /* Reserve 128K RAM for base memory. */
+            t = EV159_BASE_MEM;
+            addr -= t;
+        }
+
         if (t > 0) {
             /*
              * We need T bytes to extend that area.
@@ -670,6 +679,15 @@ isamem_init(const device_t *info)
             ptr += t;
             tot -= t;
             addr += t;
+        }
+
+        /* Assign high memory address for EV-159 in backfill modes. */
+        if ((addr == RAM_TOPMEM) && (dev->board == ISAMEM_EV159_CARD)) {
+            if (dev->start_addr == RAM_TOPMEM) {
+                addr = EV159_EXT_1536;
+            } else {
+                addr = EV159_EXT_1024;
+            }
         }
 
         /* Skip to high memory if needed. */
@@ -801,7 +819,7 @@ isamem_init(const device_t *info)
             mem_mapping_disable(&dev->ems[i].mapping);
 
             /* Set up an I/O port handler. */
-            if (dev->board != ISAMEM_LOTECH_CARD)
+            if (dev->board != ISAMEM_LOTECH_EMS_CARD)
                 io_sethandler(dev->base_addr[0] + (EMS_PGSIZE * i), 2,
                               ems_in, NULL, NULL, ems_out, NULL, NULL, &(dev->ems[i]));
 
@@ -832,7 +850,7 @@ isamem_init(const device_t *info)
             }
         }
 
-        if (dev->board == ISAMEM_LOTECH_CARD)
+        if (dev->board == ISAMEM_LOTECH_EMS_CARD)
             io_sethandler(dev->base_addr[0], 4,
                           consecutive_ems_in, NULL, NULL, consecutive_ems_out, NULL, NULL, dev);
     }
@@ -856,32 +874,34 @@ isamem_close(void *priv)
 static const device_config_t ibmxt_32k_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 32,
-        .file_filter = "",
-        .spinner = {
-            .min = 32,
-            .max = 576,
-            .step = 32
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 32,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =  32,
+            .max  = 576,
+            .step =  32
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 64,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 608,
-            .step = 32
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 64,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =   0,
+            .max  = 608,
+            .step =  32
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -895,7 +915,7 @@ static const device_t ibmxt_32k_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = ibmxt_32k_config
@@ -904,32 +924,34 @@ static const device_t ibmxt_32k_device = {
 static const device_config_t ibmxt_64k_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 64,
-        .file_filter = "",
-        .spinner = {
-            .min = 64,
-            .max = 576,
-            .step = 64
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 64,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =  64,
+            .max  = 576,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 64,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 576,
-            .step = 64
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 64,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =   0,
+            .max  = 576,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -943,7 +965,7 @@ static const device_t ibmxt_64k_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = ibmxt_64k_config
@@ -952,32 +974,34 @@ static const device_t ibmxt_64k_device = {
 static const device_config_t ibmxt_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 128,
-        .file_filter = "",
-        .spinner = {
-            .min = 64,
-            .max = 576,
-            .step = 64
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 128,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =  64,
+            .max  = 576,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 256,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 576,
-            .step = 64
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 256,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =   0,
+            .max  = 576,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -991,7 +1015,7 @@ static const device_t ibmxt_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = ibmxt_config
@@ -1000,37 +1024,40 @@ static const device_t ibmxt_device = {
 static const device_config_t genericxt_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 16,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 640,
-            .step = 16
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 16,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =   0,
+            .max  = 640,
+            .step =  16
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 624,
-            .step = 16
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =   0,
+            .max  = 640,
+            .step =  16
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
 };
 
+// This also nicely accounts for the Everex EV-138
 static const device_t genericxt_device = {
     .name          = "Generic PC/XT Memory Expansion",
     .internal_name = "genericxt",
@@ -1039,7 +1066,7 @@ static const device_t genericxt_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = genericxt_config
@@ -1048,32 +1075,34 @@ static const device_t genericxt_device = {
 static const device_config_t msramcard_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 64,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 256,
-            .step = 64
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 64,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =   0,
+            .max  = 256,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 624,
-            .step = 64
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =   0,
+            .max  = 624,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1087,7 +1116,7 @@ static const device_t msramcard_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = msramcard_config
@@ -1096,32 +1125,34 @@ static const device_t msramcard_device = {
 static const device_config_t mssystemcard_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 64,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 256,
-            .step = 64
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 64,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =   0,
+            .max  = 256,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 624,
-            .step = 64
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =   0,
+            .max  = 624,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1135,7 +1166,7 @@ static const device_t mssystemcard_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = mssystemcard_config
@@ -1149,7 +1180,7 @@ static const device_t ibmat_128k_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1158,32 +1189,34 @@ static const device_t ibmat_128k_device = {
 static const device_config_t ibmat_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 512,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 12288,
-            .step = 512
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 512,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =     0,
+            .max  = 12288,
+            .step =   512
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 1024,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 15872,
-            .step = 512
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 1024,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =     0,
+            .max  = 15872,
+            .step =   512
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1197,7 +1230,7 @@ static const device_t ibmat_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = ibmat_config
@@ -1206,37 +1239,40 @@ static const device_t ibmat_device = {
 static const device_config_t genericat_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 512,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 16384,
-            .step = 128
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 512,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =     0,
+            .max  = 16384,
+            .step =   128
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 1024,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 15872,
-            .step = 128
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 1024,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =     0,
+            .max  = 15872,
+            .step =   128
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
 };
 
+// This also nicely accounts for the Everex EV-135
 static const device_t genericat_device = {
     .name          = "Generic PC/AT Memory Expansion",
     .internal_name = "genericat",
@@ -1245,7 +1281,7 @@ static const device_t genericat_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = genericat_config
@@ -1254,32 +1290,34 @@ static const device_t genericat_device = {
 static const device_config_t p5pak_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 128,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 384,
-            .step = 64
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 128,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =   0,
+            .max  = 384,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 512,
-        .file_filter = "",
-        .spinner = {
-            .min = 64,
-            .max = 576,
-            .step = 64
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 512,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =  64,
+            .max  = 576,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1293,7 +1331,7 @@ static const device_t p5pak_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = p5pak_config
@@ -1302,32 +1340,34 @@ static const device_t p5pak_device = {
 static const device_config_t a6pak_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 64,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 384,
-            .step = 64
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 64,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =   0,
+            .max  = 384,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 256,
-        .file_filter = "",
-        .spinner = {
-            .min = 64,
-            .max = 512,
-            .step = 64
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 256,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =  64,
+            .max  = 512,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1341,7 +1381,7 @@ static const device_t a6pak_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = a6pak_config
@@ -1350,35 +1390,37 @@ static const device_t a6pak_device = {
 static const device_config_t ems5150_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 256,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 2048,
-            .step = 64
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 256,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =    0,
+            .max  = 2048,
+            .step =   64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "base",
-        .description = "Address",
-        .type = CONFIG_HEX16,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "Disabled", .value = 0x0000 },
-            { .description = "Board 1",  .value = 0x0208 },
-            { .description = "Board 2",  .value = 0x020a },
-            { .description = "Board 3",  .value = 0x020c },
-            { .description = "Board 4",  .value = 0x020e },
+            { .description = "208H",     .value = 0x0208 },
+            { .description = "20AH",     .value = 0x020a },
+            { .description = "20CH",     .value = 0x020c },
+            { .description = "20EH",     .value = 0x020e },
             { .description = ""                          }
         },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1392,7 +1434,7 @@ static const device_t ems5150_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = ems5150_config
@@ -1401,98 +1443,104 @@ static const device_t ems5150_device = {
 static const device_config_t ev159_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 512,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 3072,
-            .step = 512
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 512,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =    0,
+            .max  = 3072,
+            .step =  512
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 16128,
-            .step = 128
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =     0,
+            .max  = 16128,
+            .step =   128
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "length",
-        .description = "Contiguous Size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 16384,
-            .step = 128
+        .name           = "length",
+        .description    = "Contiguous Size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =     0,
+            .max  = 16384,
+            .step =   128
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "width",
-        .description = "I/O Width",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "width",
+        .description    = "I/O Width",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "8-bit",  .value = 0 },
             { .description = "16-bit", .value = 1 },
             { .description = ""                   }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "speed",
-        .description = "Transfer Speed",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "speed",
+        .description    = "Transfer Speed",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "Standard (150ns)",   .value = 0 },
             { .description = "High-Speed (120ns)", .value = 1 },
             { .description = ""                               }
-        }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "ems",
-        .description = "EMS mode",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "ems",
+        .description    = "EMS mode",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "Disabled", .value = 0 },
             { .description = "Enabled",  .value = 1 },
             { .description = ""                     }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "base",
-        .description = "Address",
-        .type = CONFIG_HEX16,
-        .default_string = "",
-        .default_int = 0x0258,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x0258,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "208H", .value = 0x0208 },
             { .description = "218H", .value = 0x0218 },
             { .description = "258H", .value = 0x0258 },
@@ -1502,16 +1550,17 @@ static const device_config_t ev159_config[] = {
             { .description = "2E8H", .value = 0x02E8 },
             { .description = ""                      }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "base2",
-        .description = "Address for > 2 MB",
-        .type = CONFIG_HEX16,
-        .default_string = "",
-        .default_int = 0x0268,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "base2",
+        .description    = "Address for > 2 MB",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x0268,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "208H", .value = 0x0208 },
             { .description = "218H", .value = 0x0218 },
             { .description = "258H", .value = 0x0258 },
@@ -1521,6 +1570,7 @@ static const device_config_t ev159_config[] = {
             { .description = "2E8H", .value = 0x02E8 },
             { .description = ""                      }
         },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1534,7 +1584,7 @@ static const device_t ev159_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = ev159_config
@@ -1543,70 +1593,74 @@ static const device_t ev159_device = {
 static const device_config_t ev165a_config[] = {
   // clang-format off
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 256,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 2048,
-            .step = 256
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 256,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =    0,
+            .max  = 2048,
+            .step =  256
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 64,
-        .file_filter = "",
-        .spinner = {
-            .min = 64,
-            .max = 640,
-            .step = 64
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 64,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =  64,
+            .max  = 640,
+            .step =  64
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
         .name = "length",
         .description = "Contiguous Size",
         .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 2048,
-            .step = 256
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =    0,
+            .max  = 2048,
+            .step =  256
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "ems",
-        .description = "EMS mode",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "ems",
+        .description    = "EMS mode",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "Disabled", .value = 0 },
             { .description = "Enabled",  .value = 1 },
             { .description = ""                     }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "base",
-        .description = "Address",
-        .type = CONFIG_HEX16,
-        .default_string = "",
-        .default_int = 0x0258,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x0258,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "208H", .value = 0x0208 },
             { .description = "218H", .value = 0x0218 },
             { .description = "258H", .value = 0x0258 },
@@ -1616,6 +1670,7 @@ static const device_config_t ev165a_config[] = {
             { .description = "2E8H", .value = 0x02E8 },
             { .description = ""                      }
         },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1629,7 +1684,7 @@ static const device_t ev165a_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = ev165a_config
@@ -1638,48 +1693,51 @@ static const device_t ev165a_device = {
 static const device_config_t brxt_config[] = {
   // clang-format off
     {
-        .name = "base",
-        .description = "Address",
-        .type = CONFIG_HEX16,
-        .default_string = "",
-        .default_int = 0x0268,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x0268,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "208H", .value = 0x0208 },
             { .description = "218H", .value = 0x0218 },
             { .description = "258H", .value = 0x0258 },
             { .description = "268H", .value = 0x0268 },
             { .description = ""                      }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "frame",
-        .description = "Frame Address",
-        .type = CONFIG_HEX20,
-        .default_string = "",
-        .default_int = 0xD0000,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
-            { .description = "D000H",    .value = 0xD0000 },
-            { .description = "E000H",    .value = 0xE0000 },
-            { .description = ""                           }
+        .name           = "frame",
+        .description    = "Frame Address",
+        .type           = CONFIG_HEX20,
+        .default_string = NULL,
+        .default_int    = 0xD0000,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "D000H", .value = 0xD0000 },
+            { .description = "E000H", .value = 0xE0000 },
+            { .description = ""                        }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 512,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 2048,
-            .step = 512
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 512,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =    0,
+            .max  = 2048,
+            .step =  512
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1693,7 +1751,7 @@ static const device_t brxt_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = brxt_config
@@ -1703,89 +1761,96 @@ static const device_t brxt_device = {
 static const device_config_t brat_config[] = {
   // clang-format off
     {
-        .name = "base",
-        .description = "Address",
-        .type = CONFIG_HEX16,
-        .default_string = "",
-        .default_int = 0x0268,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x0268,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "208H", .value = 0x0208 },
             { .description = "218H", .value = 0x0218 },
             { .description = "258H", .value = 0x0258 },
             { .description = "268H", .value = 0x0268 },
             { .description = ""                      }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "frame",
-        .description = "Frame Address",
-        .type = CONFIG_HEX20,
-        .default_string = "",
-        .default_int = 0xD0000,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "frame",
+        .description    = "Frame Address",
+        .type           = CONFIG_HEX20,
+        .default_string = NULL,
+        .default_int    = 0xD0000,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "D000H",    .value = 0xD0000 },
             { .description = "E000H",    .value = 0xE0000 },
             { .description = ""                           }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "width",
-        .description = "I/O Width",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 8,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "width",
+        .description    = "I/O Width",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 8,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "8-bit",  .value =  8 },
             { .description = "16-bit", .value = 16 },
             { .description = ""                    }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "speed",
-        .description = "Transfer Speed",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "speed",
+        .description    = "Transfer Speed",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "Standard",   .value = 0 },
             { .description = "High-Speed", .value = 1 },
             { .description = ""                       }
-        }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 512,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 4096,
-            .step = 512
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 512,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =    0,
+            .max  = 4096,
+            .step =  512
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 14336,
-            .step = 512
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =     0,
+            .max  = 14336,
+            .step =   512
         },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1799,7 +1864,7 @@ static const device_t brat_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = brat_config
@@ -1809,66 +1874,69 @@ static const device_t brat_device = {
 static const device_config_t lotech_config[] = {
 // clang-format off
     {
-        .name = "base",
-        .description = "Address",
-        .type = CONFIG_HEX16,
-        .default_string = "",
-        .default_int = 0x0260,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x0260,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "260H", .value = 0x0260 },
             { .description = "264H", .value = 0x0264 },
             { .description = "268H", .value = 0x0268 },
             { .description = "26CH", .value = 0x026C },
             { .description = ""                      }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "frame",
-        .description = "Frame Address",
-        .type = CONFIG_HEX20,
-        .default_string = "",
-        .default_int = 0xe0000,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "frame",
+        .description    = "Frame Address",
+        .type           = CONFIG_HEX20,
+        .default_string = NULL,
+        .default_int    = 0xe0000,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "C000H",    .value = 0xC0000 },
             { .description = "D000H",    .value = 0xD0000 },
             { .description = "E000H",    .value = 0xE0000 },
             { .description = ""                           }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 2048,
-        .file_filter = "",
-        .spinner = {
-            .min = 512,
-            .max = 4096,
-            .step = 512
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 2048,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =  512,
+            .max  = 4096,
+            .step =  512
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
 // clang-format on
 };
 
-static const device_t lotech_device = {
-    .name = "Lo-tech EMS Board",
+static const device_t lotech_ems_device = {
+    .name          = "Lo-tech EMS Board",
     .internal_name = "lotechems",
-    .flags = DEVICE_ISA,
-    .local = ISAMEM_LOTECH_CARD,
-    .init = isamem_init,
-    .close = isamem_close,
-    .reset = NULL,
-    { .available = NULL },
+    .flags         = DEVICE_ISA,
+    .local         = ISAMEM_LOTECH_EMS_CARD,
+    .init          = isamem_init,
+    .close         = isamem_close,
+    .reset         = NULL,
+    .available     = NULL,
     .speed_changed = NULL,
-    .force_redraw = NULL,
-    .config = lotech_config
+    .force_redraw  = NULL,
+    .config        = lotech_config
 };
 
 #ifdef USE_ISAMEM_RAMPAGE
@@ -1877,14 +1945,14 @@ static const device_t lotech_device = {
 static const device_config_t rampage_config[] = {
   // clang-format off
     {
-        .name = "base",
-        .description = "Address",
-        .type = CONFIG_HEX16,
-        .default_string = "",
-        .default_int = 0x0218,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x0218,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "208H", .value = 0x0208 },
             { .description = "218H", .value = 0x0218 },
             { .description = "258H", .value = 0x0258 },
@@ -1894,33 +1962,37 @@ static const device_config_t rampage_config[] = {
             { .description = "2E8H", .value = 0x02E8 },
             { .description = ""                      }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 256, /* Technically 128k, but banks 2-7 must be 256, headaches elsewise */
-        .file_filter = "",
-        .spinner = {
-            .min = 256,
-            .max = 2048,
-            .step = 256
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 256, /* Technically 128k, but banks 2-7 must be 256, headaches elsewise */
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =  256,
+            .max  = 2048,
+            .step =  256
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "start",
-        .description = "Start Address",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 640,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 640,
-            .step = 64
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 640,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =   0,
+            .max  = 640,
+            .step =  64
         },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -1934,7 +2006,7 @@ static const device_t rampage_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = rampage_config
@@ -1945,14 +2017,14 @@ static const device_t rampage_device = {
 static const device_config_t iab_config[] = {
   // clang-format off
     {
-        .name = "base",
-        .description = "Address",
-        .type = CONFIG_HEX16,
-        .default_string = "",
-        .default_int = 0x0258,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x0258,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "208H", .value = 0x0208 },
             { .description = "218H", .value = 0x0218 },
             { .description = "258H", .value = 0x0258 },
@@ -1962,64 +2034,69 @@ static const device_config_t iab_config[] = {
             { .description = "2E8H", .value = 0x02E8 },
             { .description = ""                      }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "frame",
-        .description = "Frame Address",
-        .type = CONFIG_HEX20,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "frame",
+        .description    = "Frame Address",
+        .type           = CONFIG_HEX20,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "Disabled", .value = 0x00000 },
             { .description = "C000H",    .value = 0xC0000 },
             { .description = "D000H",    .value = 0xD0000 },
             { .description = "E000H",    .value = 0xE0000 },
             { .description = ""                           }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "width",
-        .description = "I/O Width",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 8,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "width",
+        .description    = "I/O Width",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 8,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "8-bit",  .value =  8 },
             { .description = "16-bit", .value = 16 },
             { .description = ""                    }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "speed",
-        .description = "Transfer Speed",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "speed",
+        .description    = "Transfer Speed",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "Standard",   .value = 0 },
             { .description = "High-Speed", .value = 1 },
             { .description = ""                       }
-        }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "size",
-        .description = "Memory size",
-        .type = CONFIG_SPINNER,
-        .default_string = "",
-        .default_int = 128,
-        .file_filter = "",
-        .spinner = {
-            .min = 0,
-            .max = 8192,
-            .step = 128
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = NULL,
+        .default_int    = 128,
+        .file_filter    = NULL,
+        .spinner        = {
+            .min  =    0,
+            .max  = 8192,
+            .step =  128
         },
-        .selection = { { 0 } }
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -2033,12 +2110,60 @@ static const device_t iab_device = {
     .init          = isamem_init,
     .close         = isamem_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = iab_config
 };
 #endif /* USE_ISAMEM_IAB */
+
+static const device_config_t mplus2_config[] = {
+  // clang-format off
+    {
+        .name           = "size",
+        .description    = "Memory size",
+        .type           = CONFIG_SPINNER,
+        .default_string = "",
+        .default_int    = 64,
+        .file_filter    = "",
+        .spinner        = {
+            .min  = 0,
+            .max  = 512,
+            .step = 64
+        },
+        .selection      = { { 0 } }
+    },
+    {
+        .name           = "start",
+        .description    = "Start Address",
+        .type           = CONFIG_SPINNER,
+        .default_string = "",
+        .default_int    = 256,
+        .file_filter    = "",
+        .spinner        = {
+            .min  = 64,
+            .max  = 576,
+            .step = 64
+        },
+        .selection      = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+  // clang-format on
+};
+
+static const device_t mplus2_device = {
+    .name          = "AST MegaPlus II",
+    .internal_name = "mplus2",
+    .flags         = DEVICE_ISA,
+    .local         = ISAMEM_MPLUS2_CARD,
+    .init          = isamem_init,
+    .close         = isamem_close,
+    .reset         = NULL,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = mplus2_config
+};
 
 static const struct {
     const device_t *dev;
@@ -2072,7 +2197,8 @@ static const struct {
 #ifdef USE_ISAMEM_IAB
     { &iab_device          },
 #endif /* USE_ISAMEM_IAB */
-    { &lotech_device       },
+    { &lotech_ems_device   },
+    { &mplus2_device       },
     { NULL                 }
     // clang-format on
 };
@@ -2111,12 +2237,12 @@ isamem_get_internal_name(int board)
 }
 
 int
-isamem_get_from_internal_name(const char *s)
+isamem_get_from_internal_name(const char *str)
 {
     int c = 0;
 
     while (boards[c].dev != NULL) {
-        if (!strcmp(boards[c].dev->internal_name, s))
+        if (!strcmp(boards[c].dev->internal_name, str))
             return c;
         c++;
     }

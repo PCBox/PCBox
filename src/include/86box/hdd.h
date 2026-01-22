@@ -8,8 +8,6 @@
  *
  *          Definitions for the hard disk image handler.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
@@ -67,14 +65,15 @@ enum {
 };
 #else
 enum {
-    HDD_BUS_DISABLED = 0,
-    HDD_BUS_MFM      = 1,
-    HDD_BUS_XTA      = 2,
-    HDD_BUS_ESDI     = 3,
-    HDD_BUS_IDE      = 4,
-    HDD_BUS_ATAPI    = 5,
-    HDD_BUS_SCSI     = 6,
-    HDD_BUS_USB      = 7
+    HDD_BUS_DISABLED =  0,
+    HDD_BUS_MFM      =  1,
+    HDD_BUS_XTA      =  2,
+    HDD_BUS_ESDI     =  3,
+    HDD_BUS_LPT      =  6,
+    HDD_BUS_IDE      =  7,
+    HDD_BUS_ATAPI    =  8,
+    HDD_BUS_SCSI     =  9,
+    HDD_BUS_USB      = 10
 };
 #endif
 
@@ -91,6 +90,7 @@ typedef struct hdd_preset_t {
     const char *name;
     const char *internal_name;
     const char *model;
+    const char *version;
     uint32_t    zones;
     uint32_t    avg_spt;
     uint32_t    heads;
@@ -138,55 +138,66 @@ typedef struct hdd_zone_t {
 
 /* Define the virtual Hard Disk. */
 typedef struct hard_disk_t {
-    uint8_t id;
+    uint8_t           id;
+
     union {
-        uint8_t channel; /* Needed for Settings to reduce the number of if's */
+        /* Needed for Settings to reduce the number of if's */
+        uint8_t           channel;
 
-        uint8_t mfm_channel; /* Should rename and/or unionize */
-        uint8_t esdi_channel;
-        uint8_t xta_channel;
-        uint8_t ide_channel;
-        uint8_t scsi_id;
+        uint8_t           mfm_channel;
+        uint8_t           esdi_channel;
+        uint8_t           xta_channel;
+        uint8_t           ide_channel;
+        uint8_t           scsi_id;
     };
-    uint8_t bus;
-    uint8_t bus_mode;  /* Bit 0 = PIO suported;
-                          Bit 1 = DMA supportd. */
-    uint8_t wp; /* Disk has been mounted READ-ONLY */
-    uint8_t pad;
-    uint8_t pad0;
 
-    void *priv;
+    uint8_t            bus_type;
+    uint8_t            bus_mode;     /* Bit 0 = PIO suported;
+                                        Bit 1 = DMA supportd. */
+    uint8_t            wp;           /* Disk has been mounted
+                                        READ-ONLY */
+    uint8_t            pad;
+    uint8_t            pad0;
 
-    char fn[1024];         /* Name of current image file */
-    char vhd_parent[1041]; /* Differential VHD parent file */
+    void              *priv;
 
-    uint32_t seek_pos;
-    uint32_t seek_len;
-    uint32_t base;
-    uint32_t spt;
-    uint32_t hpc; /* Physical geometry parameters */
-    uint32_t tracks;
-    const char *model;
+    char               fn[MAX_IMAGE_PATH_LEN];     /* Name of current image file */
+    /* Differential VHD parent file */
+    char               vhd_parent[1280];
 
-    hdd_zone_t  zones[HDD_MAX_ZONES];
-    uint32_t    num_zones;
-    hdd_cache_t cache;
-    uint32_t    phy_cyl;
-    uint32_t    phy_heads;
-    uint32_t    rpm;
-    uint8_t     max_multiple_block;
+    uint32_t           seek_pos;
+    uint32_t           seek_len;
+    uint32_t           base;
+    uint32_t           spt;          /* Physical geometry parameters */
+    uint32_t           hpc;
+    uint32_t           tracks;
+    uint32_t           speed_preset;
+    uint32_t           audio_profile;
 
-    uint32_t cur_cylinder;
-    uint32_t cur_track;
-    uint32_t cur_addr;
+    uint32_t           num_zones;
+    uint32_t           phy_cyl;
+    uint32_t           phy_heads;
+    uint32_t           rpm;
+    uint32_t           cur_cylinder;
+    uint32_t           cur_track;
+    uint32_t           cur_addr;
+    uint32_t           vhd_blocksize;
 
-    uint32_t speed_preset;
-    uint32_t vhd_blocksize;
+    uint8_t            max_multiple_block;
+    uint8_t            pad1[3];
 
-    double avg_rotation_lat_usec;
-    double full_stroke_usec;
-    double head_switch_usec;
-    double cyl_switch_usec;
+    const char        *model;
+
+    const char        *version;
+
+    hdd_zone_t         zones[HDD_MAX_ZONES];
+
+    hdd_cache_t        cache;
+
+    double             avg_rotation_lat_usec;
+    double             full_stroke_usec;
+    double             head_switch_usec;
+    double             cyl_switch_usec;
 } hard_disk_t;
 
 extern hard_disk_t  hdd[HDD_NUM];
@@ -223,6 +234,7 @@ extern double      hdd_seek_get_time(hard_disk_t *hdd, uint32_t dst_addr, uint8_
 int                hdd_preset_get_num(void);
 const char        *hdd_preset_getname(int preset);
 extern const char *hdd_preset_get_internal_name(int preset);
+extern uint32_t    hdd_preset_get_rpm(int preset);
 extern int         hdd_preset_get_from_internal_name(char *s);
 extern void        hdd_preset_apply(int hdd_id);
 

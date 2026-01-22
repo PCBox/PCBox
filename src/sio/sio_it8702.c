@@ -58,6 +58,7 @@ typedef struct {
 
     fdc_t    *fdc;
     serial_t *uart[2];
+    lpt_t *lpt[2];
 } it8702_t;
 
 #ifdef ENABLE_IT8702_LOG
@@ -138,14 +139,14 @@ it8702_lpt(it8702_t *dev)
 {
     uint16_t base = ((dev->b_addr[0][1] & 0x0f) << 8) | (dev->b_addr[1][1] & 0xf8);
     int      irq  = dev->irq[1];
-    lpt1_remove();
-    lpt2_remove();
+    lpt_port_remove(dev->lpt[0]);
+    lpt_port_remove(dev->lpt[1]);
 
     if (dev->enable[1] & 1) {
         it8702_log("IT8702 LPT1: Enabled with Base: 0x%x IRQ: %d\n", base, irq);
-        lpt1_init(base);
-        lpt1_irq(irq);
-        lpt2_irq(irq);
+        lpt_port_setup(dev->lpt[0], base);
+        lpt_port_irq(dev->lpt[0], irq);
+        lpt_port_irq(dev->lpt[1], irq);
     }
 }
 
@@ -424,8 +425,11 @@ it8702_init(const device_t *info)
     /* FDC */
     dev->fdc = device_add(&fdc_at_smc_device);
 
+    dev->lpt[0] = device_add_inst(&lpt_port_device, 1);
+    dev->lpt[1] = device_add_inst(&lpt_port_device, 2);
+
     /* Keyboard Controller */
-    device_add(&keyboard_ps2_ami_pci_device);
+    device_add_params(&kbc_at_device, (void *) (KBC_VEN_AMI | 0x00004800));
 
     /* Port 92h */
     device_add(&port_92_pci_device);
@@ -449,7 +453,7 @@ const device_t it8702_device = {
     .init          = it8702_init,
     .close         = it8702_close,
     .reset         = it8702_reset,
-    { .available = NULL },
+    .available = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

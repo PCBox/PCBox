@@ -11,7 +11,7 @@
 # Authors: David Hrdlička, <hrdlickadavid@outlook.com>
 #
 #          Copyright 2020-2021 David Hrdlička.
-#          Copyright 2021-2024 Jasmine Iwanek.
+#          Copyright 2021-2025 Jasmine Iwanek.
 #
 
 cmake_minimum_required(VERSION 3.16)
@@ -36,7 +36,7 @@ if(MUNT_EXTERNAL)
 endif()
 
 project(PCBox
-    VERSION 4.3
+    VERSION 5.4
     DESCRIPTION "Emulator of x86-based systems"
     HOMEPAGE_URL "https://pcbox-emu.xyz/"
     LANGUAGES C CXX)
@@ -132,12 +132,41 @@ option(RTMIDI       "RtMidi"                                                    
 option(FLUIDSYNTH   "FluidSynth"                                                 ON)
 option(MUNT         "MUNT"                                                       ON)
 option(VNC          "VNC renderer"                                               OFF)
-option(NEW_DYNAREC  "Use the PCem v15 (\"new\") dynamic recompiler"              OFF)
 option(MINITRACE    "Enable Chrome tracing using the modified minitrace library" OFF)
 option(GDBSTUB      "Enable GDB stub server for debugging"                       OFF)
 option(DEV_BRANCH   "Development branch"                                         OFF)
 option(DISCORD      "Discord Rich Presence support"                              ON)
 option(DEBUGREGS486 "Enable debug register opeartion on 486+ CPUs"               OFF)
+option(LIBASAN      "Enable compilation with the addresss sanitizer"             OFF)
+# Remove when merged, should just be -D
+option(NV_LOG       "NVidia RIVA 128 debug logging"                              ON)
+option(NV_LOG_ULTRA "Even more NVidia RIVA 128 debug logging"                    OFF)
+
+if (NV_LOG)
+    add_compile_definitions(ENABLE_NV_LOG)
+endif()
+
+if (NV_LOG_ULTRA)
+    add_compile_definitions(ENABLE_NV_LOG_ULTRA)
+endif()
+
+if((ARCH STREQUAL "arm64"))
+    set(NEW_DYNAREC ON)
+else()
+    option(NEW_DYNAREC "Use the PCem v15 (\"new\") dynamic recompiler" OFF)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
+    option(AUDIO4 "Use audio(4) as sound backend" ON)
+else()
+    set(AUDIO4 OFF)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
+    option(SNDIO "Use sndio as sound backend" ON)
+else()
+    set(SNDIO OFF)
+endif()
 
 if(WIN32)
     set(QT ON)
@@ -153,29 +182,22 @@ endif()
 
 # Development branch features
 #
-#                      Option         Description                                   Def.    Condition       Otherwise
-#                      ------         -----------                                   ----    ---------       ---------
-cmake_dependent_option(AMD_K5         "AMD K5"                                      ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(AN430TX        "Intel AN430TX"                               ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(CDROM_MITSUMI  "Mitsumi CDROM"                               ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(CYRIX_6X86     "Cyrix 6x86"                                  ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(G100           "Matrox Productiva G100"                      ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(GENERIC_INTEL  "Generic Intel CPU type"                      ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(GUSMAX         "Gravis UltraSound MAX"                       ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(ISAMEM_RAMPAGE "AST Rampage"                                 ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(ISAMEM_IAB     "Intel Above Board"                           ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(ISAMEM_BRAT    "BocaRAM/AT"                                  ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(LASERXT        "VTech Laser XT"                              ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(OLIVETTI       "Olivetti M290"                               ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(OPEN_AT        "OpenAT"                                      ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(OPL4ML         "OPL4-ML daughterboard"                       ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(R100           "ATI R100"                                    OFF     "DEV_BRANCH"    OFF)
-cmake_dependent_option(RIVA128        "Nvidia Riva 128"                             ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(RIVATNT        "Nvidia Riva TNT"                             ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(PCL            "Generic PCL5e Printer"                       ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(SIO_DETECT     "Super I/O Detection Helper"                  ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(WACOM          "Wacom Input Devices"                         ON      "DEV_BRANCH"    OFF)
-cmake_dependent_option(XL24           "ATI VGA Wonder XL24 (ATI-28800-6)"           ON      "DEV_BRANCH"    OFF)
+#                      Option         Description                                Def.  Condition     Otherwise
+#                      ------         -----------                                ----  ------------  ---------
+cmake_dependent_option(AMD_K5         "AMD K5"                                   ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(CDROM_MITSUMI  "Mitsumi CDROM"                            ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(G100           "Matrox Productiva G100"                   ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(ISAMEM_RAMPAGE "AST Rampage"                              ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(ISAMEM_IAB     "Intel Above Board"                        ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(ISAMEM_BRAT    "BocaRAM/AT"                               ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(OPL4ML         "OPL4-ML daughterboard"                    ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(PCL            "Generic PCL5e Printer"                    ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(SIO_DETECT     "Super I/O Detection Helper"               ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(WACOM          "Wacom Input Devices"                      ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(XL24           "ATI VGA Wonder XL24 (ATI-28800-6)"        ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(NV3            "NVidia RIVA 128/128ZX (NV3/NV3T)"         ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(VFIO           "Virtual Function I/O"                     ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(SOFTMODEM      "AC'97 Softmodem"                          ON    "DEV_BRANCH"  OFF)
 
 # Ditto but for Qt
 if(QT)
@@ -213,7 +235,15 @@ if(NOT EMU_BUILD_NUM)
     set(EMU_BUILD_NUM 0)
 endif()
 if(NOT EMU_COPYRIGHT_YEAR)
-    set(EMU_COPYRIGHT_YEAR 2024)
+    set(EMU_COPYRIGHT_YEAR 2026)
 endif()
+
+# Libasan
+if(LIBASAN)
+    add_compile_options(-fsanitize=address)
+    add_link_options(-fsanitize=address)
+endif()
+
+set(CMAKE_TOP_LEVEL_PROCESSED TRUE)
 
 add_subdirectory(src)

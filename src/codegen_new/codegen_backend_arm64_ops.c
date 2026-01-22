@@ -102,6 +102,10 @@
 #    define OPCODE_SUB_LSR            (0x25a << 21)
 #    define OPCODE_SUBX_LSL           (0x658 << 21)
 
+#    define OPCODE_INS_B              (0x6e010400)
+#    define OPCODE_INS_H              (0x6e020400)
+#    define OPCODE_INS_S              (0x6e040400)
+#    define OPCODE_INS_D              (0x6e080400)
 #    define OPCODE_ADD_V8B            (0x0e208400)
 #    define OPCODE_ADD_V4H            (0x0e608400)
 #    define OPCODE_ADD_V2S            (0x0ea08400)
@@ -180,11 +184,11 @@
 #    define OPCODE_SQSUB_V8B          (0x0e202c00)
 #    define OPCODE_SQSUB_V4H          (0x0e602c00)
 #    define OPCODE_SQXTN_V8B_8H       (0x0e214800)
-#    define OPCODE_SQXTUN_V8B_8H      (0x7e212800)
+#    define OPCODE_SQXTUN_V8B_8H      (0x2e212800)
 #    define OPCODE_SQXTN_V4H_4S       (0x0e614800)
 #    define OPCODE_SHL_VD             (0x0f005400)
 #    define OPCODE_SHL_VQ             (0x4f005400)
-#    define OPCODE_SHRN               (0x0f008400)
+#    define OPCODE_SQSHRN             (0x0f008400)
 #    define OPCODE_SMULL_V4S_4H       (0x0e60c000)
 #    define OPCODE_SSHR_VD            (0x0f000400)
 #    define OPCODE_SSHR_VQ            (0x4f000400)
@@ -208,6 +212,7 @@
 #    define OPCODE_ZIP1_V8B           (0x0e003800)
 #    define OPCODE_ZIP1_V4H           (0x0e403800)
 #    define OPCODE_ZIP1_V2S           (0x0e803800)
+#    define OPCODE_ZIP1_V2D           (0x4ec03800)
 #    define OPCODE_ZIP2_V8B           (0x0e007800)
 #    define OPCODE_ZIP2_V4H           (0x0e407800)
 #    define OPCODE_ZIP2_V2S           (0x0e807800)
@@ -226,11 +231,11 @@
 
 #    define IMM_LOGICAL(imm)          ((imm) << 10)
 
-#    define BIT_TBxZ(bit)             ((((bit) &0x1f) << 19) | (((bit) &0x20) ? (1 << 31) : 0))
+#    define BIT_TBxZ(bit)             ((((bit) & 0x1f) << 19) | (((bit) & 0x20) ? (1 << 31) : 0))
 
 #    define OFFSET14(offset)          (((offset >> 2) << 5) & 0x0007ffe0)
 #    define OFFSET19(offset)          (((offset >> 2) << 5) & 0x00ffffe0)
-#    define OFFSET20(offset)          (((offset & 3) << 29) | ((((offset) &0x1fffff) >> 2) << 5))
+#    define OFFSET20(offset)          (((offset & 3) << 29) | ((((offset) & 0x1fffff) >> 2) << 5))
 #    define OFFSET26(offset)          ((offset >> 2) & 0x03ffffff)
 
 #    define OFFSET12_B(offset)        (offset << 10)
@@ -718,6 +723,12 @@ host_arm64_DUP_V2S(codeblock_t *block, int dst_reg, int src_n_reg, int element)
 }
 
 void
+host_arm64_INS_D(codeblock_t *block, int dst_reg, int src_reg, int dst_index, int src_index)
+{
+    codegen_addlong(block, OPCODE_INS_D | Rd(dst_reg) | Rn(src_reg) | ((dst_index & 1) << 20) | ((src_index & 1) << 14));
+}
+
+void
 host_arm64_EOR_IMM(codeblock_t *block, int dst_reg, int src_n_reg, uint32_t imm_data)
 {
     uint32_t imm_encoding = host_arm64_find_imm(imm_data);
@@ -1187,11 +1198,11 @@ host_arm64_SCVTF_V2S(codeblock_t *block, int dst_reg, int src_reg)
 }
 
 void
-host_arm64_SHRN_V4H_4S(codeblock_t *block, int dst_reg, int src_n_reg, int shift)
+host_arm64_SQSHRN_V4H_4S(codeblock_t *block, int dst_reg, int src_n_reg, int shift)
 {
     if (shift > 16)
         fatal("host_arm64_SHRN_V4H_4S : shift > 16\n");
-    codegen_addlong(block, OPCODE_SHRN | Rd(dst_reg) | Rn(src_n_reg) | SHRN_SHIFT_IMM_V4S(16 - shift));
+    codegen_addlong(block, OPCODE_SQSHRN | Rd(dst_reg) | Rn(src_n_reg) | SHRN_SHIFT_IMM_V4S(16 - shift));
 }
 
 void
@@ -1227,7 +1238,8 @@ host_arm64_SQXTN_V8B_8H(codeblock_t *block, int dst_reg, int src_reg)
     codegen_addlong(block, OPCODE_SQXTN_V8B_8H | Rd(dst_reg) | Rn(src_reg));
 }
 
-void host_arm64_SQXTUN_V8B_8H(codeblock_t *block, int dst_reg, int src_reg)
+void
+host_arm64_SQXTUN_V8B_8H(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_addlong(block, OPCODE_SQXTUN_V8B_8H | Rd(dst_reg) | Rn(src_reg));
 }
@@ -1480,6 +1492,11 @@ void
 host_arm64_ZIP1_V2S(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg)
 {
     codegen_addlong(block, OPCODE_ZIP1_V2S | Rd(dst_reg) | Rn(src_n_reg) | Rm(src_m_reg));
+}
+void
+host_arm64_ZIP1_V2D(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg)
+{
+    codegen_addlong(block, OPCODE_ZIP1_V2D | Rd(dst_reg) | Rn(src_n_reg) | Rm(src_m_reg));
 }
 void
 host_arm64_ZIP2_V8B(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg)

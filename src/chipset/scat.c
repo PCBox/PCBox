@@ -10,8 +10,6 @@
  *
  *          Re-worked version based on the 82C235 datasheet and errata.
  *
- *
- *
  * Authors: Original by GreatPsycho for PCem.
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
@@ -1403,8 +1401,7 @@ scat_init(const device_t *info)
     uint32_t k;
     int      sx;
 
-    dev = (scat_t *) malloc(sizeof(scat_t));
-    memset(dev, 0x00, sizeof(scat_t));
+    dev = (scat_t *) calloc(1, sizeof(scat_t));
     dev->type = info->local;
 
     sx = (dev->type == 32) ? 1 : 0;
@@ -1559,7 +1556,7 @@ const device_t scat_device = {
     .init          = scat_init,
     .close         = scat_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1573,7 +1570,7 @@ const device_t scat_4_device = {
     .init          = scat_init,
     .close         = scat_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1587,7 +1584,7 @@ const device_t scat_sx_device = {
     .init          = scat_init,
     .close         = scat_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

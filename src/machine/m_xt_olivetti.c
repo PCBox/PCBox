@@ -30,6 +30,7 @@
 #include <wchar.h>
 #define HAVE_STDARG_H
 #include <86box/86box.h>
+#include "cpu.h"
 #include <86box/timer.h>
 #include <86box/io.h>
 #include <86box/pic.h>
@@ -38,6 +39,7 @@
 #include <86box/nmi.h>
 #include <86box/mem.h>
 #include <86box/device.h>
+#include <86box/lpt.h>
 #include <86box/nvr.h>
 #include <86box/keyboard.h>
 #include <86box/mouse.h>
@@ -130,8 +132,8 @@ typedef struct m24_kbd_t {
     uint8_t scan[7];
 
     /* Mouse stuff. */
-    int        mouse_input_mode;
-    int        b;
+    int mouse_input_mode;
+    int b;
 
     pc_timer_t send_delay_timer;
 } m24_kbd_t;
@@ -551,20 +553,20 @@ m24_kbd_write(uint16_t port, uint8_t val, void *priv)
                     switch (m24_kbd->command) {
                         case 0x11:
                             m24_kbd->mouse_input_mode = 0;
-                            m24_kbd->scan[0]    = m24_kbd->params[0];
-                            m24_kbd->scan[1]    = m24_kbd->params[1];
-                            m24_kbd->scan[2]    = m24_kbd->params[2];
-                            m24_kbd->scan[3]    = m24_kbd->params[3];
-                            m24_kbd->scan[4]    = m24_kbd->params[4];
-                            m24_kbd->scan[5]    = m24_kbd->params[5];
-                            m24_kbd->scan[6]    = m24_kbd->params[6];
+                            m24_kbd->scan[0]          = m24_kbd->params[0];
+                            m24_kbd->scan[1]          = m24_kbd->params[1];
+                            m24_kbd->scan[2]          = m24_kbd->params[2];
+                            m24_kbd->scan[3]          = m24_kbd->params[3];
+                            m24_kbd->scan[4]          = m24_kbd->params[4];
+                            m24_kbd->scan[5]          = m24_kbd->params[5];
+                            m24_kbd->scan[6]          = m24_kbd->params[6];
                             break;
 
                         case 0x12:
                             m24_kbd->mouse_input_mode = 1;
-                            m24_kbd->scan[0]    = m24_kbd->params[0];
-                            m24_kbd->scan[1]    = m24_kbd->params[1];
-                            m24_kbd->scan[2]    = m24_kbd->params[2];
+                            m24_kbd->scan[0]          = m24_kbd->params[0];
+                            m24_kbd->scan[1]          = m24_kbd->params[1];
+                            m24_kbd->scan[2]          = m24_kbd->params[2];
                             break;
 
                         default:
@@ -720,7 +722,7 @@ m24_kbd_reset(void *priv)
     m24_kbd->wantirq = 0;
     keyboard_scan    = 1;
     m24_kbd->param = m24_kbd->param_total = 0;
-    m24_kbd->mouse_input_mode                   = 0;
+    m24_kbd->mouse_input_mode             = 0;
     m24_kbd->scan[0]                      = 0x1c;
     m24_kbd->scan[1]                      = 0x53;
     m24_kbd->scan[2]                      = 0x01;
@@ -734,11 +736,11 @@ static int
 ms_poll(void *priv)
 {
     m24_kbd_t *m24_kbd = (m24_kbd_t *) priv;
-    int delta_x;
-    int delta_y;
-    int o_x;
-    int o_y;
-    int b = mouse_get_buttons_ex();
+    int        delta_x;
+    int        delta_y;
+    int        o_x;
+    int        o_y;
+    int        b = mouse_get_buttons_ex();
 
     if (((key_queue_end - key_queue_start) & 0xf) > 14)
         return 0xff;
@@ -845,7 +847,7 @@ ms_poll(void *priv)
    - Right Windows (E0 5C) -> F18 (67).
  */
 const scancode scancode_olivetti_m24_deluxe[512] = {
-  // clang-format off
+    // clang-format off
     { .mk = {            0 }, .brk = {                   0 } }, /* 000 */
     { .mk = {      0x01, 0 }, .brk = {             0x81, 0 } }, /* 001 */
     { .mk = {      0x02, 0 }, .brk = {             0x82, 0 } }, /* 002 */
@@ -1358,7 +1360,7 @@ const scancode scancode_olivetti_m24_deluxe[512] = {
     { .mk = {            0 }, .brk = {                   0 } }, /* 1fd */
     { .mk = {            0 }, .brk = {                   0 } }, /* 1fe */
     { .mk = {            0 }, .brk = {                   0 } }  /* 1ff */
-  // clang-format on
+    // clang-format on
 };
 
 /* Remapping as follows:
@@ -1368,7 +1370,7 @@ const scancode scancode_olivetti_m24_deluxe[512] = {
    - Menu          (E0 5D) -> 5C.
  */
 const scancode scancode_olivetti_m240[512] = {
-  // clang-format off
+    // clang-format off
     { .mk = {            0 }, .brk = {                   0 } }, /* 000 */
     { .mk = {      0x01, 0 }, .brk = {             0x81, 0 } }, /* 001 */
     { .mk = {      0x02, 0 }, .brk = {             0x82, 0 } }, /* 002 */
@@ -1881,7 +1883,7 @@ const scancode scancode_olivetti_m240[512] = {
     { .mk = {            0 }, .brk = {                   0 } }, /* 1fd */
     { .mk = {            0 }, .brk = {                   0 } }, /* 1fe */
     { .mk = {            0 }, .brk = {                   0 } }  /* 1ff */
-  // clang-format on
+    // clang-format on
 };
 
 static void
@@ -1917,7 +1919,7 @@ m19_vid_out(uint16_t addr, uint8_t val, void *priv)
     /* activating plantronics mode */
     if (addr == 0x3dd) {
         /* already in graphics mode */
-        if ((val & 0x30) && (vid->ogc.cga.cgamode & 0x2))
+        if ((val & 0x30) && (vid->ogc.cga.cgamode & CGA_MODE_FLAG_GRAPHICS))
             vid->mode = PLANTRONICS_MODE;
         else
             vid->mode = OLIVETTI_OGC_MODE;
@@ -2016,7 +2018,7 @@ m19_vid_init(m19_vid_t *vid)
 #endif
 
     /* OGC emulation part begin */
-    loadfont("roms/machines/m19/MBM2764-30 8514 107 AB PCF3.BIN", 7);
+    video_load_font("roms/machines/m19/MBM2764-30 8514 107 AB PCF3.BIN", FONT_FORMAT_SIGMA, LOAD_FONT_NO_OFFSET);
     /* composite is not working yet */
     vid->ogc.cga.composite    = 0; // (display_type != CGA_RGB);
     vid->ogc.cga.revision     = device_get_config_int("composite_type");
@@ -2075,51 +2077,56 @@ const device_t m24_kbd_device = {
     .init          = NULL,
     .close         = m24_kbd_close,
     .reset         = m24_kbd_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
 };
 
 const device_config_t m19_vid_config[] = {
-  // clang-format off
+    // clang-format off
     {
         /* Olivetti / ATT compatible displays */
-        .name = "rgb_type",
-        .description = "RGB type",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = CGA_RGB,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "rgb_type",
+        .description    = "RGB type",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = CGA_RGB,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "Color",            .value = 0 },
             { .description = "Green Monochrome", .value = 1 },
             { .description = "Amber Monochrome", .value = 2 },
             { .description = "Gray Monochrome",  .value = 3 },
             { .description = ""                             }
-        }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "snow_enabled",
-        .description = "Snow emulation",
-        .type = CONFIG_BINARY,
-        .default_string = "",
-        .default_int = 1,
+        .name           = "snow_enabled",
+        .description    = "Snow emulation",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
-  // clang-format on
+    // clang-format on
 };
 
 const device_t m19_vid_device = {
-    .name          = "Olivetti M19 graphics card",
+    .name          = "Olivetti M19 (Video)",
     .internal_name = "m19_vid",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
     .close         = m19_vid_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = m19_vid_speed_changed,
     .force_redraw  = NULL,
     .config        = m19_vid_config
@@ -2241,7 +2248,7 @@ m24_read(uint16_t port, UNUSED(void *priv))
 static uint8_t
 m240_read(uint16_t port, UNUSED(void *priv))
 {
-    uint8_t ret = 0x00;
+    uint8_t ret       = 0x00;
     int     fdd_count = 0;
 
     switch (port) {
@@ -2313,8 +2320,7 @@ machine_xt_m24_init(const machine_t *model)
     if (bios_only || !ret)
         return ret;
 
-    m24_kbd = (m24_kbd_t *) malloc(sizeof(m24_kbd_t));
-    memset(m24_kbd, 0x00, sizeof(m24_kbd_t));
+    m24_kbd = (m24_kbd_t *) calloc(1, sizeof(m24_kbd_t));
 
     machine_common_init(model);
 
@@ -2325,15 +2331,14 @@ machine_xt_m24_init(const machine_t *model)
     /* Address 66-67 = mainboard dip-switch settings */
     io_sethandler(0x0065, 3, m24_read, NULL, NULL, NULL, NULL, NULL, NULL);
 
-    standalone_gameport_type = &gameport_device;
+    standalone_gameport_type = &gameport_200_device;
 
     nmi_init();
 
     /* Allocate an NVR for this machine. */
-    nvr = (nvr_t *) malloc(sizeof(nvr_t));
+    nvr = (nvr_t *) calloc(1, sizeof(nvr_t));
     if (nvr == NULL)
         return 0;
-    memset(nvr, 0x00, sizeof(nvr_t));
 
     mm58174_init(nvr, model->nvrmask + 1);
 
@@ -2367,15 +2372,14 @@ machine_xt_m240_init(const machine_t *model)
     m24_kbd_t *m24_kbd;
     nvr_t     *nvr;
 
-    ret = bios_load_interleaved("roms/machines/m240/olivetti_m240_pchj_2.11_low.bin",
-                                "roms/machines/m240/olivetti_m240_pchk_2.11_high.bin",
+    ret = bios_load_interleaved("roms/machines/m240/olivetti_m240_pchm_2.12_low.bin",
+                                "roms/machines/m240/olivetti_m240_pchl_2.12_high.bin",
                                 0x000f8000, 32768, 0);
 
     if (bios_only || !ret)
         return ret;
 
-    m24_kbd = (m24_kbd_t *) malloc(sizeof(m24_kbd_t));
-    memset(m24_kbd, 0x00, sizeof(m24_kbd_t));
+    m24_kbd = (m24_kbd_t *) calloc(1, sizeof(m24_kbd_t));
 
     machine_common_init(model);
 
@@ -2398,16 +2402,15 @@ machine_xt_m240_init(const machine_t *model)
     if (fdc_current[0] == FDC_INTERNAL)
         device_add(&fdc_at_device); /* io.c logs clearly show it using port 3F7 */
 
-    if (joystick_type)
-        device_add(&gameport_device);
+    if (joystick_type[0])
+        device_add(&gameport_200_device);
 
     nmi_init();
 
     /* Allocate an NVR for this machine. */
-    nvr = (nvr_t *) malloc(sizeof(nvr_t));
+    nvr = (nvr_t *) calloc(1, sizeof(nvr_t));
     if (nvr == NULL)
         return 0;
-    memset(nvr, 0x00, sizeof(nvr_t));
 
     mm58274_init(nvr, model->nvrmask + 1);
 
@@ -2428,7 +2431,7 @@ machine_xt_m19_init(const machine_t *model)
 {
     int ret;
 
-    ret = bios_load_linear("roms/machines/m19/BIOS.BIN",
+    ret = bios_load_linear("roms/machines/m19/Olivetti M19 Resident Diagnostics Rev 3.71.BIN",
                            0x000fc000, 16384, 0);
     ret &= rom_present("roms/machines/m19/MBM2764-30 8514 107 AB PCF3.BIN");
 
@@ -2438,8 +2441,7 @@ machine_xt_m19_init(const machine_t *model)
     m19_vid_t *vid;
 
     /* Do not move memory allocation elsewhere. */
-    vid = (m19_vid_t *) malloc(sizeof(m19_vid_t));
-    memset(vid, 0x00, sizeof(m19_vid_t));
+    vid = (m19_vid_t *) calloc(1, sizeof(m19_vid_t));
 
     machine_common_init(model);
 
@@ -2455,7 +2457,7 @@ machine_xt_m19_init(const machine_t *model)
     m19_vid_init(vid);
     device_add_ex(&m19_vid_device, vid);
 
-    device_add(&keyboard_xt_olivetti_device);
+    device_add(&kbc_xt_olivetti_device);
 
     pit_set_clock((uint32_t) 14318184.0);
 

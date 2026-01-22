@@ -27,6 +27,7 @@
 #include <86box/nvr.h>
 #include <86box/apm.h>
 #include <86box/acpi.h>
+#include <86box/keyboard.h>
 #include <86box/hdd.h>
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
@@ -178,6 +179,8 @@ sis_5600_init(UNUSED(const device_t *info))
     else
         dev->pmu = device_add_linked(&sis_5595_pmu_device, dev->sis);
 
+    device_add_params(&kbc_at_device, (void *) KBC_VEN_SIS);
+
     return dev;
 }
 
@@ -189,7 +192,7 @@ const device_t sis_5600_1997_device = {
     .init          = sis_5600_init,
     .close         = sis_5600_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -203,7 +206,7 @@ const device_t sis_5600_device = {
     .init          = sis_5600_init,
     .close         = sis_5600_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

@@ -8,8 +8,6 @@
  *
  *          Super I/O chip detection code.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2016-2018 Miran Grca.
@@ -47,11 +45,12 @@ sio_detect_write(uint16_t port, uint8_t val, void *priv)
 static uint8_t
 sio_detect_read(uint16_t port, void *priv)
 {
-    const sio_detect_t *dev = (sio_detect_t *) priv;
+    /*const sio_detect_t *dev = (sio_detect_t *) priv*/;
+    uint8_t             ret = 0xff /*dev->regs[port & 1]*/;
 
-    pclog("sio_detect_read : port=%04x = %02X\n", port, dev->regs[port & 1]);
+    pclog("sio_detect_read : port=%04x = %02X\n", port, ret);
 
-    return 0xff /*dev->regs[port & 1]*/;
+    return ret;
 }
 
 static void
@@ -65,8 +64,7 @@ sio_detect_close(void *priv)
 static void *
 sio_detect_init(UNUSED(const device_t *info))
 {
-    sio_detect_t *dev = (sio_detect_t *) malloc(sizeof(sio_detect_t));
-    memset(dev, 0, sizeof(sio_detect_t));
+    sio_detect_t *dev = (sio_detect_t *) calloc(1, sizeof(sio_detect_t));
 
     device_add(&fdc_at_smc_device);
 
@@ -110,7 +108,7 @@ const device_t sio_detect_device = {
     .init          = sio_detect_init,
     .close         = sio_detect_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

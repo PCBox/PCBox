@@ -6,10 +6,10 @@ opMOVDDUP_a16(uint32_t fetchdat)
     SSE_REG src;
 
     fetch_ea_16(fetchdat);
-    SSE_GETSRC();
+    SSE_GETSRC64();
 
-    cpu_state_high.XMM[cpu_reg].q[0] = src.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = src.q[0];
+    cpu_state.XMM[cpu_reg].q[0] = src.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = src.q[0];
     return 0;
 }
 
@@ -20,10 +20,10 @@ opMOVDDUP_a32(uint32_t fetchdat)
     SSE_REG src;
 
     fetch_ea_32(fetchdat);
-    SSE_GETSRC();
+    SSE_GETSRC64();
 
-    cpu_state_high.XMM[cpu_reg].q[0] = src.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = src.q[0];
+    cpu_state.XMM[cpu_reg].q[0] = src.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = src.q[0];
     return 0;
 }
 
@@ -36,10 +36,10 @@ opMOVSLDUP_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     SSE_GETSRC();
 
-    cpu_state_high.XMM[cpu_reg].l[0] = src.l[0];
-    cpu_state_high.XMM[cpu_reg].l[1] = src.l[0];
-    cpu_state_high.XMM[cpu_reg].l[2] = src.l[2];
-    cpu_state_high.XMM[cpu_reg].l[3] = src.l[2];
+    cpu_state.XMM[cpu_reg].l[0] = src.l[0];
+    cpu_state.XMM[cpu_reg].l[1] = src.l[0];
+    cpu_state.XMM[cpu_reg].l[2] = src.l[2];
+    cpu_state.XMM[cpu_reg].l[3] = src.l[2];
     return 0;
 }
 
@@ -52,10 +52,10 @@ opMOVSLDUP_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     SSE_GETSRC();
 
-    cpu_state_high.XMM[cpu_reg].l[0] = src.l[0];
-    cpu_state_high.XMM[cpu_reg].l[1] = src.l[0];
-    cpu_state_high.XMM[cpu_reg].l[2] = src.l[2];
-    cpu_state_high.XMM[cpu_reg].l[3] = src.l[2];
+    cpu_state.XMM[cpu_reg].l[0] = src.l[0];
+    cpu_state.XMM[cpu_reg].l[1] = src.l[0];
+    cpu_state.XMM[cpu_reg].l[2] = src.l[2];
+    cpu_state.XMM[cpu_reg].l[3] = src.l[2];
     return 0;
 }
 
@@ -68,10 +68,10 @@ opMOVSHDUP_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     SSE_GETSRC();
 
-    cpu_state_high.XMM[cpu_reg].l[0] = src.l[1];
-    cpu_state_high.XMM[cpu_reg].l[1] = src.l[1];
-    cpu_state_high.XMM[cpu_reg].l[2] = src.l[3];
-    cpu_state_high.XMM[cpu_reg].l[3] = src.l[3];
+    cpu_state.XMM[cpu_reg].l[0] = src.l[1];
+    cpu_state.XMM[cpu_reg].l[1] = src.l[1];
+    cpu_state.XMM[cpu_reg].l[2] = src.l[3];
+    cpu_state.XMM[cpu_reg].l[3] = src.l[3];
     return 0;
 }
 
@@ -84,9 +84,9 @@ opMOVSHDUP_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     SSE_GETSRC();
 
-    cpu_state_high.XMM[cpu_reg].l[0] = src.l[1];
-    cpu_state_high.XMM[cpu_reg].l[1] = src.l[1];
-    cpu_state_high.XMM[cpu_reg].l[2] = src.l[3];
-    cpu_state_high.XMM[cpu_reg].l[3] = src.l[3];
+    cpu_state.XMM[cpu_reg].l[0] = src.l[1];
+    cpu_state.XMM[cpu_reg].l[1] = src.l[1];
+    cpu_state.XMM[cpu_reg].l[2] = src.l[3];
+    cpu_state.XMM[cpu_reg].l[3] = src.l[3];
     return 0;
 }

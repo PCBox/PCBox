@@ -8,8 +8,6 @@
  *
  *          Implementation of the Phoenix 486 Jumper Readout.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Tiseno100,
  *
@@ -42,6 +40,18 @@
     Bit 0 = ????.
 */
 
+/*
+    PB600 bit meanings:
+    Bit 7 = ???? (if 1 BIOS throws beep codes and won't POST)
+    Bit 6 = Super I/O chip: 1 = disabled, 0 = enabled
+    Bit 5 = ????
+    Bit 4 = ????
+    Bit 3 = ????
+    Bit 2 = ????
+    Bit 1 = Quick Boot: 1 = normal boot, 0 = quick boot/skip POST
+    Bit 0 = ????
+*/
+
 typedef struct phoenix_486_jumper_t {
     uint8_t type;
     uint8_t jumper;
@@ -72,6 +82,8 @@ phoenix_486_jumper_write(UNUSED(uint16_t addr), uint8_t val, void *priv)
     phoenix_486_jumper_log("Phoenix 486 Jumper: Write %02x\n", val);
     if (dev->type == 1)
         dev->jumper = val & 0xbf;
+    else if (dev->type == 2) /* PB600 */
+        dev->jumper = ((val & 0xbf) | 0x02);
     else
         dev->jumper = val;
 }
@@ -92,6 +104,8 @@ phoenix_486_jumper_reset(void *priv)
 
     if (dev->type == 1)
         dev->jumper = 0x00;
+    else if (dev->type == 2) /* PB600 */
+        dev->jumper = 0x02;
     else {
         dev->jumper = 0x9f;
         if (gfxcard[0] != 0x01)
@@ -110,8 +124,7 @@ phoenix_486_jumper_close(void *priv)
 static void *
 phoenix_486_jumper_init(const device_t *info)
 {
-    phoenix_486_jumper_t *dev = (phoenix_486_jumper_t *) malloc(sizeof(phoenix_486_jumper_t));
-    memset(dev, 0, sizeof(phoenix_486_jumper_t));
+    phoenix_486_jumper_t *dev = (phoenix_486_jumper_t *) calloc(1, sizeof(phoenix_486_jumper_t));
 
     dev->type = info->local;
 
@@ -130,7 +143,7 @@ const device_t phoenix_486_jumper_device = {
     .init          = phoenix_486_jumper_init,
     .close         = phoenix_486_jumper_close,
     .reset         = phoenix_486_jumper_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -144,7 +157,21 @@ const device_t phoenix_486_jumper_pci_device = {
     .init          = phoenix_486_jumper_init,
     .close         = phoenix_486_jumper_close,
     .reset         = phoenix_486_jumper_reset,
-    { .available = NULL },
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t phoenix_486_jumper_pci_pb600_device = {
+    .name          = "Phoenix 486 Jumper Readout (PB600)",
+    .internal_name = "phoenix_486_jumper_pci_pb600",
+    .flags         = 0,
+    .local         = 2,
+    .init          = phoenix_486_jumper_init,
+    .close         = phoenix_486_jumper_close,
+    .reset         = phoenix_486_jumper_reset,
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

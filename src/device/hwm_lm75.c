@@ -8,8 +8,6 @@
  *
  *          Emulation of the National Semiconductor LM75 temperature sensor chip.
  *
- *
- *
  * Authors: RichardG, <richardg867@gmail.com>
  *
  *          Copyright 2020 RichardG.
@@ -216,8 +214,7 @@ lm75_close(void *priv)
 static void *
 lm75_init(const device_t *info)
 {
-    lm75_t *dev = (lm75_t *) malloc(sizeof(lm75_t));
-    memset(dev, 0, sizeof(lm75_t));
+    lm75_t *dev = (lm75_t *) calloc(1, sizeof(lm75_t));
 
     dev->local = info->local;
 
@@ -243,7 +240,7 @@ const device_t lm75_1_4a_device = {
     .init          = lm75_init,
     .close         = lm75_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -259,7 +256,7 @@ const device_t lm75_w83781d_device = {
     .init          = lm75_init,
     .close         = lm75_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

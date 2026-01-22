@@ -8,8 +8,6 @@
  *
  *          Implementation of the SiS 85c496/85c497 chip.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2019-2020 Miran Grca.
@@ -637,8 +635,7 @@ static void
     *
     sis_85c496_init(const device_t *info)
 {
-    sis_85c496_t *dev = malloc(sizeof(sis_85c496_t));
-    memset(dev, 0x00, sizeof(sis_85c496_t));
+    sis_85c496_t *dev = calloc(1, sizeof(sis_85c496_t));
 
     dev->smram = smram_add();
 
@@ -702,7 +699,7 @@ const device_t sis_85c496_device = {
     .init          = sis_85c496_init,
     .close         = sis_85c496_close,
     .reset         = sis_85c496_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -716,7 +713,7 @@ const device_t sis_85c496_ls486e_device = {
     .init          = sis_85c496_init,
     .close         = sis_85c496_close,
     .reset         = sis_85c496_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

@@ -70,10 +70,9 @@ ssi2001_write(uint16_t addr, uint8_t val, void *priv)
 void *
 ssi2001_init(UNUSED(const device_t *info))
 {
-    ssi2001_t *ssi2001 = malloc(sizeof(ssi2001_t));
-    memset(ssi2001, 0, sizeof(ssi2001_t));
+    ssi2001_t *ssi2001 = calloc(1, sizeof(ssi2001_t));
 
-    ssi2001->psid = sid_init(0);
+    ssi2001->psid = sid_init(device_get_config_int("sid_config"),device_get_config_int("sid_adjustment"));
     sid_reset(ssi2001->psid);
     uint16_t addr             = device_get_config_hex16("base");
     ssi2001->gameport_enabled = device_get_config_int("gameport");
@@ -95,13 +94,13 @@ ssi2001_close(void *priv)
 }
 
 static uint8_t
-entertainer_read(uint16_t addr, void *priv)
+entertainer_read(UNUSED(uint16_t addr), UNUSED(void *priv))
 {
     return 0xa5;
 }
 
 static void
-entertainer_write(uint16_t addr, uint8_t val, void *priv)
+entertainer_write(UNUSED(uint16_t addr), uint8_t val, void *priv)
 {
     entertainer_t *entertainer = (entertainer_t *) priv;
     entertainer->regs = val;
@@ -110,12 +109,10 @@ entertainer_write(uint16_t addr, uint8_t val, void *priv)
 void *
 entertainer_init(UNUSED(const device_t *info))
 {
-    ssi2001_t     *ssi2001     = malloc(sizeof(ssi2001_t));
-    entertainer_t *entertainer = malloc(sizeof(entertainer_t));
-    memset(ssi2001, 0, sizeof(ssi2001_t));
-    memset(entertainer, 0, sizeof(entertainer_t));
+    ssi2001_t     *ssi2001     = calloc(1, sizeof(ssi2001_t));
+    entertainer_t *entertainer = calloc(1, sizeof(entertainer_t));
 
-    ssi2001->psid = sid_init(0);
+    ssi2001->psid = sid_init(0, 0.5);
     sid_reset(ssi2001->psid);
     ssi2001->gameport_enabled = device_get_config_int("gameport");
     io_sethandler(0x200, 0x0001, entertainer_read, NULL, NULL, entertainer_write, NULL, NULL, entertainer);
@@ -139,42 +136,77 @@ entertainer_close(void *priv)
 static const device_config_t ssi2001_config[] = {
     // clang-format off
     {
-        .name = "base",
-        .description = "Address",
-        .type = CONFIG_HEX16,
-        .default_string = "",
-        .default_int = 0x280,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
-            {
-                .description = "0x280",
-                .value = 0x280
-            },
-            {
-                .description = "0x2A0",
-                .value = 0x2A0
-            },
-            {
-                .description = "0x2C0",
-                .value = 0x2C0
-            },
-            {
-                .description = "0x2E0",
-                .value = 0x2E0
-            },
-            { .description = "" }
-        }
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x280,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "0x280", .value = 0x280 },
+            { .description = "0x2A0", .value = 0x2A0 },
+            { .description = "0x2C0", .value = 0x2C0 },
+            { .description = "0x2E0", .value = 0x2E0 },
+            { .description = ""                      }
+        },
+        .bios           = { { 0 } }
     },
-    { "gameport", "Enable Game port", CONFIG_BINARY, "",  1 },
-    { "",         "",                                    -1 }
+    {
+        .name           = "gameport",
+        .description    = "Enable Game port",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "sid_config",
+        .description    = "SID Model",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x000,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {             
+		{ .description = "8580", .value = 0x001 },
+        { .description = "6581", .value = 0x000 },
+		{ .description = ""                      }
+		},
+        .bios           = { { 0 } }
+    },
+	{
+        .name           = "sid_adjustment",
+        .description    = "SID Filter Strength",
+        .type           = CONFIG_STRING,
+        .default_string = "0.5",
+		.default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {{"0.5"}},
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
 // clang-format off
 };
 
 static const device_config_t entertainer_config[] = {
     // clang-format off
-    { "gameport", "Enable Game port", CONFIG_BINARY, "",  1 },
-    { "",         "",                                    -1 }
+    {
+        .name           = "gameport",
+        .description    = "Enable Game port",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
 // clang-format off
 };
 

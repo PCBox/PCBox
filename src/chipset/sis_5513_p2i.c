@@ -22,9 +22,11 @@
 #include <86box/86box.h>
 #include <86box/device.h>
 #include <86box/io.h>
+#include "cpu.h"
 #include <86box/timer.h>
-
 #include <86box/dma.h>
+#include <86box/lpt.h>
+#include <86box/machine.h>
 #include <86box/mem.h>
 #include <86box/nvr.h>
 #include <86box/hdd.h>
@@ -115,7 +117,7 @@ sis_5513_apc_reset(sis_5513_pci_to_isa_t *dev)
 }
 
 static void
-sis_5513_apc_write(uint16_t addr, uint8_t val, void *priv)
+sis_5513_apc_write(UNUSED(uint16_t addr), uint8_t val, void *priv)
 {
     sis_5513_pci_to_isa_t *dev = (sis_5513_pci_to_isa_t *) priv;
     uint8_t nvr_index = nvr_get_index(dev->nvr, 0);
@@ -135,7 +137,7 @@ sis_5513_apc_write(uint16_t addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-sis_5513_apc_read(uint16_t addr, void *priv)
+sis_5513_apc_read(UNUSED(uint16_t addr), void *priv)
 {
     sis_5513_pci_to_isa_t *dev = (sis_5513_pci_to_isa_t *) priv;
     uint8_t nvr_index = nvr_get_index(dev->nvr, 0);
@@ -318,6 +320,8 @@ sis_5513_00_pci_to_isa_write(int addr, uint8_t val, sis_5513_pci_to_isa_t *dev)
 
         case 0x62: /* On-board Device DMA Control Register */
             dev->pci_conf[addr] = val;
+            if (machine_has_jumpered_ecp_dma(machine, MACHINE_DMA_USE_MBDMA))
+                lpt1_dma(((val & 0x08) || ((val & 0x07) == 0x04)) ? 0xff : (val & 0x07));
             break;
 
         case 0x63: /* IDEIRQ Remapping Control Register */
@@ -1287,9 +1291,9 @@ sis_5513_pci_to_isa_init(UNUSED(const device_t *info))
             acpi_set_nvr(dev->sis->acpi, dev->nvr);
 
             /* Set up the NVR file's name. */
-            c       = strlen(machine_get_internal_name()) + 9;
+            c       = strlen(machine_get_nvr_name()) + 9;
             dev->fn = (char *) malloc(c + 1);
-            sprintf(dev->fn, "%s_apc.nvr", machine_get_internal_name());
+            sprintf(dev->fn, "%s_apc.nvr", machine_get_nvr_name());
 
             fp = nvr_fopen(dev->fn, "rb");
 
@@ -1318,7 +1322,7 @@ const device_t sis_5513_p2i_device = {
     .init          = sis_5513_pci_to_isa_init,
     .close         = sis_5513_pci_to_isa_close,
     .reset         = sis_5513_pci_to_isa_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1332,7 +1336,7 @@ const device_t sis_5572_p2i_device = {
     .init          = sis_5513_pci_to_isa_init,
     .close         = sis_5513_pci_to_isa_close,
     .reset         = sis_5513_pci_to_isa_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1347,7 +1351,7 @@ const device_t sis_5582_p2i_device = {
     .init          = sis_5513_pci_to_isa_init,
     .close         = sis_5513_pci_to_isa_close,
     .reset         = sis_5513_pci_to_isa_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1362,7 +1366,7 @@ const device_t sis_5595_1997_p2i_device = {
     .init          = sis_5513_pci_to_isa_init,
     .close         = sis_5513_pci_to_isa_close,
     .reset         = sis_5513_pci_to_isa_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1376,7 +1380,7 @@ const device_t sis_5595_p2i_device = {
     .init          = sis_5513_pci_to_isa_init,
     .close         = sis_5513_pci_to_isa_close,
     .reset         = sis_5513_pci_to_isa_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

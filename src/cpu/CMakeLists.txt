@@ -29,7 +29,7 @@ add_library(cpu OBJECT
     x86seg_2386.c
     x87.c
     x87_timings.c
-    8080.c
+    i8080.c
 )
 
 if(AMD_K5)
@@ -42,17 +42,8 @@ endif()
 
 endif()
 
-if(CYRIX_6X86)
-    target_compile_definitions(cpu PRIVATE USE_CYRIX_6X86)
-
-if(DYNAREC)
-    add_library(ct686 OBJECT codegen_timing_686.c)
-    target_link_libraries(PCBox ct686)
-endif()
-
 if(GENERIC_INTEL)
     target_compile_definitions(cpu PRIVATE USE_GENERICINTEL)
-endif()
 endif()
 
 if(DYNAREC)
@@ -60,6 +51,7 @@ if(DYNAREC)
 
     add_library(cgt OBJECT
         codegen_timing_486.c
+        codegen_timing_686.c
         codegen_timing_common.c
         codegen_timing_k6.c
         codegen_timing_pentium.c

@@ -8,8 +8,6 @@
  *
  *          Implementation of the ETEQ Cheetah ET6000 chipset.
  *
- *
- *
  * Authors: Tiseno100
  *
  *          Copyright 2021 Tiseno100
@@ -137,8 +135,7 @@ et6000_close(void *priv)
 static void *
 et6000_init(UNUSED(const device_t *info))
 {
-    et6000_t *dev = (et6000_t *) malloc(sizeof(et6000_t));
-    memset(dev, 0, sizeof(et6000_t));
+    et6000_t *dev = (et6000_t *) calloc(1, sizeof(et6000_t));
 
     /* Port 92h */
     device_add(&port_92_device);
@@ -162,7 +159,7 @@ const device_t et6000_device = {
     .init          = et6000_init,
     .close         = et6000_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

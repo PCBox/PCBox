@@ -91,31 +91,33 @@ enum {
 enum {
     CPU_PKG_8088             = (1 << 0),
     CPU_PKG_8088_EUROPC      = (1 << 1),
-    CPU_PKG_8086             = (1 << 2),
-    CPU_PKG_8086_MAZOVIA     = (1 << 3),
-    CPU_PKG_188              = (1 << 4),
-    CPU_PKG_186              = (1 << 5),
-    CPU_PKG_286              = (1 << 6),
-    CPU_PKG_386SX            = (1 << 7),
-    CPU_PKG_386DX            = (1 << 8),
-    CPU_PKG_386DX_DESKPRO386 = (1 << 9),
-    CPU_PKG_M6117            = (1 << 10),
-    CPU_PKG_386SLC_IBM       = (1 << 11),
-    CPU_PKG_486SLC           = (1 << 12),
-    CPU_PKG_486SLC_IBM       = (1 << 13),
-    CPU_PKG_486BL            = (1 << 14),
-    CPU_PKG_486DLC           = (1 << 15),
-    CPU_PKG_SOCKET1          = (1 << 16),
-    CPU_PKG_SOCKET3          = (1 << 17),
-    CPU_PKG_SOCKET3_PC330    = (1 << 18),
-    CPU_PKG_STPC             = (1 << 19),
-    CPU_PKG_SOCKET4          = (1 << 20),
-    CPU_PKG_SOCKET5_7        = (1 << 21),
-    CPU_PKG_SOCKET8          = (1 << 22),
-    CPU_PKG_SLOT1            = (1 << 23),
-    CPU_PKG_SLOT2            = (1 << 24),
-    CPU_PKG_SOCKET370        = (1 << 25),
-    CPU_PKG_SLOTA            = (1 << 26)
+    CPU_PKG_8088_VTECH       = (1 << 2),
+    CPU_PKG_8086             = (1 << 3),
+    CPU_PKG_8086_MAZOVIA     = (1 << 4),
+    CPU_PKG_8086_VTECH       = (1 << 5),
+    CPU_PKG_188              = (1 << 6),
+    CPU_PKG_186              = (1 << 7),
+    CPU_PKG_286              = (1 << 8),
+    CPU_PKG_386SX            = (1 << 9),
+    CPU_PKG_386DX            = (1 << 10),
+    CPU_PKG_386DX_DESKPRO386 = (1 << 11),
+    CPU_PKG_M6117            = (1 << 12),
+    CPU_PKG_386SLC_IBM       = (1 << 13),
+    CPU_PKG_486SLC           = (1 << 14),
+    CPU_PKG_486SLC_IBM       = (1 << 15),
+    CPU_PKG_486BL            = (1 << 16),
+    CPU_PKG_486DLC           = (1 << 17),
+    CPU_PKG_SOCKET1          = (1 << 18),
+    CPU_PKG_SOCKET3          = (1 << 19),
+    CPU_PKG_SOCKET3_PC330    = (1 << 20),
+    CPU_PKG_STPC             = (1 << 21),
+    CPU_PKG_SOCKET4          = (1 << 22),
+    CPU_PKG_SOCKET5_7        = (1 << 23),
+    CPU_PKG_SOCKET8          = (1 << 24),
+    CPU_PKG_SLOT1            = (1 << 25),
+    CPU_PKG_SLOT2            = (1 << 26),
+    CPU_PKG_SOCKET370        = (1 << 27),
+    CPU_PKG_SLOTA            = (1 << 28)
 };
 
 #define CPU_SUPPORTS_DYNAREC 1
@@ -124,6 +126,13 @@ enum {
 #define CPU_FIXED_MULTIPLIER 8
 
 #define EFER_NXE (1 << 11)
+
+#define CCR1_USE_SMI  (1 << 1)
+#define CCR1_SMAC     (1 << 2)
+#define CCR1_SM3      (1 << 7)
+
+#define CCR3_SMI_LOCK (1 << 0)
+#define CCR3_NMI_EN   (1 << 1)
 
 #if (defined __amd64__ || defined _M_X64)
 #    define LOOKUP_INV -1LL
@@ -141,7 +150,7 @@ typedef struct cpu_t {
     const char *name;
     uint64_t    cpu_type;
     const FPU  *fpus;
-    uint32_t    rspeed;
+    uint64_t    rspeed;
     double      multi;
     uint16_t    voltage;
     uint32_t    edx_reset;
@@ -377,7 +386,10 @@ typedef struct {
     uint8_t tag[8];
 
     x86seg  *ea_seg;
-    uint32_t eaaddr;
+    union {
+        uint32_t eaaddr;
+        uint16_t eaa16[2];
+    };
 
     int      flags_op;
     uint32_t flags_res;
@@ -420,18 +432,14 @@ typedef struct {
     MMX_REG MM[8];
 
 #ifdef USE_NEW_DYNAREC
-#    if defined(__APPLE__) && defined(__aarch64__)
+#    if (defined(__APPLE__) && defined(__aarch64__)) || defined(__aarch64__)
     uint64_t old_fp_control;
     uint64_t new_fp_control;
 #    else
     uint32_t old_fp_control;
     uint32_t new_fp_control;
 #    endif
-#    if defined i386 || defined __i386 || defined __i386__ || defined _X86_ || defined _M_IX86
-    uint16_t old_fp_control2;
-    uint16_t new_fp_control2;
-#    endif
-#    if defined i386 || defined __i386 || defined __i386__ || defined _X86_ || defined _M_IX86 || defined __amd64__ || defined _M_X64
+#    if defined __amd64__ || defined _M_X64
     uint32_t trunc_fp_control;
 #    endif
 #else
@@ -455,10 +463,9 @@ typedef struct {
     uint16_t eflags;
 
     uint32_t _smbase;
-} cpu_state_t;
 
-typedef struct
-{
+    uint32_t x87_op;
+
     x86reg regs64[8];
     uint32_t regs_high[16];
     uint32_t pc_high;
@@ -470,13 +477,12 @@ typedef struct
     uint32_t cr3_high;
     uint8_t rex_byte;
     int rex_present;
-} cpu_state_high_t;
+    int sse_xmm;
+} cpu_state_t;
 
 
 #define in_smm   cpu_state._in_smm
 #define smi_line cpu_state._smi_line
-
-extern int sse_xmm;
 
 #define smbase cpu_state._smbase
 
@@ -505,15 +511,13 @@ extern int sse_xmm;
 #    define CPU_STATUS_MASK      0xffff0000
 #endif
 
-#ifdef _MSC_VER
-#    define COMPILE_TIME_ASSERT(expr) /*nada*/
+
+#ifdef EXTREME_DEBUG
+#   define COMPILE_TIME_ASSERT(expr) typedef char COMP_TIME_ASSERT[(expr) ? 1 : 0];
 #else
-#    ifdef EXTREME_DEBUG
-#        define COMPILE_TIME_ASSERT(expr) typedef char COMP_TIME_ASSERT[(expr) ? 1 : 0];
-#    else
-#        define COMPILE_TIME_ASSERT(expr) /*nada*/
-#    endif
+#   define COMPILE_TIME_ASSERT(expr) /*nada*/
 #endif
+
 
 COMPILE_TIME_ASSERT(sizeof(cpu_state_t) <= 128)
 
@@ -555,7 +559,6 @@ COMPILE_TIME_ASSERT(sizeof(cpu_state_t) <= 128)
 
 /* Global variables. */
 extern cpu_state_t cpu_state;
-extern cpu_state_high_t cpu_state_high;
 
 extern const cpu_family_t         cpu_families[];
 extern cpu_family_t              *cpu_f;
@@ -581,6 +584,7 @@ extern int is286;
 extern int is386;
 extern int is6117;
 extern int is486;
+extern int is586;
 extern int is_am486;
 extern int is_am486dxl;
 extern int is_pentium;
@@ -611,7 +615,7 @@ extern int hasfpu;
 #define CPU_FEATURE_SSE2    (1 << 12)
 #define CPU_FEATURE_CLFLUSH (1 << 13)
 #define CPU_FEATURE_NX      (1 << 14)
-#define CPU_FEATURE_SSE3    (1 << 15)
+#define CPU_FEATURE_MONITOR_MWAIT (1 << 15)
 
 extern uint64_t cpu_features;
 
@@ -667,6 +671,16 @@ extern uint32_t dr[8];
 extern uint32_t _tr[8];
 extern uint32_t cache_index;
 extern uint8_t  _cache[2048];
+
+/* For the Cyrix 6x86(MX) */
+extern uint8_t ccr0;
+extern uint8_t ccr1;
+extern uint8_t ccr2;
+extern uint8_t ccr3;
+extern uint8_t ccr4;
+extern uint8_t ccr5;
+extern uint8_t ccr6;
+extern uint8_t ccr7;
 
 /*Segments -
   _cs,_ds,_es,_ss are the segment structures
@@ -842,6 +856,8 @@ typedef struct {
     uint32_t smhr;
 } cyrix_t;
 
+#define x87_op cpu_state.x87_op
+
 extern uint32_t addr64;
 extern uint32_t addr64_2;
 extern uint32_t addr64a[8];
@@ -881,6 +897,8 @@ extern MMX_REG  *MMP[8];
 extern uint16_t *MMEP[8];
 
 extern int  cpu_block_end;
+
+extern int  cpu_force_interpreter;
 extern int  cpu_override_dynarec;
 
 extern void mmx_init(void);
@@ -895,13 +913,25 @@ extern int lock_legal_80[8];
 extern int lock_legal_f6[8];
 extern int lock_legal_fe[8];
 
+extern int new_ne;
+
 extern int in_lock;
 extern int cpu_override_interpreter;
 
 extern int is_lock_legal(uint32_t fetchdat);
 
-extern int is_repe;
-extern int is_repne;
 extern void cpu_INVD(uint8_t wb);
+
+
+extern void     prefetch_queue_set_pos(int pos);
+extern void     prefetch_queue_set_ip(uint16_t ip);
+extern void     prefetch_queue_set_prefetching(int p);
+extern int      prefetch_queue_get_pos(void);
+extern uint16_t prefetch_queue_get_ip(void);
+extern int      prefetch_queue_get_prefetching(void);
+extern int      prefetch_queue_get_size(void);
+
+#define prefetch_queue_set_suspended(s) prefetch_queue_set_prefetching(!s)
+#define prefetch_queue_get_suspended !prefetch_queue_get_prefetching
 
 #endif /*EMU_CPU_H*/

@@ -8,8 +8,6 @@
  *
  *          ACPI emulation.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Tiseno100
  *
@@ -39,10 +37,12 @@
 #include <86box/apm.h>
 #include <86box/tco.h>
 #include <86box/acpi.h>
+#include <86box/dma.h>
 #include <86box/machine.h>
 #include <86box/i2c.h>
 #include <86box/video.h>
 #include <86box/smbus.h>
+#include <86box/hdc.h>
 #include <86box/hdc_ide.h>
 #include <86box/hdc_ide_sff8038i.h>
 #include <86box/sis_55xx.h>
@@ -92,7 +92,7 @@ acpi_timer_get(acpi_t *dev)
 }
 
 static uint8_t
-acpi_gp_timer_get(acpi_t *dev)
+acpi_gp_timer_get(UNUSED(acpi_t *dev))
 {
     uint64_t clock = acpi_clock_get();
     clock -= acpi_last_clock;
@@ -216,7 +216,10 @@ acpi_update_irq(acpi_t *dev)
 
     if ((dev->regs.pmcntrl & 0x01) && sci_level)  switch (dev->irq_mode) {
         default:
-            picintlevel(1 << dev->irq_line, &dev->irq_state);
+            if (dev->irq_line != 0)
+                picintlevel(1 << dev->irq_line, &dev->irq_state);
+            else
+                dev->irq_state = 1;
             break;
         case 1:
             pci_set_irq(dev->slot, dev->irq_pin, &dev->irq_state);
@@ -228,7 +231,10 @@ acpi_update_irq(acpi_t *dev)
             break;
     } else  switch (dev->irq_mode) {
         default:
-            picintclevel(1 << dev->irq_line, &dev->irq_state);
+            if (dev->irq_line != 0)
+                picintclevel(1 << dev->irq_line, &dev->irq_state);
+            else
+                dev->irq_state = 0;
             break;
         case 1:
             pci_clear_irq(dev->slot, dev->irq_pin, &dev->irq_state);
@@ -1134,8 +1140,13 @@ acpi_reg_write_common_regs(UNUSED(int size), uint16_t addr, uint8_t val, void *p
                         nvr_reg_write(0x000f, 0xff, dev->nvr);
                     }
 
-                    if (sus_typ & SUS_RESET_PCI)
+                    if (sus_typ & SUS_RESET_PCI) {
+                        /* DMA is part of the southbridge so it responds to PCI reset. */
+                        dma_reset();
+                        dma_set_at(1);
+
                         device_reset_all(DEVICE_PCI);
+                    }
 
                     if (sus_typ & SUS_RESET_CPU)
                         cpu_alt_reset = 0;
@@ -1322,8 +1333,11 @@ acpi_reg_write_intel(int size, uint16_t addr, uint8_t val, void *priv)
         case 0x36:
         case 0x37:
             /* GPOREG - General Purpose Output Register (IO) */
-            if (size == 1)
+            if (size == 1) {
                 dev->regs.gporeg[addr & 3] = val;
+                if ((addr == 0x34) && (machines[machine].init == machine_at_cubx_init))
+                    hdc_onboard_enabled = (val & 0x01);
+            }
             break;
         default:
             acpi_reg_write_common_regs(size, addr, val, priv);
@@ -1969,7 +1983,7 @@ acpi_reg_write_sis_5595(int size, uint16_t addr, uint8_t val, void *priv)
             break;
         case 0x1c:
             dev->regs.gpe_pin = ((dev->regs.gpe_pin & ~(0xff << shift32)) | ((val & 0xff) << shift32));
-            if (!strcmp(machine_get_internal_name(), "m747") && (val & 0x10) &&
+            if ((machines[machine].init == machine_at_m747_init) && (val & 0x10) &&
                 !(dev->regs.gpe_io & 0x00000010))
                 resetx86();
             break;
@@ -2601,7 +2615,7 @@ acpi_reset(void *priv)
     /* PC Chips M773:
        - Bit 3: 80-conductor cable on unknown IDE channel (active low)
        - Bit 1: 80-conductor cable on unknown IDE channel (active low) */
-    dev->regs.gpireg[0] = !strcmp(machine_get_internal_name(), "m773") ? 0xf5 : 0xff;
+    dev->regs.gpireg[0] = (machines[machine].init == machine_at_m773_init) ? 0xf5 : 0xff;
     dev->regs.gpireg[1] = 0xff;
     /* A-Trend ATC7020BXII:
        - Bit 3: 80-conductor cable on secondary IDE channel (active low)
@@ -2613,26 +2627,40 @@ acpi_reset(void *priv)
         dev->regs.gporeg[i] = dev->gporeg_default[i];
     if (dev->vendor == VEN_VIA_596B) {
         dev->regs.gpo_val = 0x7fffffff;
-        /* FIC VA-503A:
-           - Bit 11: ATX power (active high)
-           - Bit  4: 80-conductor cable on primary IDE channel (active low)
-           - Bit  3: 80-conductor cable on secondary IDE channel (active low)
-           - Bit  2: password cleared (active low)
-           ASUS P3V4X:
-           - Bit 15: 80-conductor cable on secondary IDE channel (active low)
-           - Bit  5: 80-conductor cable on primary IDE channel (active low)
-           BCM GT694VA:
-           - Bit 19: 80-conductor cable on secondary IDE channel (active low)
-           - Bit 17: 80-conductor cable on primary IDE channel (active low)
-           ASUS CUV4X-LS:
-           - Bit  2: 80-conductor cable on secondary IDE channel (active low)
-           - Bit  1: 80-conductor cable on primary IDE channel (active low)
-           Acorp 6VIA90AP:
-           - Bit  3: 80-conductor cable on secondary IDE channel (active low)
-           - Bit  1: 80-conductor cable on primary IDE channel (active low) */
+        /*
+           - FIC VA-503A:
+               - Bit 11: ATX power (active high);
+               - Bit  4: 80-conductor cable on primary IDE channel (active low);
+               - Bit  3: 80-conductor cable on secondary IDE channel (active low);
+               - Bit  2: password cleared (active low).
+           - ASUS P3V4X:
+               - Bit 15: 80-conductor cable on secondary IDE channel (active low);
+               - Bit  5: 80-conductor cable on primary IDE channel (active low).
+           - BCM GT694VA:
+               - Bit 19: 80-conductor cable on secondary IDE channel (active low);
+               - Bit 17: 80-conductor cable on primary IDE channel (active low).
+           - ASUS CUV4X-LS:
+               - Bit  2: 80-conductor cable on secondary IDE channel (active low);
+               - Bit  1: 80-conductor cable on primary IDE channel (active low).
+           - Acorp 6VIA90AP:
+               - Bit  3: 80-conductor cable on secondary IDE channel (active low);
+               - Bit  1: 80-conductor cable on primary IDE channel (active low).
+           - FIC KA-6130:
+               - Bit 19: password cleared (active low).
+         */
         dev->regs.gpi_val = 0xfff57fc1;
-        if (!strcmp(machine_get_internal_name(), "ficva503a") || !strcmp(machine_get_internal_name(), "6via90ap"))
+        if ((machines[machine].init == machine_at_ficva503a_init) || (machines[machine].init == machine_at_6via90ap_init))
             dev->regs.gpi_val |= 0x00000004;
+        else if ((machines[machine].init == machine_at_ficka6130_init))
+            dev->regs.gpi_val |= 0x00080000;
+         /*
+            TriGem Delhi-III second GPI word:
+                - Bit 7 = Save CMOS (must be set);
+                - Bit 6 = Password jumper (must be set);
+                - Bit 5 = Enable Setup (must be set).
+         */
+        else if (machines[machine].init == machine_at_delhi3_init)
+            dev->regs.gpi_val |= 0x00008000;
     }
 
     if (acpi_power_on) {
@@ -2642,7 +2670,7 @@ acpi_reset(void *priv)
     }
 
     /* The Gateway Tomahawk requires the LID polarity bit to be set. */
-    if (!strcmp(machine_get_internal_name(), "tomahawk"))
+    if (machines[machine].init == machine_at_tomahawk_init)
         dev->regs.glbctl |= 0x02000000;
 
     acpi_rtc_status = 0;
@@ -2725,10 +2753,9 @@ acpi_init(const device_t *info)
 {
     acpi_t *dev;
 
-    dev = (acpi_t *) malloc(sizeof(acpi_t));
+    dev = (acpi_t *) calloc(1, sizeof(acpi_t));
     if (dev == NULL)
         return NULL;
-    memset(dev, 0x00, sizeof(acpi_t));
 
     cpu_to_acpi = ACPI_TIMER_FREQ / cpuclock;
     dev->vendor = info->local;
@@ -2835,7 +2862,7 @@ const device_t acpi_ali_device = {
     .init          = acpi_init,
     .close         = acpi_close,
     .reset         = acpi_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = acpi_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -2849,7 +2876,7 @@ const device_t acpi_intel_device = {
     .init          = acpi_init,
     .close         = acpi_close,
     .reset         = acpi_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = acpi_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -2863,7 +2890,7 @@ const device_t acpi_intel_ich2_device = {
     .init          = acpi_init,
     .close         = acpi_close,
     .reset         = acpi_reset,
-    { .available = NULL },
+    .available = NULL,
     .speed_changed = acpi_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -2877,7 +2904,7 @@ const device_t acpi_via_device = {
     .init          = acpi_init,
     .close         = acpi_close,
     .reset         = acpi_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = acpi_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -2891,7 +2918,7 @@ const device_t acpi_via_596b_device = {
     .init          = acpi_init,
     .close         = acpi_close,
     .reset         = acpi_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = acpi_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -2905,7 +2932,7 @@ const device_t acpi_smc_device = {
     .init          = acpi_init,
     .close         = acpi_close,
     .reset         = acpi_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = acpi_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -2919,7 +2946,7 @@ const device_t acpi_sis_5582_device = {
     .init          = acpi_init,
     .close         = acpi_close,
     .reset         = acpi_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = acpi_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -2933,7 +2960,7 @@ const device_t acpi_sis_5595_1997_device = {
     .init          = acpi_init,
     .close         = acpi_close,
     .reset         = acpi_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = acpi_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -2947,7 +2974,7 @@ const device_t acpi_sis_5595_device = {
     .init          = acpi_init,
     .close         = acpi_close,
     .reset         = acpi_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = acpi_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL

@@ -8,8 +8,6 @@
  *
  *          Implementation of the ALi M1531B CPU-to-PCI Bridge.
  *
- *
- *
  * Authors: Tiseno100,
  *
  *          Copyright 2021 Tiseno100.
@@ -22,6 +20,7 @@
 #include <wchar.h>
 #define HAVE_STDARG_H
 #include <86box/86box.h>
+#include "cpu.h"
 #include <86box/timer.h>
 
 #include <86box/device.h>
@@ -369,8 +368,7 @@ ali1531_close(void *priv)
 static void *
 ali1531_init(UNUSED(const device_t *info))
 {
-    ali1531_t *dev = (ali1531_t *) malloc(sizeof(ali1531_t));
-    memset(dev, 0, sizeof(ali1531_t));
+    ali1531_t *dev = (ali1531_t *) calloc(1, sizeof(ali1531_t));
 
     pci_add_card(PCI_ADD_NORTHBRIDGE, ali1531_read, ali1531_write, dev, &dev->pci_slot);
 
@@ -389,7 +387,7 @@ const device_t ali1531_device = {
     .init          = ali1531_init,
     .close         = ali1531_close,
     .reset         = ali1531_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

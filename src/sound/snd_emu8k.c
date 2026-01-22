@@ -328,7 +328,7 @@ emu8k_log(const char *fmt, ...)
 static int16_t
 EMU8K_READ(emu8k_t *emu8k, uint32_t addr)
 {
-    const register emu8k_mem_pointers_t addrmem = { { addr } };
+    register const emu8k_mem_pointers_t addrmem = { { addr } };
     return emu8k->ram_pointers[addrmem.hb_address][addrmem.lw_address];
 }
 
@@ -1586,7 +1586,7 @@ emu8k_outw(uint16_t addr, uint16_t val, void *priv)
         default:
             break;
     }
-    emu8k_log("EMU8K WRITE: Unknown register write: %04X-%02X(%d/%d): %04X \n", addr, (emu8k->cur_reg) << 5 | emu8k->cur_voice,
+    emu8k_log("EMU8K WRITE: : Unknown register write: %04X-%02X(%d/%d): %04X \n", addr, (emu8k->cur_reg) << 5 | emu8k->cur_voice,
               emu8k->cur_reg, emu8k->cur_voice, val);
 }
 
@@ -1844,14 +1844,14 @@ emu8k_update(emu8k_t *emu8k)
 
         for (pos = emu8k->pos; pos < wavetable_pos_global; pos++) {
             int32_t dat;
+            int16_t dat0;
+            int16_t dat1;
+            int16_t dat2;
+            int16_t dat3;
 
             uint64_t new_addr = emu_voice->addr.addr + (((uint64_t) emu_voice->cpf_curr_pitch) << 18);
             if (emu_voice->cvcf_curr_volume) {
                 /* Waveform oscillator */
-                int16_t dat0;
-                int16_t dat1;
-                int16_t dat2;
-                int16_t dat3;
                 if (emu8k->emu10k1_fxsends) { /* EMU10K1: 8/16-bit, mono/stereo, FIFO */
 #if 0
                     /* Fetch samples into FIFO if less than 4 samples are left. */
@@ -1894,8 +1894,8 @@ emu8k_update(emu8k_t *emu8k)
                             emu_voice->fifo_end += 4;
                             addr += 4;
                         } while (fetch--);
-                    }
 #endif
+                    }
                     uint32_t addr     = (emu_voice->addr.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset;
                     uint32_t end_addr = (emu_voice->loop_end.int_address << emu_voice->addr_shift) + emu_voice->stereo_offset;
                     for (int i = 0; i < 16; i++) {
@@ -1977,6 +1977,10 @@ emu8k_update(emu8k_t *emu8k)
                     emu_voice->filt_buffer[1] += (emu_voice->filt_buffer[0] * coef0) >> 24;
                     emu_voice->filt_buffer[0] += (vhp * coef0) >> 24;
                     dat = (int32_t) (emu_voice->filt_buffer[1] >> 8);
+                    if (dat > 32767)
+                        dat = 32767;
+                    else if (dat < -32768)
+                        dat = -32768;
 
 #elif defined FILTER_MOOG
 
@@ -2002,6 +2006,10 @@ emu8k_update(emu8k_t *emu8k)
                     emu_voice->filt_buffer[0] = ClipBuffer(dat);
 
                     dat = (int32_t) (emu_voice->filt_buffer[4] >> 8);
+                    if (dat > 32767)
+                        dat = 32767;
+                    else if (dat < -32768)
+                        dat = -32768;
 
 #elif defined FILTER_CONSTANT
 
@@ -2020,16 +2028,10 @@ emu8k_update(emu8k_t *emu8k)
                     emu_voice->filt_buffer[1] = ClipBuffer(emu_voice->filt_buffer[1]);
 
                     dat = (int32_t) (emu_voice->filt_buffer[1] >> 8);
-#endif
-                }
-
-                if (emu8k->emu10k1_fxsends || ((emu8k->hwcf3 & 0x04) && !CCCA_DMA_ACTIVE(emu_voice->ccca))) {
-                    /* Moved from the individual filters to here due to overflow issues with no filtering on EMU10K1 Linux PCM. */
-                    if (dat > 32768) { /* intentional: 32768 * max volume = 32767 */
-                        dat = 32768;
-                    } else if (dat < -32768) {
+                    if (dat > 32767)
+                        dat = 32767;
+                    else if (dat < -32768)
                         dat = -32768;
-                    }
 
                     /*volume and pan*/
                     dat = (dat * emu_voice->cvcf_curr_volume) >> 16;
@@ -2046,6 +2048,7 @@ emu8k_update(emu8k_t *emu8k)
                         emu8k->chorus_in_buffer[pos] += (dat * emu_voice->chor_send) >> 16;
                     }
                 }
+#endif      
             } else {
                 /* Reposition EMU10K1 FIFO due to address desync. */
                 emu_voice->fifo_end = emu_voice->fifo_pos;

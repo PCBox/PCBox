@@ -8,8 +8,6 @@
  *
  *          Various definitions for portable byte-swapping.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *          neozeed,
  *
@@ -34,12 +32,12 @@
  *   Boston, MA 02111-1307
  *   USA.
  */
-
 #ifndef BSWAP_H
 #define BSWAP_H
 
 #include <stdint.h>
 
+#ifndef __NetBSD__
 #define bswap_16(x)					\
 	((uint16_t)((((x) & 0x00ffu) << 8) |		\
 		    (((x) & 0xff00u) >> 8)))
@@ -59,8 +57,6 @@
 		    (((x) & 0x0000ff0000000000ull) >> 24) |		\
 		    (((x) & 0x00ff000000000000ull) >> 40) |		\
 		    (((x) & 0xff00000000000000ull) >> 56)))
-
-#ifndef __NetBSD__
 
 static __inline uint16_t
 bswap16(uint16_t x)
@@ -134,12 +130,12 @@ bswap64s(uint64_t *s)
         return endian##_bswap(v, size);                            \
     }                                                              \
                                                                    \
-    static __inline void endian##size##_to_cpus(type *p)           \
+    static __inline void endian##size##_to_cpus(UNUSED(type *p))   \
     {                                                              \
         endian##_bswaps(p, size)                                   \
     }                                                              \
                                                                    \
-    static __inline void cpu_to_##endian##size##s(type *p)         \
+    static __inline void cpu_to_##endian##size##s(UNUSED(type *p)) \
     {                                                              \
         endian##_bswaps(p, size)                                   \
     }                                                              \
@@ -164,7 +160,7 @@ CPU_CONVERT(le, 64, uint64_t)
 
 /* unaligned versions (optimized for frequent unaligned accesses)*/
 
-#if defined(__i386__) || defined(__powerpc__)
+#if defined(__powerpc__)
 #    define cpu_to_le16wu(p, v) cpu_to_le16w(p, v)
 #    define cpu_to_le32wu(p, v) cpu_to_le32w(p, v)
 #    define le16_to_cpupu(p)    le16_to_cpup(p)

@@ -13,8 +13,6 @@
  *          re-merged with the other files. Much of it is generic to
  *          all formats.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -681,8 +679,7 @@ img_load(int drive, char *fn)
     writeprot[drive] = 0;
 
     /* Allocate a drive block. */
-    dev = (img_t *) malloc(sizeof(img_t));
-    memset(dev, 0x00, sizeof(img_t));
+    dev = (img_t *) calloc(1, sizeof(img_t));
 
     dev->fp = plat_fopen(fn, "rb+");
     if (dev->fp == NULL) {

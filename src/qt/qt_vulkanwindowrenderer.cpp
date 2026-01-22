@@ -32,6 +32,8 @@
 ****************************************************************************/
 #include "qt_vulkanwindowrenderer.hpp"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QMessageBox>
 #include <QWindow>
 
@@ -46,6 +48,8 @@
 
 extern "C" {
 #    include <86box/86box.h>
+#    include <86box/path.h>
+#    include <86box/plat.h>
 #    include <86box/video.h>
 }
 #    if 0
@@ -820,10 +824,10 @@ public:
         m_devFuncs->vkDeviceWaitIdle(m_window->device());
     }
 };
-#    endif /* 0*/
+#    endif     /* 0*/
 
 VulkanWindowRenderer::VulkanWindowRenderer(QWidget *parent)
-    : QVulkanWindow(parent->windowHandle())
+    : QVulkanWindow(NULL)
 {
     parentWidget = parent;
     instance.setApiVersion(QVersionNumber(1, 0));
@@ -846,6 +850,7 @@ VulkanWindowRenderer::createRenderer()
 void
 VulkanWindowRenderer::resizeEvent(QResizeEvent *event)
 {
+    this->pixelRatio = devicePixelRatio();
     onResize(width(), height());
 
     QVulkanWindow::resizeEvent(event);
@@ -860,6 +865,8 @@ VulkanWindowRenderer::event(QEvent *event)
     return res;
 }
 
+extern void take_screenshot_clipboard_monitor(int sx, int sy, int sw, int sh, int i);
+
 void
 VulkanWindowRenderer::onBlit(int buf_idx, int x, int y, int w, int h)
 {
@@ -868,8 +875,48 @@ VulkanWindowRenderer::onBlit(int buf_idx, int x, int y, int w, int h)
     if (isExposed())
         requestUpdate();
     buf_usage[0].clear();
-    if (origSource != source)
+    if (origSource != source) {
+        this->pixelRatio = devicePixelRatio();
         onResize(this->width(), this->height());
+    }
+
+    if (monitors[r_monitor_index].mon_screenshots) {
+        char path[1024];
+        char fn[256];
+
+        memset(fn, 0, sizeof(fn));
+        memset(path, 0, sizeof(path));
+
+        path_append_filename(path, usr_path, SCREENSHOT_PATH);
+
+        if (!plat_dir_check(path))
+            plat_dir_create(path);
+
+        path_slash(path);
+        strcat(path, "Monitor_");
+        snprintf(&path[strlen(path)], 42, "%d_", r_monitor_index + 1);
+
+        plat_tempfile(fn, NULL, (char *) ".png");
+        strcat(path, fn);
+
+        QImage image = this->grab();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        image.save(path, "png");
+#else
+        image.rgbSwapped().save(path, "png");
+#endif
+        monitors[r_monitor_index].mon_screenshots--;
+    }
+    if (monitors[r_monitor_index].mon_screenshots_clipboard) {
+        QImage image = this->grab();
+        image = image.rgbSwapped();
+        QClipboard *clipboard = QApplication::clipboard();
+        clipboard->setImage(image, QClipboard::Clipboard);
+        monitors[r_monitor_index].mon_screenshots_clipboard--;
+    }
+    if (monitors[r_monitor_index].mon_screenshots_raw_clipboard) {
+        take_screenshot_clipboard_monitor(x, y, w, h, r_monitor_index);
+    }
 }
 
 uint32_t

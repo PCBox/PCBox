@@ -9,8 +9,6 @@
  *          Implementation of the OPTi 82C822 VESA Local Bus to PCI
  *          Bridge Interface.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2022 Miran Grca.
@@ -394,8 +392,7 @@ opti822_close(void *priv)
 static void *
 opti822_init(UNUSED(const device_t *info))
 {
-    opti822_t *dev = (opti822_t *) malloc(sizeof(opti822_t));
-    memset(dev, 0, sizeof(opti822_t));
+    opti822_t *dev = (opti822_t *) calloc(1, sizeof(opti822_t));
 
     pci_add_card(PCI_ADD_NORTHBRIDGE, opti822_pci_read, opti822_pci_write, dev, &dev->pci_slot);
 
@@ -412,7 +409,7 @@ const device_t opti822_device = {
     .init          = opti822_init,
     .close         = opti822_close,
     .reset         = opti822_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

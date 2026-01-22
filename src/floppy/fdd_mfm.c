@@ -8,8 +8,6 @@
  *
  *          Implementation of the HxC MFM image format.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2018-2019 Miran Grca.
@@ -396,8 +394,7 @@ mfm_load(int drive, char *fn)
     writeprot[drive] = fwriteprot[drive] = 1;
 
     /* Allocate a drive block. */
-    dev = (mfm_t *) malloc(sizeof(mfm_t));
-    memset(dev, 0x00, sizeof(mfm_t));
+    dev = (mfm_t *) calloc(1, sizeof(mfm_t));
 
     dev->fp = plat_fopen(fn, "rb");
     if (dev->fp == NULL) {

@@ -8,8 +8,6 @@
  *
  *          Definitions for the NE2000 ethernet controller.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *
  *          Copyright 2017-2018 Fred N. van Kempen.
@@ -44,7 +42,7 @@ enum {
     NE2K_NE2000_COMPAT      = 4, /* 16-bit ISA NE2000-Compatible */
     NE2K_NE2000_COMPAT_8BIT = 5, /* 8-bit ISA NE2000-Compatible, like: https://github.com/skiselev/isa8_eth */
     NE2K_ETHERNEXT_MC       = 6, /* 16-bit MCA EtherNext/MC */
-    NE2K_RTL8019AS          = 7, /* 16-bit ISA PnP Realtek 8019AS */
+    NE2K_RTL8019AS_PNP      = 7, /* 16-bit ISA PnP Realtek 8019AS */
     NE2K_DE220P             = 8, /* 16-bit ISA PnP D-Link DE-220P */
     NE2K_RTL8029AS          = 9, /* 32-bit PCI Realtek 8029AS */
     /* Check nic_init() if adding items after this point. */

@@ -6,8 +6,6 @@
  *
  *          Definitions for the ISARTC cards.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *
  *          Copyright 2018 Fred N. van Kempen.
@@ -42,7 +40,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING  IN ANY  WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 #ifndef EMU_ISARTC_H
 #define EMU_ISARTC_H
 
@@ -50,15 +47,17 @@
 extern "C" {
 #endif
 
-/* Global variables. */
-
 /* Functions. */
 extern void isartc_reset(void);
 
 extern const char     *isartc_get_internal_name(int t);
-extern int             isartc_get_from_internal_name(char *s);
+extern int             isartc_get_from_internal_name(const char *str);
 extern const device_t *isartc_get_device(int t);
 extern int             isartc_has_config(int board);
+
+/* On-board RTC devices */
+extern const device_t vendex_xt_rtc_onboard_device;
+extern const device_t rtc58167_device;
 
 #ifdef __cplusplus
 }

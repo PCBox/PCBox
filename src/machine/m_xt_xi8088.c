@@ -87,77 +87,77 @@ xi8088_init(UNUSED(const device_t *info))
 }
 
 static const device_config_t xi8088_config[] = {
-  // clang-format off
+    // clang-format off
     {
-        .name = "turbo_setting",
+        .name        = "turbo_setting",
         .description = "Turbo",
-        .type = CONFIG_SELECTION,
-        .selection = {
+        .type        = CONFIG_SELECTION,
+        .default_int = 0,
+        .selection   = {
             {
                 .description = "Always at selected speed",
-                .value = 0
+                .value       = 0
             },
             {
                 .description = "BIOS setting + Hotkeys (off during POST)",
-                .value = 1
+                .value       = 1
             }
-        },
-        .default_int = 0
+        }
     },
     {
-        .name = "bios_128kb",
+        .name        = "bios_128kb",
         .description = "BIOS size",
-        .type = CONFIG_SELECTION,
-        .selection = {
+        .type        = CONFIG_SELECTION,
+        .default_int = 1,
+        .selection   = {
             {
-                .description = "64 kB starting from F0000",
-                .value = 0
+                .description = "64 KB starting from F0000",
+                .value       = 0
             },
             {
-                .description = "128 kB starting from E0000 (address MSB inverted, last 64KB first)",
-                .value = 1
+                .description = "128 KB starting from E0000 (address MSB inverted, last 64 KB first)",
+                .value       = 1
             }
-        },
-        .default_int = 1
+        }
     },
     {
-        .name = "umb_c0000h_c7fff",
+        .name        = "umb_c0000h_c7fff",
         .description = "Map C0000-C7FFF as UMB",
-        .type = CONFIG_BINARY,
+        .type        = CONFIG_BINARY,
         .default_int = 0
     },
     {
-        .name = "umb_c8000h_cffff",
+        .name        = "umb_c8000h_cffff",
         .description = "Map C8000-CFFFF as UMB",
-        .type = CONFIG_BINARY,
+        .type        = CONFIG_BINARY,
         .default_int = 0
     },
     {
-        .name = "umb_d0000h_d7fff",
+        .name        = "umb_d0000h_d7fff",
         .description = "Map D0000-D7FFF as UMB",
-        .type = CONFIG_BINARY,
+        .type        = CONFIG_BINARY,
         .default_int = 0
     },
     {
-        .name = "umb_d8000h_dffff",
+        .name        = "umb_d8000h_dffff",
         .description = "Map D8000-DFFFF as UMB",
-        .type = CONFIG_BINARY,
+        .type        = CONFIG_BINARY,
         .default_int = 0
     },
     {
-        .name = "umb_e0000h_e7fff",
+        .name        = "umb_e0000h_e7fff",
         .description = "Map E0000-E7FFF as UMB",
-        .type = CONFIG_BINARY,
+        .type        = CONFIG_BINARY,
         .default_int = 0
     },
     {
-        .name = "umb_e8000h_effff",
+        .name        = "umb_e8000h_effff",
         .description = "Map E8000-EFFFF as UMB",
-        .type = CONFIG_BINARY,
+        .type        = CONFIG_BINARY,
         .default_int = 0
     },
     { .name = "", .description = "", .type = CONFIG_END }
-  // clang-format on
+    // clang-format on
 };
 
 const device_t xi8088_device = {
@@ -168,7 +168,7 @@ const device_t xi8088_device = {
     .init          = xi8088_init,
     .close         = NULL,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = xi8088_config
@@ -204,12 +204,12 @@ machine_xt_xi8088_init(const machine_t *model)
     if (fdc_current[0] == FDC_INTERNAL)
         device_add(&fdc_at_device);
 
-    device_add(&keyboard_ps2_xi8088_device);
+    device_add_params(machine_get_kbc_device(machine), (void *) model->kbc_params);
     device_add(&port_6x_xi8088_device);
     nmi_init();
     device_add(&ibmat_nvr_device);
     pic2_init();
-    standalone_gameport_type = &gameport_device;
+    standalone_gameport_type = &gameport_200_device;
     device_add(&sst_flash_39sf010_device);
 
     return ret;

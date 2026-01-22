@@ -8,8 +8,6 @@
  *
  *          Implementation of an SST flash chip.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Jasmine Iwanek, <jriwanek@gmail.com>
  *
@@ -25,6 +23,7 @@
 #include <86box/device.h>
 #include <86box/mem.h>
 #include <86box/machine.h>
+#include "cpu.h"
 #include <86box/timer.h>
 #include <86box/nvr.h>
 #include <86box/plat.h>
@@ -128,6 +127,7 @@ static char flash_path[1024];
 #define WINBOND     0xda /* Winbond Manufacturer's ID */
 #define W29C512     0xc800
 #define W29C010     0xc100
+#define W29C011A    0xc100
 #define W29C020     0x4500
 #define W29C040     0x4600
 
@@ -505,10 +505,9 @@ static void *
 sst_init(const device_t *info)
 {
     FILE  *fp;
-    sst_t *dev = malloc(sizeof(sst_t));
-    memset(dev, 0, sizeof(sst_t));
+    sst_t *dev = calloc(1, sizeof(sst_t));
 
-    sprintf(flash_path, "%s.bin", machine_get_internal_name_ex(machine));
+    sprintf(flash_path, "%s.bin", machine_get_nvr_name_ex(machine));
 
     mem_mapping_disable(&bios_mapping);
     mem_mapping_disable(&bios_high_mapping);
@@ -524,7 +523,7 @@ sst_init(const device_t *info)
         dev->is_39    = 1;
 
     dev->size = info->local & 0xffff0000;
-    if ((dev->size == 0x20000) && (strstr(machine_get_internal_name_ex(machine), "xi8088")) && !xi8088_bios_128kb())
+    if ((dev->size == 0x20000) && ((machines[machine].init == machine_xt_xi8088_init) && !xi8088_bios_128kb()))
         dev->size = 0x10000;
 
     dev->mask         = dev->size - 1;
@@ -576,7 +575,7 @@ const device_t sst_flash_29ee010_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -590,7 +589,7 @@ const device_t sst_flash_29ee020_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -604,7 +603,7 @@ const device_t winbond_flash_w29c512_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -618,7 +617,21 @@ const device_t winbond_flash_w29c010_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t winbond_flash_w29c011a_device = {
+    .name          = "Winbond W29C011A Flash BIOS",
+    .internal_name = "winbond_flash_w29c011a",
+    .flags         = 0,
+    .local         = WINBOND | W29C011A | SIZE_1M,
+    .init          = sst_init,
+    .close         = sst_close,
+    .reset         = NULL,
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -632,7 +645,7 @@ const device_t winbond_flash_w29c020_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -646,7 +659,7 @@ const device_t winbond_flash_w29c040_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -660,7 +673,7 @@ const device_t sst_flash_39sf512_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -674,7 +687,7 @@ const device_t sst_flash_39sf010_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -688,7 +701,7 @@ const device_t sst_flash_39sf020_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -702,7 +715,7 @@ const device_t sst_flash_39sf040_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -716,7 +729,7 @@ const device_t sst_flash_39lf512_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -730,7 +743,7 @@ const device_t sst_flash_39lf010_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -744,7 +757,7 @@ const device_t sst_flash_39lf020_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -758,7 +771,7 @@ const device_t sst_flash_39lf040_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -772,7 +785,7 @@ const device_t sst_flash_39lf080_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -786,7 +799,7 @@ const device_t sst_flash_39lf016_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -808,7 +821,7 @@ const device_t sst_flash_49lf002_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -822,7 +835,7 @@ const device_t sst_flash_49lf020_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -836,7 +849,7 @@ const device_t sst_flash_49lf020a_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -850,7 +863,7 @@ const device_t sst_flash_49lf003_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -864,7 +877,7 @@ const device_t sst_flash_49lf030_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -878,7 +891,7 @@ const device_t sst_flash_49lf004_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -892,7 +905,7 @@ const device_t sst_flash_49lf004c_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -906,7 +919,7 @@ const device_t sst_flash_49lf040_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -920,7 +933,7 @@ const device_t sst_flash_49lf008_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -934,7 +947,7 @@ const device_t sst_flash_49lf008c_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -948,7 +961,7 @@ const device_t sst_flash_49lf080_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -962,7 +975,7 @@ const device_t sst_flash_49lf016_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -977,7 +990,7 @@ const device_t sst_flash_49lf160_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -991,7 +1004,7 @@ const device_t amd_flash_29f020a_device = {
     .init          = sst_init,
     .close         = sst_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

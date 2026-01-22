@@ -8,8 +8,6 @@
  *
  *          Implementation the PCI bus.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2023 Miran Grca.
@@ -419,6 +417,9 @@ pci_trc_reset(uint8_t val)
         mem_a20_recalc();
 
         flushmmucache();
+
+        if (is_p6)
+            mem_zero();
     }
 
 #ifdef USE_DYNAREC
@@ -852,10 +853,10 @@ pci_register_card(int pci_card)
 
 /* Add an instance of the PCI bridge. */
 void
-pci_add_bridge(uint8_t agp, uint8_t (*read)(int func, int addr, void *priv), void (*write)(int func, int addr, uint8_t val, void *priv), void *priv, uint8_t *slot)
+pci_add_bridge(uint8_t add_type, uint8_t (*read)(int func, int addr, void *priv), void (*write)(int func, int addr, uint8_t val, void *priv), void *priv, uint8_t *slot)
 {
     pci_card_t *card;
-    uint8_t bridge_slot = agp ? pci_find_slot(PCI_ADD_AGPBRIDGE, 0xff) : last_normal_pci_card_id;
+    uint8_t bridge_slot = (add_type == PCI_ADD_NORMAL) ? last_normal_pci_card_id : pci_find_slot(add_type, 0xff);
 
     if (bridge_slot != PCI_CARD_INVALID) {
         card = &pci_cards[bridge_slot];

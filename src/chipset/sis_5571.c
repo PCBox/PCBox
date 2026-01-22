@@ -27,6 +27,7 @@
 #include <86box/nvr.h>
 #include <86box/apm.h>
 #include <86box/acpi.h>
+#include <86box/keyboard.h>
 #include <86box/hdd.h>
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
@@ -166,6 +167,8 @@ sis_5571_init(UNUSED(const device_t *info))
     dev->ide = device_add_linked(&sis_5572_ide_device, dev->sis);
     dev->usb = device_add_linked(&sis_5572_usb_device, dev->sis);
 
+    device_add_params(&kbc_at_device, (void *) KBC_VEN_SIS);
+
     return dev;
 }
 
@@ -177,7 +180,7 @@ const device_t sis_5571_device = {
     .init          = sis_5571_init,
     .close         = sis_5571_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

@@ -12,15 +12,15 @@
 # After a successful build, you can install the RPMs as follows:
 #  sudo dnf install RPMS/$(uname -m)/86Box-3* RPMS/noarch/86Box-roms*
 
-%global romver 4.2.1
+%global romver 5.4
 
 <<<<<<< HEAD:src/unix/assets/PCBox.spec
 Name:		PCBox
-Version:	4.2.5
+Version:	5.3
 =======
 Name:		86Box
-Version:	4.3
->>>>>>> 6110a60f1406549dd60e82037f1b7ba3c5300f6e:src/unix/assets/86Box.spec
+Version:	5.4
+>>>>>>> 77596d36231ef0a149c89c9f456b62daadebe69c:src/unix/assets/86Box.spec
 Release:	1%{?dist}
 Summary:	Classic PC emulator
 License:	GPLv2+
@@ -77,7 +77,7 @@ Collection of ROMs for use with PCBox.
 %autosetup -p1 -a1
 
 %build
-%ifarch i386 x86_64
+%ifarch x86_64
   %cmake -DRELEASE=on
 %else
   %ifarch arm aarch64
@@ -126,5 +126,5 @@ popd
 %{_datadir}/%{name}/roms
 
 %changelog
-* Sat Sep 28 2024 Britney Lozza <bnlozza@gmail.com> - 4.3-1
-- Fixing fuel's bad forking by porting the spec file from 86Box to PCBox
+* Sat Aug 31 2025 Jasmine Iwanek <jriwanek[AT]gmail.com> 5.4-1
+- Bump release

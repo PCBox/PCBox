@@ -43,11 +43,11 @@
 #include <86box/device.h>
 #include <86box/thread.h>
 #include <86box/network.h>
-#include <86box/net_eeprom_nmc93cxx.h>
-#include <86box/bswap.h>
+#include <86box/nmc93cxx.h>
 #include <86box/nvr.h>
 #include "cpu.h"
 #include <86box/plat_unused.h>
+#include <86box/bswap.h>
 
 #define PCI_PERIOD 30 /* 30 ns period = 33.333333 Mhz frequency */
 
@@ -835,7 +835,7 @@ rtl8139_do_receive(void *priv, uint8_t *buf, int size_)
         uint32_t rx_space = rxdw0 & CP_RX_BUFFER_SIZE_MASK;
 
         /* write VLAN info to descriptor variables. */
-        if (s->CpCmd & CPlusRxVLAN && bswap16(*((uint16_t *) &buf[ETH_ALEN * 2])) == 0x8100) {
+        if (s->CpCmd & CPlusRxVLAN && bswap16(AS_U16(buf[ETH_ALEN * 2])) == 0x8100) {
             dot1q_buf = &buf[ETH_ALEN * 2];
             size -= VLAN_HLEN;
             /* if too small buffer, use the tailroom added duing expansion */
@@ -849,7 +849,7 @@ rtl8139_do_receive(void *priv, uint8_t *buf, int size_)
 
             rtl8139_log("C+ Rx mode : extracted vlan tag with tci: "
                         "%u\n",
-                        bswap16(*((uint16_t *) &dot1q_buf[ETHER_TYPE_LEN])));
+                        bswap16(AS_U16(dot1q_buf[ETHER_TYPE_LEN])));
         } else {
             /* reset VLAN tag flag */
             rxdw1 &= ~CP_RX_TAVA;
@@ -1210,7 +1210,7 @@ rtl8139_CpCmd_read(RTL8139State *s)
 }
 
 static void
-rtl8139_IntrMitigate_write(UNUSED(RTL8139State *s), uint32_t val)
+rtl8139_IntrMitigate_write(UNUSED(RTL8139State *s), UNUSED(uint32_t val))
 {
     rtl8139_log("C+ IntrMitigate register write(w) val=0x%04x\n", val);
 }
@@ -2478,10 +2478,7 @@ rtl8139_io_writeb(uint32_t addr, uint8_t val, void *priv)
 
     addr &= 0xFF;
     switch (addr) {
-        case MAC0 ... MAC0 + 4:
-            s->phys[addr - MAC0] = val;
-            break;
-        case MAC0 + 5:
+        case MAC0 ... MAC0 + 5:
             s->phys[addr - MAC0] = val;
             break;
         case MAC0 + 6 ... MAC0 + 7:
@@ -2547,6 +2544,12 @@ rtl8139_io_writeb(uint32_t addr, uint8_t val, void *priv)
                 rtl8139_cplus_transmit(s);
             }
 
+            break;
+
+        case RxConfig:
+            rtl8139_log("RxConfig write(b) val=0x%02x\n", val);
+            rtl8139_RxConfig_write(s,
+                (rtl8139_RxConfig_read(s) & 0xFFFFFF00) | val);
             break;
 
         default:
@@ -3151,7 +3154,7 @@ rtl8139_pci_read(UNUSED(int func), int addr, void *priv)
 }
 
 static void
-rtl8139_pci_write(int func, int addr, uint8_t val, void *priv)
+rtl8139_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
 {
     RTL8139State *s = (RTL8139State *) priv;
 
@@ -3229,7 +3232,7 @@ nic_init(const device_t *info)
     nmc93cxx_eeprom_params_t params;
     char          eeprom_filename[1024] = { 0 };
     char          filename[1024] = { 0 };
-    uint8_t      *mac_bytes;
+    uint8_t       mac_bytes[6];
     uint16_t     *eep_data;
     uint32_t      mac;
 
@@ -3251,17 +3254,14 @@ nic_init(const device_t *info)
     eep_data[1] = 0x10EC;
     eep_data[2] = 0x8139;
 
-    /* XXX: Get proper MAC addresses from real EEPROM dumps. OID taken from net_ne2000.c */
-#ifdef USE_REALTEK_OID
+    /* XXX: Get proper MAC addresses from real EEPROM dumps. OID is generic Realtek */
     eep_data[7] = 0xe000;
     eep_data[8] = 0x124c;
-#else
-    eep_data[7] = 0x1400;
-    eep_data[8] = 0x122a;
-#endif
     eep_data[9] = 0x1413;
 
-    mac_bytes = (uint8_t *) &(eep_data[7]);
+    mac_bytes[0] = 0x00;
+    mac_bytes[1] = 0xe0;
+    mac_bytes[2] = 0x4c;
 
     /* See if we have a local MAC address configured. */
     mac = device_get_config_mac("mac", -1);
@@ -3285,11 +3285,14 @@ nic_init(const device_t *info)
     for (uint32_t i = 0; i < 6; i++)
         s->phys[MAC0 + i] = mac_bytes[i];
 
+    eep_data[8] = 0x4c | (mac_bytes[3] << 8);
+    eep_data[9] = mac_bytes[4] | (mac_bytes[5] << 8);
+
     params.nwords          = 64;
     params.default_content = (uint16_t *) s->eeprom_data;
     params.filename        = filename;
-    snprintf(filename, sizeof(filename), "nmc93cxx_eeprom_%s_%d.nvr", info->internal_name, device_get_instance());
-    s->eeprom = device_add_params(&nmc93cxx_device, &params);
+    snprintf(filename, sizeof(filename), "nmc93cxx_eeprom_%s_%d.nvr", info->internal_name, s->inst);
+    s->eeprom = device_add_inst_params(&nmc93cxx_device, s->inst, &params);
     if (s->eeprom == NULL) {
         free(s);
         return NULL;
@@ -3315,11 +3318,15 @@ nic_close(void *priv)
 // clang-format off
 static const device_config_t rtl8139c_config[] = {
     {
-        .name = "mac",
-        .description = "MAC Address",
-        .type = CONFIG_MAC,
-        .default_string = "",
-        .default_int = -1
+        .name           = "mac",
+        .description    = "MAC Address",
+        .type           = CONFIG_MAC,
+        .default_string = NULL,
+        .default_int    = -1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
 };
@@ -3333,7 +3340,7 @@ const device_t rtl8139c_plus_device = {
     .init          = nic_init,
     .close         = nic_close,
     .reset         = rtl8139_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = rtl8139c_config

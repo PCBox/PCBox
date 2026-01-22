@@ -8,8 +8,6 @@
  *
  *          Handling of the emulated machines.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
  *
@@ -39,6 +37,7 @@
 #include <86box/video.h>
 #include <86box/machine.h>
 #include <86box/isamem.h>
+#include <86box/isarom.h>
 #include <86box/pci.h>
 #include <86box/plat_unused.h>
 
@@ -70,16 +69,16 @@ machine_init_ex(int m)
     int ret = 0;
 
     if (!bios_only) {
-        machine_log("Initializing as \"%s\"\n", machine_getname());
+        machine_log("Initializing as \"%s\"\n", machine_getname(machine));
 
         machine_init_p1();
 
         machine_init_gpio();
         machine_init_gpio_acpi();
 
-        machine_snd              = NULL;
+        machine_snd = NULL;
 
-        is_vpc                   = 0;
+        is_vpc = 0;
 
         standalone_gameport_type = NULL;
         gameport_instance_id     = 0;
@@ -97,8 +96,6 @@ machine_init_ex(int m)
         mem_reset();
         smbase = is_am486dxl ? 0x00060000 : 0x00030000;
 
-        lpt_init();
-
         if (cassette_enable)
             device_add(&cassette_device);
 
@@ -111,11 +108,18 @@ machine_init_ex(int m)
         /* Reset any ISA memory cards. */
         isamem_reset();
 
+#if 0
+        /* Reset any ISA ROM cards. */
+        isarom_reset();
+#endif
+
         /* Reset the fast off stuff. */
         cpu_fast_off_reset();
 
         pci_flags = 0x00000000;
     }
+
+    is_pcjr = 0;
 
     /* All good, boot the machine! */
     if (machines[m].init)
@@ -133,24 +137,34 @@ void
 machine_init(void)
 {
     bios_only = 0;
+
+    machine_set_p1_default(machines[machine].kbc_p1);
+    machine_set_ps2();
+
     (void) machine_init_ex(machine);
 }
 
 int
 machine_available(int m)
 {
-    int             ret;
+    int             ret = 0;
     const device_t *dev = machine_get_device(m);
 
-    bios_only = 1;
+    if (dev != NULL)
+        ret = machine_device_available(dev);
+    /*
+       Only via machine_init_ex() if the device is NULL or
+       it lacks a CONFIG_BIOS field (or the CONFIG_BIOS field
+       is not the first in list.
+     */
+    if (ret == 0) {
+        bios_only = 1;
 
-    ret = device_available(dev);
-    /* Do not check via machine_init_ex() if the device is not NULL and
-       it has a CONFIG_BIOS field. */
-    if ((dev == NULL) || (ret != -1))
         ret = machine_init_ex(m);
 
-    bios_only = 0;
+        bios_only = 0;
+    } else if (ret == -2)
+        ret = 0;
 
     return !!ret;
 }
@@ -169,7 +183,7 @@ void
 machine_common_init(UNUSED(const machine_t *model))
 {
     uint8_t cpu_requires_fast_pit = is486 || (!is286 && is8086 && (cpu_s->rspeed >= 8000000));
-    cpu_requires_fast_pit = cpu_requires_fast_pit && !cpu_16bitbus;
+    cpu_requires_fast_pit         = cpu_requires_fast_pit && !cpu_16bitbus;
 
     /* System devices first. */
     pic_init();

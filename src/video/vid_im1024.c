@@ -38,8 +38,6 @@
  *            This is implemented by holding a FIFO of unlimited depth in
  *            the IM1024 to receive the data.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *          John Elliott, <jce@seasip.info>
  *
@@ -1038,7 +1036,7 @@ im1024_init(UNUSED(const device_t *info))
     dev = (im1024_t *) malloc(sizeof(im1024_t));
     memset(dev, 0x00, sizeof(im1024_t));
 
-    loadfont(BIOS_ROM_PATH, 9);
+    video_load_font(BIOS_ROM_PATH, FONT_FORMAT_IM1024, LOAD_FONT_NO_OFFSET);
 
     dev->fifo_len   = 4096;
     dev->fifo       = (uint8_t *) malloc(dev->fifo_len);
@@ -1090,7 +1088,7 @@ const device_t im1024_device = {
     .init          = im1024_init,
     .close         = im1024_close,
     .reset         = NULL,
-    { .available = im1024_available },
+    .available     = im1024_available,
     .speed_changed = im1024_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL

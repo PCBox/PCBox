@@ -8,8 +8,6 @@
  *
  *          Common storage devices module.
  *
- *
- *
  * Authors: Joakim L. Gilje <jgilje@jgilje.net>
  *          Cacodemon345
  *          Teemu Korhonen
@@ -29,7 +27,7 @@ extern "C" {
 #include <86box/plat.h>
 #include <86box/random.h>
 #include <86box/scsi_device.h>
-#include <86box/zip.h>
+#include <86box/rdisk.h>
 #include <86box/mo.h>
 }
 
@@ -85,7 +83,7 @@ static const disk_size_t disk_sizes[14] = {
     { 0,  8, 0, 0, 0, 963, 32, 2,    0, 0, 0, 0,   0 }, /* LS-120 */
     { 0, 32, 0, 0, 0, 262, 56, 2,    0, 0, 0, 0,   0 }  /* LS-240 */
 #endif
-// clang-format on
+    // clang-format on
 };
 
 static const QStringList rpmModes = {
@@ -110,7 +108,7 @@ static const QStringList floppyTypes = {
     "2.88 MB",
 };
 
-static const QStringList zipTypes = {
+static const QStringList rdiskTypes = {
     "ZIP 100",
     "ZIP 250",
 };
@@ -146,11 +144,11 @@ NewFloppyDialog::NewFloppyDialog(MediaType type, QWidget *parent)
                 tr("All images") % util::DlgFilter({ "86f", "dsk", "flp", "im?", "img", "*fd?" }) % tr("Basic sector images") % util::DlgFilter({ "dsk", "flp", "im?", "img", "*fd?" }) % tr("Surface images") % util::DlgFilter({ "86f" }, true));
 
             break;
-        case MediaType::Zip:
-            for (int i = 0; i < zipTypes.size(); ++i) {
-                Models::AddEntry(model, tr(zipTypes[i].toUtf8().data()), i);
+        case MediaType::RDisk:
+            for (int i = 0; i < rdiskTypes.size(); ++i) {
+                Models::AddEntry(model, tr(rdiskTypes[i].toUtf8().data()), i);
             }
-            ui->fileField->setFilter(tr("ZIP images") % util::DlgFilter({ "im?", "img", "zdi" }, true));
+            ui->fileField->setFilter(tr("Removable disk images") % util::DlgFilter({ "im?", "img", "rdi", "zdi" }, true));
             break;
         case MediaType::Mo:
             for (int i = 0; i < moTypes.size(); ++i) {
@@ -200,7 +198,7 @@ NewFloppyDialog::onCreate()
     QFileInfo fi(filename);
     filename = (fi.isRelative() && !fi.filePath().isEmpty()) ? (usr_path + fi.filePath()) : fi.filePath();
     ui->fileField->setFileName(filename);
-    FileType  fileType;
+    FileType fileType;
 
     QProgressDialog progress("Creating floppy image", QString(), 0, 100, this);
     connect(this, &NewFloppyDialog::fileProgress, &progress, &QProgressDialog::setValue);
@@ -218,13 +216,13 @@ NewFloppyDialog::onCreate()
                 }
             }
             break;
-        case MediaType::Zip:
+        case MediaType::RDisk:
             {
                 fileType = fi.suffix().toLower() == QStringLiteral("zdi") ? FileType::Zdi : FileType::Img;
 
                 std::atomic_bool res;
                 std::thread      t([this, &res, filename, fileType, &progress] {
-                    res = createZipSectorImage(filename, disk_sizes[ui->comboBoxSize->currentIndex() + 12], fileType, progress);
+                    res = createRDiskSectorImage(filename, disk_sizes[ui->comboBoxSize->currentIndex() + 12], fileType, progress);
                 });
                 progress.exec();
                 t.join();
@@ -367,7 +365,7 @@ NewFloppyDialog::create86f(const QString &filename, const disk_size_t &disk_size
 bool
 NewFloppyDialog::createSectorImage(const QString &filename, const disk_size_t &disk_size, FileType type)
 {
-    uint32_t total_size     = 0;
+    uint64_t total_size     = 0;
     uint32_t total_sectors  = 0;
     uint32_t sector_bytes   = 0;
     uint32_t root_dir_bytes = 0;
@@ -388,7 +386,7 @@ NewFloppyDialog::createSectorImage(const QString &filename, const disk_size_t &d
     total_sectors = disk_size.sides * disk_size.tracks * disk_size.sectors;
     if (total_sectors > ZIP_SECTORS)
         total_sectors = ZIP_250_SECTORS;
-    total_size     = total_sectors * sector_bytes;
+    total_size     = (uint64_t) total_sectors * sector_bytes;
     root_dir_bytes = (disk_size.root_dir_entries << 5);
     fat_size       = (disk_size.spfat * sector_bytes);
     fat1_offs      = sector_bytes;
@@ -463,13 +461,13 @@ NewFloppyDialog::createSectorImage(const QString &filename, const disk_size_t &d
 }
 
 bool
-NewFloppyDialog::createZipSectorImage(const QString &filename, const disk_size_t &disk_size, FileType type, QProgressDialog &pbar)
+NewFloppyDialog::createRDiskSectorImage(const QString &filename, const disk_size_t &disk_size, FileType type, QProgressDialog &pbar)
 {
-    uint32_t total_size    = 0;
+    uint64_t total_size    = 0;
     uint32_t total_sectors = 0;
     uint32_t sector_bytes  = 0;
     uint16_t base          = 0x1000;
-    uint32_t pbar_max      = 0;
+    uint64_t pbar_max      = 0;
 
     QFile file(filename);
     if (!file.open(QIODevice::WriteOnly)) {
@@ -482,7 +480,7 @@ NewFloppyDialog::createZipSectorImage(const QString &filename, const disk_size_t
     total_sectors = disk_size.sides * disk_size.tracks * disk_size.sectors;
     if (total_sectors > ZIP_SECTORS)
         total_sectors = ZIP_250_SECTORS;
-    total_size = total_sectors * sector_bytes;
+    total_size = (uint64_t) total_sectors * sector_bytes;
 
     pbar_max = total_size;
     if (type == FileType::Zdi) {
@@ -648,13 +646,13 @@ NewFloppyDialog::createZipSectorImage(const QString &filename, const disk_size_t
 bool
 NewFloppyDialog::createMoSectorImage(const QString &filename, int8_t disk_size, FileType type, QProgressDialog &pbar)
 {
-    const mo_type_t *dp            = &mo_types[disk_size];
-    uint32_t         total_size    = 0;
-    uint32_t         total_size2;
+    const mo_type_t *dp         = &mo_types[disk_size];
+    uint64_t         total_size = 0;
+    uint64_t         total_size2;
     uint32_t         total_sectors = 0;
     uint32_t         sector_bytes  = 0;
     uint16_t         base          = 0x1000;
-    uint32_t         pbar_max      = 0;
+    uint64_t         pbar_max      = 0;
     uint32_t         blocks_num;
 
     QFile file(filename);
@@ -666,7 +664,7 @@ NewFloppyDialog::createMoSectorImage(const QString &filename, int8_t disk_size, 
 
     sector_bytes  = dp->bytes_per_sector;
     total_sectors = dp->sectors;
-    total_size    = total_sectors * sector_bytes;
+    total_size    = (uint64_t) total_sectors * sector_bytes;
 
     total_size2 = (total_size >> 20) << 20;
     total_size2 = total_size - total_size2;

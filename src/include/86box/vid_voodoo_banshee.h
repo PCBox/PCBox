@@ -8,16 +8,14 @@
  *
  *          Voodoo Banshee and 3 specific emulation.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *
  *          Copyright 2008-2020 Sarah Walker.
  */
-
 #ifndef VIDEO_VOODOO_BANSHEE_H
 #define VIDEO_VOODOO_BANSHEE_H
 
+void banshee_cmd_write(void *priv, uint32_t addr, uint32_t val);
 void banshee_set_overlay_addr(void *priv, uint32_t addr);
 
 #endif /*VIDEO_VOODOO_BANSHEE_H*/

@@ -9,8 +9,6 @@
  *          Implementation of Port 92 used by PS/2 machines and 386+
  *          clones.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2019 Miran Grca.
@@ -235,7 +233,7 @@ const device_t port_92_device = {
     .init          = port_92_init,
     .close         = port_92_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -249,7 +247,7 @@ const device_t port_92_key_device = {
     .init          = port_92_init,
     .close         = port_92_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -263,7 +261,7 @@ const device_t port_92_inv_device = {
     .init          = port_92_init,
     .close         = port_92_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -277,7 +275,7 @@ const device_t port_92_word_device = {
     .init          = port_92_init,
     .close         = port_92_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -291,7 +289,7 @@ const device_t port_92_pci_device = {
     .init          = port_92_init,
     .close         = port_92_close,
     .reset         = port_92_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

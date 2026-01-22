@@ -7,7 +7,6 @@
  *          This file is part of the 86Box distribution.
  *
  *          Interface to the OPL2Board External audio device (USB)
- *        
  *
  * Authors: Jose Phillips <jose@hddlive.net>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -17,7 +16,6 @@
  *          Copyright 2017-2020 Fred N. van Kempen.
  *          Copyright 2016-2020 Miran Grca.
  */
-
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -124,8 +122,7 @@ opl2board_device_mca_feedb(void *priv)
 void *
 opl2board_device_init(UNUSED(const device_t *info))
 {
-    opl2board_device_t *serial = malloc(sizeof(opl2board_device_t));
-    memset(serial, 0, sizeof(opl2board_device_t));
+    opl2board_device_t *serial = calloc(1, sizeof(opl2board_device_t));
 
     opl2board_device_log("opl2board_device_init\n");
     fm_driver_get(FM_OPL2BOARD, &serial->opl);
@@ -168,13 +165,15 @@ opl2board_device_close(void *priv)
 
 static const device_config_t opl2board_config[] = {
     {
-        .name = "host_serial_path",
-        .description = "Host Serial Device",
-        .type = CONFIG_SERPORT,
+        .name           = "host_serial_path",
+        .description    = "Host Serial Device",
+        .type           = CONFIG_SERPORT,
         .default_string = "",
-        .file_filter = NULL,
-        .spinner = { 0 },
-        .selection = { { 0 } }
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
 };

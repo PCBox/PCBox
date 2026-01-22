@@ -11,8 +11,6 @@
  *          If modifying the protocol, you MUST modify the specification
  *          and increment the version number.
  *
- *
- *
  * Authors: GreaseMonkey, <thematrixeatsyou+86b@gmail.com>
  *
  *          Copyright 2024 GreaseMonkey.
@@ -112,15 +110,6 @@ static struct unittester_state unittester_defaults = {
     .fsm2         = UT_FSM2_IDLE,
     .status       = UT_STATUS_IDLE,
     .cmd_id       = UT_CMD_NOOP,
-};
-
-static const device_config_t unittester_config[] = {
-    { .name           = "exit_enabled",
-     .description    = "Enable 0x04 \"Exit 86Box\" command",
-     .type           = CONFIG_BINARY,
-     .default_int    = 1,
-     .default_string = "" },
-    { .type = CONFIG_END }
 };
 
 /* Kept separate, as we will be reusing this object */
@@ -620,6 +609,23 @@ unittester_close(UNUSED(void *priv))
     unittester_log("[UT] 86Box Unit Tester closed\n");
 }
 
+static const device_config_t unittester_config[] = {
+  // clang-format off
+    {
+        .name           = "exit_enabled",
+        .description    = "Enable 0x04 \"Exit 86Box\" command",
+        .type           = CONFIG_BINARY,
+        .default_int    = 1,
+        .default_string = NULL,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+  // clang-format on
+};
+
 const device_t unittester_device = {
     .name          = "86Box Unit Tester",
     .internal_name = "unittester",
@@ -628,7 +634,7 @@ const device_t unittester_device = {
     .init          = unittester_init,
     .close         = unittester_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = unittester_config,

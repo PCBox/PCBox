@@ -29,8 +29,6 @@
  * All models: The internal mouse controller does not work correctly with
  *             version 7.04 of the mouse driver.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -66,6 +64,7 @@
 #include <86box/lpt.h>
 #include <86box/fdd.h>
 #include <86box/fdc.h>
+#include <86box/hdc.h>
 #include <86box/sound.h>
 #include <86box/snd_speaker.h>
 #include <86box/video.h>
@@ -76,27 +75,32 @@
 #include <86box/m_amstrad.h>
 #include <86box/plat_unused.h>
 
-#define STAT_PARITY   0x80
-#define STAT_RTIMEOUT 0x40
-#define STAT_TTIMEOUT 0x20
-#define STAT_LOCK     0x10
-#define STAT_CD       0x08
-#define STAT_SYSFLAG  0x04
-#define STAT_IFULL    0x02
-#define STAT_OFULL    0x01
+#define STAT_PARITY               0x80
+#define STAT_RTIMEOUT             0x40
+#define STAT_TTIMEOUT             0x20
+#define STAT_LOCK                 0x10
+#define STAT_CD                   0x08
+#define STAT_SYSFLAG              0x04
+#define STAT_IFULL                0x02
+#define STAT_OFULL                0x01
+
+#define DOUBLE_NONE               0
+#define DOUBLE_SIMPLE             1
+#define DOUBLE_INTERPOLATE_SRGB   2
+#define DOUBLE_INTERPOLATE_LINEAR 3
 
 typedef struct amsvid_t {
-    rom_t      bios_rom;    /* 1640 */
-    cga_t      cga;         /* 1640/200 */
-    mda_t      mda;         /* 1512/200/PPC512/640*/
-    ega_t      ega;         /* 1640 */
-    uint8_t    emulation;   /* Which display are we emulating? */
-    uint8_t    dipswitches; /* DIP switches 1-3 */
-    uint8_t    crtc_index;  /* CRTC index readback
-                             * Bit 7: CGA control port written
-                             * Bit 6: Operation control port written
-                             * Bit 5: CRTC register written
-                             * Bits 0-4: Last CRTC register selected */
+    rom_t   bios_rom;    /* 1640 */
+    cga_t   cga;         /* 1640/200 */
+    mda_t   mda;         /* 1512/200/PPC512/640*/
+    ega_t   ega;         /* 1640 */
+    uint8_t emulation;   /* Which display are we emulating? */
+    uint8_t dipswitches; /* DIP switches 1-3 */
+    uint8_t crtc_index;  /* CRTC index readback
+                          * Bit 7: CGA control port written
+                          * Bit 6: Operation control port written
+                          * Bit 5: CRTC register written
+                          * Bits 0-4: Last CRTC register selected */
     uint8_t    operation_ctrl;
     uint8_t    reg_3df;
     uint8_t    type;
@@ -105,7 +109,7 @@ typedef struct amsvid_t {
     int        cga_enabled; /* 1640 */
     uint8_t    cgacol;
     uint8_t    cgamode;
-    uint8_t    stat;
+    uint8_t    status;
     uint8_t    plane_write; /* 1512/200 */
     uint8_t    plane_read;  /* 1512/200 */
     uint8_t    border;      /* 1512/200 */
@@ -113,18 +117,18 @@ typedef struct amsvid_t {
     int        fontbase;    /* 1512/200 */
     int        linepos;
     int        displine;
-    int        sc;
+    int        scanline;
     int        vc;
     int        cgadispon;
-    int        con;
-    int        coff;
+    int        cursorvisible;
     int        cursoron;
     int        cgablink;
     int        vsynctime;
     int        fullchange;
     int        vadj;
-    uint16_t   ma;
-    uint16_t   maback;
+    int        double_type;
+    uint16_t   memaddr;
+    uint16_t   memaddr_backup;
     int        dispon;
     int        blink;
     uint64_t   dispontime;  /* 1512/1640 */
@@ -156,7 +160,9 @@ typedef struct amstrad_t {
 
     /* Video stuff. */
     amsvid_t *vid;
-    fdc_t    *fdc;
+
+    fdc_t *fdc;
+    lpt_t *lpt;
 } amstrad_t;
 
 uint32_t amstrad_latch;
@@ -291,7 +297,7 @@ vid_in_1512(uint16_t addr, void *priv)
             break;
 
         case 0x03da:
-            ret = vid->stat;
+            ret = vid->status;
             break;
 
         default:
@@ -337,167 +343,213 @@ vid_read_1512(uint32_t addr, void *priv)
 }
 
 static void
+ams1512_render(amsvid_t *vid, int line)
+{
+    uint16_t cursoraddr = (vid->crtc[15] | (vid->crtc[14] << 8)) & 0x3fff;
+    int      drawcursor;
+    uint8_t  chr;
+    uint8_t  attr;
+    uint16_t dat;
+    uint16_t dat2;
+    uint16_t dat3;
+    uint16_t dat4;
+    int      cols[4];
+    int      col;
+
+    for (uint8_t c = 0; c < 8; c++) {
+        if ((vid->cgamode & 0x12) == 0x12) {
+            buffer32->line[line][c] = buffer32->line[(line) + 1][c] = (vid->border & 15) + 16;
+            if (vid->cgamode & CGA_MODE_FLAG_HIGHRES) {
+                buffer32->line[line][c + (vid->crtc[1] << 3) + 8] = buffer32->line[(line) + 1][c + (vid->crtc[1] << 3) + 8] = 0;
+            } else {
+                buffer32->line[line][c + (vid->crtc[1] << 4) + 8] = buffer32->line[(line) + 1][c + (vid->crtc[1] << 4) + 8] = 0;
+            }
+        } else {
+            buffer32->line[line][c] = buffer32->line[(line) + 1][c] = (vid->cgacol & 15) + 16;
+            if (vid->cgamode & CGA_MODE_FLAG_HIGHRES) {
+                buffer32->line[line][c + (vid->crtc[1] << 3) + 8] = buffer32->line[(line) + 1][c + (vid->crtc[1] << 3) + 8] = (vid->cgacol & 15) + 16;
+            } else {
+                buffer32->line[line][c + (vid->crtc[1] << 4) + 8] = buffer32->line[(line) + 1][c + (vid->crtc[1] << 4) + 8] = (vid->cgacol & 15) + 16;
+            }
+        }
+    }
+    if (vid->cgamode & CGA_MODE_FLAG_HIGHRES) {
+        for (uint8_t x = 0; x < 80; x++) {
+            chr        = vid->vram[(vid->memaddr << 1) & 0x3fff];
+            attr       = vid->vram[((vid->memaddr << 1) + 1) & 0x3fff];
+            drawcursor = ((vid->memaddr == cursoraddr) && vid->cursorvisible && vid->cursoron);
+            if (vid->cgamode & CGA_MODE_FLAG_BLINK) {
+                cols[1] = (attr & 15) + 16;
+                cols[0] = ((attr >> 4) & 7) + 16;
+                if ((vid->blink & 16) && (attr & 0x80) && !drawcursor)
+                    cols[1] = cols[0];
+            } else {
+                cols[1] = (attr & 15) + 16;
+                cols[0] = (attr >> 4) + 16;
+            }
+            if (drawcursor)
+                for (uint8_t c = 0; c < 8; c++)
+                    buffer32->line[line][(x << 3) + c + 8] =
+                        cols[(fontdat[vid->fontbase + chr][vid->scanline & 7] & (1 << (c ^ 7))) ? 1 : 0] ^ 15;
+            else
+                for (uint8_t c = 0; c < 8; c++)
+                    buffer32->line[line][(x << 3) + c + 8] =
+                        cols[(fontdat[vid->fontbase + chr][vid->scanline & 7] & (1 << (c ^ 7))) ? 1 : 0];
+            vid->memaddr++;
+        }
+    } else if (!(vid->cgamode & CGA_MODE_FLAG_GRAPHICS)) {
+        for (uint8_t x = 0; x < 40; x++) {
+            chr        = vid->vram[(vid->memaddr << 1) & 0x3fff];
+            attr       = vid->vram[((vid->memaddr << 1) + 1) & 0x3fff];
+            drawcursor = ((vid->memaddr == cursoraddr) && vid->cursorvisible && vid->cursoron);
+
+            if (vid->cgamode & CGA_MODE_FLAG_BLINK) {
+                cols[1] = (attr & 15) + 16;
+                cols[0] = ((attr >> 4) & 7) + 16;
+                if ((vid->blink & 16) && (attr & 0x80))
+                    cols[1] = cols[0];
+            } else {
+                cols[1] = (attr & 15) + 16;
+                cols[0] = (attr >> 4) + 16;
+            }
+            vid->memaddr++;
+            if (drawcursor)
+                for (uint8_t c = 0; c < 8; c++)
+                    buffer32->line[line][(x << 4) + (c << 1) + 8] =
+                    buffer32->line[line][(x << 4) + (c << 1) + 1 + 8] =
+                        cols[(fontdat[vid->fontbase + chr][vid->scanline & 7] & (1 << (c ^ 7))) ? 1 : 0] ^ 15;
+            else
+                for (uint8_t c = 0; c < 8; c++)
+                    buffer32->line[line][(x << 4) + (c << 1) + 8] =
+                    buffer32->line[line][(x << 4) + (c << 1) + 1 + 8] =
+                        cols[(fontdat[vid->fontbase + chr][vid->scanline & 7] & (1 << (c ^ 7))) ? 1 : 0];
+        }
+    } else if (!(vid->cgamode & CGA_MODE_FLAG_HIGHRES_GRAPHICS)) {
+        cols[0] = (vid->cgacol & 15) | 16;
+        col     = (vid->cgacol & 16) ? 24 : 16;
+        if (vid->cgamode & CGA_MODE_FLAG_BW) {
+            cols[1] = col | 3;
+            cols[2] = col | 4;
+            cols[3] = col | 7;
+        } else if (vid->cgacol & 32) {
+            cols[1] = col | 3;
+            cols[2] = col | 5;
+            cols[3] = col | 7;
+        } else {
+            cols[1] = col | 2;
+            cols[2] = col | 4;
+            cols[3] = col | 6;
+        }
+        for (uint8_t x = 0; x < 40; x++) {
+            dat = (vid->vram[((vid->memaddr<< 1) & 0x1fff) + ((vid->scanline & 1) * 0x2000)] << 8) |
+                  vid->vram[((vid->memaddr<< 1) & 0x1fff) + ((vid->scanline & 1) * 0x2000) + 1];
+            vid->memaddr++;
+            for (uint8_t c = 0; c < 8; c++) {
+                buffer32->line[line][(x << 4) + (c << 1) + 8] =
+                buffer32->line[line][(x << 4) + (c << 1) + 1 + 8] = cols[dat >> 14];
+                dat <<= 2;
+            }
+        }
+    } else {
+        for (uint8_t x = 0; x < 40; x++) {
+            cursoraddr = ((vid->memaddr << 1) & 0x1fff) + ((vid->scanline & 1) * 0x2000);
+            dat        = (vid->vram[cursoraddr] << 8) | vid->vram[cursoraddr + 1];
+            dat2       = (vid->vram[cursoraddr + 0x4000] << 8) | vid->vram[cursoraddr + 0x4001];
+            dat3       = (vid->vram[cursoraddr + 0x8000] << 8) | vid->vram[cursoraddr + 0x8001];
+            dat4       = (vid->vram[cursoraddr + 0xc000] << 8) | vid->vram[cursoraddr + 0xc001];
+
+            vid->memaddr++;
+            for (uint8_t c = 0; c < 16; c++) {
+                buffer32->line[line][(x << 4) + c + 8] =  (((dat >> 15) | ((dat2 >> 15) << 1) |
+                                                          ((dat3 >> 15) << 2) | ((dat4 >> 15) << 3)) & (vid->cgacol & 15)) + 16;
+                dat <<= 1;
+                dat2 <<= 1;
+                dat3 <<= 1;
+                dat4 <<= 1;
+            }
+        }
+    }
+}
+
+static void
+ams1512_render_blank(amsvid_t *vid, int line)
+{
+    int cols = ((vid->cgamode & 0x12) == 0x12) ? 0 : (vid->cgacol & 15) + 16;
+
+    if (vid->cgamode & CGA_MODE_FLAG_HIGHRES)
+        hline(buffer32, 0, line, (vid->crtc[1] << 3) + 16, cols);
+    else
+        hline(buffer32, 0, line, (vid->crtc[1] << 4) + 16, cols);
+}
+
+static void
 vid_poll_1512(void *priv)
 {
     amsvid_t *vid = (amsvid_t *) priv;
-    uint16_t  ca  = (vid->crtc[15] | (vid->crtc[14] << 8)) & 0x3fff;
-    int       drawcursor;
     int       x;
-    int       c;
     int       xs_temp;
     int       ys_temp;
-    uint8_t   chr;
-    uint8_t   attr;
-    uint16_t  dat;
-    uint16_t  dat2;
-    uint16_t  dat3;
-    uint16_t  dat4;
-    int       cols[4];
-    int       col;
-    int       oldsc;
+    int       scanline_old;
+    int       old_ma;
 
     if (!vid->linepos) {
         timer_advance_u64(&vid->timer, vid->dispofftime);
-        vid->stat |= 1;
+        vid->status |= 1;
         vid->linepos = 1;
-        oldsc        = vid->sc;
+        scanline_old = vid->scanline;
         if (vid->dispon) {
             if (vid->displine < vid->firstline) {
                 vid->firstline = vid->displine;
                 video_wait_for_buffer();
             }
             vid->lastline = vid->displine;
-            for (c = 0; c < 8; c++) {
-                if ((vid->cgamode & 0x12) == 0x12) {
-                    buffer32->line[vid->displine << 1][c] = buffer32->line[(vid->displine << 1) + 1][c] = (vid->border & 15) + 16;
-                    if (vid->cgamode & 1) {
-                        buffer32->line[vid->displine << 1][c + (vid->crtc[1] << 3) + 8] = buffer32->line[(vid->displine << 1) + 1][c + (vid->crtc[1] << 3) + 8] = 0;
-                    } else {
-                        buffer32->line[vid->displine << 1][c + (vid->crtc[1] << 4) + 8] = buffer32->line[(vid->displine << 1) + 1][c + (vid->crtc[1] << 4) + 8] = 0;
-                    }
-                } else {
-                    buffer32->line[vid->displine << 1][c] = buffer32->line[(vid->displine << 1) + 1][c] = (vid->cgacol & 15) + 16;
-                    if (vid->cgamode & 1) {
-                        buffer32->line[vid->displine << 1][c + (vid->crtc[1] << 3) + 8] = buffer32->line[(vid->displine << 1) + 1][c + (vid->crtc[1] << 3) + 8] = (vid->cgacol & 15) + 16;
-                    } else {
-                        buffer32->line[vid->displine << 1][c + (vid->crtc[1] << 4) + 8] = buffer32->line[(vid->displine << 1) + 1][c + (vid->crtc[1] << 4) + 8] = (vid->cgacol & 15) + 16;
-                    }
-                }
+            switch (vid->double_type) {
+                default:
+                    ams1512_render(vid, vid->displine << 1);
+                    ams1512_render_blank(vid, (vid->displine << 1) + 1);
+                    break;
+                case DOUBLE_NONE:
+                    ams1512_render(vid, vid->displine);
+                    break;
+                case DOUBLE_SIMPLE:
+                    old_ma = vid->memaddr;
+                    ams1512_render(vid, vid->displine << 1);
+                    vid->memaddr = old_ma;
+                    ams1512_render(vid, (vid->displine << 1) + 1);
+                    break;
             }
-            if (vid->cgamode & 1) {
-                for (x = 0; x < 80; x++) {
-                    chr        = vid->vram[(vid->ma << 1) & 0x3fff];
-                    attr       = vid->vram[((vid->ma << 1) + 1) & 0x3fff];
-                    drawcursor = ((vid->ma == ca) && vid->con && vid->cursoron);
-                    if (vid->cgamode & 0x20) {
-                        cols[1] = (attr & 15) + 16;
-                        cols[0] = ((attr >> 4) & 7) + 16;
-                        if ((vid->blink & 16) && (attr & 0x80) && !drawcursor)
-                            cols[1] = cols[0];
-                    } else {
-                        cols[1] = (attr & 15) + 16;
-                        cols[0] = (attr >> 4) + 16;
-                    }
-                    if (drawcursor) {
-                        for (c = 0; c < 8; c++) {
-                            buffer32->line[vid->displine << 1][(x << 3) + c + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 3) + c + 8] = cols[(fontdat[vid->fontbase + chr][vid->sc & 7] & (1 << (c ^ 7))) ? 1 : 0] ^ 15;
-                        }
-                    } else {
-                        for (c = 0; c < 8; c++) {
-                            buffer32->line[vid->displine << 1][(x << 3) + c + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 3) + c + 8] = cols[(fontdat[vid->fontbase + chr][vid->sc & 7] & (1 << (c ^ 7))) ? 1 : 0];
-                        }
-                    }
-                    vid->ma++;
-                }
-            } else if (!(vid->cgamode & 2)) {
-                for (x = 0; x < 40; x++) {
-                    chr        = vid->vram[(vid->ma << 1) & 0x3fff];
-                    attr       = vid->vram[((vid->ma << 1) + 1) & 0x3fff];
-                    drawcursor = ((vid->ma == ca) && vid->con && vid->cursoron);
-                    if (vid->cgamode & 0x20) {
-                        cols[1] = (attr & 15) + 16;
-                        cols[0] = ((attr >> 4) & 7) + 16;
-                        if ((vid->blink & 16) && (attr & 0x80))
-                            cols[1] = cols[0];
-                    } else {
-                        cols[1] = (attr & 15) + 16;
-                        cols[0] = (attr >> 4) + 16;
-                    }
-                    vid->ma++;
-                    if (drawcursor) {
-                        for (c = 0; c < 8; c++) {
-                            buffer32->line[vid->displine << 1][(x << 4) + (c << 1) + 8] = buffer32->line[vid->displine << 1][(x << 4) + (c << 1) + 1 + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 4) + (c << 1) + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 4) + (c << 1) + 1 + 8] = cols[(fontdat[vid->fontbase + chr][vid->sc & 7] & (1 << (c ^ 7))) ? 1 : 0] ^ 15;
-                        }
-                    } else {
-                        for (c = 0; c < 8; c++) {
-                            buffer32->line[vid->displine << 1][(x << 4) + (c << 1) + 8] = buffer32->line[vid->displine << 1][(x << 4) + (c << 1) + 1 + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 4) + (c << 1) + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 4) + (c << 1) + 1 + 8] = cols[(fontdat[vid->fontbase + chr][vid->sc & 7] & (1 << (c ^ 7))) ? 1 : 0];
-                        }
-                    }
-                }
-            } else if (!(vid->cgamode & 16)) {
-                cols[0] = (vid->cgacol & 15) | 16;
-                col     = (vid->cgacol & 16) ? 24 : 16;
-                if (vid->cgamode & 4) {
-                    cols[1] = col | 3;
-                    cols[2] = col | 4;
-                    cols[3] = col | 7;
-                } else if (vid->cgacol & 32) {
-                    cols[1] = col | 3;
-                    cols[2] = col | 5;
-                    cols[3] = col | 7;
-                } else {
-                    cols[1] = col | 2;
-                    cols[2] = col | 4;
-                    cols[3] = col | 6;
-                }
-                for (x = 0; x < 40; x++) {
-                    dat = (vid->vram[((vid->ma << 1) & 0x1fff) + ((vid->sc & 1) * 0x2000)] << 8) | vid->vram[((vid->ma << 1) & 0x1fff) + ((vid->sc & 1) * 0x2000) + 1];
-                    vid->ma++;
-                    for (c = 0; c < 8; c++) {
-                        buffer32->line[vid->displine << 1][(x << 4) + (c << 1) + 8] = buffer32->line[vid->displine << 1][(x << 4) + (c << 1) + 1 + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 4) + (c << 1) + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 4) + (c << 1) + 1 + 8] = cols[dat >> 14];
-                        dat <<= 2;
-                    }
-                }
-            } else {
-                for (x = 0; x < 40; x++) {
-                    ca   = ((vid->ma << 1) & 0x1fff) + ((vid->sc & 1) * 0x2000);
-                    dat  = (vid->vram[ca] << 8) | vid->vram[ca + 1];
-                    dat2 = (vid->vram[ca + 0x4000] << 8) | vid->vram[ca + 0x4001];
-                    dat3 = (vid->vram[ca + 0x8000] << 8) | vid->vram[ca + 0x8001];
-                    dat4 = (vid->vram[ca + 0xc000] << 8) | vid->vram[ca + 0xc001];
+        } else
+            switch (vid->double_type) {
+                default:
+                    ams1512_render_blank(vid, vid->displine << 1);
+                    break;
+                case DOUBLE_NONE:
+                    ams1512_render_blank(vid, vid->displine);
+                    break;
+                case DOUBLE_SIMPLE:
+                    ams1512_render_blank(vid, vid->displine << 1);
+                    ams1512_render_blank(vid, (vid->displine << 1) + 1);
+                    break;
+            }
 
-                    vid->ma++;
-                    for (c = 0; c < 16; c++) {
-                        buffer32->line[vid->displine << 1][(x << 4) + c + 8] = buffer32->line[(vid->displine << 1) + 1][(x << 4) + c + 8] = (((dat >> 15) | ((dat2 >> 15) << 1) | ((dat3 >> 15) << 2) | ((dat4 >> 15) << 3)) & (vid->cgacol & 15)) + 16;
-                        dat <<= 1;
-                        dat2 <<= 1;
-                        dat3 <<= 1;
-                        dat4 <<= 1;
-                    }
-                }
-            }
-        } else {
-            cols[0] = ((vid->cgamode & 0x12) == 0x12) ? 0 : (vid->cgacol & 15) + 16;
-            if (vid->cgamode & 1) {
-                hline(buffer32, 0, (vid->displine << 1), (vid->crtc[1] << 3) + 16, cols[0]);
-                hline(buffer32, 0, (vid->displine << 1) + 1, (vid->crtc[1] << 3) + 16, cols[0]);
-            } else {
-                hline(buffer32, 0, (vid->displine << 1), (vid->crtc[1] << 4) + 16, cols[0]);
-                hline(buffer32, 0, (vid->displine << 1), (vid->crtc[1] << 4) + 16, cols[0]);
-            }
-        }
-
-        if (vid->cgamode & 1)
+        if (vid->cgamode & CGA_MODE_FLAG_HIGHRES)
             x = (vid->crtc[1] << 3) + 16;
         else
             x = (vid->crtc[1] << 4) + 16;
 
-        video_process_8(x, vid->displine << 1);
-        video_process_8(x, (vid->displine << 1) + 1);
+        switch (vid->double_type) {
+            default:
+                video_process_8((x < 64) ? 656 : x, vid->displine << 1);
+                video_process_8((x < 64) ? 656 : x, (vid->displine << 1) + 1);
+                break;
+            case DOUBLE_NONE:
+                video_process_8((x < 64) ? 656 : x, vid->displine);
+                break;
+        }
 
-        vid->sc = oldsc;
+        vid->scanline = scanline_old;
         if (vid->vsynctime)
-            vid->stat |= 8;
+            vid->status |= 8;
         vid->displine++;
         if (vid->displine >= 360)
             vid->displine = 0;
@@ -506,30 +558,29 @@ vid_poll_1512(void *priv)
         if ((vid->lastline - vid->firstline) == 199)
             vid->dispon = 0; /*Amstrad PC1512 always displays 200 lines, regardless of CRTC settings*/
         if (vid->dispon)
-            vid->stat &= ~1;
+            vid->status &= ~1;
         vid->linepos = 0;
         if (vid->vsynctime) {
             vid->vsynctime--;
             if (!vid->vsynctime)
-                vid->stat &= ~8;
+                vid->status &= ~8;
         }
-        if (vid->sc == (vid->crtc[11] & 31)) {
-            vid->con  = 0;
-            vid->coff = 1;
+        if (vid->scanline == (vid->crtc[11] & 31)) {
+            vid->cursorvisible = 0;
         }
         if (vid->vadj) {
-            vid->sc++;
-            vid->sc &= 31;
-            vid->ma = vid->maback;
+            vid->scanline++;
+            vid->scanline &= 31;
+            vid->memaddr = vid->memaddr_backup;
             vid->vadj--;
             if (!vid->vadj) {
-                vid->dispon = 1;
-                vid->ma = vid->maback = (vid->crtc[13] | (vid->crtc[12] << 8)) & 0x3fff;
-                vid->sc               = 0;
+                vid->dispon  = 1;
+                vid->memaddr = vid->memaddr_backup = (vid->crtc[13] | (vid->crtc[12] << 8)) & 0x3fff;
+                vid->scanline                      = 0;
             }
-        } else if (vid->sc == vid->crtc[9]) {
-            vid->maback = vid->ma;
-            vid->sc     = 0;
+        } else if (vid->scanline == vid->crtc[9]) {
+            vid->memaddr_backup = vid->memaddr;
+            vid->scanline       = 0;
             vid->vc++;
             vid->vc &= 127;
 
@@ -547,7 +598,7 @@ vid_poll_1512(void *priv)
                 vid->displine  = 0;
                 vid->vsynctime = 46;
 
-                if (vid->cgamode & 1)
+                if (vid->cgamode & CGA_MODE_FLAG_HIGHRES)
                     x = (vid->crtc[1] << 3) + 16;
                 else
                     x = (vid->crtc[1] << 4) + 16;
@@ -573,26 +624,20 @@ vid_poll_1512(void *priv)
                             video_force_resize_set(0);
                     }
 
-                    if (enable_overscan) {
-                        video_blit_memtoscreen(0, (vid->firstline - 4) << 1,
-                                               xsize, ((vid->lastline - vid->firstline) + 8) << 1);
-                    } else {
-                        video_blit_memtoscreen(8, vid->firstline << 1,
-                                               xsize, (vid->lastline - vid->firstline) << 1);
-                    }
+                    cga_do_blit(xsize, vid->firstline, vid->lastline, vid->double_type);
                 }
 
                 video_res_x = xsize;
                 video_res_y = ysize;
-                if (vid->cgamode & 1) {
+                if (vid->cgamode & CGA_MODE_FLAG_HIGHRES) {
                     video_res_x /= 8;
                     video_res_y /= vid->crtc[9] + 1;
                     video_bpp = 0;
-                } else if (!(vid->cgamode & 2)) {
+                } else if (!(vid->cgamode & CGA_MODE_FLAG_GRAPHICS)) {
                     video_res_x /= 16;
                     video_res_y /= vid->crtc[9] + 1;
                     video_bpp = 0;
-                } else if (!(vid->cgamode & 16)) {
+                } else if (!(vid->cgamode & CGA_MODE_FLAG_HIGHRES_GRAPHICS)) {
                     video_res_x /= 2;
                     video_bpp = 2;
                 } else {
@@ -604,23 +649,20 @@ vid_poll_1512(void *priv)
                 vid->blink++;
             }
         } else {
-            vid->sc++;
-            vid->sc &= 31;
-            vid->ma = vid->maback;
+            vid->scanline++;
+            vid->scanline &= 31;
+            vid->memaddr = vid->memaddr_backup;
         }
-        if (vid->sc == (vid->crtc[10] & 31))
-            vid->con = 1;
+        if (vid->scanline == (vid->crtc[10] & 31))
+            vid->cursorvisible = 1;
     }
 }
 
 static void
 vid_init_1512(amstrad_t *ams)
 {
-    amsvid_t *vid;
-
     /* Allocate a video controller block. */
-    vid = (amsvid_t *) malloc(sizeof(amsvid_t));
-    memset(vid, 0x00, sizeof(amsvid_t));
+    amsvid_t *vid = (amsvid_t *) calloc(1, sizeof(amsvid_t));
 
     video_inform(VIDEO_FLAG_TYPE_CGA, &timing_pc1512);
 
@@ -641,6 +683,9 @@ vid_init_1512(amstrad_t *ams)
 
     cga_palette = (device_get_config_int("display_type") << 1);
     cgapal_rebuild();
+
+    vid->double_type = device_get_config_int("double_type");
+    cga_interpolate_init();
 
     ams->vid = vid;
 }
@@ -664,45 +709,64 @@ vid_speed_change_1512(void *priv)
 }
 
 const device_config_t vid_1512_config[] = {
-  // clang-format off
+    // clang-format off
     {
-        .name = "display_type",
-        .description = "Display type",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "display_type",
+        .description    = "Display type",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "PC-CM (Colour)",     .value = 0 },
             { .description = "PC-MM (Monochrome)", .value = 3 },
             { .description = ""                               }
-        }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "codepage",
-        .description = "Hardware font",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 3,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "double_type",
+        .description    = "Line doubling type",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = DOUBLE_NONE,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "None",                 .value = DOUBLE_NONE               },
+            { .description = "Simple doubling",      .value = DOUBLE_SIMPLE             },
+            { .description = "sRGB interpolation",   .value = DOUBLE_INTERPOLATE_SRGB   },
+            { .description = "Linear interpolation", .value = DOUBLE_INTERPOLATE_LINEAR },
+            { .description = ""                                                         }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "codepage",
+        .description    = "Hardware font",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 3,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "US English", .value = 3 },
             { .description = "Danish",     .value = 1 },
             { .description = "Greek",      .value = 0 },
             { .description = ""                       }
-        }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "language",
-        .description = "BIOS language",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 7,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "language",
+        .description    = "BIOS language",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 7,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "English",         .value = 7 },
             { .description = "German",          .value = 6 },
             { .description = "French",          .value = 5 },
@@ -712,21 +776,22 @@ const device_config_t vid_1512_config[] = {
             { .description = "Italian",         .value = 1 },
             { .description = "Diagnostic mode", .value = 0 },
             { .description = ""                            }
-        }
+        },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
-  // clang-format on
+    // clang-format on
 };
 
 const device_t vid_1512_device = {
-    .name          = "Amstrad PC1512 (video)",
+    .name          = "Amstrad PC1512 (Video)",
     .internal_name = "vid_1512",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
     .close         = vid_close_1512,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = vid_speed_change_1512,
     .force_redraw  = NULL,
     .config        = vid_1512_config
@@ -823,8 +888,7 @@ vid_init_1640(amstrad_t *ams)
     amsvid_t *vid;
 
     /* Allocate a video controller block. */
-    vid = (amsvid_t *) malloc(sizeof(amsvid_t));
-    memset(vid, 0x00, sizeof(amsvid_t));
+    vid = (amsvid_t *) calloc(1, sizeof(amsvid_t));
 
     rom_init(&vid->bios_rom, "roms/machines/pc1640/40100",
              0xc0000, 0x8000, 0x7fff, 0, 0);
@@ -851,6 +915,10 @@ vid_init_1640(amstrad_t *ams)
     cga_palette = 0;
     cgapal_rebuild();
 
+    vid->double_type     = device_get_config_int("double_type");
+    vid->cga.double_type = device_get_config_int("double_type");
+    cga_interpolate_init();
+
     ams->vid = vid;
 }
 
@@ -873,16 +941,33 @@ vid_speed_changed_1640(void *priv)
 }
 
 const device_config_t vid_1640_config[] = {
-  // clang-format off
+    // clang-format off
     {
-        .name = "language",
-        .description = "BIOS language",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 7,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "double_type",
+        .description    = "Line doubling type",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = DOUBLE_NONE,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "None",                 .value = DOUBLE_NONE               },
+            { .description = "Simple doubling",      .value = DOUBLE_SIMPLE             },
+            { .description = "sRGB interpolation",   .value = DOUBLE_INTERPOLATE_SRGB   },
+            { .description = "Linear interpolation", .value = DOUBLE_INTERPOLATE_LINEAR },
+            { .description = ""                                                         }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "language",
+        .description    = "BIOS language",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 7,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "English",         .value = 7 },
             { .description = "German",          .value = 6 },
             { .description = "French",          .value = 5 },
@@ -892,21 +977,22 @@ const device_config_t vid_1640_config[] = {
             { .description = "Italian",         .value = 1 },
             { .description = "Diagnostic mode", .value = 0 },
             { .description = ""                            }
-        }
+        },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
-  // clang-format on
+    // clang-format on
 };
 
 const device_t vid_1640_device = {
-    .name          = "Amstrad PC1640 (video)",
+    .name          = "Amstrad PC1640 (Video)",
     .internal_name = "vid_1640",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
     .close         = vid_close_1640,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = vid_speed_changed_1640,
     .force_redraw  = NULL,
     .config        = vid_1640_config
@@ -1048,7 +1134,7 @@ vid_in_200(uint16_t addr, void *priv)
 
     switch (addr) {
         case 0x03b8:
-            return (mda->ctrl);
+            return (mda->mode);
 
         case 0x03d8:
             return (cga->cgamode);
@@ -1110,9 +1196,9 @@ vid_out_200(uint16_t addr, uint8_t val, void *priv)
             }
             return;
         case 0x3b8:
-            old       = mda->ctrl;
-            mda->ctrl = val;
-            if ((mda->ctrl ^ old) & 3)
+            old       = mda->mode;
+            mda->mode = val;
+            if ((mda->mode ^ old) & 3)
                 mda_recalctimings(mda);
             vid->crtc_index &= 0x1F;
             vid->crtc_index |= 0x80;
@@ -1214,11 +1300,11 @@ vid_out_200(uint16_t addr, uint8_t val, void *priv)
 
 static void
 lcd_draw_char_80(amsvid_t *vid, uint32_t *buffer, uint8_t chr,
-                 uint8_t attr, int drawcursor, int blink, int sc,
+                 uint8_t attr, int drawcursor, int blink, int scanline,
                  int mode160, uint8_t control)
 {
     int      c;
-    uint8_t  bits   = fontdat[chr + vid->cga.fontbase][sc];
+    uint8_t  bits   = fontdat[chr + vid->cga.fontbase][scanline];
     uint8_t  bright = 0;
     uint16_t mask;
 
@@ -1249,10 +1335,10 @@ lcd_draw_char_80(amsvid_t *vid, uint32_t *buffer, uint8_t chr,
 
 static void
 lcd_draw_char_40(amsvid_t *vid, uint32_t *buffer, uint8_t chr,
-                 uint8_t attr, int drawcursor, int blink, int sc,
+                 uint8_t attr, int drawcursor, int blink, int scanline,
                  uint8_t control)
 {
-    uint8_t bits = fontdat[chr + vid->cga.fontbase][sc];
+    uint8_t bits = fontdat[chr + vid->cga.fontbase][scanline];
     uint8_t mask = 0x80;
 
     if (attr & 8) /* bright */
@@ -1272,93 +1358,92 @@ lcd_draw_char_40(amsvid_t *vid, uint32_t *buffer, uint8_t chr,
 static void
 lcdm_poll(amsvid_t *vid)
 {
-    mda_t   *mda = &vid->mda;
-    uint16_t ca  = (mda->crtc[15] | (mda->crtc[14] << 8)) & 0x3fff;
+    mda_t   *mda        = &vid->mda;
+    uint16_t cursoraddr = (mda->crtc[MDA_CRTC_CURSOR_ADDR_LOW] | (mda->crtc[MDA_CRTC_CURSOR_ADDR_HIGH] << 8)) & 0x3fff;
     int      drawcursor;
     int      x;
     int      oldvc;
     uint8_t  chr;
     uint8_t  attr;
-    int      oldsc;
+    int      scanline_old;
     int      blink;
 
     if (!mda->linepos) {
         timer_advance_u64(&vid->timer, mda->dispofftime);
-        mda->stat |= 1;
+        mda->status |= 1;
         mda->linepos = 1;
-        oldsc        = mda->sc;
-        if ((mda->crtc[8] & 3) == 3)
-            mda->sc = (mda->sc << 1) & 7;
+        scanline_old = mda->scanline;
+        if ((mda->crtc[MDA_CRTC_INTERLACE] & 3) == 3)
+            mda->scanline = (mda->scanline << 1) & 7;
         if (mda->dispon) {
             if (mda->displine < mda->firstline)
                 mda->firstline = mda->displine;
             mda->lastline = mda->displine;
-            for (x = 0; x < mda->crtc[1]; x++) {
-                chr        = mda->vram[(mda->ma << 1) & 0xfff];
-                attr       = mda->vram[((mda->ma << 1) + 1) & 0xfff];
-                drawcursor = ((mda->ma == ca) && mda->con && mda->cursoron);
-                blink      = ((mda->blink & 16) && (mda->ctrl & 0x20) && (attr & 0x80) && !drawcursor);
+            for (x = 0; x < mda->crtc[MDA_CRTC_HDISP]; x++) {
+                chr        = mda->vram[(mda->memaddr << 1) & 0xfff];
+                attr       = mda->vram[((mda->memaddr << 1) + 1) & 0xfff];
+                drawcursor = ((mda->memaddr == cursoraddr) && mda->cursorvisible && mda->cursoron);
+                blink      = ((mda->blink & 16) && (mda->mode & MDA_MODE_BLINK) && (attr & 0x80) && !drawcursor);
 
-                lcd_draw_char_80(vid, &(buffer32->line[mda->displine])[x * 8], chr, attr, drawcursor, blink, mda->sc, 0, mda->ctrl);
-                mda->ma++;
+                lcd_draw_char_80(vid, &(buffer32->line[mda->displine])[x * 8], chr, attr, drawcursor, blink, mda->scanline, 0, mda->mode);
+                mda->memaddr++;
             }
         }
-        mda->sc = oldsc;
-        if (mda->vc == mda->crtc[7] && !mda->sc)
-            mda->stat |= 8;
+        mda->scanline = scanline_old;
+        if (mda->vc == mda->crtc[MDA_CRTC_VSYNC] && !mda->scanline)
+            mda->status |= 8;
         mda->displine++;
         if (mda->displine >= 500)
             mda->displine = 0;
     } else {
         timer_advance_u64(&vid->timer, mda->dispontime);
         if (mda->dispon)
-            mda->stat &= ~1;
+            mda->status &= ~1;
         mda->linepos = 0;
         if (mda->vsynctime) {
             mda->vsynctime--;
             if (!mda->vsynctime)
-                mda->stat &= ~8;
+                mda->status &= ~8;
         }
-        if (mda->sc == (mda->crtc[11] & 31) || ((mda->crtc[8] & 3) == 3 && mda->sc == ((mda->crtc[11] & 31) >> 1))) {
-            mda->con  = 0;
-            mda->coff = 1;
+        if (mda->scanline == (mda->crtc[MDA_CRTC_CURSOR_END] & 31) || ((mda->crtc[MDA_CRTC_INTERLACE] & 3) == 3 && mda->scanline == ((mda->crtc[MDA_CRTC_CURSOR_END] & 31) >> 1))) {
+            mda->cursorvisible = 0;
         }
         if (mda->vadj) {
-            mda->sc++;
-            mda->sc &= 31;
-            mda->ma = mda->maback;
+            mda->scanline++;
+            mda->scanline &= 31;
+            mda->memaddr = mda->memaddr_backup;
             mda->vadj--;
             if (!mda->vadj) {
-                mda->dispon = 1;
-                mda->ma = mda->maback = (mda->crtc[13] | (mda->crtc[12] << 8)) & 0x3fff;
-                mda->sc               = 0;
+                mda->dispon  = 1;
+                mda->memaddr = mda->memaddr_backup = (mda->crtc[MDA_CRTC_START_ADDR_LOW] | (mda->crtc[MDA_CRTC_START_ADDR_HIGH] << 8)) & 0x3fff;
+                mda->scanline                      = 0;
             }
-        } else if (mda->sc == mda->crtc[9] || ((mda->crtc[8] & 3) == 3 && mda->sc == (mda->crtc[9] >> 1))) {
-            mda->maback = mda->ma;
-            mda->sc     = 0;
-            oldvc       = mda->vc;
+        } else if (mda->scanline == mda->crtc[MDA_CRTC_MAX_SCANLINE_ADDR] || ((mda->crtc[MDA_CRTC_INTERLACE] & 3) == 3 && mda->scanline == (mda->crtc[MDA_CRTC_MAX_SCANLINE_ADDR] >> 1))) {
+            mda->memaddr_backup = mda->memaddr;
+            mda->scanline       = 0;
+            oldvc               = mda->vc;
             mda->vc++;
             mda->vc &= 127;
-            if (mda->vc == mda->crtc[6])
+            if (mda->vc == mda->crtc[MDA_CRTC_VDISP])
                 mda->dispon = 0;
-            if (oldvc == mda->crtc[4]) {
+            if (oldvc == mda->crtc[MDA_CRTC_VTOTAL]) {
                 mda->vc   = 0;
-                mda->vadj = mda->crtc[5];
+                mda->vadj = mda->crtc[MDA_CRTC_VTOTAL_ADJUST];
                 if (!mda->vadj)
                     mda->dispon = 1;
                 if (!mda->vadj)
-                    mda->ma = mda->maback = (mda->crtc[13] | (mda->crtc[12] << 8)) & 0x3fff;
-                if ((mda->crtc[10] & 0x60) == 0x20)
+                    mda->memaddr = mda->memaddr_backup = (mda->crtc[MDA_CRTC_START_ADDR_LOW] | (mda->crtc[MDA_CRTC_START_ADDR_HIGH] << 8)) & 0x3fff;
+                if ((mda->crtc[MDA_CRTC_CURSOR_START] & 0x60) == 0x20)
                     mda->cursoron = 0;
                 else
                     mda->cursoron = mda->blink & 16;
             }
-            if (mda->vc == mda->crtc[7]) {
+            if (mda->vc == mda->crtc[MDA_CRTC_VSYNC]) {
                 mda->dispon    = 0;
                 mda->displine  = 0;
                 mda->vsynctime = 16;
-                if (mda->crtc[7]) {
-                    x = mda->crtc[1] * 8;
+                if (mda->crtc[MDA_CRTC_VSYNC]) {
+                    x = mda->crtc[MDA_CRTC_HDISP] * 8;
                     mda->lastline++;
                     if ((x != xsize) || ((mda->lastline - mda->firstline) != ysize) || video_force_resize_get()) {
                         xsize = x;
@@ -1374,8 +1459,8 @@ lcdm_poll(amsvid_t *vid)
                     }
                     video_blit_memtoscreen(0, mda->firstline, xsize, ysize);
                     frames++;
-                    video_res_x = mda->crtc[1];
-                    video_res_y = mda->crtc[6];
+                    video_res_x = mda->crtc[MDA_CRTC_HDISP];
+                    video_res_y = mda->crtc[MDA_CRTC_VDISP];
                     video_bpp   = 0;
                 }
                 mda->firstline = 1000;
@@ -1383,12 +1468,12 @@ lcdm_poll(amsvid_t *vid)
                 mda->blink++;
             }
         } else {
-            mda->sc++;
-            mda->sc &= 31;
-            mda->ma = mda->maback;
+            mda->scanline++;
+            mda->scanline &= 31;
+            mda->memaddr = mda->memaddr_backup;
         }
-        if (mda->sc == (mda->crtc[10] & 31) || ((mda->crtc[8] & 3) == 3 && mda->sc == ((mda->crtc[10] & 31) >> 1)))
-            mda->con = 1;
+        if (mda->scanline == (mda->crtc[MDA_CRTC_CURSOR_START] & 31) || ((mda->crtc[MDA_CRTC_INTERLACE] & 3) == 3 && mda->scanline == ((mda->crtc[MDA_CRTC_CURSOR_START] & 31) >> 1)))
+            mda->cursorvisible = 1;
     }
 }
 
@@ -1404,19 +1489,19 @@ lcdc_poll(amsvid_t *vid)
     uint8_t  chr;
     uint8_t  attr;
     uint16_t dat;
-    int      oldsc;
-    uint16_t ca;
+    int      scanline_old;
+    uint16_t cursoraddr;
     int      blink;
 
-    ca = (cga->crtc[15] | (cga->crtc[14] << 8)) & 0x3fff;
+    cursoraddr = (cga->crtc[CGA_CRTC_CURSOR_ADDR_LOW] | (cga->crtc[CGA_CRTC_CURSOR_ADDR_HIGH] << 8)) & 0x3fff;
 
     if (!cga->linepos) {
         timer_advance_u64(&vid->timer, cga->dispofftime);
         cga->cgastat |= 1;
         cga->linepos = 1;
-        oldsc        = cga->sc;
-        if ((cga->crtc[8] & 3) == 3)
-            cga->sc = ((cga->sc << 1) + cga->oddeven) & 7;
+        scanline_old = cga->scanline;
+        if ((cga->crtc[CGA_CRTC_INTERLACE] & 3) == 3)
+            cga->scanline = ((cga->scanline << 1) + cga->oddeven) & 7;
         if (cga->cgadispon) {
             if (cga->displine < cga->firstline) {
                 cga->firstline = cga->displine;
@@ -1424,30 +1509,30 @@ lcdc_poll(amsvid_t *vid)
             }
             cga->lastline = cga->displine;
 
-            if (cga->cgamode & 1) {
-                for (x = 0; x < cga->crtc[1]; x++) {
+            if (cga->cgamode & CGA_MODE_FLAG_HIGHRES) {
+                for (x = 0; x < cga->crtc[CGA_CRTC_HDISP]; x++) {
                     chr        = cga->charbuffer[x << 1];
                     attr       = cga->charbuffer[(x << 1) + 1];
-                    drawcursor = ((cga->ma == ca) && cga->con && cga->cursoron);
-                    blink      = ((cga->cgablink & 16) && (cga->cgamode & 0x20) && (attr & 0x80) && !drawcursor);
-                    lcd_draw_char_80(vid, &(buffer32->line[cga->displine << 1])[x * 8], chr, attr, drawcursor, blink, cga->sc, cga->cgamode & 0x40, cga->cgamode);
-                    lcd_draw_char_80(vid, &(buffer32->line[(cga->displine << 1) + 1])[x * 8], chr, attr, drawcursor, blink, cga->sc, cga->cgamode & 0x40, cga->cgamode);
-                    cga->ma++;
+                    drawcursor = ((cga->memaddr == cursoraddr) && cga->cursorvisible && cga->cursoron);
+                    blink      = ((cga->cgablink & 16) && (cga->cgamode & CGA_MODE_FLAG_BLINK) && (attr & 0x80) && !drawcursor);
+                    lcd_draw_char_80(vid, &(buffer32->line[cga->displine << 1])[x * 8], chr, attr, drawcursor, blink, cga->scanline, cga->cgamode & 0x40, cga->cgamode);
+                    lcd_draw_char_80(vid, &(buffer32->line[(cga->displine << 1) + 1])[x * 8], chr, attr, drawcursor, blink, cga->scanline, cga->cgamode & 0x40, cga->cgamode);
+                    cga->memaddr++;
                 }
-            } else if (!(cga->cgamode & 2)) {
-                for (x = 0; x < cga->crtc[1]; x++) {
-                    chr        = cga->vram[(cga->ma << 1) & 0x3fff];
-                    attr       = cga->vram[((cga->ma << 1) + 1) & 0x3fff];
-                    drawcursor = ((cga->ma == ca) && cga->con && cga->cursoron);
-                    blink      = ((cga->cgablink & 16) && (cga->cgamode & 0x20) && (attr & 0x80) && !drawcursor);
-                    lcd_draw_char_40(vid, &(buffer32->line[cga->displine << 1])[x * 16], chr, attr, drawcursor, blink, cga->sc, cga->cgamode);
-                    lcd_draw_char_40(vid, &(buffer32->line[(cga->displine << 1) + 1])[x * 16], chr, attr, drawcursor, blink, cga->sc, cga->cgamode);
-                    cga->ma++;
+            } else if (!(cga->cgamode & CGA_MODE_FLAG_GRAPHICS)) {
+                for (x = 0; x < cga->crtc[CGA_CRTC_HDISP]; x++) {
+                    chr        = cga->vram[(cga->memaddr << 1) & 0x3fff];
+                    attr       = cga->vram[((cga->memaddr << 1) + 1) & 0x3fff];
+                    drawcursor = ((cga->memaddr == cursoraddr) && cga->cursorvisible && cga->cursoron);
+                    blink      = ((cga->cgablink & 16) && (cga->cgamode & CGA_MODE_FLAG_BLINK) && (attr & 0x80) && !drawcursor);
+                    lcd_draw_char_40(vid, &(buffer32->line[cga->displine << 1])[x * 16], chr, attr, drawcursor, blink, cga->scanline, cga->cgamode);
+                    lcd_draw_char_40(vid, &(buffer32->line[(cga->displine << 1) + 1])[x * 16], chr, attr, drawcursor, blink, cga->scanline, cga->cgamode);
+                    cga->memaddr++;
                 }
             } else { /* Graphics mode */
-                for (x = 0; x < cga->crtc[1]; x++) {
-                    dat = (cga->vram[((cga->ma << 1) & 0x1fff) + ((cga->sc & 1) * 0x2000)] << 8) | cga->vram[((cga->ma << 1) & 0x1fff) + ((cga->sc & 1) * 0x2000) + 1];
-                    cga->ma++;
+                for (x = 0; x < cga->crtc[CGA_CRTC_HDISP]; x++) {
+                    dat = (cga->vram[((cga->memaddr << 1) & 0x1fff) + ((cga->scanline & 1) * 0x2000)] << 8) | cga->vram[((cga->memaddr << 1) & 0x1fff) + ((cga->scanline & 1) * 0x2000) + 1];
+                    cga->memaddr++;
                     for (uint8_t c = 0; c < 16; c++) {
                         buffer32->line[cga->displine << 1][(x << 4) + c] = buffer32->line[(cga->displine << 1) + 1][(x << 4) + c] = (dat & 0x8000) ? blue : green;
                         dat <<= 1;
@@ -1455,22 +1540,22 @@ lcdc_poll(amsvid_t *vid)
                 }
             }
         } else {
-            if (cga->cgamode & 1) {
-                hline(buffer32, 0, (cga->displine << 1), (cga->crtc[1] << 3), green);
-                hline(buffer32, 0, (cga->displine << 1) + 1, (cga->crtc[1] << 3), green);
+            if (cga->cgamode & CGA_MODE_FLAG_HIGHRES) {
+                hline(buffer32, 0, (cga->displine << 1), (cga->crtc[CGA_CRTC_HDISP] << 3), green);
+                hline(buffer32, 0, (cga->displine << 1) + 1, (cga->crtc[CGA_CRTC_HDISP] << 3), green);
             } else {
-                hline(buffer32, 0, (cga->displine << 1), (cga->crtc[1] << 4), green);
-                hline(buffer32, 0, (cga->displine << 1) + 1, (cga->crtc[1] << 4), green);
+                hline(buffer32, 0, (cga->displine << 1), (cga->crtc[CGA_CRTC_HDISP] << 4), green);
+                hline(buffer32, 0, (cga->displine << 1) + 1, (cga->crtc[CGA_CRTC_HDISP] << 4), green);
             }
         }
 
-        if (cga->cgamode & 1)
-            x = (cga->crtc[1] << 3);
+        if (cga->cgamode & CGA_MODE_FLAG_HIGHRES)
+            x = (cga->crtc[CGA_CRTC_HDISP] << 3);
         else
-            x = (cga->crtc[1] << 4);
+            x = (cga->crtc[CGA_CRTC_HDISP] << 4);
 
-        cga->sc = oldsc;
-        if (cga->vc == cga->crtc[7] && !cga->sc)
+        cga->scanline = scanline_old;
+        if (cga->vc == cga->crtc[CGA_CRTC_VSYNC] && !cga->scanline)
             cga->cgastat |= 8;
         cga->displine++;
         if (cga->displine >= 360)
@@ -1483,54 +1568,53 @@ lcdc_poll(amsvid_t *vid)
             if (!cga->vsynctime)
                 cga->cgastat &= ~8;
         }
-        if (cga->sc == (cga->crtc[11] & 31) || ((cga->crtc[8] & 3) == 3 && cga->sc == ((cga->crtc[11] & 31) >> 1))) {
-            cga->con  = 0;
-            cga->coff = 1;
+        if (cga->scanline == (cga->crtc[CGA_CRTC_CURSOR_END] & 31) || ((cga->crtc[CGA_CRTC_INTERLACE] & 3) == 3 && cga->scanline == ((cga->crtc[CGA_CRTC_CURSOR_END] & 31) >> 1))) {
+            cga->cursorvisible = 0;
         }
-        if ((cga->crtc[8] & 3) == 3 && cga->sc == (cga->crtc[9] >> 1))
-            cga->maback = cga->ma;
+        if ((cga->crtc[CGA_CRTC_INTERLACE] & 3) == 3 && cga->scanline == (cga->crtc[CGA_CRTC_MAX_SCANLINE_ADDR] >> 1))
+            cga->memaddr_backup = cga->memaddr;
         if (cga->vadj) {
-            cga->sc++;
-            cga->sc &= 31;
-            cga->ma = cga->maback;
+            cga->scanline++;
+            cga->scanline &= 31;
+            cga->memaddr = cga->memaddr_backup;
             cga->vadj--;
             if (!cga->vadj) {
                 cga->cgadispon = 1;
-                cga->ma = cga->maback = (cga->crtc[13] | (cga->crtc[12] << 8)) & 0x3fff;
-                cga->sc               = 0;
+                cga->memaddr = cga->memaddr_backup = (cga->crtc[CGA_CRTC_START_ADDR_LOW] | (cga->crtc[CGA_CRTC_START_ADDR_HIGH] << 8)) & 0x3fff;
+                cga->scanline                      = 0;
             }
-        } else if (cga->sc == cga->crtc[9]) {
-            cga->maback = cga->ma;
-            cga->sc     = 0;
-            oldvc       = cga->vc;
+        } else if (cga->scanline == cga->crtc[CGA_CRTC_MAX_SCANLINE_ADDR]) {
+            cga->memaddr_backup = cga->memaddr;
+            cga->scanline       = 0;
+            oldvc               = cga->vc;
             cga->vc++;
             cga->vc &= 127;
 
-            if (cga->vc == cga->crtc[6])
+            if (cga->vc == cga->crtc[CGA_CRTC_VDISP])
                 cga->cgadispon = 0;
 
-            if (oldvc == cga->crtc[4]) {
+            if (oldvc == cga->crtc[CGA_CRTC_VTOTAL]) {
                 cga->vc   = 0;
-                cga->vadj = cga->crtc[5];
+                cga->vadj = cga->crtc[CGA_CRTC_VTOTAL_ADJUST];
                 if (!cga->vadj)
                     cga->cgadispon = 1;
                 if (!cga->vadj)
-                    cga->ma = cga->maback = (cga->crtc[13] | (cga->crtc[12] << 8)) & 0x3fff;
-                if ((cga->crtc[10] & 0x60) == 0x20)
+                    cga->memaddr = cga->memaddr_backup = (cga->crtc[CGA_CRTC_START_ADDR_LOW] | (cga->crtc[CGA_CRTC_START_ADDR_HIGH] << 8)) & 0x3fff;
+                if ((cga->crtc[CGA_CRTC_CURSOR_START] & 0x60) == 0x20)
                     cga->cursoron = 0;
                 else
                     cga->cursoron = cga->cgablink & 8;
             }
 
-            if (cga->vc == cga->crtc[7]) {
+            if (cga->vc == cga->crtc[CGA_CRTC_VSYNC]) {
                 cga->cgadispon = 0;
                 cga->displine  = 0;
                 cga->vsynctime = 16;
-                if (cga->crtc[7]) {
-                    if (cga->cgamode & 1)
-                        x = (cga->crtc[1] << 3);
+                if (cga->crtc[CGA_CRTC_VSYNC]) {
+                    if (cga->cgamode & CGA_MODE_FLAG_HIGHRES)
+                        x = (cga->crtc[CGA_CRTC_HDISP] << 3);
                     else
-                        x = (cga->crtc[1] << 4);
+                        x = (cga->crtc[CGA_CRTC_HDISP] << 4);
                     cga->lastline++;
 
                     xs_temp = x;
@@ -1542,7 +1626,7 @@ lcdc_poll(amsvid_t *vid)
                         if (ys_temp < 32)
                             ys_temp = 400;
 
-                        if ((cga->cgamode & 8) && ((xs_temp != xsize) || (ys_temp != ysize) || video_force_resize_get())) {
+                        if ((cga->cgamode & CGA_MODE_FLAG_VIDEO_ENABLE) && ((xs_temp != xsize) || (ys_temp != ysize) || video_force_resize_get())) {
                             xsize = xs_temp;
                             ysize = ys_temp;
                             set_screen_size(xsize, ysize);
@@ -1559,15 +1643,15 @@ lcdc_poll(amsvid_t *vid)
 
                     video_res_x = xsize;
                     video_res_y = ysize;
-                    if (cga->cgamode & 1) {
+                    if (cga->cgamode & CGA_MODE_FLAG_HIGHRES) {
                         video_res_x /= 8;
-                        video_res_y /= cga->crtc[9] + 1;
+                        video_res_y /= cga->crtc[CGA_CRTC_MAX_SCANLINE_ADDR] + 1;
                         video_bpp = 0;
-                    } else if (!(cga->cgamode & 2)) {
+                    } else if (!(cga->cgamode & CGA_MODE_FLAG_GRAPHICS)) {
                         video_res_x /= 16;
-                        video_res_y /= cga->crtc[9] + 1;
+                        video_res_y /= cga->crtc[CGA_CRTC_MAX_SCANLINE_ADDR] + 1;
                         video_bpp = 0;
-                    } else if (!(cga->cgamode & 16)) {
+                    } else if (!(cga->cgamode & CGA_MODE_FLAG_HIGHRES_GRAPHICS)) {
                         video_res_x /= 2;
                         video_bpp = 2;
                     } else
@@ -1579,17 +1663,17 @@ lcdc_poll(amsvid_t *vid)
                 cga->oddeven ^= 1;
             }
         } else {
-            cga->sc++;
-            cga->sc &= 31;
-            cga->ma = cga->maback;
+            cga->scanline++;
+            cga->scanline &= 31;
+            cga->memaddr = cga->memaddr_backup;
         }
         if (cga->cgadispon)
             cga->cgastat &= ~1;
-        if (cga->sc == (cga->crtc[10] & 31) || ((cga->crtc[8] & 3) == 3 && cga->sc == ((cga->crtc[10] & 31) >> 1)))
-            cga->con = 1;
-        if (cga->cgadispon && (cga->cgamode & 1)) {
-            for (x = 0; x < (cga->crtc[1] << 1); x++)
-                cga->charbuffer[x] = cga->vram[((cga->ma << 1) + x) & 0x3fff];
+        if (cga->scanline == (cga->crtc[CGA_CRTC_CURSOR_START] & 31) || ((cga->crtc[CGA_CRTC_INTERLACE] & 3) == 3 && cga->scanline == ((cga->crtc[CGA_CRTC_CURSOR_START] & 31) >> 1)))
+            cga->cursorvisible = 1;
+        if (cga->cgadispon && (cga->cgamode & CGA_MODE_FLAG_HIGHRES)) {
+            for (x = 0; x < (cga->crtc[CGA_CRTC_HDISP] << 1); x++)
+                cga->charbuffer[x] = cga->vram[((cga->memaddr << 1) + x) & 0x3fff];
         }
     }
 }
@@ -1620,8 +1704,7 @@ vid_init_200(amstrad_t *ams)
     mda_t    *mda;
 
     /* Allocate a video controller block. */
-    vid = (amsvid_t *) malloc(sizeof(amsvid_t));
-    memset(vid, 0x00, sizeof(amsvid_t));
+    vid = (amsvid_t *) calloc(1, sizeof(amsvid_t));
 
     vid->emulation = device_get_config_int("video_emulation");
 
@@ -1746,68 +1829,71 @@ vid_close_200(void *priv)
 }
 
 const device_config_t vid_200_config[] = {
-  /* TODO: Should have options here for:
-  *
-  * > Display port (TTL or RF)
-  */
-  // clang-format off
+    /* TODO: Should have options here for:
+     *
+     * > Display port (TTL or RF)
+     */
+    // clang-format off
     {
-        .name = "video_emulation",
-        .description = "Display type",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = PC200_CGA,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "video_emulation",
+        .description    = "Display type",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = PC200_CGA,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "CGA monitor", .value = PC200_CGA },
             { .description = "MDA monitor", .value = PC200_MDA },
             { .description = "Television",  .value = PC200_TV  },
             { .description = ""                                }
-        }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "display_type",
-        .description = "Monitor type",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "display_type",
+        .description    = "Monitor type",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "RGB",              .value = 0 },
             { .description = "RGB (no brown)",   .value = 4 },
             { .description = "Green Monochrome", .value = 1 },
             { .description = "Amber Monochrome", .value = 2 },
             { .description = "White Monochrome", .value = 3 },
             { .description = ""                             }
-        }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "codepage",
-        .description = "Hardware font",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 3,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "codepage",
+        .description    = "Hardware font",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 3,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "US English", .value = 3 },
             { .description = "Portugese",  .value = 2 },
             { .description = "Norwegian",  .value = 1 },
             { .description = "Greek",      .value = 0 },
             { .description = ""                       }
-        }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "language",
-        .description = "BIOS language",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 7,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "language",
+        .description    = "BIOS language",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 7,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "English",         .value = 7 },
             { .description = "German",          .value = 6 },
             { .description = "French",          .value = 5 },
@@ -1817,57 +1903,59 @@ const device_config_t vid_200_config[] = {
             { .description = "Italian",         .value = 1 },
             { .description = "Diagnostic mode", .value = 0 },
             { .description = ""                            }
-        }
+        },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
-  // clang-format on
+    // clang-format on
 };
 
 const device_t vid_200_device = {
-    .name          = "Amstrad PC200 (video)",
+    .name          = "Amstrad PC200 (Video)",
     .internal_name = "vid_200",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
     .close         = vid_close_200,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = vid_speed_changed_200,
     .force_redraw  = NULL,
     .config        = vid_200_config
 };
 
 const device_config_t vid_ppc512_config[] = {
-  /* TODO: Should have options here for:
-  *
-  * > Display port (TTL or RF)
-  */
-  // clang-format off
+    /* TODO: Should have options here for:
+     *
+     * > Display port (TTL or RF)
+     */
+    // clang-format off
     {
-        .name = "video_emulation",
-        .description = "Display type",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = PC200_LCDC,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "video_emulation",
+        .description    = "Display type",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = PC200_LCDC,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "CGA monitor",    .value = PC200_CGA  },
             { .description = "MDA monitor",    .value = PC200_MDA  },
             { .description = "LCD (CGA mode)", .value = PC200_LCDC },
             { .description = "LCD (MDA mode)", .value = PC200_LCDM },
             { .description = ""                                    }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "display_type",
-        .description = "Monitor type",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 0,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "display_type",
+        .description    = "Monitor type",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "RGB",              .value = 0 },
             { .description = "RGB (no brown)",   .value = 4 },
             { .description = "Green Monochrome", .value = 1 },
@@ -1875,32 +1963,34 @@ const device_config_t vid_ppc512_config[] = {
             { .description = "White Monochrome", .value = 3 },
             { .description = ""                             }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "codepage",
-        .description = "Hardware font",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 3,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "codepage",
+        .description    = "Hardware font",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 3,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "US English", .value = 3 },
             { .description = "Portugese",  .value = 2 },
             { .description = "Norwegian",  .value = 1 },
             { .description = "Greek",      .value = 0 },
             { .description = ""                       }
         },
+        .bios           = { { 0 } }
     },
     {
-        .name = "language",
-        .description = "BIOS language",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 7,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "language",
+        .description    = "BIOS language",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 7,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "English",         .value = 7 },
             { .description = "German",          .value = 6 },
             { .description = "French",          .value = 5 },
@@ -1910,96 +2000,103 @@ const device_config_t vid_ppc512_config[] = {
             { .description = "Italian",         .value = 1 },
             { .description = "Diagnostic mode", .value = 0 },
             { .description = ""                            }
-        }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "invert",
-        .description = "Invert LCD colors",
-        .type = CONFIG_BINARY,
-        .default_string = "",
-        .default_int = 0
+        .name           = "invert",
+        .description    = "Invert LCD colors",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
-  // clang-format on
+    // clang-format on
 };
 
 const device_t vid_ppc512_device = {
-    .name          = "Amstrad PPC512 (video)",
+    .name          = "Amstrad PPC512 (Video)",
     .internal_name = "vid_ppc512",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
     .close         = vid_close_200,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = vid_speed_changed_200,
     .force_redraw  = NULL,
     .config        = vid_ppc512_config
 };
 
 const device_config_t vid_pc2086_config[] = {
-  // clang-format off
+    // clang-format off
     {
-        .name = "language",
-        .description = "BIOS language",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 7,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "language",
+        .description    = "BIOS Language",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 7,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "English",         .value = 7 },
             { .description = "Diagnostic mode", .value = 0 },
             { .description = ""                            }
-        }
+        },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
-  // clang-format on
+    // clang-format on
 };
 
 const device_t vid_pc2086_device = {
-    .name          = "Amstrad PC2086",
+    .name          = "Amstrad PC2086 (Video)",
     .internal_name = "vid_pc2086",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
     .close         = NULL,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = vid_pc2086_config
 };
 
 const device_config_t vid_pc3086_config[] = {
-  // clang-format off
+    // clang-format off
     {
-        .name = "language",
-        .description = "BIOS language",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 7,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "language",
+        .description    = "BIOS Language",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 7,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "English",         .value = 7 },
             { .description = "Diagnostic mode", .value = 3 },
             { .description = ""                            }
-        }
+        },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
-  // clang-format on
+    // clang-format on
 };
 
 const device_t vid_pc3086_device = {
-    .name          = "Amstrad PC3086",
+    .name          = "Amstrad PC3086 (Video)",
     .internal_name = "vid_pc3086",
     .flags         = 0,
     .local         = 0,
     .init          = NULL,
     .close         = NULL,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = vid_pc3086_config
@@ -2037,7 +2134,7 @@ static int
 ms_poll(void *priv)
 {
     amstrad_t *ams = (amstrad_t *) priv;
-    int b = mouse_get_buttons_ex();
+    int        b   = mouse_get_buttons_ex();
 
     if ((b & 1) && !(ams->oldb & 1))
         keyboard_send(0x7e);
@@ -2250,7 +2347,7 @@ ams_write(uint16_t port, uint8_t val, void *priv)
         case 0x0378:
         case 0x0379:
         case 0x037a:
-            lpt_write(port, val, &lpt_ports[0]);
+            lpt_write(port, val, ams->lpt);
             break;
 
         case 0xdead:
@@ -2270,7 +2367,7 @@ ams_read(uint16_t port, void *priv)
 
     switch (port) {
         case 0x0378:
-            ret = lpt_read(port, &lpt_ports[0]);
+            ret = lpt_read(port, ams->lpt);
             break;
 
         case 0x0379: /* printer control, also set LK1-3.
@@ -2284,11 +2381,11 @@ ams_read(uint16_t port, void *priv)
                       *   1 Italian Language.
                       *   0 Diagnostic Mode.
                       */
-            ret = (lpt_read(port, &lpt_ports[0]) & 0xf8) | ams->language;
+            ret = (lpt_read(port, ams->lpt) & 0xf8) | ams->language;
             break;
 
         case 0x037a: /* printer status */
-            ret = lpt_read(port, &lpt_ports[0]) & 0x1f;
+            ret = lpt_read(port, ams->lpt) & 0x1f;
 
             switch (ams->type) {
                 case AMS_PC1512:
@@ -2349,7 +2446,7 @@ ams_read(uint16_t port, void *priv)
 }
 
 static const scancode scancode_pc200[512] = {
-  // clang-format off
+    // clang-format off
     { .mk = {            0 }, .brk = {                   0 } }, /* 000 */
     { .mk = {      0x01, 0 }, .brk = {             0x81, 0 } }, /* 001 */
     { .mk = {      0x02, 0 }, .brk = {             0x82, 0 } }, /* 002 */
@@ -2862,7 +2959,7 @@ static const scancode scancode_pc200[512] = {
     { .mk = {            0 }, .brk = {                   0 } }, /* 1fd */
     { .mk = {0xe0, 0xfe, 0 }, .brk = {                   0 } }, /* 1fe */
     { .mk = {0xe0, 0xff, 0 }, .brk = {                   0 } }  /* 1ff */
-  // clang-format on
+    // clang-format on
 };
 
 static void
@@ -2870,8 +2967,7 @@ machine_amstrad_init(const machine_t *model, int type)
 {
     amstrad_t *ams;
 
-    ams = (amstrad_t *) malloc(sizeof(amstrad_t));
-    memset(ams, 0x00, sizeof(amstrad_t));
+    ams           = (amstrad_t *) calloc(1, sizeof(amstrad_t));
     ams->type     = type;
     amstrad_latch = 0x80000000;
 
@@ -2890,8 +2986,10 @@ machine_amstrad_init(const machine_t *model, int type)
 
     nmi_init();
 
-    lpt1_remove_ams();
-    lpt2_remove();
+    ams->lpt = device_add_inst(&lpt_port_device, 1);
+
+    lpt1_remove_ams(ams->lpt);
+    lpt_set_next_inst(255);
 
     io_sethandler(0x0378, 3,
                   ams_read, NULL, NULL, ams_write, NULL, NULL, ams);
@@ -2922,7 +3020,7 @@ machine_amstrad_init(const machine_t *model, int type)
     if (gfxcard[0] == VID_INTERNAL)
         switch (type) {
             case AMS_PC1512:
-                loadfont("roms/machines/pc1512/40078", 8);
+                video_load_font("roms/machines/pc1512/40078", FONT_FORMAT_PC1512_T1000, LOAD_FONT_NO_OFFSET);
                 device_context(&vid_1512_device);
                 ams->language = device_get_config_int("language");
                 vid_init_1512(ams);
@@ -2931,7 +3029,7 @@ machine_amstrad_init(const machine_t *model, int type)
                 break;
 
             case AMS_PPC512:
-                loadfont("roms/machines/ppc512/40109", 1);
+                video_load_font("roms/machines/ppc512/40109", FONT_FORMAT_PC200, LOAD_FONT_NO_OFFSET);
                 device_context(&vid_ppc512_device);
                 ams->language = device_get_config_int("language");
                 vid_init_200(ams);
@@ -2940,7 +3038,7 @@ machine_amstrad_init(const machine_t *model, int type)
                 break;
 
             case AMS_PC1640:
-                loadfont("roms/video/mda/mda.rom", 0);
+                video_load_font(FONT_IBM_MDA_437_PATH, FONT_FORMAT_MDA, LOAD_FONT_NO_OFFSET);
                 device_context(&vid_1640_device);
                 ams->language = device_get_config_int("language");
                 vid_init_1640(ams);
@@ -2949,7 +3047,7 @@ machine_amstrad_init(const machine_t *model, int type)
                 break;
 
             case AMS_PC200:
-                loadfont("roms/machines/pc200/40109", 1);
+                video_load_font("roms/machines/pc200/40109", FONT_FORMAT_PC200, LOAD_FONT_NO_OFFSET);
                 device_context(&vid_200_device);
                 ams->language = device_get_config_int("language");
                 vid_init_200(ams);
@@ -2968,6 +3066,7 @@ machine_amstrad_init(const machine_t *model, int type)
                 device_context(&vid_pc3086_device);
                 ams->language = device_get_config_int("language");
                 device_context_restore();
+                device_add(&xta_wdxt150_pc3086_device);
                 device_add(&paradise_pvga1a_pc3086_device);
                 break;
 
@@ -3003,7 +3102,7 @@ machine_amstrad_init(const machine_t *model, int type)
         mouse_set_poll(ms_poll, ams);
     }
 
-    standalone_gameport_type = &gameport_device;
+    standalone_gameport_type = &gameport_200_device;
 }
 
 int

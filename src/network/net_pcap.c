@@ -6,8 +6,6 @@
  *
  *          Handle WinPcap library processing.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *
  *          Copyright 2017-2019 Fred N. van Kempen.
@@ -572,8 +570,8 @@ net_pcap_close(void *priv)
 }
 
 const netdrv_t net_pcap_drv = {
-    &net_pcap_in_available,
-    &net_pcap_init,
-    &net_pcap_close,
-    NULL
+    .notify_in = &net_pcap_in_available,
+    .init      = &net_pcap_init,
+    .close     = &net_pcap_close,
+    .priv      = NULL
 };

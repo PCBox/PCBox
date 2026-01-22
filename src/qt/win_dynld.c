@@ -8,8 +8,6 @@
  *
  *          Try to load a support DLL.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *
  *          Copyright 2017-2018 Fred N. van Kempen
@@ -51,7 +49,7 @@ dynld_module(const char *name, dllimp_t *table)
     void     *func;
 
     /* See if we can load the desired module. */
-    if ((h = LoadLibrary(name)) == NULL) {
+    if ((h = LoadLibraryA(name)) == NULL) {
         dynld_log("DynLd(\"%s\"): library not found! (%08X)\n", name, GetLastError());
         return (NULL);
     }

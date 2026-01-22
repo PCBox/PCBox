@@ -9,8 +9,6 @@
  *          Implementation of the Intel PIC chip emulation, partially
  *          ported from reenigne's XTCE.
  *
- *
- *
  * Authors: Andrew Jenner, <https://www.reenigne.org>
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -245,7 +243,7 @@ pic_update_pending_at(void)
 }
 
 static void
-pic_callback(void *priv)
+pic_callback(UNUSED(void *priv))
 {
     update_pending();
 }
@@ -254,7 +252,7 @@ void
 pic_reset(void)
 {
     int is_at = IS_AT(machine);
-    is_at     = is_at || !strcmp(machine_get_internal_name(), "xi8088");
+    is_at     = is_at || (machines[machine].init == machine_xt_xi8088_init);
 
     memset(&pic, 0, sizeof(pic_t));
     memset(&pic2, 0, sizeof(pic_t));
@@ -634,12 +632,31 @@ pic_reset_hard(void)
     /* The situation is as follows: There is a giant mess when it comes to these latches on real hardware,
        to the point that there's even boards with board-level latched that get used in place of the latches
        on the chipset, therefore, I'm just doing this here for the sake of simplicity. */
-    if (machine_has_bus(machine, MACHINE_BUS_PS2_LATCH)) {
+    if (machine_has_flags(machine, MACHINE_PS2_KBC)) {
         pic_kbd_latch(0x01);
         pic_mouse_latch(0x01);
     } else {
         pic_kbd_latch(0x00);
         pic_mouse_latch(0x00);
+    }
+}
+
+void
+pic_toggle_latch(int is_ps2)
+{
+    pic_kbd_latch(0x00);
+    pic_mouse_latch(0x00);
+
+    /* Explicitly reset the latches. */
+    kbd_latch = mouse_latch = 0;
+    latched_irqs = 0x0000;
+
+    /* The situation is as follows: There is a giant mess when it comes to these latches on real hardware,
+       to the point that there's even boards with board-level latched that get used in place of the latches
+       on the chipset, therefore, I'm just doing this here for the sake of simplicity. */
+    if (is_ps2) {
+        pic_kbd_latch(0x01);
+        pic_mouse_latch(0x01);
     }
 }
 
@@ -678,6 +695,13 @@ picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
     uint16_t w;
     uint16_t lines = level ? 0x0000 : num;
     pic_t   *dev;
+
+    /*
+       Do this because some emulated cards will, for whatever reason, attempt to
+       raise an IRQ at init when the PIC has not yet been properly initialized.
+     */
+    if (update_pending == NULL)
+        return;
 
     /* Make sure to ignore all slave IRQ's, and in case of AT+,
        translate IRQ 2 to IRQ 9. */

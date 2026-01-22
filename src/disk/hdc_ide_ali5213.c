@@ -8,8 +8,6 @@
  *
  *          Implementation of the ALi M1489 chipset.
  *
- *
- *
  * Authors: Tiseno100,
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -246,7 +244,7 @@ const device_t ide_ali1489_device = {
     .init          = ali5213_init,
     .close         = ali5213_close,
     .reset         = ali5213_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -260,7 +258,7 @@ const device_t ide_ali5213_device = {
     .init          = ali5213_init,
     .close         = ali5213_close,
     .reset         = ali5213_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

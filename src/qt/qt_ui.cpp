@@ -8,8 +8,6 @@
  *
  *          Common UI functions.
  *
- *
- *
  * Authors: Joakim L. Gilje <jgilje@jgilje.net>
  *          Cacodemon345
  *
@@ -23,6 +21,7 @@
 #include <QMessageBox>
 
 #include <QStatusBar>
+#include <QApplication>
 
 #include "qt_mainwindow.hpp"
 #include "qt_machinestatus.hpp"
@@ -49,7 +48,7 @@ extern "C" {
 #include <86box/cartridge.h>
 #include <86box/cassette.h>
 #include <86box/cdrom.h>
-#include <86box/zip.h>
+#include <86box/rdisk.h>
 #include <86box/mo.h>
 #include <86box/hdd.h>
 #include <86box/thread.h>
@@ -64,11 +63,7 @@ void
 plat_delay_ms(uint32_t count)
 {
 #ifdef Q_OS_WINDOWS
-    // On Win32 the accuracy of Sleep() depends on the timer resolution, which can be set by calling timeBeginPeriod
-    // https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod
-    timeBeginPeriod(1);
     Sleep(count);
-    timeEndPeriod(1);
 #else
     QThread::msleep(count);
 #endif
@@ -122,6 +117,10 @@ plat_resize(int w, int h, int monitor_index)
         main_window->resizeContents(w, h);
 }
 
+#if defined _WIN32
+extern HWND rw_hwnd;
+#endif
+
 void
 plat_mouse_capture(int on)
 {
@@ -129,24 +128,48 @@ plat_mouse_capture(int on)
         return;
 
     main_window->setMouseCapture(on > 0 ? true : false);
+
+#if defined _WIN32
+    if (on) {
+        QCursor cursor(Qt::BlankCursor);
+
+        QApplication::setOverrideCursor(cursor);
+        QApplication::changeOverrideCursor(cursor);
+
+        RECT rect;
+
+        GetWindowRect(rw_hwnd, &rect);
+
+        ClipCursor(&rect);
+
+    } else {
+        ClipCursor(NULL);
+
+        QApplication::restoreOverrideCursor();
+    }
+#endif
 }
 
 int
 ui_msgbox_header(int flags, void *header, void *message)
 {
-    const auto hdr = (flags & MBX_ANSI) ? QString(static_cast<char *>(header)) :
-                            QString::fromWCharArray(static_cast<const wchar_t *>(header));
-    const auto msg = (flags & MBX_ANSI) ? QString(static_cast<char *>(message)) :
-                            QString::fromWCharArray(static_cast<const wchar_t *>(message));
+    const auto hdr = (flags & MBX_ANSI) ? QString(static_cast<char *>(header)) : QString::fromWCharArray(static_cast<const wchar_t *>(header));
+    const auto msg = (flags & MBX_ANSI) ? QString(static_cast<char *>(message)) : QString::fromWCharArray(static_cast<const wchar_t *>(message));
 
     // any error in early init
     if (main_window == nullptr) {
-        QMessageBox msgBox(QMessageBox::Icon::Critical, hdr, msg);
-        msgBox.setTextFormat(Qt::TextFormat::RichText);
+        auto msgicon = QMessageBox::Icon::Critical;
+        if (flags & MBX_INFO)
+            msgicon = QMessageBox::Icon::Information;
+        else if (flags & MBX_QUESTION)
+            msgicon = QMessageBox::Icon::Question;
+        else if (flags & MBX_WARNING)
+            msgicon = QMessageBox::Icon::Warning;
+        QMessageBox msgBox(msgicon, hdr, msg);
         msgBox.exec();
     } else {
         // else scope it to main_window
-        main_window->showMessage(flags, hdr, msg);
+        main_window->showMessage(flags, hdr, msg, false);
     }
     return 0;
 }
@@ -232,11 +255,39 @@ ui_sb_set_ready(int ready)
 }
 
 void
+ui_sb_update_icon_wp(int tag, int state)
+{
+    const auto temp     = static_cast<unsigned int>(tag);
+    const int  category = static_cast<int>(temp & 0xfffffff0);
+    const int  item     = tag & 0xf;
+
+    switch (category) {
+        default:
+            break;
+        case SB_CASSETTE:
+            machine_status.cassette.write_prot = state > 0 ? true : false;
+            break;
+        case SB_FLOPPY:
+            machine_status.fdd[item].write_prot = state > 0 ? true : false;
+            break;
+        case SB_RDISK:
+            machine_status.rdisk[item].write_prot = state > 0 ? true : false;
+            break;
+        case SB_MO:
+            machine_status.mo[item].write_prot = state > 0 ? true : false;
+            break;
+    }
+
+    if (main_window != nullptr)
+        main_window->updateStatusEmptyIcons();
+}
+
+void
 ui_sb_update_icon_state(int tag, int state)
 {
-    const auto temp    = static_cast<unsigned int>(tag);
-    const int category = static_cast<int>(temp & 0xfffffff0);
-    const int item     = tag & 0xf;
+    const auto temp     = static_cast<unsigned int>(tag);
+    const int  category = static_cast<int>(temp & 0xfffffff0);
+    const int  item     = tag & 0xf;
 
     switch (category) {
         default:
@@ -253,8 +304,8 @@ ui_sb_update_icon_state(int tag, int state)
         case SB_CDROM:
             machine_status.cdrom[item].empty = state > 0 ? true : false;
             break;
-        case SB_ZIP:
-            machine_status.zip[item].empty = state > 0 ? true : false;
+        case SB_RDISK:
+            machine_status.rdisk[item].empty = state > 0 ? true : false;
             break;
         case SB_MO:
             machine_status.mo[item].empty = state > 0 ? true : false;
@@ -276,9 +327,9 @@ ui_sb_update_icon_state(int tag, int state)
 void
 ui_sb_update_icon(int tag, int active)
 {
-    const auto temp    = static_cast<unsigned int>(tag);
-    const int category = static_cast<int>(temp & 0xfffffff0);
-    const int item     = tag & 0xf;
+    const auto temp     = static_cast<unsigned int>(tag);
+    const int  category = static_cast<int>(temp & 0xfffffff0);
+    const int  item     = tag & 0xf;
 
     switch (category) {
         default:
@@ -291,8 +342,8 @@ ui_sb_update_icon(int tag, int active)
         case SB_CDROM:
             machine_status.cdrom[item].active = active > 0 ? true : false;
             break;
-        case SB_ZIP:
-            machine_status.zip[item].active = active > 0 ? true : false;
+        case SB_RDISK:
+            machine_status.rdisk[item].active = active > 0 ? true : false;
             break;
         case SB_MO:
             machine_status.mo[item].active = active > 0 ? true : false;
@@ -302,6 +353,42 @@ ui_sb_update_icon(int tag, int active)
             break;
         case SB_NETWORK:
             machine_status.net[item].active = active > 0 ? true : false;
+            break;
+        case SB_SOUND:
+        case SB_TEXT:
+            break;
+    }
+}
+
+void
+ui_sb_update_icon_write(int tag, int write)
+{
+    const auto temp     = static_cast<unsigned int>(tag);
+    const int  category = static_cast<int>(temp & 0xfffffff0);
+    const int  item     = tag & 0xf;
+
+    switch (category) {
+        default:
+        case SB_CASSETTE:
+        case SB_CARTRIDGE:
+            break;
+        case SB_FLOPPY:
+            machine_status.fdd[item].write_active = write > 0 ? true : false;
+            break;
+        case SB_CDROM:
+            machine_status.cdrom[item].write_active = write > 0 ? true : false;
+            break;
+        case SB_RDISK:
+            machine_status.rdisk[item].write_active = write > 0 ? true : false;
+            break;
+        case SB_MO:
+            machine_status.mo[item].write_active = write > 0 ? true : false;
+            break;
+        case SB_HDD:
+            machine_status.hdd[item].write_active = write > 0 ? true : false;
+            break;
+        case SB_NETWORK:
+            machine_status.net[item].write_active = write > 0 ? true : false;
             break;
         case SB_SOUND:
         case SB_TEXT:

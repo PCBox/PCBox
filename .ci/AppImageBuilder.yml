@@ -46,13 +46,9 @@ AppDir:
     - libedit2 # if (CLI:BOOL=ON|QT:BOOL=OFF)
     - libevdev2 # if QT:BOOL=ON
     - libfreetype6
-    - libgbm1 # if QT:BOOL=ON
-    - libgl1 # if QT:BOOL=ON
-    - libgles2 # if QT:BOOL=ON
-    - libglvnd0 # if QT:BOOL=ON
-    - libglx0 # if QT:BOOL=ON
     - libgomp1
     - libgs9
+    - libinstpatch-1.0-2
     - libpng16-16
     - libqt5core5a # if QT:BOOL=ON
     - libqt5gui5 # if QT:BOOL=ON
@@ -96,3 +92,4 @@ AppDir:
 AppImage:
   arch: !ENV '${arch_appimage}'
   file_name: !ENV '${appimage_path}'
+  comp: gzip

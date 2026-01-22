@@ -8,8 +8,6 @@
  *
  *          Driver for the ESDI controller (WD1007-vse1) for PC/AT.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *          Miran Grca, <mgrca8@gmail.com>
  *          Fred N. van Kempen, <decwiz@yahoo.com>
@@ -395,7 +393,7 @@ esdi_write(uint16_t port, uint8_t val, void *priv)
                                 fatal("Write with ECC\n");
                             esdi->status = STAT_READY | STAT_DRQ | STAT_DSC;
                             esdi->pos    = 0;
-                            ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 1);
+                            ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 1);
                             break;
 
                         case CMD_VERIFY:
@@ -412,7 +410,7 @@ esdi_write(uint16_t port, uint8_t val, void *priv)
                         case CMD_FORMAT:
                             esdi->status = STAT_DRQ;
                             esdi->pos    = 0;
-                            ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 1);
+                            ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 1);
                             break;
 
                         case CMD_SET_PARAMETERS: /* Initialize Drive Parameters */
@@ -593,6 +591,7 @@ esdi_callback(void *priv)
         esdi->reset    = 0;
 
         ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+        ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
         return;
     }
 
@@ -650,7 +649,7 @@ read_error:
                 esdi->status = STAT_READY | STAT_ERR | STAT_DSC;
                 esdi->error  = ERR_ABRT;
                 irq_raise(esdi);
-                ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+                ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
                 break;
             } else {
                 if (get_sector(esdi, &addr)) {
@@ -658,7 +657,7 @@ read_error:
 write_error:
                     esdi->status = STAT_READY | STAT_DSC | STAT_ERR;
                     irq_raise(esdi);
-                    ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+                    ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
                     break;
                 }
 
@@ -672,10 +671,10 @@ write_error:
                     esdi->status = STAT_DRQ | STAT_READY | STAT_DSC;
                     esdi->pos    = 0;
                     next_sector(esdi);
-                    ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 1);
+                    ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 1);
                 } else {
                     esdi->status = STAT_READY | STAT_DSC;
-                    ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+                    ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
                 }
             }
             break;
@@ -718,7 +717,7 @@ verify_error:
             break;
 
         case CMD_FORMAT:
-            ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+            ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
             if (!drive->present) {
                 esdi->status = STAT_READY | STAT_ERR | STAT_DSC;
                 esdi->error  = ERR_ABRT;
@@ -752,10 +751,12 @@ format_error:
             esdi->status = STAT_READY | STAT_DSC;
             irq_raise(esdi);
             ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+            ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
             break;
 
         case CMD_SET_PARAMETERS: /* Initialize Drive Parameters */
             ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+            ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
             if (!drive->present) {
                 esdi->status = STAT_READY | STAT_ERR | STAT_DSC;
                 esdi->error  = ERR_ABRT;
@@ -778,10 +779,12 @@ format_error:
             esdi->error  = ERR_ABRT;
             irq_raise(esdi);
             ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+            ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
             break;
 
         case 0xe0:
             ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+            ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
             if (!drive->present) {
                 esdi->status = STAT_READY | STAT_ERR | STAT_DSC;
                 esdi->error  = ERR_ABRT;
@@ -825,6 +828,7 @@ format_error:
             }
             irq_raise(esdi);
             ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+            ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
             break;
 
         case CMD_READ_PARAMETERS:
@@ -869,6 +873,7 @@ format_error:
                 irq_raise(esdi);
             }
             ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+            ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
             break;
 
         default:
@@ -880,6 +885,7 @@ format_error:
             esdi->error  = ERR_ABRT;
             irq_raise(esdi);
             ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+            ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
             break;
     }
 }
@@ -920,12 +926,11 @@ wd1007vse1_init(UNUSED(const device_t *info))
 {
     int c;
 
-    esdi_t *esdi = malloc(sizeof(esdi_t));
-    memset(esdi, 0x00, sizeof(esdi_t));
+    esdi_t *esdi = calloc(1, sizeof(esdi_t));
 
     c = 0;
     for (uint8_t d = 0; d < HDD_NUM; d++) {
-        if ((hdd[d].bus == HDD_BUS_ESDI) && (hdd[d].esdi_channel < ESDI_NUM)) {
+        if ((hdd[d].bus_type == HDD_BUS_ESDI) && (hdd[d].esdi_channel < ESDI_NUM)) {
             loadhd(esdi, hdd[d].esdi_channel, d, hdd[d].fn);
 
             if (++c >= ESDI_NUM)
@@ -955,6 +960,7 @@ wd1007vse1_init(UNUSED(const device_t *info))
     timer_add(&esdi->callback_timer, esdi_callback, esdi, 0);
 
     ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+    ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
 
     return esdi;
 }
@@ -974,6 +980,7 @@ wd1007vse1_close(void *priv)
     free(esdi);
 
     ui_sb_update_icon(SB_HDD | HDD_BUS_ESDI, 0);
+    ui_sb_update_icon_write(SB_HDD | HDD_BUS_ESDI, 0);
 }
 
 static int
@@ -985,12 +992,12 @@ wd1007vse1_available(void)
 const device_t esdi_at_wd1007vse1_device = {
     .name          = "Western Digital WD1007V-SE1 (ESDI)",
     .internal_name = "esdi_at",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0,
     .init          = wd1007vse1_init,
     .close         = wd1007vse1_close,
     .reset         = NULL,
-    { .available = wd1007vse1_available },
+    .available     = wd1007vse1_available,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

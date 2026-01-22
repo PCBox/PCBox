@@ -54,7 +54,7 @@ typedef struct rivatnt_t
     rom_t		bios_rom;
 
     uint32_t		vram_size, vram_mask,
-            mmio_base, lfb_base;
+            mmio_base, lfb_base, ramin_flip;
 
     uint8_t		read_bank, write_bank;
 
@@ -129,8 +129,6 @@ typedef struct rivatnt_t
         uint32_t nvpll, mpll, vpll;
     } pramdac;
 
-    uint32_t ramin[0x100000/4];
-
     pc_timer_t nvtimer;
     pc_timer_t mtimer;
 
@@ -144,6 +142,87 @@ static video_timings_t timing_rivatnt		= {VIDEO_PCI, 2,  2,  1,  20, 20, 21};
 
 static uint8_t rivatnt_in(uint16_t addr, void *p);
 static void rivatnt_out(uint16_t addr, uint8_t val, void *p);
+
+uint8_t
+rivatnt_ramin_read(uint32_t addr, void *p)
+{
+	rivatnt_t *rivatnt = (rivatnt_t *)p;
+	svga_t *svga = &rivatnt->svga;
+
+	addr &= rivatnt->vram_mask;
+
+	return svga->vram[addr ^ rivatnt->ramin_flip];
+}
+
+
+uint16_t
+rivatnt_ramin_read_w(uint32_t addr, void *p)
+{
+	rivatnt_t *rivatnt = (rivatnt_t *)p;
+	svga_t *svga = &rivatnt->svga;
+	uint16_t *vram_w = (uint16_t *)svga->vram;
+
+	addr &= rivatnt->vram_mask;
+
+	return vram_w[(addr ^ rivatnt->ramin_flip) >> 1];
+}
+
+
+uint32_t
+rivatnt_ramin_read_l(uint32_t addr, void *p)
+{
+	rivatnt_t *rivatnt = (rivatnt_t *)p;
+	svga_t *svga = &rivatnt->svga;
+	uint32_t *vram_l = (uint32_t *)svga->vram;
+
+	addr &= rivatnt->vram_mask;
+
+	return vram_l[(addr ^ rivatnt->ramin_flip) >> 2];
+}
+
+
+void
+rivatnt_ramin_write(uint32_t addr, uint8_t val, void *p)
+{
+	rivatnt_t *rivatnt = (rivatnt_t *)p;
+	svga_t *svga = &rivatnt->svga;
+
+	addr &= rivatnt->vram_mask;
+
+	//pclog("[RIVA 128] RAMIN write %08x %02x\n", addr, val);
+
+	svga->vram[addr ^ rivatnt->ramin_flip] = val;
+}
+
+
+void
+rivatnt_ramin_write_w(uint32_t addr, uint16_t val, void *p)
+{
+	rivatnt_t *rivatnt = (rivatnt_t *)p;
+	svga_t *svga = &rivatnt->svga;
+	uint16_t *vram_w = (uint16_t *)svga->vram;
+
+	addr &= rivatnt->vram_mask;
+
+	//pclog("[RIVA 128] RAMIN write %08x %04x\n", addr, val);
+
+	vram_w[(addr ^ rivatnt->ramin_flip) >> 1] = val;
+}
+
+
+void
+rivatnt_ramin_write_l(uint32_t addr, uint32_t val, void *p)
+{
+	rivatnt_t *rivatnt = (rivatnt_t *)p;
+	svga_t *svga = &rivatnt->svga;
+	uint32_t *vram_l = (uint32_t *)svga->vram;
+
+	addr &= rivatnt->vram_mask;
+
+	//pclog("[RIVA 128] RAMIN write %08x %08x\n", addr, val);
+
+	vram_l[(addr ^ rivatnt->ramin_flip) >> 2] = val;
+}
 
 static uint8_t 
 rivatnt_pci_read(int func, int addr, void *p)
@@ -501,7 +580,7 @@ rivatnt_pfb_read(uint32_t addr, void *p)
             {
                 case 4 << 20: return 0x15;
                 case 8 << 20: return 0x16;
-                case 16 << 20: return 0x17;
+                case 16 << 20: return 0x1f;
             }
             break;
     }
@@ -604,7 +683,8 @@ rivatnt_ptimer_tick(void *p)
     //tmp = rivatnt->ptimer.time;
     rivatnt->ptimer.time += (uint64_t)time;
 
-    alarm_check = (uint32_t)(rivatnt->ptimer.time - rivatnt->ptimer.alarm) & 0x80000000;
+    alarm_check = ((uint32_t)rivatnt->ptimer.time
+			>= (uint32_t)rivatnt->ptimer.alarm);
 
     //alarm_check = ((uint32_t)rivatnt->ptimer.time >= (uint32_t)rivatnt->ptimer.alarm);
 
@@ -612,7 +692,7 @@ rivatnt_ptimer_tick(void *p)
 
     if(alarm_check)
     {
-        pclog("[RIVA TNT] PTIMER ALARM interrupt fired!\n");
+        //pclog("[RIVA TNT] PTIMER ALARM interrupt fired!\n");
         rivatnt_ptimer_interrupt(0, rivatnt);
     }
 }
@@ -662,7 +742,7 @@ rivatnt_mmio_read_l(uint32_t addr, void *p)
     if ((addr >= 0x101000) && (addr <= 0x101fff)) ret = rivatnt_pextdev_read(addr, rivatnt);
     if ((addr >= 0x600000) && (addr <= 0x600fff)) ret = rivatnt_pcrtc_read(addr, rivatnt);
     if ((addr >= 0x680000) && (addr <= 0x680fff)) ret = rivatnt_pramdac_read(addr, rivatnt);
-    if ((addr >= 0x700000) && (addr <= 0x7fffff)) ret = rivatnt->ramin[(addr & 0xfffff) >> 2];
+    if ((addr >= 0x700000) && (addr <= 0x7fffff)) ret = rivatnt_ramin_read_l(addr, rivatnt);
     if ((addr >= 0x300000) && (addr <= 0x30ffff)) ret = ((uint32_t *) rivatnt->bios_rom.rom)[(addr & rivatnt->bios_rom.mask) >> 2];
 
     if ((addr >= 0x1800) && (addr <= 0x18ff))
@@ -750,7 +830,7 @@ rivatnt_mmio_write_l(uint32_t addr, uint32_t val, void *p)
     if((addr >= 0x009000) && (addr <= 0x009fff)) rivatnt_ptimer_write(addr, val, rivatnt);
     if((addr >= 0x600000) && (addr <= 0x600fff)) rivatnt_pcrtc_write(addr, val, rivatnt);
     if((addr >= 0x680000) && (addr <= 0x680fff)) rivatnt_pramdac_write(addr, val, rivatnt);
-    if((addr >= 0x700000) && (addr <= 0x7fffff)) rivatnt->ramin[(addr & 0xfffff) >> 2] = val;
+    if((addr >= 0x700000) && (addr <= 0x7fffff)) rivatnt_ramin_write_l(addr, val, rivatnt);
 
     switch(addr) {
     case 0x6013b4: case 0x6013b5:
@@ -1046,7 +1126,7 @@ rivatnt_recalctimings(svga_t *svga)
 {
     rivatnt_t *rivatnt = (rivatnt_t *)svga->priv;
 
-    svga->ma_latch += (svga->crtc[0x19] & 0x1f) << 16;
+    svga->memaddr_latch += (svga->crtc[0x19] & 0x1f) << 16;
     svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 3;
     if (svga->crtc[0x25] & 0x01) svga->vtotal      += 0x400;
     if (svga->crtc[0x25] & 0x02) svga->dispend     += 0x400;
@@ -1108,7 +1188,7 @@ rivatnt_recalctimings(svga_t *svga)
     if(v_m == 0) v_m = 1;
 
     freq = (freq * v_n) / (v_m << v_p);
-    svga->clock = (cpuclock * (double)(1ull << 32)) / freq;
+    if((svga->crtc[0x28] & 3) != 0) svga->clock = (cpuclock * (double)(1ull << 32)) / freq;
 }
 
 void
@@ -1132,6 +1212,7 @@ static void
 
     rivatnt->vram_size = device_get_config_int("memory") << 20;
     rivatnt->vram_mask = rivatnt->vram_size - 1;
+    rivatnt->ramin_flip = rivatnt->vram_mask & 0xfffffff0;
 
     svga_init(info, &rivatnt->svga, rivatnt, rivatnt->vram_size,
           rivatnt_recalctimings, rivatnt_in, rivatnt_out,
@@ -1250,7 +1331,7 @@ const device_t rivatnt_pci_device = {
     .init = rivatnt_init,
     .close = rivatnt_close, 
     .reset = NULL,
-    { .available = rivatnt_available },
+    .available = rivatnt_available,
     .speed_changed = rivatnt_speed_changed,
     .force_redraw = rivatnt_force_redraw,
     .config = rivatnt_config

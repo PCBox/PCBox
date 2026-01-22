@@ -1,7 +1,7 @@
 static int
 opMOVD_l_mm_a16(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opMOVD_l_xmm_a16(fetchdat);
 
     uint32_t dst;
@@ -34,7 +34,7 @@ opMOVD_l_mm_a16(uint32_t fetchdat)
 static int
 opMOVD_l_mm_a32(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opMOVD_l_xmm_a32(fetchdat);
 
     uint32_t dst;
@@ -68,7 +68,7 @@ opMOVD_l_mm_a32(uint32_t fetchdat)
 static int
 opMOVD_mm_l_a16(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opMOVD_xmm_l_a16(fetchdat);
 
     MMX_REG *op;
@@ -96,7 +96,7 @@ opMOVD_mm_l_a16(uint32_t fetchdat)
 static int
 opMOVD_mm_l_a32(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opMOVD_xmm_l_a32(fetchdat);
 
     MMX_REG *op;
@@ -122,7 +122,6 @@ opMOVD_mm_l_a32(uint32_t fetchdat)
     return 0;
 }
 
-#ifdef USE_CYRIX_6X86
 /*Cyrix maps both MOVD and SMINT to the same opcode*/
 static int
 opMOVD_mm_l_a16_cx(uint32_t fetchdat)
@@ -182,12 +181,11 @@ opMOVD_mm_l_a32_cx(uint32_t fetchdat)
 
     return 0;
 }
-#endif /* USE_CYRIX_6X86 */
 
 static int
 opMOVQ_q_mm_a16(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opMOVDQA_l_xmm_a16(fetchdat);
 
     uint64_t dst;
@@ -220,7 +218,7 @@ opMOVQ_q_mm_a16(uint32_t fetchdat)
 static int
 opMOVQ_q_mm_a32(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opMOVDQA_l_xmm_a32(fetchdat);
 
     uint64_t dst;
@@ -254,7 +252,7 @@ opMOVQ_q_mm_a32(uint32_t fetchdat)
 static int
 opMOVQ_mm_q_a16(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opMOVDQA_xmm_q_a16(fetchdat);
 
     MMX_REG  src;
@@ -287,7 +285,7 @@ opMOVQ_mm_q_a16(uint32_t fetchdat)
 static int
 opMOVQ_mm_q_a32(uint32_t fetchdat)
 {
-    if ((cpu_features & CPU_FEATURE_SSE2) && sse_xmm)
+    if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opMOVDQA_xmm_q_a32(fetchdat);
 
     MMX_REG  src;

@@ -8,8 +8,6 @@
  *
  *          Implementation of the Teledisk floppy image format.
  *
- *
- *
  * Authors: Milodrag Milanovic,
  *          Haruhiko OKUMURA,
  *          Haruyasu YOSHIZAKI,
@@ -1214,8 +1212,7 @@ td0_load(int drive, char *fn)
 
     writeprot[drive] = 1;
 
-    dev = (td0_t *) malloc(sizeof(td0_t));
-    memset(dev, 0x00, sizeof(td0_t));
+    dev = (td0_t *) calloc(1, sizeof(td0_t));
     td0[drive] = dev;
 
     dev->fp = plat_fopen(fn, "rb");

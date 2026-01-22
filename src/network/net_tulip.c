@@ -31,10 +31,10 @@
 #include <86box/device.h>
 #include <86box/thread.h>
 #include <86box/network.h>
-#include <86box/net_eeprom_nmc93cxx.h>
-#include <86box/bswap.h>
+#include <86box/nmc93cxx.h>
 #include <86box/plat_fallthrough.h>
 #include <86box/plat_unused.h>
+#include <86box/bswap.h>
 
 #define ROM_PATH_DEC21140            "roms/network/dec21140/BIOS13502.BIN"
 
@@ -291,8 +291,6 @@
 
 #define ETH_ALEN                     6
 
-static bar_t   tulip_pci_bar[3];
-
 struct tulip_descriptor {
     uint32_t status;
     uint32_t control;
@@ -338,6 +336,8 @@ struct TULIPState {
     uint32_t bios_addr;
     uint8_t  filter[16][6];
     int      has_bios;
+
+    bar_t    tulip_pci_bar[3];
 };
 
 typedef struct TULIPState TULIPState;
@@ -452,9 +452,7 @@ tulip_copy_rx_bytes(TULIPState *s, struct tulip_descriptor *desc)
 static bool
 tulip_filter_address(TULIPState *s, const uint8_t *addr)
 {
-#ifdef BLOCK_BROADCAST
     static const char broadcast[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
-#endif
     bool              ret         = false;
 
     for (uint8_t i = 0; i < 16 && ret == false; i++) {
@@ -463,15 +461,9 @@ tulip_filter_address(TULIPState *s, const uint8_t *addr)
         }
     }
 
-/*
-   Do not block broadcast packets - needed for connections to the guest
-   to succeed when using SLiRP.
- */
-#ifdef BLOCK_BROADCAST
     if (!memcmp(addr, broadcast, ETH_ALEN)) {
         return true;
     }
-#endif
 
     if (s->csr[6] & (CSR6_PR | CSR6_RA)) {
         /* Promiscuous mode enabled */
@@ -910,6 +902,7 @@ tulip_reset(void *priv)
         s->subsys_id                = eeprom_data[1];
         s->subsys_ven_id            = eeprom_data[0];
     }
+    s->nic->byte_period         = NET_PERIOD_10M;
 }
 
 static void
@@ -967,11 +960,19 @@ tulip_write(uint32_t addr, uint32_t data, void *opaque)
                 tulip_update_ts(s, CSR5_TS_STOPPED);
                 s->csr[5] |= CSR5_TPS;
             }
+
+            if (s->device_info->local < 3) {
+                if ((s->csr[6] & 0x00440000) && ((s->csr[6] & 0x00440000) != 0x00440000))
+                    s->nic->byte_period = NET_PERIOD_100M;
+                else
+                    s->nic->byte_period = NET_PERIOD_10M;
+            }
             break;
 
         case CSR(7):
             s->csr[7] = data;
-            tulip_update_int(s);
+            if (s->device_info->local)
+                tulip_update_int(s);
             break;
 
         case CSR(8):
@@ -1006,7 +1007,7 @@ tulip_write(uint32_t addr, uint32_t data, void *opaque)
 
         case CSR(13):
             s->csr[13] = data;
-            if (s->device_info->local == 3 && (data & 0x4)) {
+            if ((s->device_info->local == 3) && (data & 0x4)) {
                 s->csr[13] = 0x8f01;
                 s->csr[14] = 0xfffd;
                 s->csr[15] = 0;
@@ -1227,34 +1228,34 @@ tulip_pci_read(UNUSED(int func), int addr, void *priv)
             ret = 0x02;
             break;
         case 0x10:
-            ret = (tulip_pci_bar[0].addr_regs[0] & 0x80) | 0x01;
+            ret = (s->tulip_pci_bar[0].addr_regs[0] & 0x80) | 0x01;
             break;
         case 0x11:
-            ret = tulip_pci_bar[0].addr_regs[1];
+            ret = s->tulip_pci_bar[0].addr_regs[1];
             break;
         case 0x12:
-            ret = tulip_pci_bar[0].addr_regs[2];
+            ret = s->tulip_pci_bar[0].addr_regs[2];
             break;
         case 0x13:
-            ret = tulip_pci_bar[0].addr_regs[3];
+            ret = s->tulip_pci_bar[0].addr_regs[3];
             break;
 #ifdef USE_128_BYTE_BAR
         case 0x14:
-            ret = (tulip_pci_bar[1].addr_regs[0] & 0x80);
+            ret = (s->tulip_pci_bar[1].addr_regs[0] & 0x80);
             break;
 #endif
         case 0x15:
 #ifdef USE_128_BYTE_BAR
-            ret = tulip_pci_bar[1].addr_regs[1];
+            ret = s->tulip_pci_bar[1].addr_regs[1];
 #else
-            ret = tulip_pci_bar[1].addr_regs[1] & 0xf0;
+            ret = s->tulip_pci_bar[1].addr_regs[1] & 0xf0;
 #endif
             break;
         case 0x16:
-            ret = tulip_pci_bar[1].addr_regs[2];
+            ret = s->tulip_pci_bar[1].addr_regs[2];
             break;
         case 0x17:
-            ret = tulip_pci_bar[1].addr_regs[3];
+            ret = s->tulip_pci_bar[1].addr_regs[3];
             break;
         case 0x2C:
             ret = s->subsys_ven_id & 0xFF;
@@ -1269,16 +1270,16 @@ tulip_pci_read(UNUSED(int func), int addr, void *priv)
             ret = s->subsys_id >> 8;
             break;
         case 0x30:
-            ret = (tulip_pci_bar[2].addr_regs[0] & 0x01);
+            ret = (s->tulip_pci_bar[2].addr_regs[0] & 0x01);
             break;
         case 0x31:
-            ret = tulip_pci_bar[2].addr_regs[1];
+            ret = s->tulip_pci_bar[2].addr_regs[1];
             break;
         case 0x32:
-            ret = tulip_pci_bar[2].addr_regs[2];
+            ret = s->tulip_pci_bar[2].addr_regs[2];
             break;
         case 0x33:
-            ret = tulip_pci_bar[2].addr_regs[3];
+            ret = s->tulip_pci_bar[2].addr_regs[3];
             break;
         case 0x3C:
             ret = s->pci_conf[0x3C];
@@ -1332,9 +1333,9 @@ tulip_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
                              tulip_readb_io, tulip_readw_io, tulip_readl_io,
                              tulip_writeb_io, tulip_writew_io, tulip_writel_io,
                              priv);
-            tulip_pci_bar[0].addr_regs[addr & 3] = val;
-            tulip_pci_bar[0].addr &= 0xffffff80;
-            s->PCIBase = tulip_pci_bar[0].addr;
+            s->tulip_pci_bar[0].addr_regs[addr & 3] = val;
+            s->tulip_pci_bar[0].addr &= 0xffffff80;
+            s->PCIBase = s->tulip_pci_bar[0].addr;
             if (s->pci_conf[0x4] & PCI_COMMAND_IO) {
                 //pclog("PCI write=%02x, base=%04x, io?=%x.\n", addr, s->PCIBase, s->pci_conf[0x4] & PCI_COMMAND_IO);
                 if (s->PCIBase != 0)
@@ -1351,13 +1352,13 @@ tulip_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
         case 0x16:
         case 0x17:
             mem_mapping_disable(&s->memory);
-            tulip_pci_bar[1].addr_regs[addr & 3] = val;
+            s->tulip_pci_bar[1].addr_regs[addr & 3] = val;
 #ifdef USE_128_BYTE_BAR
-            tulip_pci_bar[1].addr &= 0xffffff80;
+            s->tulip_pci_bar[1].addr &= 0xffffff80;
 #else
-            tulip_pci_bar[1].addr &= 0xfffff000;
+            s->tulip_pci_bar[1].addr &= 0xfffff000;
 #endif
-            s->MMIOBase = tulip_pci_bar[1].addr;
+            s->MMIOBase = s->tulip_pci_bar[1].addr;
             if (s->pci_conf[0x4] & PCI_COMMAND_MEM) {
                 //pclog("PCI write=%02x, mmiobase=%08x, mmio?=%x.\n", addr, s->PCIBase, s->pci_conf[0x4] & PCI_COMMAND_MEM);
                 if (s->MMIOBase != 0)
@@ -1376,10 +1377,10 @@ tulip_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
                 return;
 
             mem_mapping_disable(&s->bios_rom.mapping);
-            tulip_pci_bar[2].addr_regs[addr & 3] = val;
-            tulip_pci_bar[2].addr &= 0xffff0001;
-            s->bios_addr = tulip_pci_bar[2].addr & 0xffff0000;
-            if (tulip_pci_bar[2].addr_regs[0] & 0x01) {
+            s->tulip_pci_bar[2].addr_regs[addr & 3] = val;
+            s->tulip_pci_bar[2].addr &= 0xffff0001;
+            s->bios_addr = s->tulip_pci_bar[2].addr & 0xffff0000;
+            if (s->tulip_pci_bar[2].addr_regs[0] & 0x01) {
                 if (s->bios_addr != 0)
                     mem_mapping_set_addr(&s->bios_rom.mapping, s->bios_addr, 0x10000);
             }
@@ -1407,7 +1408,7 @@ nic_init(const device_t *info)
     if (!s)
         return NULL;
 
-    if (info->local && info->local != 3) {
+    if (info->local && (info->local != 3)) {
         s->bios_addr = 0xD0000;
         s->has_bios  = device_get_config_int("bios");
     } else {
@@ -1434,7 +1435,7 @@ nic_init(const device_t *info)
             s->eeprom_data[2] = 0x14;
             s->eeprom_data[3] = 0x21;
         } else {
-           /*Subsystem Vendor ID*/
+            /*Subsystem Vendor ID*/
             s->eeprom_data[0] = info->local ? 0x25 : 0x11;
             s->eeprom_data[1] = 0x10;
 
@@ -1549,23 +1550,40 @@ nic_init(const device_t *info)
             /*Block Count*/
             s->eeprom_data[32] = 0x01;
 
-            /*Extended Format - Block Type 2 for 21142/21143*/
+            /*Extended Format - Block Type 3 for 21142/21143*/
             /*Length (0:6) and Format Indicator (7)*/
-            s->eeprom_data[33] = 0x86;
+            s->eeprom_data[33] = 0x8d;
 
             /*Block Type*/
-            s->eeprom_data[34] = 0x02;
+            s->eeprom_data[34] = 0x03;
 
-            /*Media Code (0:5), EXT (6), Reserved (7)*/
-            s->eeprom_data[35] = 0x01;
+            /*PHY Number*/
+            s->eeprom_data[35] = 0x00;
 
-            /*General Purpose Control*/
-            s->eeprom_data[36] = 0xff;
-            s->eeprom_data[37] = 0xff;
+            /*GPR Length*/
+            s->eeprom_data[36] = 0x00;
 
-            /*General Purpose Data*/
+            /*Reset Length*/
+            s->eeprom_data[37] = 0x00;
+
+            /*Media Capabilities*/
             s->eeprom_data[38] = 0x00;
-            s->eeprom_data[39] = 0x00;
+            s->eeprom_data[39] = 0x78;
+
+            /*Nway Advertisement*/
+            s->eeprom_data[40] = 0xe0;
+            s->eeprom_data[41] = 0x01;
+
+            /*FDX Bit Map*/
+            s->eeprom_data[42] = 0x00;
+            s->eeprom_data[43] = 0x50;
+
+            /*TTM Bit Map*/
+            s->eeprom_data[44] = 0x00;
+            s->eeprom_data[45] = 0x18;
+
+            /*MII PHY Insertion/removal Indication*/
+            s->eeprom_data[46] = 0x00;
         }
 
         s->eeprom_data[126] = tulip_srom_crc(s->eeprom_data) & 0xff;
@@ -1608,7 +1626,7 @@ nic_init(const device_t *info)
         checksum *= 2;
         if (checksum > 65535)
             checksum = checksum % 65535;
-        
+
         /* 3rd pair. */
         checksum += (s->eeprom_data[4] * 256) | s->eeprom_data[5];
         if (checksum > 65535)
@@ -1616,7 +1634,7 @@ nic_init(const device_t *info)
 
         if (checksum >= 65535)
             checksum = 0;
-        
+
         s->eeprom_data[6] = (checksum >> 8) & 0xFF;
         s->eeprom_data[7] = checksum & 0xFF;
     }
@@ -1625,24 +1643,25 @@ nic_init(const device_t *info)
         params.nwords          = 64;
         params.default_content = (uint16_t *) s->eeprom_data;
         params.filename        = filename;
-        snprintf(filename, sizeof(filename), "nmc93cxx_eeprom_%s_%d.nvr", info->internal_name, device_get_instance());
-        s->eeprom = device_add_params(&nmc93cxx_device, &params);
+        int inst               = device_get_instance();
+        snprintf(filename, sizeof(filename), "nmc93cxx_eeprom_%s_%d.nvr", info->internal_name, inst);
+        s->eeprom = device_add_inst_params(&nmc93cxx_device, inst, &params);
         if (s->eeprom == NULL) {
             free(s);
             return NULL;
         }
     }
 
-    tulip_pci_bar[0].addr_regs[0] = 1;
-    tulip_pci_bar[1].addr_regs[0] = 0;
-    s->pci_conf[0x04]             = 7;
+    s->tulip_pci_bar[0].addr_regs[0] = 1;
+    s->tulip_pci_bar[1].addr_regs[0] = 0;
+    s->pci_conf[0x04]                = 7;
 
     /* Enable our BIOS space in PCI, if needed. */
     if (s->has_bios) {
         rom_init(&s->bios_rom, ROM_PATH_DEC21140, s->bios_addr, 0x10000, 0xffff, 0, MEM_MAPPING_EXTERNAL);
-        tulip_pci_bar[2].addr         = 0xffff0000;
+        s->tulip_pci_bar[2].addr         = 0xffff0000;
     } else
-        tulip_pci_bar[2].addr         = 0;
+        s->tulip_pci_bar[2].addr         = 0;
 
     mem_mapping_disable(&s->bios_rom.mapping);
     eeprom_data = (info->local == 3) ? s->eeprom_data : (uint8_t *) &nmc93cxx_eeprom_data(s->eeprom)[0];
@@ -1664,29 +1683,41 @@ nic_close(void *priv)
 // clang-format off
 static const device_config_t dec_tulip_21143_config[] = {
     {
-        .name = "mac",
-        .description = "MAC Address",
-        .type = CONFIG_MAC,
-        .default_string = "",
-        .default_int = -1
+        .name           = "mac",
+        .description    = "MAC Address",
+        .type           = CONFIG_MAC,
+        .default_string = NULL,
+        .default_int    = -1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
 };
 
 static const device_config_t dec_tulip_21140_config[] = {
     {
-        .name = "bios",
-        .description = "Enable BIOS",
-        .type = CONFIG_BINARY,
-        .default_string = "",
-        .default_int = 0
+        .name           = "bios",
+        .description    = "Enable BIOS",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     {
-        .name = "mac",
-        .description = "MAC Address",
-        .type = CONFIG_MAC,
-        .default_string = "",
-        .default_int = -1
+        .name           = "mac",
+        .description    = "MAC Address",
+        .type           = CONFIG_MAC,
+        .default_string = NULL,
+        .default_int    = -1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
 };
@@ -1700,7 +1731,7 @@ const device_t dec_tulip_device = {
     .init          = nic_init,
     .close         = nic_close,
     .reset         = tulip_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = dec_tulip_21143_config
@@ -1714,7 +1745,7 @@ const device_t dec_tulip_21140_device = {
     .init          = nic_init,
     .close         = nic_close,
     .reset         = tulip_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = dec_tulip_21140_config
@@ -1728,7 +1759,7 @@ const device_t dec_tulip_21140_vpc_device = {
     .init          = nic_init,
     .close         = nic_close,
     .reset         = tulip_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = dec_tulip_21140_config
@@ -1742,7 +1773,7 @@ const device_t dec_tulip_21040_device = {
     .init          = nic_init,
     .close         = nic_close,
     .reset         = tulip_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = dec_tulip_21143_config

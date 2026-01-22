@@ -8,8 +8,6 @@
  *
  *          Emulation of the Genesys Logic GL518SM hardware monitoring chip.
  *
- *
- *
  * Authors: RichardG, <richardg867@gmail.com>
  *
  *          Copyright 2020 RichardG.
@@ -282,8 +280,7 @@ gl518sm_close(void *priv)
 static void *
 gl518sm_init(const device_t *info)
 {
-    gl518sm_t *dev = (gl518sm_t *) malloc(sizeof(gl518sm_t));
-    memset(dev, 0, sizeof(gl518sm_t));
+    gl518sm_t *dev = (gl518sm_t *) calloc(1, sizeof(gl518sm_t));
 
     dev->local = info->local;
 
@@ -325,7 +322,7 @@ const device_t gl518sm_2c_device = {
     .init          = gl518sm_init,
     .close         = gl518sm_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -340,7 +337,7 @@ const device_t gl518sm_2d_device = {
     .init          = gl518sm_init,
     .close         = gl518sm_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -355,7 +352,7 @@ const device_t gl520sm_2c_device = {
     .init          = gl518sm_init,
     .close         = gl518sm_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -371,7 +368,7 @@ const device_t gl520sm_2d_device = {
     .init          = gl518sm_init,
     .close         = gl518sm_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

@@ -217,6 +217,7 @@ block_free_list_get(void)
 void
 codegen_init(void)
 {
+    codegen_check_regs();
     codegen_allocator_init();
 
     codegen_backend_init();
@@ -558,6 +559,10 @@ codegen_block_start_recompile(codeblock_t *block)
         fatal("Recompile to used block!\n");
 #endif
 
+    if (block->head_mem_block) {
+        codegen_allocator_free(block->head_mem_block);
+        block->head_mem_block = NULL;
+    }
     block->head_mem_block = codegen_allocator_allocate(NULL, block_current);
     block->data           = codeblock_allocator_get_ptr(block->head_mem_block);
 

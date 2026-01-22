@@ -160,11 +160,11 @@ int main(int ac, char** av)
 
         cpu_state.pc++;
         x86_opcodes[(opcode | cpu_state.op32) & 0x3ff](fetchdat);
-        sse_xmm = 0;
+        cpu_state.sse_xmm = 0;
     }
 
-    uint64_t result = cpu_state_high.XMM[0].q[0];
-    uint64_t result2 = cpu_state_high.XMM[0].q[1];
+    uint64_t result = cpu_state.XMM[0].q[0];
+    uint64_t result2 = cpu_state.XMM[0].q[1];
     __m128* operand = &testrom[0x11000];
     __m128* operand2 = &testrom[0x11010];
     __m128 tmpresult = _mm_min_ps(*operand, *operand2);

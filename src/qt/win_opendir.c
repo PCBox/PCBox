@@ -10,8 +10,6 @@
  *
  *          Based on old original code @(#)dir_win32.c 1.2.0 2007/04/19
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *
  *          Copyright 1998-2007 MicroWalt Corporation
@@ -40,21 +38,19 @@ opendir(const char *name)
     DIR *p;
 
     /* Create a new control structure. */
-    p = (DIR *) malloc(sizeof(DIR));
+    p = (DIR *) calloc(1, sizeof(DIR));
     if (p == NULL)
         return (NULL);
-    memset(p, 0x00, sizeof(DIR));
     p->flags  = (DIR_F_LOWER | DIR_F_SANE);
     p->offset = 0;
     p->sts    = 0;
 
     /* Create a work area. */
-    p->dta = (char *) malloc(sizeof(FINDATA));
+    p->dta = (char *) calloc(1, sizeof(FINDATA));
     if (p->dta == NULL) {
         free(p);
         return (NULL);
     }
-    memset(p->dta, 0x00, sizeof(struct _finddata_t));
 
     /* Add search filespec. */
     strcpy(p->dir, name);

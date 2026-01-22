@@ -8,8 +8,6 @@
  *
  *          AGP Graphics Address Remapping Table remapping emulation.
  *
- *
- *
  * Authors: RichardG, <richardg867@gmail.com>
  *
  *          Copyright 2021 RichardG.
@@ -167,7 +165,7 @@ const device_t agpgart_device = {
     .init          = agpgart_init,
     .close         = agpgart_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

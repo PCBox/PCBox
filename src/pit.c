@@ -9,8 +9,6 @@
  *          Implementation of the Intel 8253/8254 Programmable Interval
  *          Timer.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2019 Miran Grca.
@@ -247,7 +245,7 @@ ctr_tick(ctr_t *ctr, void *priv)
                                 ctr_decrease_count(ctr);
                         } else
                             ctr->count -= (ctr->newcount ? 1 : 2);
-                        if (ctr->count < 0) {
+                        if (ctr->count == 0) {
                             ctr_set_out(ctr, 0, pit);
                             ctr_load_count(ctr);
                             ctr->state = 3;
@@ -266,7 +264,7 @@ ctr_tick(ctr_t *ctr, void *priv)
                                 ctr_decrease_count(ctr);
                         } else
                             ctr->count -= (ctr->newcount ? 3 : 2);
-                        if (ctr->count < 0) {
+                        if (ctr->count == 0) {
                             ctr_set_out(ctr, 1, pit);
                             ctr_load_count(ctr);
                             ctr->state = 2;
@@ -334,7 +332,7 @@ ctr_set_state_1(ctr_t *ctr)
 {
     uint8_t mode = (ctr->m & 0x03);
     int do_reload = !!ctr->incomplete || (mode == 0) || (ctr->state == 0);
-
+ 
     ctr->incomplete = 0;
 
     if (do_reload)
@@ -358,8 +356,18 @@ ctr_load(ctr_t *ctr)
     else
         ctr_set_state_1(ctr);
 
-    if (ctr->load_func != NULL)
-        ctr->load_func(ctr->m, ctr->l ? ctr->l : 0x10000);
+    if (ctr->load_func != NULL) {
+        uint32_t count = ctr->l ? ctr->l : 0x10000;
+        if (ctr->bcd) {
+            uint32_t bcd_count = (((count >> 16) & 0xf) * 10000) |
+                                 (((count >> 12) & 0xf) * 1000 ) |
+                                 (((count >> 8 ) & 0xf) * 100  ) |
+                                 (((count >> 4 ) & 0xf) * 10   ) |
+                                 (count & 0xf);
+            ctr->load_func(ctr->m, bcd_count);
+        } else
+            ctr->load_func(ctr->m, ctr->l ? ctr->l : 0x10000);
+    }
 
     pit_log("Counter loaded, state = %i, gate = %i, latch = %i\n", ctr->state, ctr->gate, ctr->latch);
 }
@@ -540,7 +548,8 @@ pit_write(uint16_t addr, uint8_t val, void *priv)
     ctr_t *ctr;
 
     if ((dev->flags & (PIT_8254 | PIT_EXT_IO))) {
-        pit_log("[%04X:%08X] pit_write(%04X, %02X, %08X)\n", CS, cpu_state.pc, addr, val, priv);
+        pit_log("[%04X:%08X] pit_write(%04X, %02X, %016" PRIX64 ")\n",
+                CS, cpu_state.pc, addr, val, (uint64_t) (uintptr_t) priv);
     }
 
     switch (addr & 3) {
@@ -788,7 +797,8 @@ pit_read(uint16_t addr, void *priv)
     }
 
     if ((dev->flags & (PIT_8254 | PIT_EXT_IO))) {
-        pit_log("[%04X:%08X] pit_read(%04X, %08X) = %02X\n", CS, cpu_state.pc, addr, priv, ret);
+        pit_log("[%04X:%08X] pit_read(%04X, %016" PRIX64 ") = %02X\n",
+                CS, cpu_state.pc, addr, (uint64_t) (uintptr_t) priv, ret);
     }
 
     return ret;
@@ -960,7 +970,7 @@ const device_t i8253_device = {
     .init          = pit_init,
     .close         = pit_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = pit_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -974,7 +984,7 @@ const device_t i8253_ext_io_device = {
     .init          = pit_init,
     .close         = pit_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -988,7 +998,7 @@ const device_t i8254_device = {
     .init          = pit_init,
     .close         = pit_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = pit_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1002,7 +1012,7 @@ const device_t i8254_sec_device = {
     .init          = pit_init,
     .close         = pit_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = pit_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1016,7 +1026,7 @@ const device_t i8254_ext_io_device = {
     .init          = pit_init,
     .close         = pit_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1030,7 +1040,7 @@ const device_t i8254_ps2_device = {
     .init          = pit_init,
     .close         = pit_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = pit_speed_changed,
     .force_redraw  = NULL,
     .config        = NULL
@@ -1124,7 +1134,7 @@ pit_change_pas16_consts(double prescale)
 }
 
 void
-pit_set_clock(uint32_t clock)
+pit_set_clock(uint64_t clock)
 {
     /* Set default CPU/crystal clock and xt_cpu_multi. */
     if (cpu_s->cpu_type >= CPU_286) {
@@ -1250,14 +1260,14 @@ pit_set_clock(uint32_t clock)
 }
 
 const pit_intf_t pit_classic_intf = {
-    &pit_read,
-    &pit_write,
-    &pit_ctr_get_count,
-    &pit_ctr_set_gate,
-    &pit_ctr_set_using_timer,
-    &pit_ctr_set_out_func,
-    &pit_ctr_set_load_func,
-    &ctr_clock,
-    &pit_set_pit_const,
-    NULL,
+    .read            = &pit_read,
+    .write           = &pit_write,
+    .get_count       = &pit_ctr_get_count,
+    .set_gate        = &pit_ctr_set_gate,
+    .set_using_timer = &pit_ctr_set_using_timer,
+    .set_out_func    = &pit_ctr_set_out_func,
+    .set_load_func   = &pit_ctr_set_load_func,
+    .ctr_clock       = &ctr_clock,
+    .set_pit_const   = &pit_set_pit_const,
+    .data            = NULL,
 };

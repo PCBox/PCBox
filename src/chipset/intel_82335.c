@@ -8,8 +8,6 @@
  *
  *          Implementation of the Intel 82335(KU82335) chipset.
  *
- *
- *
  * Authors: Tiseno100
  *
  *          Copyright 2021 Tiseno100.
@@ -171,8 +169,7 @@ intel_82335_close(void *priv)
 static void *
 intel_82335_init(UNUSED(const device_t *info))
 {
-    intel_82335_t *dev = (intel_82335_t *) malloc(sizeof(intel_82335_t));
-    memset(dev, 0, sizeof(intel_82335_t));
+    intel_82335_t *dev = (intel_82335_t *) calloc(1, sizeof(intel_82335_t));
 
     memset(dev->regs, 0, sizeof(dev->regs));
 
@@ -209,7 +206,7 @@ const device_t intel_82335_device = {
     .init          = intel_82335_init,
     .close         = intel_82335_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

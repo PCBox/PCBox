@@ -8,8 +8,6 @@
  *
  *          3DFX Voodoo emulation.
  *
- *
- *
  * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
  *
  *          Copyright 2008-2020 Sarah Walker.
@@ -61,10 +59,10 @@ voodoo_texture_log(const char *fmt, ...)
 void
 voodoo_recalc_tex12(voodoo_t *voodoo, int tmu)
 {
-    int      aspect = (voodoo->params.tLOD[tmu] >> 21) & 3;
-    int      width = 256;
-    int      height = 256;
-    int      shift = 8;
+    int      aspect  = (voodoo->params.tLOD[tmu] >> 21) & 3;
+    int      width   = 256;
+    int      height  = 256;
+    int      shift   = 8;
     uint32_t base    = voodoo->params.texBaseAddr[tmu];
     uint32_t offset  = 0;
     int      tex_lod = 0;

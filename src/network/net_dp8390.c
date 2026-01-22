@@ -7,8 +7,6 @@
  *          Emulation of the DP8390 Network Interface Controller used by
  *          the WD family, NE1000/NE2000 family, and 3Com 3C503 NIC's.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *          Bochs project,
  *
@@ -19,6 +17,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <stdarg.h>
 #include <wchar.h>
 #include <time.h>
@@ -198,6 +197,11 @@ dp8390_write_cr(dp8390_t *dev, uint32_t val)
         if (dev->TCR.loop_cntl) {
             dp8390_rx_common(dev, &dev->mem[((dev->tx_page_start * 256) - dev->mem_start) & dev->mem_wrap],
                              dev->tx_bytes);
+
+            if (dev->IMR.rx_inte && !dev->ISR.pkt_tx && dev->interrupt)
+                dev->interrupt(dev->priv, 1);
+
+            dev->ISR.pkt_tx = 1;
         }
     } else if (val & 0x04) {
         if (dev->CR.stop || (!dev->CR.start && (dev->flags & DP8390_FLAG_CHECK_CR))) {
@@ -220,12 +224,6 @@ dp8390_write_cr(dp8390_t *dev, uint32_t val)
         if (!(dev->card->link_state & NET_LINK_DOWN))
             network_tx(dev->card, &dev->mem[((dev->tx_page_start * 256) - dev->mem_start) & dev->mem_wrap], dev->tx_bytes);
 
-            /* some more debug */
-#ifdef ENABLE_DP8390_LOG
-        if (dev->tx_timer_active)
-            dp8390_log("DP8390: CR write, tx timer still active\n");
-#endif
-
         dp8390_tx(dev, val);
     }
 
@@ -247,12 +245,12 @@ dp8390_tx(dp8390_t *dev, UNUSED(uint32_t val))
 {
     dev->CR.tx_packet = 0;
     dev->TSR.tx_ok    = 1;
-    dev->ISR.pkt_tx   = 1;
 
     /* Generate an interrupt if not masked */
-    if (dev->IMR.tx_inte && dev->interrupt)
+    if (dev->IMR.tx_inte && !dev->ISR.pkt_tx && dev->interrupt)
         dev->interrupt(dev->priv, 1);
-    dev->tx_timer_active = 0;
+
+    dev->ISR.pkt_tx   = 1;
 }
 
 /*
@@ -516,7 +514,7 @@ dp8390_page0_write(dp8390_t *dev, uint32_t off, uint32_t val, UNUSED(unsigned le
 {
     uint8_t val2;
 
-    dp8390_log("DP839: Page0 write to register 0x%02x, value=0x%02x\n",
+    dp8390_log("DP8390: Page0 write to register 0x%02x, value=0x%02x\n",
                off, val);
 
     switch (off) {
@@ -918,8 +916,7 @@ dp8390_set_defaults(dp8390_t *dev, uint8_t flags)
 void
 dp8390_mem_alloc(dp8390_t *dev, uint32_t start, uint32_t size)
 {
-    dev->mem = (uint8_t *) malloc(size * sizeof(uint8_t));
-    memset(dev->mem, 0, size * sizeof(uint8_t));
+    dev->mem = (uint8_t *) calloc(size, sizeof(uint8_t));
     dev->mem_start = start;
     dev->mem_end   = start + size;
     dev->mem_size  = size;
@@ -961,7 +958,6 @@ dp8390_reset(dp8390_t *dev)
     memset(&dev->TCR, 0x00, sizeof(dev->TCR));
     memset(&dev->TSR, 0x00, sizeof(dev->TSR));
     memset(&dev->RSR, 0x00, sizeof(dev->RSR));
-    dev->tx_timer_active = 0;
     dev->local_dma       = 0;
     dev->page_start      = 0;
     dev->page_stop       = 0;
@@ -1007,8 +1003,7 @@ dp8390_soft_reset(dp8390_t *dev)
 static void *
 dp8390_init(UNUSED(const device_t *info))
 {
-    dp8390_t *dp8390 = (dp8390_t *) malloc(sizeof(dp8390_t));
-    memset(dp8390, 0, sizeof(dp8390_t));
+    dp8390_t *dp8390 = (dp8390_t *) calloc(1, sizeof(dp8390_t));
 
     /* Set values assuming WORD and only the clear IRQ flag -
        - the NIC can then call dp8390_set_defaults() again to
@@ -1047,7 +1042,7 @@ const device_t dp8390_device = {
     .init          = dp8390_init,
     .close         = dp8390_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

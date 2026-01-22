@@ -8,8 +8,6 @@
  *
  *          Implementation of the PCjr cartridge emulation.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2021 Miran Grca.
@@ -22,6 +20,7 @@
 #include <wchar.h>
 #define HAVE_STDARG_H
 #include <86box/86box.h>
+#include "cpu.h"
 #include <86box/timer.h>
 #include <86box/plat.h>
 #include <86box/ui.h>
@@ -34,7 +33,7 @@ typedef struct cart_t {
     uint32_t base;
 } cart_t;
 
-char cart_fns[2][512];
+char cart_fns[2][MAX_IMAGE_PATH_LEN];
 char *cart_image_history[2][CART_IMAGE_HISTORY];
 
 static cart_t carts[2];
@@ -91,8 +90,8 @@ cart_image_close(int drive)
 static void
 cart_image_load(int drive, char *fn)
 {
-    FILE    *fp;
-    uint32_t size;
+    FILE    *fp   = NULL;
+    uint32_t size = 0;
     uint32_t base = 0x00000000;
 
     cart_image_close(drive);
@@ -104,6 +103,7 @@ cart_image_load(int drive, char *fn)
     if (size < 0x1200) {
         cartridge_log("cart_image_load(): File size %i is too small\n", size);
         cart_load_error(drive, fn);
+        fclose(fp);
         return;
     }
     if (size & 0x00000fff) {
@@ -112,8 +112,7 @@ cart_image_load(int drive, char *fn)
         (void) !fread(&base, 1, 2, fp);
         base <<= 4;
         fseek(fp, 0x00000200, SEEK_SET);
-        carts[drive].buf = (uint8_t *) malloc(size);
-        memset(carts[drive].buf, 0x00, size);
+        carts[drive].buf = (uint8_t *) calloc(1, size);
         (void) !fread(carts[drive].buf, 1, size, fp);
         fclose(fp);
     } else {
@@ -121,8 +120,7 @@ cart_image_load(int drive, char *fn)
         if (size == 32768)
             base += 0x8000;
         fseek(fp, 0x00000000, SEEK_SET);
-        carts[drive].buf = (uint8_t *) malloc(size);
-        memset(carts[drive].buf, 0x00, size);
+        carts[drive].buf = (uint8_t *) calloc(1, size);
         (void) !fread(carts[drive].buf, 1, size, fp);
         fclose(fp);
     }
@@ -137,7 +135,7 @@ cart_image_load(int drive, char *fn)
 static void
 cart_load_common(int drive, char *fn, uint8_t hard_reset)
 {
-    FILE *fp;
+    FILE *fp = NULL;
 
     cartridge_log("Cartridge: loading drive %d with '%s'\n", drive, fn);
 

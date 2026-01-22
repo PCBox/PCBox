@@ -8,8 +8,6 @@
  *
  *          Definitions for the PGC driver.
  *
- *
- *
  * Authors: Fred N. van Kempen, <decwiz@yahoo.com>
  *          John Elliott, <jce@seasip.info>
  *
@@ -115,14 +113,13 @@ typedef struct pgc {
     int      displine;
     int      vc;
     int      cgadispon;
-    int      con;
-    int      coff;
+    int      cursorvisible;
     int      cursoron;
     int      cgablink;
     int      vsynctime;
     int      vadj;
-    uint16_t ma;
-    uint16_t maback;
+    uint16_t memaddr;
+    uint16_t memaddr_backup;
     int      oddeven;
 
     uint64_t dispontime;

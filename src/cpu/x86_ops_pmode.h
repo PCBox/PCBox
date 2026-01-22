@@ -172,12 +172,12 @@ opLAR(w_a16, fetch_ea_16, 0, 0)
         return cpu_state.abrt;                                                                                              \
     }
 
-                opLSL(w_a16, fetch_ea_16, 0, 0)
-                    opLSL(w_a32, fetch_ea_32, 0, 1)
-                        opLSL(l_a16, fetch_ea_16, 1, 0)
-                            opLSL(l_a32, fetch_ea_32, 1, 1)
+opLSL(w_a16, fetch_ea_16, 0, 0)
+opLSL(w_a32, fetch_ea_32, 0, 1)
+opLSL(l_a16, fetch_ea_16, 1, 0)
+opLSL(l_a32, fetch_ea_32, 1, 1)
 
-                                static int op0F00_common(uint32_t fetchdat, int ea32)
+static int op0F00_common(uint32_t fetchdat, UNUSED(int ea32))
 {
     int      dpl;
     int      valid;
@@ -359,11 +359,57 @@ op0F00_a32(uint32_t fetchdat)
 }
 
 static int
-op0F01_common(uint32_t fetchdat, int is32, int is286, int ea32)
+op0F01_common(UNUSED(uint32_t fetchdat), int is32, int is286, UNUSED(int ea32))
 {
     uint32_t base;
     uint16_t limit;
     uint16_t tempw;
+
+    if(((rmdat & 0xc0) == 0xc0) && (cpu_features & CPU_FEATURE_MONITOR_MWAIT))
+    {
+        if(rmdat == 0xc8)
+        {
+            //MONITOR
+            if(CPL != 0)
+            {
+                cpu_state.pc = cpu_state.oldpc;
+                x86illegal();
+                return 1;
+            }
+
+            if(ECX != 0)
+            {
+                x86gpf(NULL, 0);
+                return 1;
+            }
+
+            uint32_t eaddr = EAX;
+
+            SEG_CHECK_READ(cpu_state.ea_seg);
+            (void)readmemb(easeg, eaddr);
+
+            flushmmucache_nopc();
+            return 0;
+        }
+        else if(rmdat == 0xc9)
+        {
+            if(CPL != 0)
+            {
+                cpu_state.pc = cpu_state.oldpc;
+                x86illegal();
+                return 1;
+            }
+
+            if(ECX != 0)
+            {
+                x86gpf(NULL, 0);
+                return 1;
+            }
+
+            //Treat MWAIT as a NOP, since we don't support APIC yet.
+            return 0;
+        }
+    }
 
     switch (rmdat & 0x38) {
         case 0x00: /*SGDT*/

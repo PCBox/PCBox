@@ -8,19 +8,15 @@
  *
  *          IBM XGA emulation.
  *
- *
- *
  * Authors: TheCollector1995.
  *
  *          Copyright 2022 TheCollector1995.
  */
-
 #ifndef VIDEO_XGA_DEVICE_H
 #define VIDEO_XGA_DEVICE_H
 
 #ifdef EMU_DEVICE_H
 extern const device_t xga_device;
-extern const device_t xga_isa_device;
 extern const device_t inmos_isa_device;
 #endif
 #endif /*VIDEO_XGA_DEVICE_H*/

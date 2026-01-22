@@ -2,6 +2,9 @@
 #    define _FILE_OFFSET_BITS   64
 #    define _LARGEFILE64_SOURCE 1
 #endif
+#ifdef __HAIKU__
+#include <OS.h>
+#endif
 #include <SDL.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -38,6 +41,8 @@
 #include <86box/device.h>
 #include <86box/gameport.h>
 #include <86box/unix_sdl.h>
+#include <86box/unix_osd.h>
+#include "cpu.h"
 #include <86box/timer.h>
 #include <86box/nvr.h>
 #include <86box/version.h>
@@ -48,6 +53,8 @@
 #define __USE_GNU 1 /* shouldn't be done, yet it is */
 #include <pthread.h>
 
+extern SDL_Window         *sdl_win;
+
 static int      first_use = 1;
 static uint64_t StartingTime;
 static uint64_t Frequency;
@@ -56,20 +63,19 @@ int             update_icons;
 int             kbd_req_capture;
 int             hide_status_bar;
 int             hide_tool_bar;
+bool            fast_forward = false;
 int             fixed_size_x = 640;
 int             fixed_size_y = 480;
 extern int      title_set;
 extern wchar_t  sdl_win_title[512];
-plat_joystick_t plat_joystick_state[MAX_PLAT_JOYSTICKS];
-joystick_t      joystick_state[MAX_JOYSTICKS];
-int             joysticks_present;
 SDL_mutex      *blitmtx;
 SDL_threadID    eventthread;
 static int      exit_event         = 0;
 static int      fullscreen_pending = 0;
-uint32_t        lang_id  = 0x0409; // Multilangual UI variables, for now all set to LCID of en-US
-uint32_t        lang_sys = 0x0409; // Multilangual UI variables, for now all set to LCID of en-US
-char            icon_set[256] = "";                  /* name of the iconset to be used */
+
+// Two keys to be pressed together to open the OSD, variables to make them configurable in future
+static uint16_t osd_open_first_key = SDL_SCANCODE_RCTRL;
+static uint16_t osd_open_second_key = SDL_SCANCODE_F11;
 
 static const uint16_t sdl_to_xt[0x200] = {
     [SDL_SCANCODE_ESCAPE]       = 0x01,
@@ -207,22 +213,33 @@ dynld_module(const char *name, dllimp_t *table)
     return modhandle;
 }
 
+#define TMPFILE_BUFSIZE 1024  // Assumed max buffer size
 void
 plat_tempfile(char *bufp, char *prefix, char *suffix)
 {
     struct tm     *calendertime;
     struct timeval t;
     time_t         curtime;
+    size_t         used = 0;
 
     if (prefix != NULL)
-        sprintf(bufp, "%s-", prefix);
-    else
-        strcpy(bufp, "");
+        used = snprintf(bufp, TMPFILE_BUFSIZE, "%s-", prefix);
+    else if (TMPFILE_BUFSIZE > 0)
+        bufp[0] = '\0';
+
     gettimeofday(&t, NULL);
     curtime      = time(NULL);
     calendertime = localtime(&curtime);
-    sprintf(&bufp[strlen(bufp)], "%d%02d%02d-%02d%02d%02d-%03ld%s", calendertime->tm_year, calendertime->tm_mon, calendertime->tm_mday, calendertime->tm_hour, calendertime->tm_min, calendertime->tm_sec, t.tv_usec / 1000, suffix);
+
+    if (used < TMPFILE_BUFSIZE) {
+        snprintf(bufp + used, TMPFILE_BUFSIZE - used,
+                 "%d%02d%02d-%02d%02d%02d-%03" PRId32 "%s",
+                 calendertime->tm_year, calendertime->tm_mon, calendertime->tm_mday,
+                 calendertime->tm_hour, calendertime->tm_min, calendertime->tm_sec,
+                 (int32_t)(t.tv_usec / 1000), suffix);
+    }
 }
+#undef TMPFILE_BUFSIZE
 
 int
 plat_getcwd(char *bufp, int max)
@@ -278,6 +295,8 @@ plat_get_string(int i)
             return L"Hardware not available";
         case STRING_MONITOR_SLEEP:
             return L"Monitor in sleep mode";
+        case STRING_EDID_TOO_LARGE:
+            return L"EDID file \"%ls\" is too large.";
     }
     return L"";
 }
@@ -301,7 +320,7 @@ path_abs(char *path)
 }
 
 void
-path_normalize(char *path)
+path_normalize(UNUSED(char *path))
 {
     /* No-op. */
 }
@@ -337,7 +356,7 @@ plat_put_backslash(char *s)
 
 /* Return the last element of a pathname. */
 char *
-plat_get_basename(const char *path)
+path_get_basename(const char *path)
 {
     int c = (int) strlen(path);
 
@@ -391,11 +410,19 @@ path_append_filename(char *dest, const char *s1, const char *s2)
 int
 plat_dir_check(char *path)
 {
-    struct stat dummy;
-    if (stat(path, &dummy) < 0) {
+    struct stat stats;
+    if (stat(path, &stats) < 0)
         return 0;
-    }
-    return S_ISDIR(dummy.st_mode);
+    return S_ISDIR(stats.st_mode);
+}
+
+int
+plat_file_check(const char *path)
+{
+    struct stat stats;
+    if (stat(path, &stats) < 0)
+        return 0;
+    return !S_ISDIR(stats.st_mode);
 }
 
 int
@@ -458,16 +485,24 @@ plat_remove(char *path)
     remove(path);
 }
 
-void
-ui_sb_update_icon_state(int tag, int state)
+void ui_sb_update_icon_state(int tag, int state)
 {
-    /* No-op. */
+    osd_ui_sb_update_icon_state(tag, state);
 }
 
-void
-ui_sb_update_icon(int tag, int active)
+void ui_sb_update_icon(int tag, int active)
 {
-    /* No-op. */
+    osd_ui_sb_update_icon(tag, active);
+}
+
+void ui_sb_update_icon_write(int tag, int active)
+{
+    osd_ui_sb_update_icon_write(tag, active);
+}
+
+void ui_sb_update_icon_wp(int tag, int state)
+{
+    osd_ui_sb_update_icon_wp(tag, state);
 }
 
 void
@@ -477,7 +512,7 @@ plat_delay_ms(uint32_t count)
 }
 
 void
-ui_sb_update_tip(int arg)
+ui_sb_update_tip(UNUSED(int arg))
 {
     /* No-op. */
 }
@@ -513,9 +548,9 @@ path_get_dirname(char *dest, const char *path)
         *dest++ = *path++;
     *dest = '\0';
 }
-volatile int cpu_thread_run = 1;
+
 void
-ui_sb_set_text_w(wchar_t *wstr)
+ui_sb_set_text_w(UNUSED(wchar_t *wstr))
 {
     /* No-op. */
 }
@@ -532,8 +567,10 @@ strnicmp(const char *s1, const char *s2, size_t n)
     return strncasecmp(s1, s2, n);
 }
 
+volatile int cpu_thread_run = 1;
+
 void
-main_thread(void *param)
+main_thread(UNUSED(void *param))
 {
     uint32_t old_time;
     uint32_t new_time;
@@ -545,40 +582,48 @@ main_thread(void *param)
     // title_update = 1;
     old_time = SDL_GetTicks();
     drawits = frames = 0;
-    while (!is_quit && cpu_thread_run) {
+    while (!is_quit && cpu_thread_run)
+    {
         /* See if it is time to run a frame of code. */
         new_time = SDL_GetTicks();
+
 #ifdef USE_GDBSTUB
         if (gdbstub_next_asap && (drawits <= 0))
             drawits = 10;
         else
-#endif
             drawits += (new_time - old_time);
+#else
+        drawits += (new_time - old_time);
+#endif
+
         old_time = new_time;
-        if (drawits > 0 && !dopause) {
+        if ((drawits > 0 || fast_forward) && !dopause) {
             /* Yes, so do one frame now. */
-            drawits -= 10;
-            if (drawits > 50)
+            drawits -= force_10ms ? 10 : 1;
+            if (drawits > 50 || fast_forward)
                 drawits = 0;
 
             /* Run a block of code. */
             pc_run();
 
             /* Every 200 frames we save the machine status. */
-            if (++frames >= 200 && nvr_dosave) {
+            if (++frames >= (force_10ms ? 200 : 2000) && nvr_dosave) {
                 nvr_save();
                 nvr_dosave = 0;
                 frames     = 0;
             }
-        } else /* Just so we dont overload the host OS. */
+        }
+        else /* Just so we dont overload the host OS. */
             SDL_Delay(1);
 
         /* If needed, handle a screen resize. */
         if (atomic_load(&doresize_monitors[0]) && !video_fullscreen && !is_quit) {
+
             if (vid_resize & 2)
                 plat_resize(fixed_size_x, fixed_size_y, 0);
             else
                 plat_resize(scrnsz_x, scrnsz_y, 0);
+
             atomic_store(&doresize_monitors[0], 1);
         }
     }
@@ -644,9 +689,9 @@ ui_msgbox_header(int flags, void *header, void *message)
 
     if (!header) {
         if (flags & MBX_ANSI)
-            header = (void *) "86Box";
+            header = (void *) EMU_NAME;
         else
-            header = (void *) L"86Box";
+            header = (void *) EMU_NAME_W;
     }
 
     msgbtn.buttonid = 1;
@@ -689,7 +734,7 @@ plat_get_exe_name(char *s, int size)
 {
     char *basepath = SDL_GetBasePath();
 
-    snprintf(s, size, "%s%s", basepath, basepath[strlen(basepath) - 1] == '/' ? "86box" : "/86box");
+    snprintf(s, size, "%s%s", basepath, basepath[strlen(basepath) - 1] == '/' ? EMU_NAME : "/" EMU_NAME);
 }
 
 void
@@ -707,7 +752,7 @@ plat_power_off(void)
 }
 
 void
-ui_sb_bugui(char *str)
+ui_sb_bugui(UNUSED(char *str))
 {
     /* No-op. */
 }
@@ -726,12 +771,10 @@ int        real_sdl_w;
 int        real_sdl_h;
 
 void
-ui_sb_set_ready(int ready)
+ui_sb_set_ready(UNUSED(int ready))
 {
     /* No-op. */
 }
-
-char *xargv[512];
 
 // From musl.
 char *
@@ -775,82 +818,178 @@ plat_pause(int p)
     }
 }
 
+#define TMP_PATH_BUFSIZE 1024
 void
 plat_init_rom_paths(void)
 {
 #ifndef __APPLE__
-    if (getenv("XDG_DATA_HOME")) {
-        char xdg_rom_path[1024] = { 0 };
-
-        strncpy(xdg_rom_path, getenv("XDG_DATA_HOME"), 1024);
-        path_slash(xdg_rom_path);
-        strncat(xdg_rom_path, "86Box/", 1023);
-
-        if (!plat_dir_check(xdg_rom_path))
+    const char *xdg_data_home = getenv("XDG_DATA_HOME");
+    if (xdg_data_home) {
+        char xdg_rom_path[TMP_PATH_BUFSIZE] = {0};
+        size_t used = snprintf(xdg_rom_path, sizeof(xdg_rom_path), "%s/", xdg_data_home);
+        if (used < sizeof(xdg_rom_path))
+            used += snprintf(xdg_rom_path + used, sizeof(xdg_rom_path) - used, EMU_NAME "/");
+        if (used < sizeof(xdg_rom_path) && !plat_dir_check(xdg_rom_path))
             plat_dir_create(xdg_rom_path);
-        strcat(xdg_rom_path, "roms/");
-
-        if (!plat_dir_check(xdg_rom_path))
+        if (used < sizeof(xdg_rom_path))
+            used += snprintf(xdg_rom_path + used, sizeof(xdg_rom_path) - used, "roms/");
+        if (used < sizeof(xdg_rom_path) && !plat_dir_check(xdg_rom_path))
             plat_dir_create(xdg_rom_path);
-        rom_add_path(xdg_rom_path);
+        if (used < sizeof(xdg_rom_path))
+            rom_add_path(xdg_rom_path);
     } else {
-        char home_rom_path[1024] = { 0 };
-
-        snprintf(home_rom_path, 1024, "%s/.local/share/86Box/", getenv("HOME") ? getenv("HOME") : getpwuid(getuid())->pw_dir);
-
-        if (!plat_dir_check(home_rom_path))
-            plat_dir_create(home_rom_path);
-        strcat(home_rom_path, "roms/");
-
-        if (!plat_dir_check(home_rom_path))
-            plat_dir_create(home_rom_path);
-        rom_add_path(home_rom_path);
-    }
-    if (getenv("XDG_DATA_DIRS")) {
-        char *xdg_rom_paths      = strdup(getenv("XDG_DATA_DIRS"));
-        char *xdg_rom_paths_orig = xdg_rom_paths;
-        char *cur_xdg_rom_path   = NULL;
-
-        if (xdg_rom_paths) {
-            while (xdg_rom_paths[strlen(xdg_rom_paths) - 1] == ':') {
-                xdg_rom_paths[strlen(xdg_rom_paths) - 1] = '\0';
-            }
-            while ((cur_xdg_rom_path = local_strsep(&xdg_rom_paths, ":")) != NULL) {
-                char real_xdg_rom_path[1024] = { '\0' };
-                strcat(real_xdg_rom_path, cur_xdg_rom_path);
-                path_slash(real_xdg_rom_path);
-                strcat(real_xdg_rom_path, "86Box/roms/");
-                rom_add_path(real_xdg_rom_path);
-            }
+        const char *home = getenv("HOME");
+        if (!home) {
+            struct passwd *pw = getpwuid(getuid());
+            if (pw)
+                home = pw->pw_dir;
         }
-        free(xdg_rom_paths_orig);
+
+        if (home) {
+            char home_rom_path[TMP_PATH_BUFSIZE] = {0};
+            size_t used = snprintf(home_rom_path, sizeof(home_rom_path),
+                                   "%s/.local/share/" EMU_NAME "/", home);
+            if (used < sizeof(home_rom_path) && !plat_dir_check(home_rom_path))
+                plat_dir_create(home_rom_path);
+            if (used < sizeof(home_rom_path))
+                used += snprintf(home_rom_path + used,
+                                 sizeof(home_rom_path) - used, "roms/");
+            if (used < sizeof(home_rom_path) && !plat_dir_check(home_rom_path))
+                plat_dir_create(home_rom_path);
+            if (used < sizeof(home_rom_path))
+                rom_add_path(home_rom_path);
+        }
+    }
+
+    const char *xdg_data_dirs = getenv("XDG_DATA_DIRS");
+    if (xdg_data_dirs) {
+        char *xdg_rom_paths = strdup(xdg_data_dirs);
+        if (xdg_rom_paths) {
+            // Trim trailing colons
+            size_t len = strlen(xdg_rom_paths);
+            while (len > 0 && xdg_rom_paths[len - 1] == ':')
+                xdg_rom_paths[--len] = '\0';
+
+            char *saveptr = NULL;
+            char *cur_xdg = strtok_r(xdg_rom_paths, ":", &saveptr);
+            while (cur_xdg) {
+                char real_xdg_rom_path[TMP_PATH_BUFSIZE] = {0};
+                size_t used = snprintf(real_xdg_rom_path,
+                                       sizeof(real_xdg_rom_path),
+                                       "%s/" EMU_NAME "/roms/", cur_xdg);
+                if (used < sizeof(real_xdg_rom_path))
+                    rom_add_path(real_xdg_rom_path);
+                cur_xdg = strtok_r(NULL, ":", &saveptr);
+            }
+
+            free(xdg_rom_paths);
+        }
     } else {
-        rom_add_path("/usr/local/share/86Box/roms/");
-        rom_add_path("/usr/share/86Box/roms/");
+        rom_add_path("/usr/local/share/" EMU_NAME "/roms/");
+        rom_add_path("/usr/share/" EMU_NAME "/roms/");
     }
 #else
-    char  default_rom_path[1024] = { '\0' };
+    char default_rom_path[TMP_PATH_BUFSIZE] = {0};
     getDefaultROMPath(default_rom_path);
     rom_add_path(default_rom_path);
 #endif
 }
 
 void
-plat_get_global_config_dir(char *outbuf, const uint8_t len)
+plat_init_asset_paths(void)
 {
-    char *prefPath = SDL_GetPrefPath(NULL, "86Box");
-    strncpy(outbuf, prefPath, len);
-    path_slash(outbuf);
-    SDL_free(prefPath);
+#ifndef __APPLE__
+    const char *xdg_data_home = getenv("XDG_DATA_HOME");
+    if (xdg_data_home) {
+        char xdg_asset_path[TMP_PATH_BUFSIZE] = {0};
+        size_t used = snprintf(xdg_asset_path, sizeof(xdg_asset_path), "%s/", xdg_data_home);
+        if (used < sizeof(xdg_asset_path))
+            used += snprintf(xdg_asset_path + used, sizeof(xdg_asset_path) - used, EMU_NAME "/");
+        if (used < sizeof(xdg_asset_path) && !plat_dir_check(xdg_asset_path))
+            plat_dir_create(xdg_asset_path);
+        if (used < sizeof(xdg_asset_path))
+            used += snprintf(xdg_asset_path + used, sizeof(xdg_asset_path) - used, "assets/");
+        if (used < sizeof(xdg_asset_path) && !plat_dir_check(xdg_asset_path))
+            plat_dir_create(xdg_asset_path);
+        if (used < sizeof(xdg_asset_path))
+            asset_add_path(xdg_asset_path);
+    } else {
+        const char *home = getenv("HOME");
+        if (!home) {
+            struct passwd *pw = getpwuid(getuid());
+            if (pw)
+                home = pw->pw_dir;
+        }
+
+        if (home) {
+            char home_asset_path[TMP_PATH_BUFSIZE] = {0};
+            size_t used = snprintf(home_asset_path, sizeof(home_asset_path),
+                                   "%s/.local/share/" EMU_NAME "/", home);
+            if (used < sizeof(home_asset_path) && !plat_dir_check(home_asset_path))
+                plat_dir_create(home_asset_path);
+            if (used < sizeof(home_asset_path))
+                used += snprintf(home_asset_path + used,
+                                 sizeof(home_asset_path) - used, "assets/");
+            if (used < sizeof(home_asset_path) && !plat_dir_check(home_asset_path))
+                plat_dir_create(home_asset_path);
+            if (used < sizeof(home_asset_path))
+                asset_add_path(home_asset_path);
+        }
+    }
+
+    const char *xdg_data_dirs = getenv("XDG_DATA_DIRS");
+    if (xdg_data_dirs) {
+        char *xdg_asset_paths = strdup(xdg_data_dirs);
+        if (xdg_asset_paths) {
+            // Trim trailing colons
+            size_t len = strlen(xdg_asset_paths);
+            while (len > 0 && xdg_asset_paths[len - 1] == ':')
+                xdg_asset_paths[--len] = '\0';
+
+            char *saveptr = NULL;
+            char *cur_xdg = strtok_r(xdg_asset_paths, ":", &saveptr);
+            while (cur_xdg) {
+                char real_xdg_asset_path[TMP_PATH_BUFSIZE] = {0};
+                size_t used = snprintf(real_xdg_asset_path,
+                                       sizeof(real_xdg_asset_path),
+                                       "%s/" EMU_NAME "/assets/", cur_xdg);
+                if (used < sizeof(real_xdg_asset_path))
+                    asset_add_path(real_xdg_asset_path);
+                cur_xdg = strtok_r(NULL, ":", &saveptr);
+            }
+
+            free(xdg_asset_paths);
+        }
+    } else {
+        asset_add_path("/usr/local/share/" EMU_NAME "/assets/");
+        asset_add_path("/usr/share/" EMU_NAME "/assets/");
+    }
+#else
+    char default_asset_path[TMP_PATH_BUFSIZE] = {0};
+    getDefaultROMPath(default_asset_path);
+    asset_add_path(default_asset_path);
+#endif
+}
+#undef TMP_PATH_BUFSIZE
+
+void
+plat_get_global_config_dir(char *outbuf, const size_t len)
+{
+    return plat_get_global_data_dir(outbuf, len);
 }
 
 void
-plat_get_global_data_dir(char *outbuf, const uint8_t len)
+plat_get_global_data_dir(char *outbuf, const size_t len)
 {
-    char *prefPath = SDL_GetPrefPath(NULL, "86Box");
-    strncpy(outbuf, prefPath, len);
+    if (portable_mode) {
+        strncpy(outbuf, exe_path, len);
+    } else {
+        char *prefPath = SDL_GetPrefPath(NULL, EMU_NAME);
+        strncpy(outbuf, prefPath, len);
+        SDL_free(prefPath);
+    }
+
     path_slash(outbuf);
-    SDL_free(prefPath);
 }
 
 void
@@ -864,8 +1003,16 @@ plat_get_temp_dir(char *outbuf, uint8_t len)
     path_slash(outbuf);
 }
 
+void
+plat_get_vmm_dir(char *outbuf, const size_t len)
+{
+    // Return empty string. SDL 86Box does not have a VM manager
+    if (len > 0)
+        outbuf[0] = 0;
+}
+
 bool
-process_media_commands_3(uint8_t *id, char *fn, uint8_t *wp, int cmdargc)
+process_media_commands_3(uint8_t *id, char *fn, uint8_t *wp, char **xargv, int cmdargc)
 {
     bool err = false;
 
@@ -901,6 +1048,7 @@ process_media_commands_3(uint8_t *id, char *fn, uint8_t *wp, int cmdargc)
         fn[strlen(fn) - 1] = '\0';
     return err;
 }
+
 char *(*f_readline)(const char *)          = NULL;
 int (*f_add_history)(const char *)         = NULL;
 void (*f_rl_callback_handler_remove)(void) = NULL;
@@ -912,84 +1060,65 @@ void (*f_rl_callback_handler_remove)(void) = NULL;
 #endif
 
 uint32_t
-timer_onesec(uint32_t interval, void *param)
+timer_onesec(uint32_t interval, UNUSED(void *param))
 {
     pc_onesec();
     return interval;
 }
 
 void
-monitor_thread(void *param)
+unix_executeLine(char *line)
 {
-#ifndef USE_CLI
-    if (isatty(fileno(stdin)) && isatty(fileno(stdout))) {
-        char  *line = NULL;
-        size_t n;
+    if (line) {
+        char *xargv[512];
+        int   cmdargc = 0;
+        char *linecpy, *linespn;
 
-        printf("86Box monitor console.\n");
-        while (!exit_event) {
-            if (feof(stdin))
+        linecpy = linespn = strdup(line);
+        linecpy[strcspn(linecpy, "\r\n")] = 0;
+
+        if (!linecpy) {
+            return;
+        }
+
+        if (f_add_history)
+            f_add_history(linecpy);
+
+        memset(xargv, 0, sizeof(xargv));
+        while (1) {
+            xargv[cmdargc++] = local_strsep(&linespn, " ");
+            if (xargv[cmdargc - 1] == NULL || cmdargc >= 512)
                 break;
-#ifdef ENABLE_READLINE
-            if (f_readline)
-                line = f_readline("(86Box) ");
-            else {
-#endif
-                printf("(86Box) ");
-                (void) !getline(&line, &n, stdin);
-#ifdef ENABLE_READLINE
-            }
-#endif
-            if (line) {
-                int   cmdargc = 0;
-                char *linecpy;
-
-                line[strcspn(line, "\r\n")] = '\0';
-                linecpy                     = strdup(line);
-                if (!linecpy) {
-                    free(line);
-                    line = NULL;
-                    continue;
-                }
-                if (f_add_history)
-                    f_add_history(line);
-                memset(xargv, 0, sizeof(xargv));
-                while (1) {
-                    xargv[cmdargc++] = local_strsep(&linecpy, " ");
-                    if (xargv[cmdargc - 1] == NULL || cmdargc >= 512)
-                        break;
-                }
-                cmdargc--;
-                if (strncasecmp(xargv[0], "help", 4) == 0) {
-                    printf(
-                        "fddload <id> <filename> <wp> - Load floppy disk image into drive <id>.\n"
-                        "cdload <id> <filename> - Load CD-ROM image into drive <id>.\n"
-                        "zipload <id> <filename> <wp> - Load ZIP image into ZIP drive <id>.\n"
-                        "cartload <id> <filename> <wp> - Load cartridge image into cartridge drive <id>.\n"
-                        "moload <id> <filename> <wp> - Load MO image into MO drive <id>.\n\n"
-                        "fddeject <id> - eject disk from floppy drive <id>.\n"
-                        "cdeject <id> - eject disc from CD-ROM drive <id>.\n"
-                        "zipeject <id> - eject ZIP image from ZIP drive <id>.\n"
-                        "carteject <id> - eject cartridge from drive <id>.\n"
-                        "moeject <id> - eject image from MO drive <id>.\n\n"
-                        "hardreset - hard reset the emulated system.\n"
-                        "pause - pause the the emulated system.\n"
-                        "fullscreen - toggle fullscreen.\n"
-                        "version - print version and license information.\n"
-                        "exit - exit 86Box.\n");
-                } else if (strncasecmp(xargv[0], "exit", 4) == 0) {
-                    exit_event = 1;
-                } else if (strncasecmp(xargv[0], "version", 7) == 0) {
+        }
+        cmdargc--;
+        if (strncasecmp(xargv[0], "help", 4) == 0) {
+            printf(
+                "fddload <id> <filename> <wp> - Load floppy disk image into drive <id>.\n"
+                "cdload <id> <filename> - Load CD-ROM image into drive <id>.\n"
+                "rdiskload <id> <filename> <wp> - Load removable disk image into removable disk drive <id>.\n"
+                "cartload <id> <filename> <wp> - Load cartridge image into cartridge drive <id>.\n"
+                "moload <id> <filename> <wp> - Load MO image into MO drive <id>.\n\n"
+                "fddeject <id> - eject disk from floppy drive <id>.\n"
+                "cdeject <id> - eject disc from CD-ROM drive <id>.\n"
+                "rdiskeject <id> - eject removable disk image from removable disk drive <id>.\n"
+                "carteject <id> - eject cartridge from drive <id>.\n"
+                "moeject <id> - eject image from MO drive <id>.\n\n"
+                "hardreset - hard reset the emulated system.\n"
+                "pause - pause the the emulated system.\n"
+                "fastfwd - toggle fast forward.\n"
+                "screenshot - save a screenshot.\n"
+                "fullscreen - toggle fullscreen.\n"
+                "version - print version and license information.\n"
+                "exit - exit " EMU_NAME ".\n");
+        } else if (strncasecmp(xargv[0], "exit", 4) == 0) {
+            exit_event = 1;
+        } else if (strncasecmp(xargv[0], "version", 7) == 0) {
 #    ifndef EMU_GIT_HASH
 #        define EMU_GIT_HASH "0000000"
 #    endif
 
-#    if defined(__arm__) || defined(__TARGET_ARCH_ARM)
-#        define ARCH_STR "arm"
-#    elif defined(__aarch64__) || defined(_M_ARM64)
+#    if defined(__aarch64__) || defined(_M_ARM64)
 #        define ARCH_STR "arm64"
-#    elif defined(__i386) || defined(__i386__) || defined(_M_IX86)
-#        define ARCH_STR "i386"
 #    elif defined(__x86_64) || defined(__x86_64__) || defined(__amd64) || defined(_M_X64)
 #        define ARCH_STR "x86_64"
 #    else
@@ -1006,169 +1135,199 @@ monitor_thread(void *param)
 #        define DYNAREC_STR "no dynarec"
 #    endif
 
-                    printf(
-                        "%s v%s [%s] [%s, %s]\n\n"
-                        "An emulator of old computers\n"
-                        "Authors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), "
-                        "Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), "
-                        "Tiseno100, reenigne, and others.\n"
-                        "With previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\n"
-                        "Released under the GNU General Public License version 2 or later. See LICENSE for more information.\n",
-                        EMU_NAME, EMU_VERSION_FULL, EMU_GIT_HASH, ARCH_STR, DYNAREC_STR);
-                } else if (strncasecmp(xargv[0], "fullscreen", 10) == 0) {
-                    video_fullscreen   = video_fullscreen ? 0 : 1;
-                    fullscreen_pending = 1;
-                } else if (strncasecmp(xargv[0], "pause", 5) == 0) {
-                    plat_pause(dopause ^ 1);
-                    printf("%s", dopause ? "Paused.\n" : "Unpaused.\n");
-                } else if (strncasecmp(xargv[0], "hardreset", 9) == 0) {
-                    pc_reset_hard();
-                } else if (strncasecmp(xargv[0], "cdload", 6) == 0 && cmdargc >= 3) {
-                    uint8_t id;
-                    bool    err = false;
-                    char    fn[PATH_MAX];
+            printf(
+                "%s v%s [%s] [%s, %s]\n\n"
+                "An emulator of old computers\n"
+                "Authors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), "
+                "Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), "
+                "Tiseno100, reenigne, and others.\n"
+                "With previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\n"
+                "Released under the GNU General Public License version 2 or later. See LICENSE for more information.\n",
+                EMU_NAME, EMU_VERSION_FULL, EMU_GIT_HASH, ARCH_STR, DYNAREC_STR);
+        } else if (strncasecmp(xargv[0], "fullscreen", 10) == 0) {
+            video_fullscreen   = video_fullscreen ? 0 : 1;
+            fullscreen_pending = 1;
+        } else if (strncasecmp(xargv[0], "screenshot", 10) == 0) {
+            startblit();
+            ++monitors[0].mon_screenshots_raw;
+            endblit();
+            device_force_redraw();
+        } else if (strncasecmp(xargv[0], "pause", 5) == 0) {
+            plat_pause(dopause ^ 1);
+            printf("%s", dopause ? "Paused.\n" : "Unpaused.\n");
+        } else if (strncasecmp(xargv[0], "fastfwd", 7) == 0) {
+            fast_forward ^= 1;
+            printf("%s", fast_forward ? "Fast forward on.\n" : "Fast forward off.\n");
+        } else if (strncasecmp(xargv[0], "hardreset", 9) == 0) {
+            pc_reset_hard();
+        } else if (strncasecmp(xargv[0], "cdload", 6) == 0 && cmdargc >= 3) {
+            uint8_t id;
+            bool    err = false;
+            char    fn[PATH_MAX];
 
-                    if (!xargv[2] || !xargv[1]) {
-                        free(line);
-                        free(linecpy);
-                        line = NULL;
-                        continue;
+            if (!xargv[2] || !xargv[1]) {
+                free(linecpy);
+                return;
+            }
+            id = atoi(xargv[1]);
+            memset(fn, 0, sizeof(fn));
+            if (xargv[2][0] == '\'' || xargv[2][0] == '"') {
+                int curarg = 2;
+
+                for (curarg = 2; curarg < cmdargc; curarg++) {
+                    if (strlen(fn) + strlen(xargv[curarg]) >= PATH_MAX) {
+                        err = true;
+                        fprintf(stderr, "Path name too long.\n");
                     }
-                    id = atoi(xargv[1]);
-                    memset(fn, 0, sizeof(fn));
-                    if (xargv[2][0] == '\'' || xargv[2][0] == '"') {
-                        int curarg = 2;
-
-                        for (curarg = 2; curarg < cmdargc; curarg++) {
-                            if (strlen(fn) + strlen(xargv[curarg]) >= PATH_MAX) {
-                                err = true;
-                                fprintf(stderr, "Path name too long.\n");
-                            }
-                            strcat(fn, xargv[curarg] + (xargv[curarg][0] == '\'' || xargv[curarg][0] == '"'));
-                            if (fn[strlen(fn) - 1] == '\''
-                                || fn[strlen(fn) - 1] == '"') {
-                                break;
-                            }
-                            strcat(fn, " ");
+                    else
+                    {
+                        strcat(fn, xargv[curarg] + (xargv[curarg][0] == '\'' || xargv[curarg][0] == '"'));
+                        if (fn[strlen(fn) - 1] == '\''
+                            || fn[strlen(fn) - 1] == '"') {
+                            break;
                         }
-                    } else {
-                        if (strlen(xargv[2]) < PATH_MAX) {
-                            strcpy(fn, xargv[2]);
-                        } else {
-                            fprintf(stderr, "Path name too long.\n");
-                        }
-                    }
-                    if (!err) {
-
-                        if (fn[strlen(fn) - 1] == '\''
-                            || fn[strlen(fn) - 1] == '"')
-                            fn[strlen(fn) - 1] = '\0';
-                        printf("Inserting disc into CD-ROM drive %hhu: %s\n", id, fn);
-                        cdrom_mount(id, fn);
-                    }
-                } else if (strncasecmp(xargv[0], "fddeject", 8) == 0 && cmdargc >= 2) {
-                    floppy_eject(atoi(xargv[1]));
-                } else if (strncasecmp(xargv[0], "cdeject", 8) == 0 && cmdargc >= 2) {
-                    cdrom_mount(atoi(xargv[1]), "");
-                } else if (strncasecmp(xargv[0], "moeject", 8) == 0 && cmdargc >= 2) {
-                    mo_eject(atoi(xargv[1]));
-                } else if (strncasecmp(xargv[0], "carteject", 8) == 0 && cmdargc >= 2) {
-                    cartridge_eject(atoi(xargv[1]));
-                } else if (strncasecmp(xargv[0], "zipeject", 8) == 0 && cmdargc >= 2) {
-                    zip_eject(atoi(xargv[1]));
-                } else if (strncasecmp(xargv[0], "fddload", 7) == 0 && cmdargc >= 4) {
-                    uint8_t id;
-                    uint8_t wp;
-                    bool    err = false;
-                    char    fn[PATH_MAX];
-
-                    memset(fn, 0, sizeof(fn));
-
-                    if (!xargv[2] || !xargv[1]) {
-                        free(line);
-                        free(linecpy);
-                        line = NULL;
-                        continue;
-                    }
-                    err = process_media_commands_3(&id, fn, &wp, cmdargc);
-                    if (!err) {
-                        if (fn[strlen(fn) - 1] == '\''
-                            || fn[strlen(fn) - 1] == '"')
-                            fn[strlen(fn) - 1] = '\0';
-                        printf("Inserting disk into floppy drive %c: %s\n", id + 'A', fn);
-                        floppy_mount(id, fn, wp);
-                    }
-                } else if (strncasecmp(xargv[0], "moload", 7) == 0 && cmdargc >= 4) {
-                    uint8_t id;
-                    uint8_t wp;
-                    bool    err = false;
-                    char    fn[PATH_MAX];
-
-                    memset(fn, 0, sizeof(fn));
-
-                    if (!xargv[2] || !xargv[1]) {
-                        free(line);
-                        free(linecpy);
-                        line = NULL;
-                        continue;
-                    }
-                    err = process_media_commands_3(&id, fn, &wp, cmdargc);
-                    if (!err) {
-                        if (fn[strlen(fn) - 1] == '\''
-                            || fn[strlen(fn) - 1] == '"')
-                            fn[strlen(fn) - 1] = '\0';
-                        printf("Inserting into mo drive %hhu: %s\n", id, fn);
-                        mo_mount(id, fn, wp);
-                    }
-                } else if (strncasecmp(xargv[0], "cartload", 7) == 0 && cmdargc >= 4) {
-                    uint8_t id;
-                    uint8_t wp;
-                    bool    err = false;
-                    char    fn[PATH_MAX];
-
-                    memset(fn, 0, sizeof(fn));
-
-                    if (!xargv[2] || !xargv[1]) {
-                        free(line);
-                        free(linecpy);
-                        line = NULL;
-                        continue;
-                    }
-                    err = process_media_commands_3(&id, fn, &wp, cmdargc);
-                    if (!err) {
-                        if (fn[strlen(fn) - 1] == '\''
-                            || fn[strlen(fn) - 1] == '"')
-                            fn[strlen(fn) - 1] = '\0';
-                        printf("Inserting tape into cartridge holder %hhu: %s\n", id, fn);
-                        cartridge_mount(id, fn, wp);
-                    }
-                } else if (strncasecmp(xargv[0], "zipload", 7) == 0 && cmdargc >= 4) {
-                    uint8_t id;
-                    uint8_t wp;
-                    bool    err = false;
-                    char    fn[PATH_MAX];
-
-                    memset(fn, 0, sizeof(fn));
-
-                    if (!xargv[2] || !xargv[1]) {
-                        free(line);
-                        free(linecpy);
-                        line = NULL;
-                        continue;
-                    }
-                    err = process_media_commands_3(&id, fn, &wp, cmdargc);
-                    if (!err) {
-                        if (fn[strlen(fn) - 1] == '\''
-                            || fn[strlen(fn) - 1] == '"')
-                            fn[strlen(fn) - 1] = '\0';
-                        printf("Inserting disk into ZIP drive %c: %s\n", id + 'A', fn);
-                        zip_mount(id, fn, wp);
+                        strcat(fn, " ");
                     }
                 }
-                free(line);
-                free(linecpy);
-                line = NULL;
+            } else {
+                if (strlen(xargv[2]) < PATH_MAX) {
+                    strncpy(fn, xargv[2], PATH_MAX-1);
+                } else {
+                    fprintf(stderr, "Path name too long.\n");
+                }
             }
+            if (!err) {
+
+                if (fn[strlen(fn) - 1] == '\''
+                    || fn[strlen(fn) - 1] == '"')
+                    fn[strlen(fn) - 1] = '\0';
+                printf("Inserting disc into CD-ROM drive %hhu: %s\n", id, fn);
+                cdrom_mount(id, fn);
+            }
+        } else if (strncasecmp(xargv[0], "fddeject", 8) == 0 && cmdargc >= 2) {
+            floppy_eject(atoi(xargv[1]));
+        } else if (strncasecmp(xargv[0], "cdeject", 8) == 0 && cmdargc >= 2) {
+            cdrom_mount(atoi(xargv[1]), "");
+        } else if (strncasecmp(xargv[0], "moeject", 8) == 0 && cmdargc >= 2) {
+            mo_eject(atoi(xargv[1]));
+        } else if (strncasecmp(xargv[0], "carteject", 8) == 0 && cmdargc >= 2) {
+            cartridge_eject(atoi(xargv[1]));
+        } else if (strncasecmp(xargv[0], "rdiskeject", 8) == 0 && cmdargc >= 2) {
+            rdisk_eject(atoi(xargv[1]));
+        } else if (strncasecmp(xargv[0], "fddload", 7) == 0 && cmdargc >= 4) {
+            uint8_t id;
+            uint8_t wp;
+            bool    err = false;
+            char    fn[PATH_MAX];
+
+            memset(fn, 0, sizeof(fn));
+
+            if (!xargv[2] || !xargv[1]) {
+                free(linecpy);
+                return;
+            }
+            err = process_media_commands_3(&id, fn, &wp, xargv, cmdargc);
+            if (!err) {
+                if (fn[strlen(fn) - 1] == '\''
+                    || fn[strlen(fn) - 1] == '"')
+                    fn[strlen(fn) - 1] = '\0';
+                printf("Inserting disk into floppy drive %c: %s\n", id + 'A', fn);
+                floppy_mount(id, fn, wp);
+            }
+        } else if (strncasecmp(xargv[0], "moload", 7) == 0 && cmdargc >= 4) {
+            uint8_t id;
+            uint8_t wp;
+            bool    err = false;
+            char    fn[PATH_MAX];
+
+            memset(fn, 0, sizeof(fn));
+
+            if (!xargv[2] || !xargv[1]) {
+                free(linecpy);
+                return;
+            }
+            err = process_media_commands_3(&id, fn, &wp, xargv, cmdargc);
+            if (!err) {
+                if (fn[strlen(fn) - 1] == '\''
+                    || fn[strlen(fn) - 1] == '"')
+                    fn[strlen(fn) - 1] = '\0';
+                printf("Inserting into mo drive %hhu: %s\n", id, fn);
+                mo_mount(id, fn, wp);
+            }
+        } else if (strncasecmp(xargv[0], "cartload", 7) == 0 && cmdargc >= 4) {
+            uint8_t id;
+            uint8_t wp;
+            bool    err = false;
+            char    fn[PATH_MAX];
+
+            memset(fn, 0, sizeof(fn));
+
+            if (!xargv[2] || !xargv[1]) {
+                free(linecpy);
+                return;
+            }
+            err = process_media_commands_3(&id, fn, &wp, xargv, cmdargc);
+            if (!err) {
+                if (fn[strlen(fn) - 1] == '\''
+                    || fn[strlen(fn) - 1] == '"')
+                    fn[strlen(fn) - 1] = '\0';
+                printf("Inserting tape into cartridge holder %hhu: %s\n", id, fn);
+                cartridge_mount(id, fn, wp);
+            }
+        } else if (strncasecmp(xargv[0], "rdiskload", 7) == 0 && cmdargc >= 4) {
+            uint8_t id;
+            uint8_t wp;
+            bool    err = false;
+            char    fn[PATH_MAX];
+
+            memset(fn, 0, sizeof(fn));
+
+            if (!xargv[2] || !xargv[1]) {
+                free(linecpy);
+                return;
+            }
+            err = process_media_commands_3(&id, fn, &wp, xargv, cmdargc);
+            if (!err) {
+                if (fn[strlen(fn) - 1] == '\''
+                    || fn[strlen(fn) - 1] == '"')
+                    fn[strlen(fn) - 1] = '\0';
+                printf("Inserting disk into removable disk drive %c: %s\n", id + 'A', fn);
+                rdisk_mount(id, fn, wp);
+            }
+        }
+        free(linecpy);
+    }
+}
+
+void
+monitor_thread(UNUSED(void *param))
+{
+#ifndef USE_CLI
+    if (isatty(fileno(stdin)) && isatty(fileno(stdout))) {
+        char  *line = NULL;
+        size_t n;
+
+        printf(EMU_NAME " monitor console.\n");
+        while (!exit_event)
+        {
+            if (feof(stdin))
+                break;
+
+#ifdef ENABLE_READLINE
+            if (f_readline)
+                line = f_readline("(" EMU_NAME ") ");
+            else {
+#endif
+                printf("(" EMU_NAME ") ");
+                (void) !getline(&line, &n, stdin);
+#ifdef ENABLE_READLINE
+            }
+#endif
+
+            unix_executeLine(line);
+
+            free(line);
+            line = NULL;
         }
     }
 #endif
@@ -1186,11 +1345,12 @@ main(int argc, char **argv)
     ret = pc_init(argc, argv);
     if (ret == 0)
         return 0;
-    if (!pc_init_modules()) {
-        ui_msgbox_header(MBX_FATAL, L"No ROMs found.", L"86Box could not find any usable ROM images.\n\nPlease download a ROM set and extract it into the \"roms\" directory.");
+    if (!pc_init_roms()) {
+        ui_msgbox_header(MBX_FATAL, L"No ROMs found.", EMU_NAME_W L" could not find any usable ROM images.\n\nPlease download a ROM set and extract it into the \"roms\" directory.");
         SDL_Quit();
         return 6;
     }
+    pc_init_modules();
 
     for (uint8_t i = 1; i < GFXCARD_MAX; i++)
         gfxcard[i]  = 0;
@@ -1224,106 +1384,41 @@ main(int argc, char **argv)
     plat_pause(0);
 
     /* Initialize the rendering window, or fullscreen. */
-
     do_start();
+
 #ifndef USE_CLI
     thread_create(monitor_thread, NULL);
 #endif
+
     SDL_AddTimer(1000, timer_onesec, NULL);
-    while (!is_quit) {
+    while (!is_quit)
+    {
         static int mouse_inside = 0;
+        static int osd_first_key_pressed = 0;
+        static int flag_osd_open = 0;
 
-        while (SDL_PollEvent(&event)) {
-            switch (event.type) {
-                case SDL_QUIT:
-                    exit_event = 1;
-                    break;
-                case SDL_MOUSEWHEEL:
+        while (SDL_PollEvent(&event))
+        {
+            if (flag_osd_open == 1)
+            {
+                // route almost everything to the OSD
+                switch (event.type)
+                {
+                    case SDL_QUIT:
                     {
-                        if (mouse_capture || video_fullscreen) {
-                            if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
-                                event.wheel.x *= -1;
-                                event.wheel.y *= -1;
-                            }
-                            SDL_LockMutex(mousemutex);
-                            mouse_set_z(event.wheel.y);
-                            SDL_UnlockMutex(mousemutex);
-                        }
+                        exit_event = 1;
                         break;
                     }
-                case SDL_MOUSEMOTION:
-                    {
-                        if (mouse_capture || video_fullscreen) {
-                            SDL_LockMutex(mousemutex);
-                            mouse_scale(event.motion.xrel, event.motion.yrel);
-                            SDL_UnlockMutex(mousemutex);
-                        }
-                        break;
-                    }
-                case SDL_MOUSEBUTTONDOWN:
-                case SDL_MOUSEBUTTONUP:
-                    {
-                        if ((event.button.button == SDL_BUTTON_LEFT)
-                            && !(mouse_capture || video_fullscreen)
-                            && event.button.state == SDL_RELEASED
-                            && mouse_inside) {
-                            plat_mouse_capture(1);
-                            break;
-                        }
-                        if (mouse_get_buttons() < 3 && event.button.button == SDL_BUTTON_MIDDLE && !video_fullscreen) {
-                            plat_mouse_capture(0);
-                            break;
-                        }
-                        if (mouse_capture || video_fullscreen) {
-                            int buttonmask = 0;
-
-                            switch (event.button.button) {
-                                case SDL_BUTTON_LEFT:
-                                    buttonmask = 1;
-                                    break;
-                                case SDL_BUTTON_RIGHT:
-                                    buttonmask = 2;
-                                    break;
-                                case SDL_BUTTON_MIDDLE:
-                                    buttonmask = 4;
-                                    break;
-                                case SDL_BUTTON_X1:
-                                    buttonmask = 8;
-                                    break;
-                                case SDL_BUTTON_X2:
-                                    buttonmask = 16;
-                                    break;
-                            }
-                            SDL_LockMutex(mousemutex);
-                            if (event.button.state == SDL_PRESSED)
-                                mouse_set_buttons_ex(mouse_get_buttons_ex() | buttonmask);
-                            else
-                                mouse_set_buttons_ex(mouse_get_buttons_ex() & ~buttonmask);
-                            SDL_UnlockMutex(mousemutex);
-                        }
-                        break;
-                    }
-                case SDL_RENDER_DEVICE_RESET:
-                case SDL_RENDER_TARGETS_RESET:
+                    case SDL_RENDER_DEVICE_RESET:
+                    case SDL_RENDER_TARGETS_RESET:
                     {
                         extern void sdl_reinit_texture(void);
 
+                        printf("reinit tex\n");
                         sdl_reinit_texture();
                         break;
                     }
-                case SDL_KEYDOWN:
-                case SDL_KEYUP:
-                    {
-                        uint16_t xtkey = 0;
-
-                        switch (event.key.keysym.scancode) {
-                            default:
-                                xtkey = sdl_to_xt[event.key.keysym.scancode];
-                                break;
-                        }
-                        keyboard_input(event.key.state == SDL_PRESSED, xtkey);
-                    }
-                case SDL_WINDOWEVENT:
+                    case SDL_WINDOWEVENT:
                     {
                         switch (event.window.event) {
                             case SDL_WINDOWEVENT_ENTER:
@@ -1333,12 +1428,190 @@ main(int argc, char **argv)
                                 mouse_inside = 0;
                                 break;
                         }
+                        break;
                     }
+                    default:
+                    {
+                        // route everything else
+                        flag_osd_open = osd_handle(event);
+
+                        if (flag_osd_open == 0)
+                        {
+                            // close it
+                            osd_close(event);
+                        }
+
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                switch (event.type)
+                {
+                    case SDL_QUIT:
+                        exit_event = 1;
+                        break;
+                    case SDL_MOUSEWHEEL:
+                        {
+                            if (mouse_capture || video_fullscreen) {
+                                if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
+                                    event.wheel.x *= -1;
+                                    event.wheel.y *= -1;
+                                }
+                                SDL_LockMutex(mousemutex);
+                                mouse_set_z(event.wheel.y);
+                                SDL_UnlockMutex(mousemutex);
+                            }
+                            break;
+                        }
+                    case SDL_MOUSEMOTION:
+                        {
+                            if (mouse_capture || video_fullscreen) {
+                                SDL_LockMutex(mousemutex);
+                                mouse_scale(event.motion.xrel, event.motion.yrel);
+                                SDL_UnlockMutex(mousemutex);
+                            }
+                            break;
+                        }
+                    /* Touch events */
+                    case SDL_FINGERDOWN:
+                        {
+                            // Trap these but ignore them for now
+                            break;
+                        }
+                    case SDL_FINGERUP:
+                        {
+                            // Trap these but ignore them for now
+                            break;
+                        }
+                    case SDL_FINGERMOTION:
+                        {
+                            // See SDL_TouchFingerEvent
+                            if (mouse_capture || video_fullscreen) {
+                                SDL_LockMutex(mousemutex);
+
+                                // Real multiplier is the window size
+                                int w, h;
+                                SDL_GetWindowSize(sdl_win, &w, &h);
+
+                                mouse_scale((int)(event.tfinger.dx * w), (int)(event.tfinger.dy * h));
+                                SDL_UnlockMutex(mousemutex);
+                            }
+                            break;
+                        }
+
+                    case SDL_MOUSEBUTTONDOWN:
+                    case SDL_MOUSEBUTTONUP:
+                        {
+                            if ((event.button.button == SDL_BUTTON_LEFT)
+                                && !(mouse_capture || video_fullscreen)
+                                && event.button.state == SDL_RELEASED
+                                && mouse_inside) {
+                                plat_mouse_capture(1);
+                                break;
+                            }
+                            if (mouse_get_buttons() < 3 && event.button.button == SDL_BUTTON_MIDDLE && !video_fullscreen) {
+                                plat_mouse_capture(0);
+                                break;
+                            }
+                            if (mouse_capture || video_fullscreen) {
+                                int buttonmask = 0;
+
+                                switch (event.button.button) {
+                                    case SDL_BUTTON_LEFT:
+                                        buttonmask = 1;
+                                        break;
+                                    case SDL_BUTTON_RIGHT:
+                                        buttonmask = 2;
+                                        break;
+                                    case SDL_BUTTON_MIDDLE:
+                                        buttonmask = 4;
+                                        break;
+                                    case SDL_BUTTON_X1:
+                                        buttonmask = 8;
+                                        break;
+                                    case SDL_BUTTON_X2:
+                                        buttonmask = 16;
+                                        break;
+                                    default:
+                                        printf("Unknown mouse button %d\n", event.button.button);
+                                }
+                                SDL_LockMutex(mousemutex);
+                                if (event.button.state == SDL_PRESSED)
+                                    mouse_set_buttons_ex(mouse_get_buttons_ex() | buttonmask);
+                                else
+                                    mouse_set_buttons_ex(mouse_get_buttons_ex() & ~buttonmask);
+                                SDL_UnlockMutex(mousemutex);
+                            }
+                            break;
+                        }
+                    case SDL_RENDER_DEVICE_RESET:
+                    case SDL_RENDER_TARGETS_RESET:
+                        {
+                            extern void sdl_reinit_texture(void);
+
+                            sdl_reinit_texture();
+                            break;
+                        }
+                    case SDL_KEYDOWN:
+                    case SDL_KEYUP:
+                        {
+                            uint16_t xtkey = 0;
+
+                            if (event.key.keysym.scancode == osd_open_first_key)
+                            {
+                                if (event.type == SDL_KEYDOWN)
+                                    osd_first_key_pressed = 1;
+                                else
+                                    osd_first_key_pressed = 0;
+                            }
+                            else if (osd_first_key_pressed && event.type == SDL_KEYDOWN && event.key.keysym.scancode == osd_open_second_key)
+                            {
+                                // open OSD!
+                                flag_osd_open = osd_open(event);
+
+                                // we can assume alt-gr has been released, tell this also to the virtual machine
+                                osd_first_key_pressed = 0;
+                                keyboard_input(0, sdl_to_xt[osd_open_first_key]);
+                                break;
+                            }
+                            else
+                            {
+                                // invalidate osd_first_key_pressed is something happens between its keydown and keydown for G
+                                osd_first_key_pressed = 0;
+                            }
+
+                            switch (event.key.keysym.scancode) {
+                                default:
+                                    xtkey = sdl_to_xt[event.key.keysym.scancode];
+                                    break;
+                            }
+
+                            keyboard_input(event.key.state == SDL_PRESSED, xtkey);
+                            break;
+                        }
+                    case SDL_WINDOWEVENT:
+                        {
+                            switch (event.window.event) {
+                                case SDL_WINDOWEVENT_ENTER:
+                                    mouse_inside = 1;
+                                    break;
+                                case SDL_WINDOWEVENT_LEAVE:
+                                    mouse_inside = 0;
+                                    break;
+                            }
+                            break;
+                        }
+                    default:
+                    {
+                        // printf("Unhandled SDL event: %d\n", event.type);
+                        break;
+                    }
+                }
             }
         }
-        if (mouse_capture && keyboard_ismsexit()) {
-            plat_mouse_capture(0);
-        }
+
         if (blitreq) {
             extern void sdl_blit(int x, int y, int w, int h);
             sdl_blit(params.x, params.y, params.w, params.h);
@@ -1368,15 +1641,16 @@ main(int argc, char **argv)
         f_rl_callback_handler_remove();
     return 0;
 }
+
 char *
-plat_vidapi_name(int i)
+plat_vidapi_name(UNUSED(int i))
 {
     return "default";
 }
 
-/* Sets up the program language before initialization. */
-uint32_t
-plat_language_code(char *langcode)
+/* Converts the language code string to a numeric language ID */
+int
+plat_language_code(UNUSED(char *langcode))
 {
     /* or maybe not */
     return 0;
@@ -1398,6 +1672,8 @@ plat_set_thread_name(void *thread, const char *name)
     char truncated[64];
 #elif defined(__NetBSD__)
     char truncated[64];
+#elif defined(__HAIKU__)
+    char truncated[32];
 #else
     char truncated[16];
 #endif
@@ -1406,35 +1682,19 @@ plat_set_thread_name(void *thread, const char *name)
     pthread_setname_np(truncated);
 #elif defined(__NetBSD__)
     pthread_setname_np(thread ? *((pthread_t *) thread) : pthread_self(), truncated, "%s");
+#elif defined(__HAIKU__)
+    rename_thread(find_thread(NULL), truncated);
 #else
     pthread_setname_np(thread ? *((pthread_t *) thread) : pthread_self(), truncated);
 #endif
 }
 
-/* Converts back the language code to LCID */
+/* Converts the numeric language ID to a language code string */
 void
-plat_language_code_r(uint32_t lcid, char *outbuf, int len)
+plat_language_code_r(UNUSED(int id), UNUSED(char *outbuf), UNUSED(int len))
 {
     /* or maybe not */
     return;
-}
-
-void
-joystick_init(void)
-{
-    /* No-op. */
-}
-
-void
-joystick_close(void)
-{
-    /* No-op. */
-}
-
-void
-joystick_process(void)
-{
-    /* No-op. */
 }
 
 void
@@ -1451,13 +1711,19 @@ endblit(void)
 
 /* API */
 void
-ui_sb_mt32lcd(char *str)
+ui_sb_mt32lcd(UNUSED(char *str))
 {
     /* No-op. */
 }
 
 void
 ui_hard_reset_completed(void)
+{
+    /* No-op. */
+}
+
+void
+ui_update_force_interpreter(void)
 {
     /* No-op. */
 }

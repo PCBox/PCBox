@@ -10,8 +10,6 @@
  *          Adapters made by NCR and later Symbios and LSI. These
  *          controllers were designed for the PCI bus.
  *
- *
- *
  * Authors: Paul Brook (QEMU)
  *          Artyom Tarasenko (QEMU)
  *          TheCollector1995, <mariogplayer@gmail.com>
@@ -2530,10 +2528,7 @@ ncr53c8xx_pci_write(UNUSED(int func), int addr, uint8_t val, void *priv)
 static void *
 ncr53c8xx_init(const device_t *info)
 {
-    ncr53c8xx_t *dev;
-
-    dev = malloc(sizeof(ncr53c8xx_t));
-    memset(dev, 0x00, sizeof(ncr53c8xx_t));
+    ncr53c8xx_t *dev = calloc(1, sizeof(ncr53c8xx_t));
 
     dev->bus = scsi_get_bus();
 
@@ -2666,19 +2661,20 @@ ncr53c8xx_close(void *priv)
 static const device_config_t ncr53c8xx_pci_config[] = {
   // clang-format off
     {
-        .name = "bios",
-        .description = "BIOS Revision",
-        .type = CONFIG_SELECTION,
-        .default_string = "",
-        .default_int = 1,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
+        .name           = "bios",
+        .description    = "BIOS Revision",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
             { .description = "SDMS 4.x BIOS", .value = 2 },
             { .description = "SDMS 3.x BIOS", .value = 1 },
             { .description = "Disable BIOS",  .value = 0 },
             { .description = ""                          }
         },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -2692,7 +2688,7 @@ const device_t ncr53c810_pci_device = {
     .init          = ncr53c8xx_init,
     .close         = ncr53c8xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -2706,7 +2702,7 @@ const device_t ncr53c810_onboard_pci_device = {
     .init          = ncr53c8xx_init,
     .close         = ncr53c8xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -2720,7 +2716,7 @@ const device_t ncr53c815_pci_device = {
     .init          = ncr53c8xx_init,
     .close         = ncr53c8xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     ncr53c8xx_pci_config
@@ -2734,7 +2730,7 @@ const device_t ncr53c820_pci_device = {
     .init          = ncr53c8xx_init,
     .close         = ncr53c8xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -2748,7 +2744,7 @@ const device_t ncr53c825a_pci_device = {
     .init          = ncr53c8xx_init,
     .close         = ncr53c8xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = ncr53c8xx_pci_config
@@ -2762,7 +2758,7 @@ const device_t ncr53c860_pci_device = {
     .init          = ncr53c8xx_init,
     .close         = ncr53c8xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = ncr53c8xx_pci_config
@@ -2776,7 +2772,7 @@ const device_t ncr53c875_pci_device = {
     .init          = ncr53c8xx_init,
     .close         = ncr53c8xx_close,
     .reset         = NULL,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = ncr53c8xx_pci_config

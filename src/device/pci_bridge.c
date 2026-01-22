@@ -8,13 +8,10 @@
  *
  *          Implementation of PCI-PCI and host-AGP bridges.
  *
- *
- *
  * Authors: RichardG, <richardg867@gmail.com>
  *
  *          Copyright 2020 RichardG.
  */
-
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -30,9 +27,11 @@
 #include <86box/mem.h>
 #include <86box/device.h>
 #include <86box/pci.h>
+#include <86box/plat_fallthrough.h>
 
 #define PCI_BRIDGE_DEC_21150   0x10110022
 #define PCI_BRIDGE_INTEL_ICH2  0x8086244e
+#define PCI_BRIDGE_DEC_21152   0x10110024
 #define AGP_BRIDGE_ALI_M5243   0x10b95243
 #define AGP_BRIDGE_ALI_M5247   0x10b95247
 #define AGP_BRIDGE_AMD_751     0x10227007
@@ -87,6 +86,14 @@ pci_bridge_set_ctl(void *priv, uint8_t ctl)
     pci_bridge_t *dev = (pci_bridge_t *) priv;
 
     dev->ctl = ctl;
+}
+
+uint8_t
+pci_bridge_get_bus_index(void *priv)
+{
+    pci_bridge_t *dev = (pci_bridge_t *) priv;
+
+    return dev->bus_index;
 }
 
 static void
@@ -271,12 +278,15 @@ pci_bridge_write(int func, int addr, uint8_t val, void *priv)
                 val &= 0x32;
             else if ((dev->local == AGP_BRIDGE_INTEL_815EP) || (dev->local == PCI_BRIDGE_INTEL_ICH2))
                 val &= 0x01;
+            else if (dev->local == PCI_BRIDGE_DEC_21152)
+                val &= 0x12;
             break;
 
         case 0x41:
             if (AGP_BRIDGE_VIA(dev->local))
                 val &= 0x7e;
-            else if (dev->local == PCI_BRIDGE_DEC_21150)
+            else if ((dev->local == PCI_BRIDGE_DEC_21150) || 
+                     (dev->local == PCI_BRIDGE_DEC_21152))
                 val &= 0x07;
             break;
 
@@ -286,7 +296,8 @@ pci_bridge_write(int func, int addr, uint8_t val, void *priv)
             break;
 
         case 0x43:
-            if (dev->local == PCI_BRIDGE_DEC_21150)
+            if ((dev->local == PCI_BRIDGE_DEC_21150) || 
+                (dev->local == PCI_BRIDGE_DEC_21152))
                 val &= 0x03;
             break;
 
@@ -301,13 +312,16 @@ pci_bridge_write(int func, int addr, uint8_t val, void *priv)
             break;
 
         case 0x64:
-            if (dev->local == PCI_BRIDGE_DEC_21150)
+            if ((dev->local == PCI_BRIDGE_DEC_21150) || 
+                (dev->local == PCI_BRIDGE_DEC_21152))
                 val &= 0x7e;
             break;
 
         case 0x69:
             if (dev->local == PCI_BRIDGE_DEC_21150)
                 val &= 0x3f;
+            else if (dev->local == PCI_BRIDGE_DEC_21152)
+                val = (val & 0x01) | 0x3e;
             break;
 
         case 0x70:
@@ -356,6 +370,15 @@ pci_bridge_write(int func, int addr, uint8_t val, void *priv)
             break;
 
         case 0xe0:
+            if (AGP_BRIDGE_ALI(dev->local)) {
+                if (!(dev->ctl & 0x20))
+                    return;
+            } else if (dev->local == PCI_BRIDGE_DEC_21152)
+                val &= 0x03;
+            else
+                return;
+            break;
+
         case 0xe1:
             if (AGP_BRIDGE_ALI(dev->local)) {
                 if (!(dev->ctl & 0x20))
@@ -453,6 +476,14 @@ pci_bridge_reset(void *priv)
 
     /* command and status */
     switch (dev->local) {
+        case PCI_BRIDGE_DEC_21152:
+            dev->regs[0x08] = 0x03;
+            dev->regs[0x34] = 0xdc;
+            dev->regs[0x69] = 0x3e;
+            dev->regs[0xdc] = 0x01;
+            dev->regs[0xde] = 0x01;
+            dev->regs[0xe2] = 0x80;
+            fallthrough;
         case PCI_BRIDGE_DEC_21150:
             dev->regs[0x06] = 0x80;
             dev->regs[0x07] = 0x02;
@@ -570,12 +601,11 @@ static void *
 pci_bridge_init(const device_t *info)
 {
     uint8_t interrupts[4];
-    uint8_t interrupt_count;
     uint8_t interrupt_mask;
+    uint8_t add_type;
     uint8_t slot_count;
 
-    pci_bridge_t *dev = (pci_bridge_t *) malloc(sizeof(pci_bridge_t));
-    memset(dev, 0, sizeof(pci_bridge_t));
+    pci_bridge_t *dev = (pci_bridge_t *) calloc(1, sizeof(pci_bridge_t));
 
     dev->local     = info->local;
     dev->bus_index = pci_register_bus();
@@ -583,24 +613,27 @@ pci_bridge_init(const device_t *info)
 
     pci_bridge_reset(dev);
 
-    pci_add_bridge(AGP_BRIDGE(dev->local), pci_bridge_read, pci_bridge_write, dev, &dev->slot);
-
-    interrupt_count = sizeof(interrupts);
-    interrupt_mask  = interrupt_count - 1;
+    interrupt_mask = sizeof(interrupts) - 1;
     if (dev->slot < 32) {
-        for (uint8_t i = 0; i < interrupt_count; i++)
+        for (uint8_t i = 0; i <= interrupt_mask; i++)
             interrupts[i] = pci_get_int(dev->slot, PCI_INTA + i);
     }
     pci_bridge_log("PCI Bridge %d: upstream bus %02X slot %02X interrupts %02X %02X %02X %02X\n",
                    dev->bus_index, (dev->slot >> 5) & 0xff, dev->slot & 31, interrupts[0],
                    interrupts[1], interrupts[2], interrupts[3]);
 
-        pci_bridge_log("PCI Bridge %d: upstream bus %02X slot %02X interrupts %02X %02X %02X %02X\n", dev->bus_index, (dev->slot >> 5) & 0xff, dev->slot & 31, interrupts[0], interrupts[1], interrupts[2], interrupts[3]);
+    if (info->local == PCI_BRIDGE_DEC_21150) {
+        slot_count = 9; /* 9 bus masters */
+        add_type   = PCI_ADD_NORMAL;
+    } else if (info->local == PCI_BRIDGE_DEC_21152) {
+        slot_count = 0; /* 4 bus masters, but slots are added by the Dell machines */
+        add_type   = PCI_ADD_BRIDGE;
+    } else {
+        slot_count = 1; /* AGP bridges always have 1 slot */
+        add_type   = PCI_ADD_AGPBRIDGE;
+    }
 
-        if (info->local == PCI_BRIDGE_DEC_21150)
-            slot_count = 9; /* 9 bus masters */
-        else
-            slot_count = 1; /* AGP bridges always have 1 slot */
+    pci_add_bridge(add_type, pci_bridge_read, pci_bridge_write, dev, &dev->slot);
 
     for (uint8_t i = 0; i < slot_count; i++) {
         /* Interrupts for bridge slots are assigned in round-robin: ABCD, BCDA, CDAB and so on. */
@@ -627,7 +660,21 @@ const device_t dec21150_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t dec21152_device = {
+    .name          = "DEC 21152 PCI Bridge",
+    .internal_name = "dec21152",
+    .flags         = DEVICE_PCI,
+    .local         = PCI_BRIDGE_DEC_21152,
+    .init          = pci_bridge_init,
+    .close         = NULL,
+    .reset         = pci_bridge_reset,
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -642,7 +689,7 @@ const device_t ali5243_agp_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -657,7 +704,7 @@ const device_t ali5247_agp_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -671,7 +718,7 @@ const device_t amd751_agp_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -685,7 +732,7 @@ const device_t i440lx_agp_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -699,7 +746,7 @@ const device_t i440bx_agp_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -713,7 +760,7 @@ const device_t i440gx_agp_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -727,7 +774,7 @@ const device_t intel_ich2_hub_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -741,7 +788,7 @@ const device_t intel_815ep_agp_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -755,7 +802,7 @@ const device_t via_vp3_agp_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -769,7 +816,7 @@ const device_t via_mvp3_agp_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -783,7 +830,7 @@ const device_t via_apro_agp_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -797,7 +844,7 @@ const device_t via_vt8601_agp_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -811,7 +858,7 @@ const device_t sis_5xxx_agp_device = {
     .init          = pci_bridge_init,
     .close         = NULL,
     .reset         = pci_bridge_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

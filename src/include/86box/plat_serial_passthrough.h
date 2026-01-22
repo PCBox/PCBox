@@ -13,9 +13,8 @@
  *              Jasmine Iwanek <jasmine@iwanek.co.uk>
  *
  *              Copyright 2021      Andreas J. Reichel.
- *              Copyright 2021-2022 Jasmine Iwanek.
+ *              Copyright 2021-2025 Jasmine Iwanek.
  */
-
 #ifndef PLAT_SERIAL_PASSTHROUGH_H
 #define PLAT_SERIAL_PASSTHROUGH_H
 
@@ -30,9 +29,10 @@ extern int  plat_serpt_read(void *priv, uint8_t *data);
 extern int  plat_serpt_open_device(void *priv);
 extern void plat_serpt_close(void *priv);
 extern void plat_serpt_set_params(void *priv);
+extern void plat_serpt_set_line_state(void *priv);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif /* PLAT_SERIAL_PASSTHROUGH_H */

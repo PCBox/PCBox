@@ -9,9 +9,6 @@
  *          Implementation of the AMD PCscsi and Tekram DC-390 SCSI
  *          controllers using the NCR 53c9x series of chips.
  *
- *
- *
- *
  * Authors: Fabrice Bellard (QEMU)
  *          Herve Poussineau (QEMU)
  *          TheCollector1995, <mariogplayer@gmail.com>
@@ -21,12 +18,12 @@
  *          Copyright 2012-2018 Herve Poussineau.
  *          Copyright 2017-2018 Miran Grca.
  */
-
 #ifndef SCSI_PCSCSI_H
 #define SCSI_PCSCSI_H
 
 extern const device_t am53c974_pci_device;
+extern const device_t am53c974a_pci_device;
 extern const device_t dc390_pci_device;
 extern const device_t ncr53c90a_mca_device;
 
-#endif /*SCSI_BUSLOGIC_H*/
+#endif /*SCSI_SCSI_PCSCSI_H*/

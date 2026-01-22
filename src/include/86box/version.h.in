@@ -8,12 +8,12 @@
  *
  *          Definitions for project version, branding, and external links.
  *
- *
- *
  * Authors: Miran Grca, <mgrca8@gmail.com>
  *
  *          Copyright 2020 Miran Grca.
  */
+#ifndef EMU_VERSION_H
+#define EMU_VERSION_H
 
 #define _LSTR(s) L ## s
 #define LSTR(s) _LSTR(s)
@@ -50,7 +50,7 @@
 /* Web URL info. */
 #define EMU_SITE       "pcbox-emu.xyz"
 #define EMU_SITE_W     LSTR(EMU_SITE)
-#define EMU_ROMS_URL   "https://github.com/PCBox/roms/releases/latest"
+#define EMU_ROMS_URL   "https://github.com/@CMAKE_PROJECT_NAME@/roms/releases/latest"
 #define EMU_ROMS_URL_W LSTR(EMU_ROMS_URL)
 #ifdef RELEASE_BUILD
 # define EMU_DOCS_URL  "https://86box.readthedocs.io/en/v@CMAKE_PROJECT_VERSION_MAJOR@.@CMAKE_PROJECT_VERSION_MINOR@/"
@@ -58,3 +58,5 @@
 # define EMU_DOCS_URL  "https://86box.readthedocs.io"
 #endif
 #define EMU_DOCS_URL_W LSTR(EMU_DOCS_URL)
+
+#endif /*EMU_VERSION_H*/

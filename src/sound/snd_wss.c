@@ -1,20 +1,18 @@
 /*
- * 86Box     A hypervisor and IBM PC system emulator that specializes in
- *           running old operating systems and software designed for IBM
- *           PC systems and compatibles from 1981 through fairly recent
- *           system designs based on the PCI bus.
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
  *
- *           This file is part of the 86Box distribution.
+ *          This file is part of the 86Box distribution.
  *
- *           Windows Sound System emulation.
+ *          Windows Sound System emulation.
  *
+ * Authors: Sarah Walker, <https://pcem-emulator.co.uk/>
+ *          TheCollector1995, <mariogplayer@gmail.com>
  *
- *
- * Authors:  Sarah Walker, <https://pcem-emulator.co.uk/>
- *           TheCollector1995, <mariogplayer@gmail.com>
- *
- *           Copyright 2012-2018 Sarah Walker.
- *           Copyright 2018 TheCollector1995.
+ *          Copyright 2012-2018 Sarah Walker.
+ *          Copyright 2018      TheCollector1995.
  */
 #include <math.h>
 #include <stdint.h>
@@ -107,8 +105,7 @@ wss_get_music_buffer(int32_t *buffer, int len, void *priv)
 void *
 wss_init(UNUSED(const device_t *info))
 {
-    wss_t *wss = malloc(sizeof(wss_t));
-    memset(wss, 0, sizeof(wss_t));
+    wss_t *wss = calloc(1, sizeof(wss_t));
 
     uint16_t addr    = device_get_config_hex16("base");
     wss->opl_enabled = device_get_config_int("opl");
@@ -209,8 +206,7 @@ ncr_audio_mca_feedb(void *priv)
 void *
 ncr_audio_init(UNUSED(const device_t *info))
 {
-    wss_t *wss = malloc(sizeof(wss_t));
-    memset(wss, 0, sizeof(wss_t));
+    wss_t *wss = calloc(1, sizeof(wss_t));
 
     fm_driver_get(FM_YMF262, &wss->opl);
     ad1848_init(&wss->ad1848, AD1848_TYPE_DEFAULT);
@@ -247,39 +243,32 @@ wss_speed_changed(void *priv)
 static const device_config_t wss_config[] = {
   // clang-format off
     {
-        .name = "base",
-        .description = "Address",
-        .type = CONFIG_HEX16,
-        .default_string = "",
-        .default_int = 0x530,
-        .file_filter = "",
-        .spinner = { 0 },
-        .selection = {
-            {
-                .description = "0x530",
-                .value = 0x530
-            },
-            {
-                .description = "0x604",
-                .value = 0x604
-            },
-            {
-                .description = "0xe80",
-                .value = 0xe80
-            },
-            {
-                .description = "0xf40",
-                .value = 0xf40
-            },
-            { .description = "" }
-        }
+        .name           = "base",
+        .description    = "Address",
+        .type           = CONFIG_HEX16,
+        .default_string = NULL,
+        .default_int    = 0x530,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "0x530", .value = 0x530 },
+            { .description = "0x604", .value = 0x604 },
+            { .description = "0xe80", .value = 0xe80 },
+            { .description = "0xf40", .value = 0xf40 },
+            { .description = ""                      }
+        },
+        .bios           = { { 0 } }
     },
     {
-        .name = "opl",
-        .description = "Enable OPL",
-        .type = CONFIG_BINARY,
-        .default_string = "",
-        .default_int = 1
+        .name           = "opl",
+        .description    = "Enable OPL",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 1,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
     },
     { .name = "", .description = "", .type = CONFIG_END }
   // clang-format on
@@ -288,7 +277,7 @@ static const device_config_t wss_config[] = {
 const device_t wss_device = {
     .name          = "Windows Sound System",
     .internal_name = "wss",
-    .flags         = DEVICE_ISA | DEVICE_AT,
+    .flags         = DEVICE_ISA16,
     .local         = 0,
     .init          = wss_init,
     .close         = wss_close,

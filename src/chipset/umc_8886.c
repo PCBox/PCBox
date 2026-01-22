@@ -11,8 +11,6 @@
  * Note:    This chipset has no datasheet, everything were done via
  *          reverse engineering the BIOS of various machines using it.
  *
- *
- *
  * Authors: Tiseno100,
  *          Miran Grca, <mgrca8@gmail.com>
  *
@@ -82,6 +80,8 @@
 #include <86box/hdd.h>
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
+#include <86box/keyboard.h>
+#include <86box/machine.h>
 #include <86box/pic.h>
 #include <86box/pci.h>
 #include <86box/port_92.h>
@@ -392,8 +392,7 @@ umc_8886_close(void *priv)
 static void *
 umc_8886_init(const device_t *info)
 {
-    umc_8886_t *dev = (umc_8886_t *) malloc(sizeof(umc_8886_t));
-    memset(dev, 0, sizeof(umc_8886_t));
+    umc_8886_t *dev = (umc_8886_t *) calloc(1, sizeof(umc_8886_t));
 
     /* Device 12: UMC 8886xx */
     pci_add_card(PCI_ADD_SOUTHBRIDGE, umc_8886_read, umc_8886_write, dev, &dev->pci_slot);
@@ -418,6 +417,9 @@ umc_8886_init(const device_t *info)
         device_add(&ide_um8673f_device);
     }
 
+    if (machine_get_kbc_device(machine) == NULL)
+        device_add_params(&kbc_at_device, (void *) KBC_VEN_UMC);
+
     umc_8886_reset(dev);
 
     return dev;
@@ -431,7 +433,7 @@ const device_t umc_8886f_device = {
     .init          = umc_8886_init,
     .close         = umc_8886_close,
     .reset         = umc_8886_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -445,7 +447,7 @@ const device_t umc_8886af_device = {
     .init          = umc_8886_init,
     .close         = umc_8886_close,
     .reset         = umc_8886_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL
@@ -459,7 +461,7 @@ const device_t umc_8886bf_device = {
     .init          = umc_8886_init,
     .close         = umc_8886_close,
     .reset         = umc_8886_reset,
-    { .available = NULL },
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

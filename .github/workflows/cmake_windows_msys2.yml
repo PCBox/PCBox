@@ -1,4 +1,4 @@
-name: CMake (Windows, msys2)
+name: CMake (Windows)
 
 on:
 
@@ -8,6 +8,7 @@ on:
       - cmake/**
       - "**/CMakeLists.txt"
       - "CMakePresets.json"
+      - "!.github/workflows/**"
       - .github/workflows/cmake_windows_msys2.yml
       - .github/workflows/make_release.yml
       - vcpkg.json
@@ -19,20 +20,18 @@ on:
       - cmake/**
       - "**/CMakeLists.txt"
       - "CMakePresets.json"
-      - .github/workflows/**
+      - "!.github/workflows/**"
       - .github/workflows/cmake_windows_msys2.yml
       - vcpkg.json
       - "!**/Makefile*"
 
 jobs:
 
-  msys2:
+  windows:
+
     name: "${{ matrix.ui.name }}, ${{ matrix.build.name }}, ${{ matrix.dynarec.name }}, ${{ matrix.environment.msystem }}"
 
-    runs-on: windows-2022
-
-    env:
-      BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory # Directory where build-wrapper output will be placed
+    runs-on: ${{ matrix.environment.runner }}
 
     defaults:
       run:
@@ -58,31 +57,49 @@ jobs:
             new: on
             slug: -NDR
         ui:
-          - name: Qt GUI
+          - name: Qt 5 GUI
             qt: on
+            slug: -Qt5
             static: on
-            slug: -Qt
             packages: >-
               qt5-static:p
               vulkan-headers:p
+#              qt5-base:p
+#              qt5-tools:p
         environment:
 #          - msystem: MSYS
 #            toolchain: ./cmake/flags-gcc-x86_64.cmake
-          - msystem: MINGW64
-            prefix: mingw-w64-x86_64
-            toolchain: ./cmake/flags-gcc-x86_64.cmake
+#            slug: "-MSYS64"
+#          - msystem: MINGW64
+#            prefix: mingw-w64-x86_64
+#            toolchain: ./cmake/flags-gcc-x86_64.cmake
+#            slug: "MINGW64"
+#            runner: windows-2022
 #          - msystem: CLANG64
 #            prefix: mingw-w64-clang-x86_64
 #            toolchain: ./cmake/llvm-win32-x86_64.cmake
-#          - msystem: UCRT64
-#            prefix: mingw-w64-ucrt-x86_64
-#            toolchain: ./cmake/flags-gcc-x86_64.cmake
+#            slug: "CLANG64"
+#            runner: windows-2022
+          - msystem: UCRT64
+            prefix: mingw-w64-ucrt-x86_64
+            toolchain: ./cmake/flags-gcc-x86_64.cmake
+            slug: "-64"
+            runner: windows-2022
+          - msystem: CLANGARM64
+            toolchain: ./cmake/flags-gcc-aarch64.cmake
+            slug: -arm64
+            runner: windows-11-arm
+        exclude:
+          - dynarec:
+              new: off
+            environment:
+              msystem: CLANGARM64
 
     steps:
       - name: Prepare MSYS2 environment
         uses: msys2/setup-msys2@v2
         with:
-          release: false
+          release: true
           update: true
           msystem: ${{ matrix.environment.msystem }}
           pacboy: >-
@@ -100,35 +117,22 @@ jobs:
             fluidsynth:p
             libserialport:p
             ${{ matrix.ui.packages }}
+            openmp:p
 
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
 
-      - name: Install sonar-scanner and build-wrapper
-        uses: SonarSource/sonarcloud-github-c-cpp@v3
-
       - name: Configure CMake
         run: >-
-          cmake -G Ninja -S . -B build --preset ${{ matrix.build.preset }}
+          cmake -S . -B build --preset ${{ matrix.build.preset }}
           --toolchain ${{ matrix.environment.toolchain }}
           -D NEW_DYNAREC=${{ matrix.dynarec.new }}
-          -D CMAKE_INSTALL_PREFIX=./build/artifacts
           -D QT=${{ matrix.ui.qt }}
-          -D STATIC_BUILD=${{ matrix.ui.static }}
 
       - name: Build
-        run: |
-          .sonar/build-wrapper-win-x86/build-wrapper-win-x86-64.exe --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build
-
-      - name: Run sonar-scanner
-        if: 0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          .sonar/sonar-scanner-5.0.1.3006-windows/bin/sonar-scanner.bat --define sonar.cfamily.build-wrapper-output="${{ env.BUILD_WRAPPER_OUT_DIR }}"
+        run: cmake --build build
 
       - name: Generate package
         run: cmake --install build
@@ -136,5 +140,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 'PCBox${{ matrix.ui.slug }}${{ matrix.dynarec.slug }}${{ matrix.build.slug }}-Windows-${{ matrix.environment.msystem }}-gha${{ github.run_number }}'
+          name: 'PCBox${{ matrix.dynarec.slug }}${{ matrix.build.slug }}-Windows${{ matrix.environment.slug }}-gha${{ github.run_number }}'
           path: build/artifacts/**

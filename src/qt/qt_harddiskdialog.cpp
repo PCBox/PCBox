@@ -8,8 +8,6 @@
  *
  *          Hard disk dialog code.
  *
- *
- *
  * Authors: Joakim L. Gilje <jgilje@jgilje.net>
  *          Cacodemon345
  *
@@ -21,7 +19,7 @@
 
 extern "C" {
 #ifdef __unix__
-#include <unistd.h>
+#    include <unistd.h>
 #endif
 #include <86box/86box.h>
 #include <86box/hdd.h>
@@ -77,22 +75,21 @@ HarddiskDialog::HarddiskDialog(bool existing, QWidget *parent)
     for (int i = 0; i < 127; i++) {
         uint64_t size    = ((uint64_t) hdd_table[i][0]) * hdd_table[i][1] * hdd_table[i][2];
         uint32_t size_mb = size >> 11LL;
-        // QString text = QString("%1 MiB (CHS: %2, %3, %4)").arg(size_mb).arg(hdd_table[i][0]).arg(hdd_table[i][1]).arg(hdd_table[i][2]);
-        QString text = QString::asprintf(tr("%u MB (CHS: %i, %i, %i)").toUtf8().constData(), size_mb, (hdd_table[i][0]), (hdd_table[i][1]), (hdd_table[i][2]));
+        QString  text    = tr("%1 MB (CHS: %2, %3, %4)").arg(size_mb).arg(hdd_table[i][0]).arg(hdd_table[i][1]).arg(hdd_table[i][2]);
         Models::AddEntry(model, text, i);
     }
-    Models::AddEntry(model, tr("Custom..."), 127);
-    Models::AddEntry(model, tr("Custom (large)..."), 128);
+    Models::AddEntry(model, tr("Custom…"), 127);
+    Models::AddEntry(model, tr("Custom (large)…"), 128);
 
     ui->lineEditSize->setValidator(new QIntValidator());
     ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
 
     filters = QStringList({ tr("Raw image") % util::DlgFilter({ "img" }, true),
-                          tr("HDI image") % util::DlgFilter({ "hdi" }, true),
-                          tr("HDX image") % util::DlgFilter({ "hdx" }, true),
-                          tr("Fixed-size VHD") % util::DlgFilter({ "vhd" }, true),
-                          tr("Dynamic-size VHD") % util::DlgFilter({ "vhd" }, true),
-                          tr("Differencing VHD") % util::DlgFilter({ "vhd" }, true) });
+                            tr("HDI image") % util::DlgFilter({ "hdi" }, true),
+                            tr("HDX image") % util::DlgFilter({ "hdx" }, true),
+                            tr("Fixed-size VHD") % util::DlgFilter({ "vhd" }, true),
+                            tr("Dynamic-size VHD") % util::DlgFilter({ "vhd" }, true),
+                            tr("Differencing VHD") % util::DlgFilter({ "vhd" }, true) });
 
     if (existing) {
         ui->fileField->setFilter(tr("Hard disk images") % util::DlgFilter({ "hd?", "im?", "vhd" }) % tr("All files") % util::DlgFilter({ "*" }, true));
@@ -200,7 +197,7 @@ HarddiskDialog::on_comboBoxFormat_currentIndexChanged(int index)
  * than a tenth of a percent change in size.
  */
 static void
-adjust_86box_geometry_for_vhd(MVHDGeom *_86box_geometry, MVHDGeom *vhd_geometry)
+adjust_86box_geometry_for_vhd(_86BoxGeom *_86box_geometry, MVHDGeom *vhd_geometry)
 {
     if (_86box_geometry->cyl <= 65535) {
         vhd_geometry->cyl   = _86box_geometry->cyl;
@@ -227,10 +224,10 @@ adjust_86box_geometry_for_vhd(MVHDGeom *_86box_geometry, MVHDGeom *vhd_geometry)
 }
 
 static HarddiskDialog *callbackPtr = nullptr;
-static MVHDGeom
-create_drive_vhd_fixed(const QString &fileName, HarddiskDialog *p, uint16_t cyl, uint8_t heads, uint8_t spt)
+static _86BoxGeom
+create_drive_vhd_fixed(const QString &fileName, HarddiskDialog *p, uint32_t cyl, uint32_t heads, uint32_t spt)
 {
-    MVHDGeom _86box_geometry = {
+    _86BoxGeom _86box_geometry = {
         .cyl   = cyl,
         .heads = heads,
         .spt   = spt
@@ -257,10 +254,10 @@ create_drive_vhd_fixed(const QString &fileName, HarddiskDialog *p, uint16_t cyl,
     return _86box_geometry;
 }
 
-static MVHDGeom
-create_drive_vhd_dynamic(const QString &fileName, uint16_t cyl, uint8_t heads, uint8_t spt, int blocksize)
+static _86BoxGeom
+create_drive_vhd_dynamic(const QString &fileName, uint32_t cyl, uint32_t heads, uint32_t spt, int blocksize)
 {
-    MVHDGeom _86box_geometry = {
+    _86BoxGeom _86box_geometry = {
         .cyl   = cyl,
         .heads = heads,
         .spt   = spt
@@ -288,7 +285,7 @@ create_drive_vhd_dynamic(const QString &fileName, uint16_t cyl, uint8_t heads, u
     return _86box_geometry;
 }
 
-static MVHDGeom
+static _86BoxGeom
 create_drive_vhd_diff(const QString &fileName, const QString &parentFileName, int blocksize)
 {
     int                 vhd_error           = 0;
@@ -300,25 +297,30 @@ create_drive_vhd_diff(const QString &fileName, const QString &parentFileName, in
     options.parent_path           = parentFilenameBytes.data();
     options.type                  = MVHD_TYPE_DIFF;
 
-    MVHDMeta *vhd = mvhd_create_ex(options, &vhd_error);
-    MVHDGeom  vhd_geometry;
+    MVHDMeta  *vhd = mvhd_create_ex(options, &vhd_error);
+    MVHDGeom   vhd_geometry;
+    _86BoxGeom _86box_geometry;
     if (vhd == NULL) {
-        vhd_geometry.cyl   = 0;
-        vhd_geometry.heads = 0;
-        vhd_geometry.spt   = 0;
+        _86box_geometry.cyl   = 0;
+        _86box_geometry.heads = 0;
+        _86box_geometry.spt   = 0;
     } else {
         vhd_geometry = mvhd_get_geometry(vhd);
 
         if (vhd_geometry.spt > 63) {
-            vhd_geometry.cyl   = mvhd_calc_size_sectors(&vhd_geometry) / (16 * 63);
-            vhd_geometry.heads = 16;
-            vhd_geometry.spt   = 63;
+            _86box_geometry.cyl   = mvhd_calc_size_sectors(&vhd_geometry) / (16 * 63);
+            _86box_geometry.heads = 16;
+            _86box_geometry.spt   = 63;
+        } else {
+            _86box_geometry.cyl   = vhd_geometry.cyl;
+            _86box_geometry.heads = vhd_geometry.heads;
+            _86box_geometry.spt   = vhd_geometry.spt;
         }
 
         mvhd_close(vhd);
     }
 
-    return vhd_geometry;
+    return _86box_geometry;
 }
 
 void
@@ -410,8 +412,8 @@ HarddiskDialog::onCreateNewFile()
     } else if (img_format >= IMG_FMT_VHD_FIXED) { /* VHD file */
         file.close();
 
-        MVHDGeom _86box_geometry {};
-        int      block_size = ui->comboBoxBlockSize->currentIndex() == 0 ? MVHD_BLOCK_LARGE : MVHD_BLOCK_SMALL;
+        _86BoxGeom _86box_geometry {};
+        int        block_size = ui->comboBoxBlockSize->currentIndex() == 0 ? MVHD_BLOCK_LARGE : MVHD_BLOCK_SMALL;
         switch (img_format) {
             case IMG_FMT_VHD_FIXED:
                 {
@@ -494,10 +496,14 @@ HarddiskDialog::onCreateNewFile()
 }
 
 static void
-adjust_vhd_geometry_for_86box(MVHDGeom *vhd_geometry)
+adjust_vhd_geometry_for_86box(MVHDGeom *vhd_geometry, _86BoxGeom *_86box_geometry)
 {
-    if (vhd_geometry->spt <= 63)
+    if (vhd_geometry->spt <= 63) {
+        _86box_geometry->cyl   = vhd_geometry->cyl;
+        _86box_geometry->heads = vhd_geometry->heads;
+        _86box_geometry->spt   = vhd_geometry->spt;
         return;
+    }
 
     int desired_sectors = vhd_geometry->cyl * vhd_geometry->heads * vhd_geometry->spt;
     if (desired_sectors > 267321600)
@@ -507,9 +513,9 @@ adjust_vhd_geometry_for_86box(MVHDGeom *vhd_geometry)
     if (remainder > 0)
         desired_sectors -= remainder;
 
-    vhd_geometry->cyl   = desired_sectors / (16 * 63);
-    vhd_geometry->heads = 16;
-    vhd_geometry->spt   = 63;
+    _86box_geometry->cyl   = desired_sectors / (16 * 63);
+    _86box_geometry->heads = 16;
+    _86box_geometry->spt   = 63;
 }
 
 void
@@ -561,7 +567,7 @@ HarddiskDialog::onExistingFileSelected(const QString &fileName, bool precheck)
     if (!file.open(QIODevice::ReadOnly)) {
         // No message box during precheck (performed when the file input loses focus and this function is called)
         // If precheck is false, the file has been chosen from a file dialog and the alert should display.
-        if(!precheck) {
+        if (!precheck) {
             QMessageBox::critical(this, tr("Unable to read file"), tr("Make sure the file exists and is readable."));
         }
         return;
@@ -603,11 +609,12 @@ HarddiskDialog::onExistingFileSelected(const QString &fileName, bool precheck)
             }
         }
 
-        MVHDGeom vhd_geom = mvhd_get_geometry(vhd);
-        adjust_vhd_geometry_for_86box(&vhd_geom);
-        cylinders = vhd_geom.cyl;
-        heads     = vhd_geom.heads;
-        sectors   = vhd_geom.spt;
+        MVHDGeom   vhd_geom = mvhd_get_geometry(vhd);
+        _86BoxGeom _86box_geom;
+        adjust_vhd_geometry_for_86box(&vhd_geom, &_86box_geom);
+        cylinders = _86box_geom.cyl;
+        heads     = _86box_geom.heads;
+        sectors   = _86box_geom.spt;
         size      = static_cast<uint64_t>(cylinders * heads * sectors * 512);
         mvhd_close(vhd);
     } else {

@@ -8,8 +8,8 @@ opPAND_xmm_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     SSE_GETSRC();
 
-    cpu_state_high.XMM[cpu_reg].q[0] &= src.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] &= src.q[1];
+    cpu_state.XMM[cpu_reg].q[0] &= src.q[0];
+    cpu_state.XMM[cpu_reg].q[1] &= src.q[1];
     return 0;
 }
 
@@ -22,8 +22,8 @@ opPAND_xmm_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     SSE_GETSRC();
 
-    cpu_state_high.XMM[cpu_reg].q[0] &= src.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] &= src.q[1];
+    cpu_state.XMM[cpu_reg].q[0] &= src.q[0];
+    cpu_state.XMM[cpu_reg].q[1] &= src.q[1];
     return 0;
 }
 
@@ -36,8 +36,8 @@ opPANDN_xmm_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     SSE_GETSRC();
 
-    cpu_state_high.XMM[cpu_reg].q[0] = ~cpu_state_high.XMM[cpu_reg].q[0] & src.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = ~cpu_state_high.XMM[cpu_reg].q[1] & src.q[1];
+    cpu_state.XMM[cpu_reg].q[0] = ~cpu_state.XMM[cpu_reg].q[0] & src.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = ~cpu_state.XMM[cpu_reg].q[1] & src.q[1];
     return 0;
 }
 
@@ -50,8 +50,8 @@ opPANDN_xmm_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     SSE_GETSRC();
 
-    cpu_state_high.XMM[cpu_reg].q[0] = ~cpu_state_high.XMM[cpu_reg].q[0] & src.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] = ~cpu_state_high.XMM[cpu_reg].q[1] & src.q[1];
+    cpu_state.XMM[cpu_reg].q[0] = ~cpu_state.XMM[cpu_reg].q[0] & src.q[0];
+    cpu_state.XMM[cpu_reg].q[1] = ~cpu_state.XMM[cpu_reg].q[1] & src.q[1];
     return 0;
 }
 
@@ -64,8 +64,8 @@ opPOR_xmm_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     SSE_GETSRC();
 
-    cpu_state_high.XMM[cpu_reg].q[0] |= src.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] |= src.q[1];
+    cpu_state.XMM[cpu_reg].q[0] |= src.q[0];
+    cpu_state.XMM[cpu_reg].q[1] |= src.q[1];
     return 0;
 }
 
@@ -78,8 +78,8 @@ opPOR_xmm_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     SSE_GETSRC();
 
-    cpu_state_high.XMM[cpu_reg].q[0] |= src.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] |= src.q[1];
+    cpu_state.XMM[cpu_reg].q[0] |= src.q[0];
+    cpu_state.XMM[cpu_reg].q[1] |= src.q[1];
     return 0;
 }
 
@@ -92,8 +92,8 @@ opPXOR_xmm_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     SSE_GETSRC();
 
-    cpu_state_high.XMM[cpu_reg].q[0] ^= src.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] ^= src.q[1];
+    cpu_state.XMM[cpu_reg].q[0] ^= src.q[0];
+    cpu_state.XMM[cpu_reg].q[1] ^= src.q[1];
     return 0;
 }
 
@@ -106,7 +106,7 @@ opPXOR_xmm_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     SSE_GETSRC();
 
-    cpu_state_high.XMM[cpu_reg].q[0] ^= src.q[0];
-    cpu_state_high.XMM[cpu_reg].q[1] ^= src.q[1];
+    cpu_state.XMM[cpu_reg].q[0] ^= src.q[0];
+    cpu_state.XMM[cpu_reg].q[1] ^= src.q[1];
     return 0;
 }
