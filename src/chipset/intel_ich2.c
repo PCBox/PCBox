@@ -391,7 +391,7 @@ intel_ich2_smbus_setup(intel_ich2_t *dev)
 
 /* ICH2 Registers */
 static void
-intel_ich2_write(int func, int addr, uint8_t val, void *priv)
+intel_ich2_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     intel_ich2_t *dev = (intel_ich2_t *) priv;
 
@@ -765,7 +765,7 @@ intel_ich2_write(int func, int addr, uint8_t val, void *priv)
 }
 
 static uint8_t
-intel_ich2_read(int func, int addr, void *priv)
+intel_ich2_read(int func, int addr, UNUSED(int len), void *priv)
 {
     const intel_ich2_t *dev = (intel_ich2_t *) priv;
 

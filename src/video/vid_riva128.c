@@ -42,6 +42,7 @@
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
 #include <86box/utils/video_stdlib.h>
+#include <86box/plat_unused.h>
 
 #define BIOS_RIVA128_PATH "roms/video/nvidia/Diamond_V330_rev-e.vbi"
 
@@ -271,7 +272,7 @@ static void riva128_out(uint16_t addr, uint8_t val, void *p);
 void riva128_do_gpu_work(void *p);
 
 static uint8_t 
-riva128_pci_read(int func, int addr, void *p)
+riva128_pci_read(int func, int addr, UNUSED(int len), void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
 	/* svga_t *svga = &riva128->svga; */
@@ -406,7 +407,7 @@ riva128_recalc_mapping(riva128_t *riva128)
 
 
 static void 
-riva128_pci_write(int func, int addr, uint8_t val, void *p)
+riva128_pci_write(int func, int addr, UNUSED(int len), uint8_t val, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
 
@@ -3086,12 +3087,12 @@ riva128_mmio_read_l(uint32_t addr, void *p)
 		ret = riva128_user_read(addr, riva128);
 
 	if ((addr >= 0x1800) && (addr <= 0x18ff))
-		ret = (riva128_pci_read(0,(addr+0) & 0xff,p) << 0)
-				| (riva128_pci_read(0, (addr + 1) & 0xff,p)
+		ret = (riva128_pci_read(0,(addr+0) & 0xff,1,p) << 0)
+				| (riva128_pci_read(0, (addr + 1) & 0xff,1,p)
 						<< 8)
-				| (riva128_pci_read(0, (addr + 2) & 0xff,p)
+				| (riva128_pci_read(0, (addr + 2) & 0xff,1,p)
 						<< 16)
-				| (riva128_pci_read(0, (addr + 3) & 0xff,p)
+				| (riva128_pci_read(0, (addr + 3) & 0xff,1,p)
 						<< 24);
 
 	/*if (!(addr <= 0x000fff) && !((addr >= 0x009000) && (addr <= 0x009fff)))
@@ -3115,7 +3116,7 @@ riva128_mmio_read(uint32_t addr, void *p)
 		return riva128->bios_rom.rom[addr & riva128->bios_rom.mask];
 
 	if ((addr >= 0x1800) && (addr <= 0x18ff))
-	return riva128_pci_read(0,addr & 0xff,p);
+	return riva128_pci_read(0,addr & 0xff,1,p);
 
 	switch(addr) {
 	case 0x6013b4: case 0x6013b5:
@@ -3147,8 +3148,8 @@ riva128_mmio_read_w(uint32_t addr, void *p)
 				[(addr & riva128->bios_rom.mask) >> 1];
 
 	if ((addr >= 0x1800) && (addr <= 0x18ff))
-		return (riva128_pci_read(0,(addr+0) & 0xff,p) << 0)
-				| (riva128_pci_read(0,(addr+1) & 0xff,p) << 8);
+		return (riva128_pci_read(0,(addr+0) & 0xff,1,p) << 0)
+				| (riva128_pci_read(0,(addr+1) & 0xff,1,p) << 8);
 
 	switch(addr) {
 	case 0x6013b4: case 0x6013b5:
@@ -3181,10 +3182,10 @@ riva128_mmio_write_l(uint32_t addr, uint32_t val, void *p)
 		pclog("[RIVA 128] MMIO write %08x %08x\n", addr, val); */
 
 	if ((addr >= 0x1800) && (addr <= 0x18ff)) {
-		riva128_pci_write(0, addr & 0xff, val & 0xff, p);
-		riva128_pci_write(0, (addr+1) & 0xff, (val>>8) & 0xff, p);
-		riva128_pci_write(0, (addr+2) & 0xff, (val>>16) & 0xff, p);
-		riva128_pci_write(0, (addr+3) & 0xff, (val>>24) & 0xff, p);
+		riva128_pci_write(0, addr & 0xff, 1, val & 0xff, p);
+		riva128_pci_write(0, (addr+1) & 0xff, 1, (val>>8) & 0xff, p);
+		riva128_pci_write(0, (addr+2) & 0xff, 1, (val>>16) & 0xff, p);
+		riva128_pci_write(0, (addr+3) & 0xff, 1, (val>>24) & 0xff, p);
 		return;
 	}
 
@@ -3250,7 +3251,7 @@ riva128_mmio_write(uint32_t addr, uint8_t val, void *p)
 	riva128_mmio_write_l(addr, tmp, p);
 
 	if ((addr >= 0x1800) && (addr <= 0x18ff))
-		riva128_pci_write(0, addr & 0xff, val, p);
+		riva128_pci_write(0, addr & 0xff, 1, val, p);
 }
 
 
@@ -3260,8 +3261,8 @@ riva128_mmio_write_w(uint32_t addr, uint16_t val, void *p)
 	uint32_t tmp;
 
 	if ((addr >= 0x1800) && (addr <= 0x18ff)) {
-		riva128_pci_write(0, addr & 0xff, val & 0xff, p);
-		riva128_pci_write(0, (addr+1) & 0xff, (val>>8) & 0xff, p);
+		riva128_pci_write(0, addr & 0xff, 1, val & 0xff, p);
+		riva128_pci_write(0, (addr+1) & 0xff, 1, (val>>8) & 0xff, p);
 		return;
 	}
 

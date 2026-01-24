@@ -38,6 +38,7 @@
 #include <86box/vid_ddc.h>
 #include <86box/vid_svga.h>
 #include <86box/vid_svga_render.h>
+#include <86box/plat_unused.h>
 
 #define BIOS_RIVATNT_PATH		"roms/video/nvidia/NV4_diamond_revB.rom"
 
@@ -225,7 +226,7 @@ rivatnt_ramin_write_l(uint32_t addr, uint32_t val, void *p)
 }
 
 static uint8_t 
-rivatnt_pci_read(int func, int addr, void *p)
+rivatnt_pci_read(int func, int addr, UNUSED(int len), void *p)
 {
     rivatnt_t *rivatnt = (rivatnt_t *)p;
     // svga_t *svga = &rivatnt->svga;
@@ -323,7 +324,7 @@ rivatnt_recalc_mapping(rivatnt_t *rivatnt)
 
 
 static void 
-rivatnt_pci_write(int func, int addr, uint8_t val, void *p)
+rivatnt_pci_write(int func, int addr, UNUSED(int len), uint8_t val, void *p)
 {
     rivatnt_t *rivatnt = (rivatnt_t *)p;
 
@@ -746,7 +747,7 @@ rivatnt_mmio_read_l(uint32_t addr, void *p)
     if ((addr >= 0x300000) && (addr <= 0x30ffff)) ret = ((uint32_t *) rivatnt->bios_rom.rom)[(addr & rivatnt->bios_rom.mask) >> 2];
 
     if ((addr >= 0x1800) && (addr <= 0x18ff))
-        ret = (rivatnt_pci_read(0,(addr+0) & 0xff,p) << 0) | (rivatnt_pci_read(0,(addr+1) & 0xff,p) << 8) | (rivatnt_pci_read(0,(addr+2) & 0xff,p) << 16) | (rivatnt_pci_read(0,(addr+3) & 0xff,p) << 24);
+        ret = (rivatnt_pci_read(0,(addr+0) & 0xff,1,p) << 0) | (rivatnt_pci_read(0,(addr+1) & 0xff,1,p) << 8) | (rivatnt_pci_read(0,(addr+2) & 0xff,1,p) << 16) | (rivatnt_pci_read(0,(addr+3) & 0xff,1,p) << 24);
 
     if(addr != 0x9400) pclog("[RIVA TNT] MMIO read %08x returns value %08x\n", addr, ret);
 
@@ -764,7 +765,7 @@ rivatnt_mmio_read(uint32_t addr, void *p)
     if ((addr >= 0x300000) && (addr <= 0x30ffff)) return rivatnt->bios_rom.rom[addr & rivatnt->bios_rom.mask];
 
     if ((addr >= 0x1800) && (addr <= 0x18ff))
-    return rivatnt_pci_read(0,addr & 0xff,p);
+    return rivatnt_pci_read(0,addr & 0xff,1,p);
 
     switch(addr) {
     case 0x6013b4: case 0x6013b5:
@@ -791,7 +792,7 @@ rivatnt_mmio_read_w(uint32_t addr, void *p)
     if ((addr >= 0x300000) && (addr <= 0x30ffff)) return ((uint16_t *) rivatnt->bios_rom.rom)[(addr & rivatnt->bios_rom.mask) >> 1];
 
     if ((addr >= 0x1800) && (addr <= 0x18ff))
-    return (rivatnt_pci_read(0,(addr+0) & 0xff,p) << 0) | (rivatnt_pci_read(0,(addr+1) & 0xff,p) << 8);
+    return (rivatnt_pci_read(0,(addr+0) & 0xff,1,p) << 0) | (rivatnt_pci_read(0,(addr+1) & 0xff,1,p) << 8);
 
     switch(addr) {
     case 0x6013b4: case 0x6013b5:
@@ -818,10 +819,10 @@ rivatnt_mmio_write_l(uint32_t addr, uint32_t val, void *p)
     pclog("[RIVA TNT] MMIO write %08x %08x\n", addr, val);
 
     if ((addr >= 0x1800) && (addr <= 0x18ff)) {
-    rivatnt_pci_write(0, addr & 0xff, val & 0xff, p);
-    rivatnt_pci_write(0, (addr+1) & 0xff, (val>>8) & 0xff, p);
-    rivatnt_pci_write(0, (addr+2) & 0xff, (val>>16) & 0xff, p);
-    rivatnt_pci_write(0, (addr+3) & 0xff, (val>>24) & 0xff, p);
+    rivatnt_pci_write(0, addr & 0xff, 1, val & 0xff, p);
+    rivatnt_pci_write(0, (addr+1) & 0xff, 1, (val>>8) & 0xff, p);
+    rivatnt_pci_write(0, (addr+2) & 0xff, 1, (val>>16) & 0xff, p);
+    rivatnt_pci_write(0, (addr+3) & 0xff, 1, (val>>24) & 0xff, p);
     return;
     }
 
@@ -856,7 +857,7 @@ rivatnt_mmio_write(uint32_t addr, uint8_t val, void *p)
     addr &= 0xffffff;
 
     if ((addr >= 0x1800) && (addr <= 0x18ff)) {
-    rivatnt_pci_write(0, addr & 0xff, val & 0xff, p);
+    rivatnt_pci_write(0, addr & 0xff, 1, val & 0xff, p);
     return;
     }
 
@@ -875,7 +876,6 @@ rivatnt_mmio_write(uint32_t addr, uint8_t val, void *p)
     tmp &= ~(0xff << ((addr & 3) << 3));
     tmp |= val << ((addr & 3) << 3);
     rivatnt_mmio_write_l(addr, tmp, p);
-    if ((addr >= 0x1800) && (addr <= 0x18ff)) rivatnt_pci_write(0, addr & 0xff, val, p);
 }
 
 
@@ -887,8 +887,8 @@ rivatnt_mmio_write_w(uint32_t addr, uint16_t val, void *p)
     addr &= 0xffffff;
 
     if ((addr >= 0x1800) && (addr <= 0x18ff)) {
-    rivatnt_pci_write(0, addr & 0xff, val & 0xff, p);
-    rivatnt_pci_write(0, (addr+1) & 0xff, (val>>8) & 0xff, p);
+    rivatnt_pci_write(0, addr & 0xff, 1, val & 0xff, p);
+    rivatnt_pci_write(0, (addr+1) & 0xff, 1, (val>>8) & 0xff, p);
     return;
     }
 
