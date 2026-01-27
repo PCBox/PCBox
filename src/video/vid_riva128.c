@@ -1708,7 +1708,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		}
 		case 0x318:
 			riva128->pgraph.pattern_bitmap[1] = param;
-			riva128->pgraph.pattern_bitmap[0] = 0;
+			//riva128->pgraph.pattern_bitmap[0] = 0;
 			break;
 		case 0x31c:
 			riva128->pgraph.pattern_bitmap[0] = param;
