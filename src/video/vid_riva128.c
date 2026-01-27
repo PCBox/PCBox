@@ -1810,8 +1810,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			uint16_t endy = starty +
 					riva128->pgraph.gdi_rect_h_a[
 							(method & 0x1fc) >> 3];
-			for(uint16_t y = starty; y <= endy; y++) {
-				for(uint16_t x = startx; x <= endx; x++) {
+			for(uint16_t y = starty; y < endy; y++) {
+				for(uint16_t x = startx; x < endx; x++) {
 					riva128_pgraph_write_pixel(graphobj0, x, y,
 						riva128->pgraph.gdi_color_a,
 						0xff, riva128);
@@ -1837,8 +1837,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					(method & 0x1fc) >> 3];
 			uint16_t endy = riva128->pgraph.gdi_bottom_b[
 							(method & 0x1fc) >> 3];
-			for(uint16_t y = starty; y <= endy; y++) {
-				for(uint16_t x = startx; x <= endx; x++) {
+			for(uint16_t y = starty; y < endy; y++) {
+				for(uint16_t x = startx; x < endx; x++) {
 					if(x >= riva128->pgraph.gdi_clip_left_b && x <= riva128->pgraph.gdi_clip_right_b
 					&& y >= riva128->pgraph.gdi_clip_top_b && y <= riva128->pgraph.gdi_clip_bottom_b)
 						riva128_pgraph_write_pixel(graphobj0, x, y,
@@ -2332,9 +2332,9 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			case 0x308:
 			riva128->pgraph.blit_size_w = param & 0xffff;
 			riva128->pgraph.blit_size_h = (param >> 16) & 0xffff;
-			for(int x = 0; x <= riva128->pgraph.blit_size_w; x++)
+			for(int x = 0; x < riva128->pgraph.blit_size_w; x++)
 			{
-				for(int y = 0; y <= riva128->pgraph.blit_size_h; y++)
+				for(int y = 0; y < riva128->pgraph.blit_size_h; y++)
 				{
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.blit_out_x + x, riva128->pgraph.blit_out_y + y,
 							riva128_read_pixel_from_buffer(graphobj0, riva128->pgraph.blit_in_x + x, riva128->pgraph.blit_in_y + y, (graphobj0 >> 16) & 3, riva128),
