@@ -12,15 +12,19 @@
 # After a successful build, you can install the RPMs as follows:
 #  sudo dnf install RPMS/$(uname -m)/86Box-3* RPMS/noarch/86Box-roms*
 
-%global romver 5.4
+%global romver 6.0
 
 <<<<<<< HEAD:src/unix/assets/PCBox.spec
 Name:		PCBox
 Version:	5.3
 =======
 Name:		86Box
+<<<<<<< HEAD:src/unix/assets/PCBox.spec
 Version:	5.4
 >>>>>>> 77596d36231ef0a149c89c9f456b62daadebe69c:src/unix/assets/86Box.spec
+=======
+Version:	6.0
+>>>>>>> 8b1e1ab1bffa065c9161bef52c7321277b4b04c3:src/unix/assets/86Box.spec
 Release:	1%{?dist}
 Summary:	Classic PC emulator
 License:	GPLv2+
@@ -126,5 +130,5 @@ popd
 %{_datadir}/%{name}/roms
 
 %changelog
-* Sat Aug 31 2025 Jasmine Iwanek <jriwanek[AT]gmail.com> 5.4-1
+* Sat Aug 31 2025 Jasmine Iwanek <jriwanek[AT]gmail.com> 6.0-1
 - Bump release

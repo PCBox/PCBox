@@ -367,8 +367,12 @@ reset_common(int hard)
     } else
         device_reset_all(DEVICE_SOFTRESET);
 
-    if (!is286)
-        reset_808x(hard);
+    if (!is286) {
+        if (is_nec)
+            reset_vx0(hard);
+        else
+            reset_808x(hard);
+    }
 
     cpu_state.mxcsr = 0x1f80;
     in_lock    = 0;
