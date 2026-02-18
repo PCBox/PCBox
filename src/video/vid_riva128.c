@@ -1512,8 +1512,6 @@ riva128_read_pixel_from_buffer(uint32_t graphobj0, uint16_t x, uint16_t y, int b
 	uint16_t *vram_w = (uint16_t *)svga->vram;
 	uint32_t *vram_l = (uint32_t *)svga->vram;
 
-	uint32_t addr;
-
 	switch(riva128->svga.bpp) {
 	case 8: {
         uint32_t addr = ((x + (riva128->pgraph.surf_pitch[buffer]
@@ -2228,6 +2226,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		}
 		break;
     case 0x0d:
+		//DO NOT REMOVE THE +16 CORRECTION FACTOR TO PITCHES AND SCAN LENGTH, THEY MAKE THE BLITS IN 9X WORK.
         switch(method) {
 			case 0x30c:
 			riva128->pgraph.m2mf_in_dma = riva128->pgraph.m2mf_in_dma_cur = param;
@@ -2236,13 +2235,13 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			riva128->pgraph.m2mf_out_dma = riva128->pgraph.m2mf_out_dma_cur = param;
 			break;
 			case 0x314:
-			riva128->pgraph.m2mf_pitch_in = param;
+			riva128->pgraph.m2mf_pitch_in = (param + 16);
 			break;
 			case 0x318:
-			riva128->pgraph.m2mf_pitch_out = !param ? riva128->pgraph.m2mf_pitch_in : param;
+			riva128->pgraph.m2mf_pitch_out = !param ? riva128->pgraph.m2mf_pitch_in : (param + 16);
 			break;
 			case 0x31c:
-			riva128->pgraph.m2mf_scan_len = param;
+			riva128->pgraph.m2mf_scan_len = param + 16;
 			break;
 			case 0x320:
 			riva128->pgraph.m2mf_scan_num = param;
@@ -2288,8 +2287,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					{
 						uint8_t buf = 0;
 						//dma_bm_read(paged_addr + riva128->pgraph.m2mf_in_dma_cur + pixel, (uint8_t*)&buf, 1, 1);
-						buf = svga->vram[(paged_addr + riva128->pgraph.m2mf_in_dma_cur + pixel) & 0x3fffff];
-						dma_bm_write(unpaged_addr + riva128->pgraph.m2mf_out_dma_cur, (uint8_t*)&buf, 1, 1);
+						buf = svga->vram[(/*unpaged_addr + */riva128->pgraph.m2mf_in_dma_cur + pixel) & 0x3fffff];
+						dma_bm_write(paged_addr + riva128->pgraph.m2mf_out_dma_cur, (uint8_t*)&buf, 1, 1);
 						//svga->vram[(paged_addr + riva128->pgraph.m2mf_out_dma_cur) & 0x3fffff] = buf;
 						//svga->changedvram[((paged_addr + riva128->pgraph.m2mf_out_dma_cur) & 0x3fffff) >> 12] = changeframecount;
 
@@ -2297,7 +2296,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					}
 
 					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
-					//riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;
+					riva128->pgraph.m2mf_out_dma_cur = out_dma + riva128->pgraph.m2mf_pitch_out;
 				}
 			}
 			else
