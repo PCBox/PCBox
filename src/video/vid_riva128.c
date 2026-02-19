@@ -2226,22 +2226,22 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		}
 		break;
     case 0x0d:
-		//DO NOT REMOVE THE +16 CORRECTION FACTOR TO PITCHES AND SCAN LENGTH, THEY MAKE THE BLITS IN 9X WORK.
+		//DO NOT REMOVE THE +32 OFFSET TO THE OFFSETS, THEY MAKE THE BLITS IN 9X WORK.
         switch(method) {
 			case 0x30c:
-			riva128->pgraph.m2mf_in_dma = riva128->pgraph.m2mf_in_dma_cur = param;
+			riva128->pgraph.m2mf_in_dma = riva128->pgraph.m2mf_in_dma_cur = param + 32;
 			break;
 			case 0x310:
-			riva128->pgraph.m2mf_out_dma = riva128->pgraph.m2mf_out_dma_cur = param;
+			riva128->pgraph.m2mf_out_dma = riva128->pgraph.m2mf_out_dma_cur = param + 32;
 			break;
 			case 0x314:
-			riva128->pgraph.m2mf_pitch_in = (param + 16);
+			riva128->pgraph.m2mf_pitch_in = param;
 			break;
 			case 0x318:
-			riva128->pgraph.m2mf_pitch_out = !param ? riva128->pgraph.m2mf_pitch_in : (param + 16);
+			riva128->pgraph.m2mf_pitch_out = !param ? riva128->pgraph.m2mf_pitch_in : param;
 			break;
 			case 0x31c:
-			riva128->pgraph.m2mf_scan_len = param + 16;
+			riva128->pgraph.m2mf_scan_len = param;
 			break;
 			case 0x320:
 			riva128->pgraph.m2mf_scan_num = param;
