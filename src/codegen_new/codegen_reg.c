@@ -198,7 +198,7 @@ struct
     [IREG_temp1d] = { REG_DOUBLE,        (void *) 48,                        REG_FP,      REG_VOLATILE },
 };
 
-static const uint8_t native_requested_sizes[9][8] = 
+static const uint8_t native_requested_sizes[10][8] = 
 {
     [REG_BYTE][IREG_SIZE_B >> IREG_SIZE_SHIFT]          = 1,
     [REG_FPU_ST_BYTE][IREG_SIZE_B >> IREG_SIZE_SHIFT]   = 1,
