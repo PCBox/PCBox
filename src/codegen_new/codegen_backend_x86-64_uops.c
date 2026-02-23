@@ -32,6 +32,7 @@
 #    define REG_IS_BH(size)   (size == IREG_SIZE_BH)
 #    define REG_IS_D(size)    (size == IREG_SIZE_D)
 #    define REG_IS_Q(size)    (size == IREG_SIZE_Q)
+#    define REG_IS_DQ(size)   (size == IREG_SIZE_DQ)
 
 static int
 codegen_ADD(codeblock_t *block, uop_t *uop)
