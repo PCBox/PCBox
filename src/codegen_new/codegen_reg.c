@@ -41,6 +41,7 @@ enum {
     REG_WORD,
     REG_DWORD,
     REG_QWORD,
+    REG_DQWORD,
     REG_POINTER,
     REG_DOUBLE,
     REG_FPU_ST_BYTE,
@@ -153,6 +154,15 @@ struct
     [IREG_MM6x] = { REG_QWORD,         &cpu_state.MM[6],                   REG_FP,      REG_PERMANENT},
     [IREG_MM7x] = { REG_QWORD,         &cpu_state.MM[7],                   REG_FP,      REG_PERMANENT},
 
+    [IREG_XMM0x] = { REG_DQWORD,         &cpu_state.XMM[0],                   REG_FP,      REG_PERMANENT},
+    [IREG_XMM1x] = { REG_DQWORD,         &cpu_state.XMM[1],                   REG_FP,      REG_PERMANENT},
+    [IREG_XMM2x] = { REG_DQWORD,         &cpu_state.XMM[2],                   REG_FP,      REG_PERMANENT},
+    [IREG_XMM3x] = { REG_DQWORD,         &cpu_state.XMM[3],                   REG_FP,      REG_PERMANENT},
+    [IREG_XMM4x] = { REG_DQWORD,         &cpu_state.XMM[4],                   REG_FP,      REG_PERMANENT},
+    [IREG_XMM5x] = { REG_DQWORD,         &cpu_state.XMM[5],                   REG_FP,      REG_PERMANENT},
+    [IREG_XMM6x] = { REG_DQWORD,         &cpu_state.XMM[6],                   REG_FP,      REG_PERMANENT},
+    [IREG_XMM7x] = { REG_DQWORD,         &cpu_state.XMM[7],                   REG_FP,      REG_PERMANENT},
+
     [IREG_NPXCx] = { REG_WORD,          &cpu_state.npxc,                    REG_INTEGER, REG_PERMANENT},
     [IREG_NPXSx] = { REG_WORD,          &cpu_state.npxs,                    REG_INTEGER, REG_PERMANENT},
 
@@ -195,6 +205,10 @@ static const uint8_t native_requested_sizes[9][8] =
     [REG_WORD][IREG_SIZE_W >> IREG_SIZE_SHIFT]          = 1,
     [REG_DWORD][IREG_SIZE_L >> IREG_SIZE_SHIFT]         = 1,
     [REG_QWORD][IREG_SIZE_D >> IREG_SIZE_SHIFT]         = 1,
+    [REG_DQWORD][IREG_SIZE_DQ >> IREG_SIZE_SHIFT]         = 1,
+    [REG_DQWORD][IREG_SIZE_B >> IREG_SIZE_SHIFT]         = 1,
+    [REG_DQWORD][IREG_SIZE_W >> IREG_SIZE_SHIFT]         = 1,
+    [REG_DQWORD][IREG_SIZE_L >> IREG_SIZE_SHIFT]         = 1,
     [REG_FPU_ST_QWORD][IREG_SIZE_D >> IREG_SIZE_SHIFT]  = 1,
     [REG_DOUBLE][IREG_SIZE_D >> IREG_SIZE_SHIFT]        = 1,
     [REG_FPU_ST_DOUBLE][IREG_SIZE_D >> IREG_SIZE_SHIFT] = 1,
@@ -334,6 +348,23 @@ codegen_reg_load(host_reg_set_t *reg_set, codeblock_t *block, int c, ir_reg_t ir
                 codegen_direct_read_64(block, reg_set->reg_list[c].reg, ireg_data[IREG_GET_REG(ir_reg.reg)].p);
             break;
 
+        case REG_DQWORD:
+#ifndef RELEASE_BUILD
+            if (ireg_data[IREG_GET_REG(ir_reg.reg)].type != REG_FP)
+                fatal("codegen_reg_load - REG_QWORD !REG_FP\n");
+#endif
+            if ((uintptr_t) ireg_data[IREG_GET_REG(ir_reg.reg)].p < 256)
+            {
+                codegen_direct_read_64_stack(block, reg_set->reg_list[c].reg, (intptr_t) ireg_data[IREG_GET_REG(ir_reg.reg)].p);
+                codegen_direct_read_64_stack(block, reg_set->reg_list[c].reg, (intptr_t) (ireg_data[IREG_GET_REG(ir_reg.reg)].p + 8));
+            }
+            else
+            {
+                codegen_direct_read_64(block, reg_set->reg_list[c].reg, ireg_data[IREG_GET_REG(ir_reg.reg)].p);
+                codegen_direct_read_64(block, reg_set->reg_list[c].reg, ireg_data[IREG_GET_REG(ir_reg.reg)].p + 8);
+            }
+            break;
+
         case REG_POINTER:
 #ifndef RELEASE_BUILD
             if (ireg_data[IREG_GET_REG(ir_reg.reg)].type != REG_INTEGER)
@@ -448,6 +479,23 @@ codegen_reg_writeback(host_reg_set_t *reg_set, codeblock_t *block, int c, int in
                 codegen_direct_write_64(block, p, reg_set->reg_list[c].reg);
             break;
 
+        case REG_DQWORD:
+#ifndef RELEASE_BUILD
+            if (ireg_data[ir_reg].type != REG_FP)
+                fatal("codegen_reg_writeback - REG_QWORD !REG_FP\n");
+#endif
+            if ((uintptr_t) p < 256)
+            {
+                codegen_direct_write_64_stack(block, (intptr_t) p, reg_set->reg_list[c].reg);
+                codegen_direct_write_64_stack(block, (intptr_t) (p + 8), reg_set->reg_list[c].reg);
+            }
+            else
+            {
+                codegen_direct_write_64(block, p, reg_set->reg_list[c].reg);
+                codegen_direct_write_64(block, p + 8, reg_set->reg_list[c].reg);
+            }
+            break;
+
         case REG_POINTER:
 #ifndef RELEASE_BUILD
             if (ireg_data[ir_reg].type != REG_INTEGER)
@@ -544,6 +592,7 @@ codegen_reg_write_imm(codeblock_t *block, ir_reg_t ir_reg, uint32_t imm_data)
 
         case REG_POINTER:
         case REG_QWORD:
+        case REG_DQWORD:
         case REG_DOUBLE:
         case REG_FPU_ST_BYTE:
         case REG_FPU_ST_QWORD:
