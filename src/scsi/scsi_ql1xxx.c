@@ -8,7 +8,7 @@
  *
  *          QLogic QLA1x40/QLA1x80/QLA1x160 SCSI HBA emulation.
  *
- *          Register values are derived from the Matthew Jacob's
+ *          Register definitions are derived from the Matthew Jacob's
  *          multiplatform driver for ISP chipsets.
  *
  * Authors: Dmitry Borisov, <di.sean@protonmail.com>
@@ -664,12 +664,12 @@ typedef struct ql_t {
     uint16_t reg_id_low;
     uint16_t reg_id_high;
     uint16_t reg_cfg0;
-    uint16_t reg_cfg1;
     uint16_t reg_scsi_diff_pins;
     uint16_t reg_gpio_data;
     uint16_t reg_gpio_enable;
     uint16_t reg_flash_bios_addr;
     uint16_t reg_nvram;
+    uint16_t reg_cfg1;
     uint16_t reg_host_cmd_flags;
     uint16_t reg_intr_ctrl;
     uint16_t reg_intr_status;
@@ -1341,7 +1341,6 @@ ql_reset_asic(ql_t *dev)
 
     ql_update_irq(dev);
 }
-
 
 static bool
 ql_sxp_abort_commands(ql_t *dev, uint8_t path_id, uint8_t target_id, uint8_t lun, uint32_t handle, bool is_handle_valid)
@@ -2172,7 +2171,7 @@ ql_process_mailbox(ql_t *dev)
             break;
 
         default:
-            ql_log("Unhandled or invalid command %02X\n", dev->reg_mbox_in[0]);
+            ql_log("Unhandled or invalid command %04X\n", dev->reg_mbox_in[0]);
             status = QL_MBOX_STATUS_INVALID;
             break;
     }
@@ -2250,8 +2249,8 @@ ql_pkt_put_request_status(uint32_t address, isp_req_status_t *resp)
     ql_dma_write16(address + 16, &resp->time);
     ql_dma_write16(address + 18, &resp->sense_length);
     ql_dma_write32(address + 20, &resp->residual_length);
-    ql_dma_write(address + 24, &resp->response[0], ARRAY_SIZE(resp->response));
-    ql_dma_write(address + 32, &resp->sense_data[0], ARRAY_SIZE(resp->sense_data));
+    ql_dma_write(address + 24, &resp->response[0], sizeof(resp->response));
+    ql_dma_write(address + 32, &resp->sense_data[0], sizeof(resp->sense_data));
 
     ql_log("QL: RESP HDR type 0x%X cnt %u seq %u fl 0x%X\n",
            resp->hdr.entry_type,
@@ -2289,7 +2288,7 @@ ql_sxp_fetch_request(ql_sxp_req_t* pkt, uint32_t address)
             ql_dma_read16(address + 14, &pkt->reserved);
             ql_dma_read16(address + 16, &pkt->timeout);
             ql_dma_read16(address + 18, &pkt->seg_count);
-            ql_dma_read(address + 20, &pkt->cdb[0], ARRAY_SIZE(pkt->cdb));
+            ql_dma_read(address + 20, &pkt->cdb[0], sizeof(pkt->cdb));
             return true;
         }
 
@@ -2559,8 +2558,8 @@ ql_sxp_state_machine(ql_t *dev)
                     pkt->hdr.entry_count = 1;
                     pkt->lun = lun;
                     pkt->bus_target = target_id;
-                    pkt->cdb_length = ARRAY_SIZE(pkt->cdb);
-                    memcpy(pkt->cdb, cdb_bytes, ARRAY_SIZE(pkt->cdb));
+                    pkt->cdb_length = sizeof(pkt->cdb);
+                    memcpy(pkt->cdb, cdb_bytes, sizeof(pkt->cdb));
 
                     dev->sxp_state = SXP_STATE_SELECT_DEVICE;
                     break;
@@ -2575,7 +2574,7 @@ ql_sxp_state_machine(ql_t *dev)
                     return false;
                 }
 
-                /* No available entries the request queue, try again later */
+                /* No available entries in the request queue, try again later */
                 if (QL_RQST_CONS(dev) == QL_RQST_PROD(dev)) {
                     return false;
                 }
@@ -2684,7 +2683,7 @@ ql_sxp_state_machine(ql_t *dev)
 
             scsi_device_identify(sd, pkt->lun);
 
-            for (uint32_t i = 0; i < ARRAY_SIZE(pkt->cdb); i++) {
+            for (uint32_t i = 0; i < sizeof(pkt->cdb); i++) {
                 ql_log("QL: SCSI CDB[%2lu]=%02X\n", i, pkt->cdb[i]);
             }
 
@@ -3027,7 +3026,7 @@ ql_write_bank_dma(ql_t *dev, uint32_t addr, uint16_t val)
     }
 }
 
-static uint16_t
+static void
 ql_write_bank_risc(ql_t *dev, uint32_t addr, uint16_t val)
 {
     switch (addr) {
