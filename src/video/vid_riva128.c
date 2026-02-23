@@ -2271,6 +2271,13 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			int inc_in = riva128->pgraph.m2mf_format & 7;
 			int inc_out = (riva128->pgraph.m2mf_format >> 8) & 7;
 
+			/* Enforce expected byte sizes */
+			if (!((inc_in == 1) || (inc_in == 2) || (inc_in == 4)) ||
+    			!((inc_out == 1) || (inc_out == 2) || (inc_out == 4))) {
+    			pclog("RIVA 128 M2MF: unsupported format %08x\n", riva128->pgraph.m2mf_format);
+    			break;
+			}
+
 			uint32_t logical_addr = riva128->pgraph.m2mf_obj << 4;
 
 			uint32_t unpaged_addr = pte_frame + adjust + logical_addr;
@@ -2285,14 +2292,16 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					uint32_t out_dma = riva128->pgraph.m2mf_out_dma_cur;
 					for(uint32_t pixel = 0; pixel < riva128->pgraph.m2mf_scan_len; pixel += inc_in)
 					{
-						uint8_t buf = 0;
+						uint32_t in_off  = riva128->pgraph.m2mf_in_dma_cur  + (pixel * inc_in);
+        				uint32_t out_off = riva128->pgraph.m2mf_out_dma_cur + (pixel * inc_out);
+						uint8_t buf[4] = { 0 };
 						//dma_bm_read(paged_addr + riva128->pgraph.m2mf_in_dma_cur + pixel, (uint8_t*)&buf, 1, 1);
-						buf = svga->vram[(/*unpaged_addr + */riva128->pgraph.m2mf_in_dma_cur + pixel) & 0x3fffff];
-						dma_bm_write(paged_addr + riva128->pgraph.m2mf_out_dma_cur, (uint8_t*)&buf, 1, 1);
+						memcpy(buf, &svga->vram[in_off & 0x3fffff], inc_in);
+
+						uint32_t copy_size = (inc_in < inc_out) ? inc_in : inc_out;
+						dma_bm_write(paged_addr + out_off, (uint8_t*)&buf, copy_size, copy_size);
 						//svga->vram[(paged_addr + riva128->pgraph.m2mf_out_dma_cur) & 0x3fffff] = buf;
 						//svga->changedvram[((paged_addr + riva128->pgraph.m2mf_out_dma_cur) & 0x3fffff) >> 12] = changeframecount;
-
-						riva128->pgraph.m2mf_out_dma_cur += inc_out;
 					}
 
 					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
