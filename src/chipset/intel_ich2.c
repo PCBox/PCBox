@@ -1044,8 +1044,8 @@ intel_ich2_init(UNUSED(const device_t *info))
     dev->gpio = device_add(&intel_ich2_gpio_device);
 
     /* NVR Handler */
-    dev->nvr = device_add(&piix4_nvr_device);
-    acpi_set_nvr(dev->acpi, dev->nvr);
+    //dev->nvr = device_add(&piix4_nvr_device);
+    //acpi_set_nvr(dev->acpi, dev->nvr);
 
     /* Intel ICH2 Hub */
     device_add(&intel_ich2_hub_device);

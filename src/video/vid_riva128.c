@@ -703,7 +703,7 @@ riva128_pfifo_read(uint32_t addr, void *p)
 	case 0x002420:
 		return riva128->pfifo.runout_get;
 	case 0x002500:
-		return riva128->pfifo.caches_reassign;
+		return riva128->pfifo.caches_reassign & 1;
 	case 0x003010:
 		return riva128->pfifo.caches[0].put;
 	case 0x003014: {

@@ -2323,7 +2323,6 @@ ql_sxp_begin_response_entry(ql_sxp_req_t *pkt, isp_req_status_t *resp)
 static double
 ql_sxp_handle_state_send_cdb_bios(ql_t *dev, scsi_device_t *sd)
 {
-    ql_sxp_req_t *pkt = &dev->pkt;
     isp_req_status_t *resp = &dev->pkt_resp;
     double media_period = 10.0;
     uint64_t bytes_xfered = 0;
