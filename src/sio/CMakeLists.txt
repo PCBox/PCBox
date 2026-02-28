@@ -33,6 +33,7 @@ add_library(sio OBJECT
     sio_nsc366.c
     sio_it86x1f.c
     sio_it8702.c
+    sio_p82c604.c
     sio_pc87310.c
     sio_pc873xx.c
     sio_pc87306.c
