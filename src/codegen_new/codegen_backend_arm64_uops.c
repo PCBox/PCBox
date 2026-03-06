@@ -1241,7 +1241,7 @@ codegen_MOVZX(codeblock_t *block, uop_t *uop)
     int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
 
     if (REG_IS_Q(dest_size) && REG_IS_L(src_size)) {
-        host_arm64_MOV_REG(block, src_reg, src_reg, 0);
+        host_arm64_MOV_REG(block, src_reg, src_reg, 0); //Zero extends src_reg
         host_arm64_FMOV_D_Q(block, dest_reg, src_reg);
     } else if (REG_IS_L(dest_size) && REG_IS_Q(src_size)) {
         host_arm64_FMOV_W_S(block, dest_reg, src_reg);
