@@ -1512,18 +1512,18 @@ riva128_read_pixel_from_buffer(uint32_t graphobj0, uint16_t x, uint16_t y, int b
 	uint16_t *vram_w = (uint16_t *)svga->vram;
 	uint32_t *vram_l = (uint32_t *)svga->vram;
 
-	switch(riva128->svga.bpp) {
-	case 8: {
+	switch(graphobj0 & 7) {
+	case 3: {
         uint32_t addr = ((x + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
 		return svga->vram[addr & riva128->vram_mask];
 		}
-	case 15: case 16: {
+	case 0: case 4: {
         uint32_t addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
 		return vram_w[(addr & riva128->vram_mask) >> 1];
 		}
-	case 32: {
+	case 1: case 2: {
         uint32_t addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
 		return vram_l[(addr & riva128->vram_mask) >> 2];
@@ -1553,7 +1553,7 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 
 	int chroma_key_enabled = (graphobj0 >> 13) & 1;
 
-	if(chroma_key_enabled && (riva128->pgraph.chroma == color)) return;
+	if(chroma_key_enabled && (riva128->pgraph.chroma == riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, color, riva128)))) return;
 
     uint32_t addr;
 
@@ -1574,8 +1574,8 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 
 	uint32_t pattern = use_color1 ? riva128->pgraph.pattern_mono_color_rgb[1] : riva128->pgraph.pattern_mono_color_rgb[0];
 
-	switch(svga->bpp) {
-	case 8: {
+	switch(graphobj0 & 7) {
+	case 3: {
        	addr = ((x + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
 		uint32_t src = color & 0xff;
@@ -1587,8 +1587,8 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 					src, dst, pat) & 0xff;
 		break;
 	}
-    case 15:
-	case 16: {
+    case 0:
+	case 4: {
         addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
 		uint32_t src = color & 0xffff;
@@ -1599,7 +1599,7 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 						src, dst, pat) & 0xffff;
 		break;
 	}
-	case 32: {
+	case 1: case 2: {
         addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
 		uint32_t src = color;
@@ -1672,7 +1672,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		break;
 	case 0x03:
 		if (method == 0x304)
-			riva128->pgraph.chroma = param;
+			riva128->pgraph.chroma = riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param, riva128));
 		else
 			riva128_pgraph_invalid_interrupt(0, riva128);
 		break;
@@ -1697,11 +1697,11 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			riva128->pgraph.pattern_shape = param & 3;
 			break;
 		case 0x310: {
-			riva128->pgraph.pattern_mono_color_rgb[0] = param;
+			riva128->pgraph.pattern_mono_color_rgb[0] = riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param, riva128));
 			break;
 		}
 		case 0x314: {
-			riva128->pgraph.pattern_mono_color_rgb[1] = param;
+			riva128->pgraph.pattern_mono_color_rgb[1] = riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param, riva128));
 			break;
 		}
 		case 0x318:
@@ -1737,7 +1737,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			for(uint16_t y = starty; y < endy; y++) {
 				for(uint16_t x = startx; x < endx; x++) {
 					riva128_pgraph_write_pixel(graphobj0, x, y,
-						riva128->pgraph.rect_color,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.rect_color, riva128)),
 						0xff, riva128);
 				}
 			}
@@ -1768,7 +1768,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						y++) {
 					riva128_pgraph_write_pixel(graphobj0,
 						riva128->pgraph.lin_start_x,
-						y, riva128->pgraph.lin_color,
+						y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.lin_color, riva128)),
 						0xff, riva128);
 				}
 			} else if (riva128->pgraph.lin_start_y
@@ -1778,7 +1779,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						x++) {
 					riva128_pgraph_write_pixel(graphobj0, x,
 						riva128->pgraph.lin_start_y,
-						riva128->pgraph.lin_color,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.lin_color, riva128)),
 						0xff, riva128);
 				}
 			}
@@ -1811,7 +1812,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			for(uint16_t y = starty; y < endy; y++) {
 				for(uint16_t x = startx; x < endx; x++) {
 					riva128_pgraph_write_pixel(graphobj0, x, y,
-						riva128->pgraph.gdi_color_a,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_a, riva128)),
 						0xff, riva128);
 				}
 			}
@@ -1840,7 +1841,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if(x >= riva128->pgraph.gdi_clip_left_b && x <= riva128->pgraph.gdi_clip_right_b
 					&& y >= riva128->pgraph.gdi_clip_top_b && y <= riva128->pgraph.gdi_clip_bottom_b)
 						riva128_pgraph_write_pixel(graphobj0, x, y,
-							riva128->pgraph.gdi_color_b,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_b, riva128)),
 							0xff, riva128);
 				}
 			}
@@ -1852,7 +1853,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if((param >> bit) & 1)
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_c, riva128->pgraph.gdi_cur_y_c,
-							riva128->pgraph.gdi_color_c,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_c, riva128)),
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_c++;
@@ -1870,7 +1871,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if((param >> bit) & 1)
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_c, riva128->pgraph.gdi_cur_y_c,
-							riva128->pgraph.gdi_color_c,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_c, riva128)),
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_c++;
@@ -1888,7 +1889,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if((param >> bit) & 1)
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_c, riva128->pgraph.gdi_cur_y_c,
-							riva128->pgraph.gdi_color_c,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_c, riva128)),
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_c++;
@@ -1906,7 +1907,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if((param >> bit) & 1)
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_c, riva128->pgraph.gdi_cur_y_c,
-							riva128->pgraph.gdi_color_c,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_c, riva128)),
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_c++;
@@ -1926,7 +1927,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if((param >> bit) & 1)
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_d, riva128->pgraph.gdi_cur_y_d,
-							riva128->pgraph.gdi_color_d,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_d, riva128)),
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_d++;
@@ -1946,7 +1947,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if((param >> bit) & 1)
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_d, riva128->pgraph.gdi_cur_y_d,
-							riva128->pgraph.gdi_color_d,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_d, riva128)),
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_d++;
@@ -1965,7 +1966,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if((param >> bit) & 1)
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_d, riva128->pgraph.gdi_cur_y_d,
-							riva128->pgraph.gdi_color_d,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_d, riva128)),
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_d++;
@@ -1984,7 +1985,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if((param >> bit) & 1)
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_d, riva128->pgraph.gdi_cur_y_d,
-							riva128->pgraph.gdi_color_d,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_d, riva128)),
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_d++;
@@ -2010,13 +2011,13 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if((param >> bit) & 1)
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
-							riva128->pgraph.gdi_color_e[1],
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[1], riva128)),
 							0xff, riva128);
 					}
 					else
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
-							riva128->pgraph.gdi_color_e[0],
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[0], riva128)),
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_e++;
@@ -2034,13 +2035,13 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if((param >> bit) & 1)
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
-							riva128->pgraph.gdi_color_e[1],
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[1], riva128)),
 							0xff, riva128);
 					}
 					else
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
-							riva128->pgraph.gdi_color_e[0],
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[0], riva128)),
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_e++;
@@ -2058,13 +2059,13 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if((param >> bit) & 1)
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
-							riva128->pgraph.gdi_color_e[1],
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[1], riva128)),
 							0xff, riva128);
 					}
 					else
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
-							riva128->pgraph.gdi_color_e[0],
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[0], riva128)),
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_e++;
@@ -2082,13 +2083,13 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					if((param >> bit) & 1)
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
-							riva128->pgraph.gdi_color_e[1],
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[1], riva128)),
 							0xff, riva128);
 					}
 					else
 					{
 						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
-							riva128->pgraph.gdi_color_e[0],
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[0], riva128)),
 							0xff, riva128);
 					}
 					riva128->pgraph.gdi_cur_x_e++;
@@ -2346,7 +2347,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				for(int y = 0; y < riva128->pgraph.blit_size_h; y++)
 				{
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.blit_out_x + x, riva128->pgraph.blit_out_y + y,
-							riva128_read_pixel_from_buffer(graphobj0, riva128->pgraph.blit_in_x + x, riva128->pgraph.blit_in_y + y, (graphobj0 >> 16) & 3, riva128),
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0,
+								riva128_read_pixel_from_buffer(graphobj0, riva128->pgraph.blit_in_x + x, riva128->pgraph.blit_in_y + y, (graphobj0 >> 16) & 3, riva128), riva128)),
 							0xff, riva128);
 				}
 			}
@@ -2356,11 +2358,11 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	case 0x11:
 		if(method >= 0x400 && method < 0x480)
 		{
-			switch(svga->bpp)
+			switch(graphobj0 & 7)
 			{
-				case 8:
+				case 3:
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
-						param & 0xff,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param & 0xff, riva128)),
 						0xff, riva128);
 					riva128->pgraph.ifc_cur_x++;
 					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
@@ -2371,7 +2373,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							goto method_end;
 					}
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
-						(param >> 8) & 0xff,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 8) & 0xff, riva128)),
 						0xff, riva128);
 					riva128->pgraph.ifc_cur_x++;
 					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
@@ -2382,7 +2384,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							goto method_end;
 					}
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
-						(param >> 16) & 0xff,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 16) & 0xff, riva128)),
 						0xff, riva128);
 					riva128->pgraph.ifc_cur_x++;
 					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
@@ -2394,32 +2396,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					}
 					riva128->pgraph.ifc_cur_x++;
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
-						(param >> 24) & 0xff,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 24) & 0xff, riva128)),
 						0xff, riva128);
-					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
-					{
-						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
-						riva128->pgraph.ifc_cur_y++;
-						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
-							goto method_end;
-					}
-					break;
-				case 15: case 16:
-					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
-						param & 0xffff,
-						0xff, riva128);
-					riva128->pgraph.ifc_cur_x++;
-					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
-					{
-						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
-						riva128->pgraph.ifc_cur_y++;
-						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
-							goto method_end;
-					}
-					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
-						param >> 16,
-						0xff, riva128);
-					riva128->pgraph.ifc_cur_x++;
 					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
 					{
 						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
@@ -2428,9 +2406,33 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							goto method_end;
 					}
 					break;
-				case 32:
+				case 0: case 4:
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
-						param,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param & 0xffff, riva128)),
+						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 16) & 0xffff, riva128)),
+						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					break;
+				case 1: case 2:
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param, riva128)),
 						0xff, riva128);
 					riva128->pgraph.ifc_cur_x++;
 					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
@@ -2503,7 +2505,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					uint16_t itm_val = 0;
 					dma_bm_read(unpaged_addr + offset, (uint8_t*)&itm_val, 2, 2);
 					riva128_pgraph_write_pixel(graphobj0, x, y,
-							itm_val, 0xff, riva128);
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, itm_val, riva128)), 0xff, riva128);
 				}
 			}
 			
@@ -2524,11 +2526,12 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				{
 					final_x = riva128->pgraph.sifc_cur_x;
 					final_y = riva128->pgraph.sifc_cur_y;
-					switch(svga->bpp)
+					switch(graphobj0 & 7)
 					{
-						case 8:
+						case 3:
 							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
-									param & 0xff, 0xff, riva128);
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param & 0xff, riva128)),
+									0xff, riva128);
 							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
 							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
 							{
@@ -2538,7 +2541,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 									goto method_end;	
 							};
 							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
-									(param >> 8) & 0xff, 0xff, riva128);
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 8) & 0xff, riva128)),
+									0xff, riva128);
 							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
 							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
 							{
@@ -2548,7 +2552,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 									goto method_end;
 							}
 							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
-									(param >> 16) & 0xff, 0xff, riva128);
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 16) & 0xff, riva128)),
+									0xff, riva128);
 							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
 							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
 							{
@@ -2558,8 +2563,9 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 									goto method_end;	
 							}
 							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
-									(param >> 24) & 0xff, 0xff, riva128);
-							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du ;
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 24) & 0xff, riva128)),
+									0xff, riva128);
+							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
 							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
 							{
 								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
@@ -2568,9 +2574,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 									goto method_end;	
 							}
 							break;
-						case 15: case 16:
+						case 0: case 4:
 							riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.sifc_cur_x + x, riva128->pgraph.sifc_cur_y + y,
-									param & 0xffff, 0xff, riva128);
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param & 0xffff, riva128)),
+									0xff, riva128);
 							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
 							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
 							{
@@ -2580,7 +2587,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 									goto method_end;	
 							}
 							riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.sifc_cur_x + x, riva128->pgraph.sifc_cur_y + y,
-									param >> 16, 0xff, riva128);
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param >> 16, riva128)),
+									0xff, riva128);
 							bytes_per_pixel = 2;
 							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
 							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
@@ -2591,19 +2599,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 									goto method_end;	
 							}
 							break;
-						case 32:
+						case 1: case 2:
 							riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.sifc_cur_x + x, riva128->pgraph.sifc_cur_y + y,
-									video_15to32[param&0x7fff], 0xff, riva128);
-							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
-							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
-							{
-								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
-								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
-								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
-									goto method_end;
-							}
-							riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.sifc_cur_x + x, riva128->pgraph.sifc_cur_y + y,
-									video_15to32[(param >> 16)&0x7fff], 0xff, riva128);
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param, riva128)),
+									0xff, riva128);
 							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
 							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
 							{
