@@ -1394,9 +1394,9 @@ riva128_pgraph_expand_color(uint32_t graphobj0, uint32_t color, void *p)
 	case 1:
 		/* A8R8G8B8 */
 		color_ret.a = color >> 24;
-		color_ret.r = (((color >> 16) & 0xff) * 0x100) >> 6;
-		color_ret.g = (((color >> 8) & 0xff) * 0x100) >> 6;
-		color_ret.b = (((color >> 0) & 0xff) * 0x100) >> 6;
+		color_ret.r = (((color >> 16) & 0xff) * 0x4);
+		color_ret.g = (((color >> 8) & 0xff) * 0x4);
+		color_ret.b = (((color >> 0) & 0xff) * 0x4);
 		color_ret.mode = RIVA128_COLOR_MODE_RGB8;
 		break;
 	case 2:
@@ -1411,7 +1411,7 @@ riva128_pgraph_expand_color(uint32_t graphobj0, uint32_t color, void *p)
 		/* X16A8Y8 */
 		color_ret.a = (color >> 8) & 0xff;
 		color_ret.r = color_ret.g = color_ret.b
-				= ((color & 0xff) * 0x100) >> 6;
+				= ((color & 0xff) * 0x4);
 		color_ret.mode = RIVA128_COLOR_MODE_Y8;
 		break;
 	case 4:
@@ -1553,7 +1553,7 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 
 	int chroma_key_enabled = (graphobj0 >> 13) & 1;
 
-	if(chroma_key_enabled && (riva128->pgraph.chroma == riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, color, riva128)))) return;
+	if(chroma_key_enabled && (riva128->pgraph.chroma == color)) return;
 
     uint32_t addr;
 
@@ -1573,43 +1573,79 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 	else use_color1 = (riva128->pgraph.pattern_bitmap[0] >> pattern_bit) & 1;
 
 	uint32_t pattern = use_color1 ? riva128->pgraph.pattern_mono_color_rgb[1] : riva128->pgraph.pattern_mono_color_rgb[0];
+	uint32_t src, dst, pat;
 
 	switch(graphobj0 & 7) {
 	case 3: {
-       	addr = ((x + (riva128->pgraph.surf_pitch[buffer]
+		addr = ((x + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
-		uint32_t src = color & 0xff;
-		uint32_t dst =
+		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
+		src = src_exp.i;
+		dst =
 			svga->vram[addr & riva128->vram_mask];
-		uint32_t pat = pattern & 0xff;
+		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
+		pat = pat_exp.i;
+		break;
+	}
+    case 0:
+	{
+		addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
+		src = ((src_exp.r >> 5) << 10) | ((src_exp.g >> 5) << 5) | ((src_exp.b >> 5) & 0x1f);
+		dst = vram_w[(addr & riva128->vram_mask) >> 1];
+		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
+		pat = ((pat_exp.r >> 5) << 10) | ((pat_exp.g >> 5) << 5) | ((pat_exp.b >> 5) & 0x1f);
+		break;
+	}
+	case 4: {
+		addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
+		src = svga_lookup_lut_ram(svga, src_exp.i16);
+		dst = vram_w[(addr & riva128->vram_mask) >> 1];
+		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
+		pat = pat_exp.i16;
+		break;
+	}
+	case 1:
+	{
+		addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
+		src = ((src_exp.r >> 2) << 16) | ((src_exp.g >> 2) << 8) | ((src_exp.b >> 2) & 0xff);
+		dst = vram_l[(addr & riva128->vram_mask) >> 2];
+		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
+		pat = ((pat_exp.r >> 2) << 16) | ((pat_exp.g >> 2) << 8) | ((pat_exp.b >> 2) & 0xff);
+		break;
+	}
+	case 2: {
+		addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		src = color;
+		dst = vram_l[(addr & riva128->vram_mask) >> 2];
+		pat = pattern;
+		break;
+	}
+	}
+	switch(riva128->pgraph.surf_config & (3 << (buffer * 4)))
+	{
+		case 1:
 		svga->vram[addr & riva128->vram_mask] =
 			video_rop_gdi_ternary(rop,
 					src, dst, pat) & 0xff;
 		break;
-	}
-    case 0:
-	case 4: {
-        addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
-			* y))) + riva128->pgraph.surf_offset[buffer];
-		uint32_t src = color & 0xffff;
-		uint32_t dst = vram_w[(addr & riva128->vram_mask) >> 1];
-		uint32_t pat = pattern & 0xffff;
+		case 0: case 2:
 		vram_w[(addr & riva128->vram_mask) >> 1] =
-				video_rop_gdi_ternary(rop,
-						src, dst, pat) & 0xffff;
+			video_rop_gdi_ternary(rop,
+					src, dst, pat) & 0xffff;
+		break;
+		case 3:
+		vram_l[(addr & riva128->vram_mask) >> 2] =
+			video_rop_gdi_ternary(rop,
+					src, dst, pat);
 		break;
 	}
-	case 1: case 2: {
-        addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
-			* y))) + riva128->pgraph.surf_offset[buffer];
-		uint32_t src = color;
-		uint32_t dst = vram_l[(addr & riva128->vram_mask) >> 2];
-		uint32_t pat = pattern;
-		vram_l[(addr & riva128->vram_mask) >> 2] =
-				video_rop_gdi_ternary(rop,
-						src, dst, pat);
-		break;
-	}}
 
 	svga->changedvram[(addr & riva128->vram_mask) >> 12] =
 			changeframecount;
@@ -2502,8 +2538,19 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						+ (riva128->pgraph.itm_pitch
 								* y);
 					pclog("ITM from %08x to x %d y %d w %d h %d pitch %04x\n", unpaged_addr + offset, riva128->pgraph.itm_vtx_x, riva128->pgraph.itm_vtx_y, riva128->pgraph.itm_rect_w, riva128->pgraph.itm_rect_h, riva128->pgraph.itm_pitch);
-					uint16_t itm_val = 0;
-					dma_bm_read(unpaged_addr + offset, (uint8_t*)&itm_val, 2, 2);
+					uint32_t itm_val = 0;
+					switch(graphobj0 & 7)
+					{
+						case 3:
+						dma_bm_read(unpaged_addr + offset, (uint8_t*)&itm_val, 1, 1);
+						break;
+						case 0: case 4:
+						dma_bm_read(unpaged_addr + offset, (uint8_t*)&itm_val, 2, 2);
+						break;
+						case 1: case 2:
+						dma_bm_read(unpaged_addr + offset, (uint8_t*)&itm_val, 4, 4);
+						break;
+					}
 					riva128_pgraph_write_pixel(graphobj0, x, y,
 							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, itm_val, riva128)), 0xff, riva128);
 				}
