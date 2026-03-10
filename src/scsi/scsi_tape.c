@@ -14,8 +14,6 @@
  *          Copyright 2025-2026 Plamen Ivanov.
  */
 #define _GNU_SOURCE
-#define ENABLE_TAPE_LOG 1
-#define TAPE_FILE_LOG   1
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -62,6 +60,7 @@ const uint8_t tape_command_flags[0x100] = {
     [0x05]          = IMPLEMENTED | CHECK_READY,             /* READ BLOCK LIMITS */
     [0x08]          = IMPLEMENTED | CHECK_READY,             /* READ(6) */
     [0x0a]          = IMPLEMENTED | CHECK_READY,             /* WRITE(6) */
+    [0x0c]          = IMPLEMENTED | CHECK_READY,             /* SEEK BLOCK */
     [0x10]          = IMPLEMENTED | CHECK_READY,             /* WRITE FILEMARKS(6) */
     [0x11]          = IMPLEMENTED | CHECK_READY,             /* SPACE(6) */
     [0x12]          = IMPLEMENTED | ALLOW_UA,                /* INQUIRY */
@@ -956,6 +955,68 @@ tape_space_filemarks_forward(tape_t *dev, int32_t count)
 }
 
 /*
+ * Space forward N filemarks.
+ * Returns: number of filemarks actually spaced, or negative on EOD.
+ */
+static int32_t
+tape_space_filemarks_backward(tape_t *dev, int32_t count)
+{
+    int32_t found = 0;
+
+    /* Read the trailing length of the previous record. */
+    fseeko64(dev->drv->fp, (int64_t)(dev->tape_pos - 4), SEEK_SET);
+
+    while (found < count) {
+        uint32_t trailing_len;
+
+        if (tape_read_marker(dev, &trailing_len) < 0)
+            return -(count - found);
+
+        if (trailing_len == TAPE_SIMH_FILEMARK) {
+            dev->tape_pos -= 4;
+            found++;
+        } else {
+            /* Skip data record. */
+            fseeko64(dev->drv->fp, (int64_t)(-trailing_len - 4), SEEK_CUR);
+            dev->tape_pos -= 4 + trailing_len + 4;
+            dev->num_blocks--;
+        }
+
+        dev->bot = 0;
+    }
+
+    return found;
+}
+
+static void
+tape_seek(tape_t *dev, uint32_t lba)
+{
+    if (lba > dev->num_blocks) {
+        int32_t count  = lba - dev->num_blocks;
+        int32_t result = tape_space_blocks_forward(dev, count);
+        if (result < 0) {
+            if (dev->filemark_pending) {
+                dev->filemark_pending = 0;
+                tape_filemark_detected(dev, (uint32_t) (-result));
+            } else
+                tape_blank_check(dev, (uint32_t) (-result));
+            return;
+         }
+     } else if (lba < dev->num_blocks) {
+         int32_t count  = dev->num_blocks - lba;
+         int32_t result = tape_space_blocks_backward(dev, -count);
+         if (result < 0) {
+             if (dev->filemark_pending) {
+                 dev->filemark_pending = 0;
+                 tape_filemark_detected(dev, (uint32_t) (-result));
+             } else
+                 tape_bop_detected(dev, (uint32_t) (-result));
+             return;
+         }
+     }
+}
+
+/*
  * Space to end of data.
  */
 static void
@@ -1246,8 +1307,9 @@ tape_command(scsi_common_t *sc, const uint8_t *cdb)
             tape_log(dev->log, "READ BLOCK LIMITS\n");
             tape_set_phase(dev, SCSI_PHASE_DATA_IN);
 
-            tape_buf_alloc(dev, 6);
-            memset(dev->buffer, 0, 6);
+            len = 6;
+            tape_buf_alloc(dev, len);
+            memset(dev->buffer, 0, len);
 
             /* Byte 0: reserved */
             /* Bytes 1-3: maximum block length (32KB = 0x008000) */
@@ -1258,8 +1320,10 @@ tape_command(scsi_common_t *sc, const uint8_t *cdb)
             dev->buffer[4] = 0x02;
             dev->buffer[5] = 0x00;
 
+            tape_set_buf_len(dev, BufLen, &len);
+
             tape_log(dev->log, "Block limits: min=512, max=32768\n");
-            tape_data_command_finish(dev, 6, 6, 6, 0);
+            tape_data_command_finish(dev, len, len, len, 0);
             break;
 
         case GPCMD_REQUEST_SENSE:
@@ -1279,6 +1343,13 @@ tape_command(scsi_common_t *sc, const uint8_t *cdb)
             len = (cdb[1] & 1) ? 8 : 18;
             tape_request_sense(dev, dev->buffer, max_len, cdb[1] & 1);
             tape_data_command_finish(dev, len, len, cdb[4], 0);
+            break;
+
+        case GPCMD_SEEK_BLOCK:
+            tape_seek(dev, (cdb[2] << 16) | (cdb[3] << 8) | cdb[4]);
+
+            tape_set_phase(dev, SCSI_PHASE_STATUS);
+            tape_command_complete(dev);
             break;
 
         case GPCMD_READ_6: {
@@ -1418,6 +1489,7 @@ tape_command(scsi_common_t *sc, const uint8_t *cdb)
                         tape_log(dev->log, "  filemark after %u blocks, "
                                  "deferring filemark to next read\n", blocks_read);
                         dev->filemark_pending = 1;
+                        tape_set_buf_len(dev, BufLen, (int32_t *) &total_bytes);
                         tape_data_command_finish(dev, bytes_read, dev->block_size,
                                                  bytes_read, 0);
                         ui_sb_update_icon(SB_TAPE | dev->id, 1);
@@ -1433,6 +1505,7 @@ tape_command(scsi_common_t *sc, const uint8_t *cdb)
                         tape_log(dev->log, "  EOD after %u blocks, "
                                  "deferring EOD to next read\n", blocks_read);
                         dev->eot = 1;
+                        tape_set_buf_len(dev, BufLen, (int32_t *) &total_bytes);
                         tape_data_command_finish(dev, bytes_read, dev->block_size,
                                                  bytes_read, 0);
                         ui_sb_update_icon(SB_TAPE | dev->id, 1);
@@ -1648,9 +1721,11 @@ tape_command(scsi_common_t *sc, const uint8_t *cdb)
                             return;
                         }
                     } else if (count < 0) {
-                        /* Reverse filemark spacing: not commonly used, treat as invalid. */
-                        tape_invalid_field(dev, cdb[2]);
-                        return;
+                        int32_t result = tape_space_filemarks_backward(dev, -count);
+                        if (result < 0) {
+                            tape_blank_check(dev, (uint32_t) (-result));
+                            return;
+                        }
                     }
                     break;
                 case 3: /* Space to end-of-data. */
