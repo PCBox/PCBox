@@ -1713,23 +1713,18 @@ msgstr "Pa&usa automatica se in secondo piano"
 msgid "WinBox is no longer supported"
 msgstr "WinBox non è più supportato"
 
-<<<<<<< HEAD
-msgid "Development of the WinBox manager stopped in 2022 due to a lack of maintainers. As we direct our efforts towards making PCBox even better, we have made the decision to no longer support WinBox as a manager.\n\nNo further updates will be provided through WinBox, and you may encounter incorrect behavior should you continue using it with newer versions of PCBox. Any bug reports related to WinBox behavior will be closed as invalid.\n\nGo to 86box.net for a list of other managers you can use."
-msgstr "Lo sviluppo del gestore WinBox si è interrotto nel 2022 per mancanza di manutentori. Poiché i nostri sforzi sono rivolti a rendere PCBox ancora migliore, abbiamo deciso di non supportare più WinBox come gestore.\n\nNon saranno forniti ulteriori aggiornamenti tramite WinBox e si potrebbe riscontrare un comportamento non corretto se si continua a utilizzarlo con le versioni più recenti di PCBox. Tutte le segnalazioni di errori relative al comportamento di WinBox saranno chiuse in quanto non valide.\n\nPer un elenco di altri gestori utilizzabili, visitare 86box.net."
-=======
 msgid ""
-"Development of the WinBox manager stopped in 2022 due to a lack of maintainers. As we direct our efforts towards making 86Box even better, we have made the decision to no longer support WinBox as a manager.\n"
+"Development of the WinBox manager stopped in 2022 due to a lack of maintainers. As we direct our efforts towards making PCBox even better, we have made the decision to no longer support WinBox as a manager.\n"
 "\n"
-"No further updates will be provided through WinBox, and you may encounter incorrect behavior should you continue using it with newer versions of 86Box. Any bug reports related to WinBox behavior will be closed as invalid.\n"
+"No further updates will be provided through WinBox, and you may encounter incorrect behavior should you continue using it with newer versions of PCBox. Any bug reports related to WinBox behavior will be closed as invalid.\n"
 "\n"
 "Go to 86box.net for a list of other managers you can use."
 msgstr ""
-"Lo sviluppo del gestore WinBox si è interrotto nel 2022 per mancanza di manutentori. Poiché i nostri sforzi sono rivolti a rendere 86Box ancora migliore, abbiamo deciso di non supportare più WinBox come gestore.\n"
+"Lo sviluppo del gestore WinBox si è interrotto nel 2022 per mancanza di manutentori. Poiché i nostri sforzi sono rivolti a rendere PCBox ancora migliore, abbiamo deciso di non supportare più WinBox come gestore.\n"
 "\n"
-"Non saranno forniti ulteriori aggiornamenti tramite WinBox e si potrebbe riscontrare un comportamento non corretto se si continua a utilizzarlo con le versioni più recenti di 86Box. Tutte le segnalazioni di errori relative al comportamento di WinBox saranno chiuse in quanto non valide.\n"
+"Non saranno forniti ulteriori aggiornamenti tramite WinBox e si potrebbe riscontrare un comportamento non corretto se si continua a utilizzarlo con le versioni più recenti di PCBox. Tutte le segnalazioni di errori relative al comportamento di WinBox saranno chiuse in quanto non valide.\n"
 "\n"
 "Per un elenco di altri gestori utilizzabili, visitare 86box.net."
->>>>>>> a6582de61176a7cbd87fe6fd394308900864ba29
 
 msgid "Generate"
 msgstr "Genera"
