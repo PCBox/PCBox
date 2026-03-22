@@ -594,6 +594,7 @@ extern int is_p6;
 extern int is_athlon;
 extern int is_pentium3;
 extern int is_cxsmm;
+extern int is_cx6x86;
 extern int hascache;
 extern int isibm486;
 extern int is_mazovia;
@@ -681,6 +682,7 @@ extern uint8_t ccr4;
 extern uint8_t ccr5;
 extern uint8_t ccr6;
 extern uint8_t ccr7;
+extern uint8_t cxpmr;
 
 /*Segments -
   _cs,_ds,_es,_ss are the segment structures
