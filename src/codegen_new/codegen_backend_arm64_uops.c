@@ -1935,10 +1935,10 @@ codegen_PMADDWD(codeblock_t *block, uop_t *uop)
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
     if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b)) {
-        host_arm64_SMULL_V2D_4H(block, REG_V_TEMP, src_reg_a, src_reg_b);
+        host_arm64_SMULL_V4S_4H(block, REG_V_TEMP, src_reg_a, src_reg_b);
         host_arm64_ADDP_V4S(block, dest_reg, REG_V_TEMP, REG_V_TEMP);
     } else
-        fatal("PMADDWD %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+        fatal("PMULHW %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
 
     return 0;
 }

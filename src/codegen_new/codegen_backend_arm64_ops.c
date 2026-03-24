@@ -190,7 +190,6 @@
 #    define OPCODE_SHL_VQ             (0x4f005400)
 #    define OPCODE_SQSHRN             (0x0f008400)
 #    define OPCODE_SMULL_V4S_4H       (0x0e60c000)
-#    define OPCODE_SMULL_V2D_4H       (0x0ea0c000)
 #    define OPCODE_SSHR_VD            (0x0f000400)
 #    define OPCODE_SSHR_VQ            (0x4f000400)
 #    define OPCODE_STR_REG            (0xb8206800)
@@ -1210,12 +1209,6 @@ void
 host_arm64_SMULL_V4S_4H(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg)
 {
     codegen_addlong(block, OPCODE_SMULL_V4S_4H | Rd(dst_reg) | Rn(src_n_reg) | Rm(src_m_reg));
-}
-
-void
-host_arm64_SMULL_V2D_4H(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg)
-{
-    codegen_addlong(block, OPCODE_SMULL_V2D_4H | Rd(dst_reg) | Rn(src_n_reg) | Rm(src_m_reg));
 }
 
 void
