@@ -130,7 +130,6 @@ jobs:
             fluidsynth:p
             libserialport:p
             ${{ matrix.ui.packages }}
-            openmp:p
 
       - name: Checkout repository
         uses: actions/checkout@v4
