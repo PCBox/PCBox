@@ -1575,60 +1575,63 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 	uint32_t pattern = use_color1 ? riva128->pgraph.pattern_mono_color_rgb[1] : riva128->pgraph.pattern_mono_color_rgb[0];
 	uint32_t src, dst, pat;
 
-	switch(graphobj0 & 7) {
-	case 3: {
+	switch((riva128->pgraph.surf_config >> (buffer * 4)) & 3)
+	{
+		case 1:
 		addr = ((x + (riva128->pgraph.surf_pitch[buffer]
 			* y))) + riva128->pgraph.surf_offset[buffer];
+		dst = svga->vram[addr & riva128->vram_mask];
+		break;
+		case 0: case 2:
+		addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		dst = vram_w[(addr & riva128->vram_mask) >> 1];
+		break;
+		case 3:
+		addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		dst = vram_l[(addr & riva128->vram_mask) >> 2];
+		break;
+	}
+
+	switch(graphobj0 & 7) {
+	case 3: {
 		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
 		src = src_exp.i;
-		dst =
-			svga->vram[addr & riva128->vram_mask];
 		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
 		pat = pat_exp.i;
 		break;
 	}
     case 0:
 	{
-		addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
-			* y))) + riva128->pgraph.surf_offset[buffer];
 		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
 		src = ((src_exp.r >> 5) << 10) | ((src_exp.g >> 5) << 5) | ((src_exp.b >> 5) & 0x1f);
-		dst = vram_w[(addr & riva128->vram_mask) >> 1];
 		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
 		pat = ((pat_exp.r >> 5) << 10) | ((pat_exp.g >> 5) << 5) | ((pat_exp.b >> 5) & 0x1f);
 		break;
 	}
 	case 4: {
-		addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
-			* y))) + riva128->pgraph.surf_offset[buffer];
 		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
 		src = svga_lookup_lut_ram(svga, src_exp.i16);
-		dst = vram_w[(addr & riva128->vram_mask) >> 1];
 		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
 		pat = pat_exp.i16;
 		break;
 	}
 	case 1:
 	{
-		addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
-			* y))) + riva128->pgraph.surf_offset[buffer];
 		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
 		src = ((src_exp.r >> 2) << 16) | ((src_exp.g >> 2) << 8) | ((src_exp.b >> 2) & 0xff);
-		dst = vram_l[(addr & riva128->vram_mask) >> 2];
 		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
 		pat = ((pat_exp.r >> 2) << 16) | ((pat_exp.g >> 2) << 8) | ((pat_exp.b >> 2) & 0xff);
 		break;
 	}
 	case 2: {
-		addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
-			* y))) + riva128->pgraph.surf_offset[buffer];
 		src = color;
-		dst = vram_l[(addr & riva128->vram_mask) >> 2];
 		pat = pattern;
 		break;
 	}
 	}
-	switch(riva128->pgraph.surf_config & (3 << (buffer * 4)))
+	switch((riva128->pgraph.surf_config >> (buffer * 4)) & 3)
 	{
 		case 1:
 		svga->vram[addr & riva128->vram_mask] =
@@ -2266,10 +2269,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		//DO NOT REMOVE THE +32 OFFSET TO THE OFFSETS, THEY MAKE THE BLITS IN 9X WORK.
         switch(method) {
 			case 0x30c:
-			riva128->pgraph.m2mf_in_dma = riva128->pgraph.m2mf_in_dma_cur = param + 32;
+			riva128->pgraph.m2mf_in_dma = riva128->pgraph.m2mf_in_dma_cur = param + 64;
 			break;
 			case 0x310:
-			riva128->pgraph.m2mf_out_dma = riva128->pgraph.m2mf_out_dma_cur = param + 32;
+			riva128->pgraph.m2mf_out_dma = riva128->pgraph.m2mf_out_dma_cur = param + 64;
 			break;
 			case 0x314:
 			riva128->pgraph.m2mf_pitch_in = param;
