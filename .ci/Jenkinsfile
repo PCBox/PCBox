@@ -186,13 +186,12 @@ pipeline {
 					osArchs.each { os, thisOsArchs ->
 						def combinations = [:]
 						thisOsArchs.each { arch ->
-							def archSlug = arch.replace('+x86_64h', '') /* all instances of arch except the one passed to -b */
-							def thisArchDynarecs = dynarecArchs[archSlug.toLowerCase()]
+							def thisArchDynarecs = dynarecArchs[arch.toLowerCase()]
 							if (!thisArchDynarecs)
 								thisArchDynarecs = ['NoDR']
 							thisArchDynarecs.each { dynarec ->
 								presets.each { preset ->
-									def combination = "$os $archSlug $dynarec $preset"
+									def combination = "$os $arch $dynarec $preset"
 									combinations[combination] = {
 										catchError(buildResult: 'FAILURE', stageResult: 'SUCCESS') {
 											retry(10) {
@@ -204,7 +203,7 @@ pipeline {
 														/* Switch to output directory. */
 														dir("${env.WORKSPACE_TMP}/output") {
 															/* Run build process. */
-															def packageName = "${env.JOB_BASE_NAME}${dynarecSlugs[dynarec]}${presetSlugs[preset]}-$os-$archSlug$buildSuffix"
+															def packageName = "${env.JOB_BASE_NAME}${dynarecSlugs[dynarec]}${presetSlugs[preset]}-$os-$arch$buildSuffix"
 															def ret = -1
 															def archName = archNames[archSlug]
 															dir(dynarecNames[dynarec]) {
