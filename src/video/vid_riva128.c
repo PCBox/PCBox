@@ -1608,6 +1608,11 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 		src = ((src_exp.r >> 5) << 10) | ((src_exp.g >> 5) << 5) | ((src_exp.b >> 5) & 0x1f);
 		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
 		pat = ((pat_exp.r >> 5) << 10) | ((pat_exp.g >> 5) << 5) | ((pat_exp.b >> 5) & 0x1f);
+		if(((riva128->pgraph.surf_config >> (buffer * 4)) & 3) == 3)
+		{
+			src = video_15to32[src];
+			pat = video_15to32[pat];
+		}
 		break;
 	}
 	case 4: {
