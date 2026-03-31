@@ -305,7 +305,7 @@ rivatnt_recalc_mapping(rivatnt_t *rivatnt)
     switch (svga->gdcreg[6] & 0x0c) {
     case 0x0: /*128k at A0000*/
         mem_mapping_set_addr(&svga->mapping, 0xa0000, 0x20000);
-        svga->banked_mask = 0xffff;
+        svga->banked_mask = 0x1ffff;
         break;
     case 0x4: /*64k at A0000*/
         mem_mapping_set_addr(&svga->mapping, 0xa0000, 0x10000);
@@ -743,7 +743,7 @@ rivatnt_mmio_read_l(uint32_t addr, void *p)
     if ((addr >= 0x101000) && (addr <= 0x101fff)) ret = rivatnt_pextdev_read(addr, rivatnt);
     if ((addr >= 0x600000) && (addr <= 0x600fff)) ret = rivatnt_pcrtc_read(addr, rivatnt);
     if ((addr >= 0x680000) && (addr <= 0x680fff)) ret = rivatnt_pramdac_read(addr, rivatnt);
-    if ((addr >= 0x700000) && (addr <= 0x7fffff)) ret = rivatnt_ramin_read_l(addr, rivatnt);
+    if ((addr >= 0x700000) && (addr <= 0x7fffff)) ret = rivatnt_ramin_read_l(addr & 0xfffff, rivatnt);
     if ((addr >= 0x300000) && (addr <= 0x30ffff)) ret = ((uint32_t *) rivatnt->bios_rom.rom)[(addr & rivatnt->bios_rom.mask) >> 2];
 
     if ((addr >= 0x1800) && (addr <= 0x18ff))
@@ -831,7 +831,7 @@ rivatnt_mmio_write_l(uint32_t addr, uint32_t val, void *p)
     if((addr >= 0x009000) && (addr <= 0x009fff)) rivatnt_ptimer_write(addr, val, rivatnt);
     if((addr >= 0x600000) && (addr <= 0x600fff)) rivatnt_pcrtc_write(addr, val, rivatnt);
     if((addr >= 0x680000) && (addr <= 0x680fff)) rivatnt_pramdac_write(addr, val, rivatnt);
-    if((addr >= 0x700000) && (addr <= 0x7fffff)) rivatnt_ramin_write_l(addr, val, rivatnt);
+    if((addr >= 0x700000) && (addr <= 0x7fffff)) rivatnt_ramin_write_l(addr & 0xfffff, val, rivatnt);
 
     switch(addr) {
     case 0x6013b4: case 0x6013b5:
@@ -1230,6 +1230,9 @@ static void
     mem_mapping_disable(&rivatnt->linear_mapping);
 
     svga->vblank_start = rivatnt_vblank_start;
+
+    io_sethandler(0x03c0, 0x0020, rivatnt_in, NULL, NULL, rivatnt_out,
+			NULL, NULL, rivatnt);
 
     pci_add_card(PCI_ADD_NORMAL, rivatnt_pci_read, rivatnt_pci_write, rivatnt, &rivatnt->pci_slot);
 
