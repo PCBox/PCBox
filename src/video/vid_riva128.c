@@ -2161,8 +2161,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			}
 			case 0x7f8:
 			{
-				riva128->pgraph.gdi_clip_bottom_b = param & 0xffff;
-				riva128->pgraph.gdi_clip_right_b = (param >> 16) & 0xffff;
+				riva128->pgraph.gdi_clip_right_b = param & 0xffff;
+				riva128->pgraph.gdi_clip_bottom_b = (param >> 16) & 0xffff;
 				break;
 			}
 			case 0x7fc:
@@ -2274,10 +2274,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		//DO NOT REMOVE THE +32 OFFSET TO THE OFFSETS, THEY MAKE THE BLITS IN 9X WORK.
         switch(method) {
 			case 0x30c:
-			riva128->pgraph.m2mf_in_dma = riva128->pgraph.m2mf_in_dma_cur = param + 64;
+			riva128->pgraph.m2mf_in_dma = riva128->pgraph.m2mf_in_dma_cur = param + 32;
 			break;
 			case 0x310:
-			riva128->pgraph.m2mf_out_dma = riva128->pgraph.m2mf_out_dma_cur = param + 64;
+			riva128->pgraph.m2mf_out_dma = riva128->pgraph.m2mf_out_dma_cur = param + 32;
 			break;
 			case 0x314:
 			riva128->pgraph.m2mf_pitch_in = param;
@@ -2335,7 +2335,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
 				{
 					uint32_t out_dma = riva128->pgraph.m2mf_out_dma_cur;
-					for(uint32_t pixel = 0; pixel < riva128->pgraph.m2mf_scan_len; pixel += inc_in)
+					for(uint32_t pixel = 0; pixel < riva128->pgraph.m2mf_scan_len; pixel++)
 					{
 						uint32_t in_off  = riva128->pgraph.m2mf_in_dma_cur  + (pixel * inc_in);
         				uint32_t out_off = riva128->pgraph.m2mf_out_dma_cur + (pixel * inc_out);
