@@ -2571,7 +2571,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	case 0x15:
 		if(method >= 0x400 && method < 0xb00)
 		{
-			pclog("[RIVA 128] SIFM x %08x y %08x w %08x h %08x dxdu %08x dydv %08x\n", riva128->pgraph.sifc_vtx_x, riva128->pgraph.sifc_vtx_y, riva128->pgraph.sifc_vtx_w_out, riva128->pgraph.sifc_vtx_h_out, riva128->pgraph.sifc_dx_du, riva128->pgraph.sifc_dy_dv);
+			pclog("[RIVA 128] SIFC x %08x y %08x w %08x h %08x dxdu %08x dydv %08x\n", riva128->pgraph.sifc_vtx_x, riva128->pgraph.sifc_vtx_y, riva128->pgraph.sifc_vtx_w_out, riva128->pgraph.sifc_vtx_h_out, riva128->pgraph.sifc_dx_du, riva128->pgraph.sifc_dy_dv);
 			int final_x = 0;
 			int final_y = 0;
 			int bytes_per_pixel = 1;
