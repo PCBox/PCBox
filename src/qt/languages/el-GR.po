@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"PO-Revision-Date: 2026-03-29 17:00+0000\n"
+"PO-Revision-Date: 2026-03-31 20:10+0000\n"
 "Last-Translator: DimMan88 <dimman88@hotmail.com>\n"
 "Language-Team: Greek <https://weblate.86box.net/projects/86box/86box/el/>\n"
 "Language: el-GR\n"
@@ -144,53 +144,45 @@ msgstr "&Aκέραια κλίμακα"
 msgid "4:&3 Integer scale"
 msgstr "Aκέραια κλίμακα 4:&3"
 
-msgid "EGA/(S)&VGA settings"
-msgstr "Ρυθμίσε&ις EGA/(S)VGA"
+msgid "Inverted VGA monitor"
+msgstr "Αντεστραμμένο VGA monitor"
 
-msgid "&Inverted VGA monitor"
-msgstr "&Αντεστραμμένο VGA monitor"
+msgid "VGA screen type:"
+msgstr "Τύπος οθόνης VGA:"
 
-msgid "VGA screen &type"
-msgstr "Τύπος οθόνης& VGA"
-
-msgid "RGB &Color"
+msgid "RGB Color"
 msgstr "Χρώματα RGB"
 
 msgid "RGB (no brown)"
 msgstr "RGB (χωρίς το καφέ)"
 
-msgid "&RGB Grayscale"
-msgstr "&RGB κλίμακας γκρι"
+msgid "RGB Grayscale"
+msgstr "RGB κλίμακας γκρι"
 
 msgid "Generic RGBI color monitor"
 msgstr "Γενική έγχρωμη οθόνη RGBI"
 
-msgid "&Amber monitor"
-msgstr "&Κεχριμπάρι οθόνη"
+msgid "Amber monitor"
+msgstr "Κεχριμπάρι οθόνη"
 
-msgid "&Green monitor"
-msgstr "&Πράσινη οθόνη"
+msgid "Green monitor"
+msgstr "Πράσινη οθόνη"
 
-msgid "&White monitor"
-msgstr "&Λευκή οθόνη"
+msgid "White monitor"
+msgstr "Λευκή οθόνη"
 
-msgid "Grayscale &conversion type"
-msgstr "Τύπος μετα&τροπής κλίμακας του γκρι"
+msgid "Grayscale conversion type:"
+msgstr "Τύπος μετατροπής κλίμακας του γκρι:"
 
-msgid "BT&601 (NTSC/PAL)"
-msgstr "BT&601 (NTSC/PAL)"
+msgid "Average"
+msgstr "Σχετικό"
 
-msgid "BT&709 (HDTV)"
-msgstr "BT&709 (HDTV)"
+#, fuzzy
+msgid "Overscan"
+msgstr "Υπερσάρωση"
 
-msgid "&Average"
-msgstr "&Σχετικό"
-
-msgid "CGA/PCjr/Tandy/E&GA/(S)VGA overscan"
-msgstr "Υπερσάρωση CGA/PCjr/Tandy/E&GA/(S)VGA"
-
-msgid "Change contrast for &monochrome display"
-msgstr "Αλλαγή αντίθεσης γι&α μονόχρωμη οθόνη"
+msgid "Change contrast for monochrome display"
+msgstr "Αλλαγή αντίθεσης για μονόχρωμη οθόνη"
 
 msgid "&Media"
 msgstr "&Μέσα"
@@ -363,6 +355,21 @@ msgstr "Απόδοση"
 msgid "Machine type:"
 msgstr "Τύπος συστήματος:"
 
+msgid "[1989] i486 (Socket 168 and 1)"
+msgstr ""
+
+msgid "[1994] i486 (Miscellaneous)"
+msgstr ""
+
+msgid "[1995] Socket 7 (Single Voltage)"
+msgstr ""
+
+msgid "[1996] Socket 7 (Dual Voltage)"
+msgstr ""
+
+msgid "Miscellaneous"
+msgstr ""
+
 msgid "Machine:"
 msgstr "Σύστημα:"
 
@@ -432,8 +439,8 @@ msgstr "Κάρτα γραφικών:"
 msgid "Video #2:"
 msgstr "Κάρτα γραφικών #2:"
 
-msgid "Accelerators"
-msgstr "Επιταχυντές"
+msgid "Monitor"
+msgstr "Οθόνη"
 
 msgid "Voodoo 1 or 2 Graphics"
 msgstr "Γραφικά Voodoo 1 ή 2"
@@ -513,30 +520,6 @@ msgstr "Nuked (πιο ακριβές)"
 msgid "YMFM (faster)"
 msgstr "YMFM (γρήγορο)"
 
-msgid "COM1 Device:"
-msgstr "Συσκευή COM1:"
-
-msgid "COM2 Device:"
-msgstr "Συσκευή COM2:"
-
-msgid "COM3 Device:"
-msgstr "Συσκευή COM3:"
-
-msgid "COM4 Device:"
-msgstr "Συσκευή COM4:"
-
-msgid "LPT1 Device:"
-msgstr "Συσκευή LPT1:"
-
-msgid "LPT2 Device:"
-msgstr "Συσκευή LPT2:"
-
-msgid "LPT3 Device:"
-msgstr "Συσκευή LPT3:"
-
-msgid "LPT4 Device:"
-msgstr "Συσκευή LPT4:"
-
 msgid "Internal LPT ECP DMA:"
 msgstr "Εσωτερικό LPT ECP DMA:"
 
@@ -552,53 +535,50 @@ msgstr "Σειριακή θύρα 3"
 msgid "Serial port 4"
 msgstr "Σειριακή θύρα 4"
 
-msgid "Parallel port 1"
-msgstr "Παράλληλη θύρα 1"
-
-msgid "Parallel port 2"
-msgstr "Παράλληλη θύρα 2"
-
-msgid "Parallel port 3"
-msgstr "Παράλληλη θύρα 3"
-
-msgid "Parallel port 4"
-msgstr "Παράλληλη θύρα 4"
-
 msgid "Floppy disk controller:"
 msgstr "Ελεγκτής δισκέτας:"
 
 msgid "CD-ROM controller:"
 msgstr "Ελεγκτής CD-ROM:"
 
+msgid "Mitsumi interface"
+msgstr ""
+
+msgid "MKE/Panasonic interface"
+msgstr ""
+
+msgid "MKE/Panasonic interface (Creative)"
+msgstr ""
+
 msgid "IDE Controller"
 msgstr "Ελεγκτής IDE"
 
 msgid "IDE Controller (Dual-Channel)"
-msgstr ""
+msgstr "Ελεγκτής IDE (Διπλό-Κανάλι)"
 
 msgid "PC/AT IDE Controller"
-msgstr ""
+msgstr "Ελεγκτής PC/AT IDE"
 
 msgid "PC/AT IDE Controller (Dual-Channel)"
-msgstr ""
+msgstr "Ελεγκτής PC/AT IDE (Διπλό-Κανάλι)"
 
 msgid "PC/AT XTIDE (Primary Only)"
-msgstr ""
+msgstr "PC/AT XTIDE (Μόνο Πρωτεύον)"
 
 msgid "PS/2 AT XTIDE (1.1.5) (Primary Only)"
-msgstr ""
+msgstr "PS/2 AT XTIDE (1.1.5) (Μόνο Πρωτεύον)"
 
 msgid "CMD PCI-0646 (Tertiary and Quaternary)"
-msgstr ""
+msgstr "CMD PCI-0646 (Τριαδικός και Τετραδικός)"
 
 msgid "CMD PCI-0648 (Tertiary and Quaternary)"
-msgstr ""
+msgstr "CMD PCI-0648 (Τριαδικός και Τετραδικός)"
 
 msgid "CMD PCI-0649 (Tertiary and Quaternary)"
-msgstr ""
+msgstr "CMD PCI-0649 (Τριαδικός και Τετραδικός)"
 
 msgid "McIDE Controller"
-msgstr ""
+msgstr "Ελεγκτής McIDE"
 
 msgid "Tertiary IDE Controller"
 msgstr "Τριτογενής Ελεγκτής IDE"
@@ -2046,6 +2026,9 @@ msgstr "Έκδοση BIOS"
 msgid "BIOS Language"
 msgstr "Γλώσσα BIOS"
 
+msgid "Variant"
+msgstr ""
+
 msgid "IBM 5161 Expansion Unit"
 msgstr "Επέκταση μονάδας IBM 5161"
 
@@ -2695,6 +2678,9 @@ msgstr "Κανονικό"
 msgid "High-Speed"
 msgstr "Υψηλής-Ταχύτητας"
 
+msgid "LPT DAC / Covox Speech Thing"
+msgstr "LPT DAC / Covox Speech Thing"
+
 msgid "Stereo LPT DAC"
 msgstr "Στέρεο LPT DAC"
 
@@ -2707,14 +2693,17 @@ msgstr "Γενικός Εκτυπωτής ESC/P 2 Dot-Matrix"
 msgid "Generic PostScript Printer"
 msgstr "Γενικός Εκτυπωτής PostScript"
 
-msgid "Generic PCL5e Printer"
-msgstr "Γενικός Εκτυπωτής PCL5e"
+msgid "Generic PCL Printer"
+msgstr "Γενικός Εκτυπωτής PCL"
 
 msgid "Parallel Line Internet Protocol"
 msgstr "Πρωτόκολλο Παράλληλης Γραμμής Internet"
 
 msgid "Protection Dongle for Savage Quest"
 msgstr "Dongle προστασίας για το Savage Quest"
+
+msgid "Loopback Plug"
+msgstr ""
 
 msgid "Serial Passthrough Device"
 msgstr "Συσκευή Σειριακής Διέλευσης"
@@ -2806,6 +2795,12 @@ msgstr "Γενική Επέκταση Μνήμης PC/XT"
 msgid "Generic PC/AT Memory Expansion"
 msgstr "Γενική Επέκταση Μνήμης PC/AT"
 
+msgid "Generic MM58167 RTC"
+msgstr ""
+
+msgid "OPL2Board (External Device)"
+msgstr ""
+
 msgid "Unable to find Dot-Matrix fonts"
 msgstr "Αδυναμία εύρεσης γραμματοσειρών Dot-Matrix"
 
@@ -2876,6 +2871,12 @@ msgstr "Μετακίνηση κάτω"
 
 msgid "Could not load file %1"
 msgstr "Αδυναμία φόρτωσης αρχείου %1"
+
+msgid "Emulator"
+msgstr ""
+
+msgid "Input"
+msgstr ""
 
 msgid "Key bindings"
 msgstr "Αντιστοιχίσεις πλήκτρων"
@@ -3070,6 +3071,9 @@ msgstr "Το σύστημα δεν θα προστεθεί."
 msgid "&Update mouse every CPU frame"
 msgstr "&Ανανέωση ποντικιού ανα καρέ CPU"
 
+msgid "Composite CGA"
+msgstr ""
+
 msgid "Hue"
 msgstr "Απόχρωση"
 
@@ -3085,11 +3089,8 @@ msgstr "Φωτεινότητα"
 msgid "Sharpness"
 msgstr "Οξύτητα"
 
-msgid "&CGA composite settings…"
-msgstr "Ρυθμίσεις &CGA composite…"
-
-msgid "CGA composite settings"
-msgstr "Ρυθμίσεις CGA composite"
+msgid "Reset"
+msgstr ""
 
 msgid "Monitor EDID"
 msgstr "Οθόνη EDID"
@@ -3118,9 +3119,6 @@ msgstr "Φωτεινό"
 msgid "Dark"
 msgstr "Σκοτεινό"
 
-msgid "Search:"
-msgstr "Αναζήτηση:"
-
 msgid "Force interpretation"
 msgstr "Εξαναγκασμός ερμηνείας"
 
@@ -3144,3 +3142,6 @@ msgstr "Για να αλλάξετε τον κατάλογο συστήματο�
 
 msgid "Raw"
 msgstr "Αρχικος"
+
+msgid "Use EDC/ECC emulation"
+msgstr ""
