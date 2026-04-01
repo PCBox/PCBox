@@ -2438,10 +2438,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
 							goto method_end;
 					}
-					riva128->pgraph.ifc_cur_x++;
 					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
 						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 24) & 0xff, riva128)),
 						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
 					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
 					{
 						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
