@@ -208,18 +208,12 @@ video_cards[] = {
 #ifdef USE_G100
     { .device = &productiva_g100_device,                        .flags = VIDEO_FLAG_TYPE_SPECIAL   },
 #endif /*USE_G100 */
-<<<<<<< HEAD
-    { .device = &s3_virge_357_agp_device,                       .flags = VIDEO_FLAG_TYPE_NONE },
-    { .device = &s3_diamond_stealth_4000_agp_device,            .flags = VIDEO_FLAG_TYPE_NONE },
-    { .device = &s3_trio3d2x_agp_device,                        .flags = VIDEO_FLAG_TYPE_NONE },
+    { .device = &s3_trio3d2x_agp_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
+    { .device = &s3_virge_gx2_agp_device,                       .flags = VIDEO_FLAG_TYPE_NONE      },
 #ifdef USE_NV3
     { .device = &riva128_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &rivatnt_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE },
 #endif
-    { .device = NULL,                                           .flags = VIDEO_FLAG_TYPE_NONE }
-=======
-    { .device = &s3_trio3d2x_agp_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
-    { .device = &s3_virge_gx2_agp_device,                       .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = NULL,                                           .flags = VIDEO_FLAG_TYPE_NONE      }
   // clang-format on
 };
@@ -363,7 +357,6 @@ video_cards_migrate[] = {
     { .device = &voodoo_3_3500_agp_device,                      .old_internal_name = "voodoo3_3500_si_agp"            },
     /* End of table */
     { .device = NULL,                                           .old_internal_name = ""                               }
->>>>>>> a111bf922a45e3bd925b0b82f600312bcaa96071
   // clang-format on
 };
 
