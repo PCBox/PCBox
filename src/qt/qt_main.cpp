@@ -624,7 +624,7 @@ main(int argc, char *argv[])
     fprintf(stderr, "Qt: version %s, platform \"%s\"\n", qVersion(), QApplication::platformName().toUtf8().data());
     Preferences::loadTranslators(&app);
 #ifdef Q_OS_WINDOWS
-    QApplication::setFont(ProgSettings::getUIFont());
+    QApplication::setFont(Preferences::getUIFont());
     SetCurrentProcessExplicitAppUserModelID(L"PCBox.PCBox");
 #endif
 
