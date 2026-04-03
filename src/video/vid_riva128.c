@@ -2274,10 +2274,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		//DO NOT REMOVE THE +32 OFFSET TO THE OFFSETS, THEY MAKE THE BLITS IN 9X WORK.
         switch(method) {
 			case 0x30c:
-			riva128->pgraph.m2mf_in_dma = riva128->pgraph.m2mf_in_dma_cur = param + 32;
+			riva128->pgraph.m2mf_in_dma = riva128->pgraph.m2mf_in_dma_cur = param;
 			break;
 			case 0x310:
-			riva128->pgraph.m2mf_out_dma = riva128->pgraph.m2mf_out_dma_cur = param + 32;
+			riva128->pgraph.m2mf_out_dma = riva128->pgraph.m2mf_out_dma_cur = param;
 			break;
 			case 0x314:
 			riva128->pgraph.m2mf_pitch_in = param;
@@ -2341,10 +2341,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
         				uint32_t out_off = riva128->pgraph.m2mf_out_dma_cur + (pixel * inc_out);
 						uint8_t buf[4] = { 0 };
 						//dma_bm_read(paged_addr + riva128->pgraph.m2mf_in_dma_cur + pixel, (uint8_t*)&buf, 1, 1);
-						memcpy(buf, &svga->vram[in_off & 0x3fffff], inc_in);
+						memcpy(buf, &svga->vram[(in_off + adjust) & 0x3fffff], inc_in);
 
 						uint32_t copy_size = (inc_in < inc_out) ? inc_in : inc_out;
-						dma_bm_write(paged_addr + out_off, (uint8_t*)&buf, copy_size, copy_size);
+						dma_bm_write(paged_addr + out_off + adjust, (uint8_t*)&buf, copy_size, copy_size);
 						//svga->vram[(paged_addr + riva128->pgraph.m2mf_out_dma_cur) & 0x3fffff] = buf;
 						//svga->changedvram[((paged_addr + riva128->pgraph.m2mf_out_dma_cur) & 0x3fffff) >> 12] = changeframecount;
 					}
