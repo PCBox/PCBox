@@ -2271,7 +2271,6 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		}
 		break;
     case 0x0d:
-		//DO NOT REMOVE THE +32 OFFSET TO THE OFFSETS, THEY MAKE THE BLITS IN 9X WORK.
         switch(method) {
 			case 0x30c:
 			riva128->pgraph.m2mf_in_dma = riva128->pgraph.m2mf_in_dma_cur = param;
