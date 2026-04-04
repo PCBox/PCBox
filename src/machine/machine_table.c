@@ -20963,7 +20963,8 @@ const machine_t machines[] = {
         .sio_device = NULL, 
         .vid_device = NULL, 
         .snd_device = NULL, 
-        .net_device = NULL 
+        .net_device = NULL,
+        .aliases                  = { "" },
     }, 
     /* Has a Winbond W83977EF Super I/O chip with on-chip KBC with AMIKey-2 KBC
        firmware. */
@@ -21056,7 +21057,8 @@ const machine_t machines[] = {
         .sio_device = NULL, 
         .vid_device = NULL, 
         .snd_device = NULL, 
-        .net_device = NULL 
+        .net_device = NULL,
+        .aliases                  = { "" }
     },
     /* Has a Winbond W83977TF Super I/O chip with on-chip KBC with AMIKey-2 KBC
        firmware. */
