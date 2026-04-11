@@ -2286,10 +2286,8 @@ MainWindow::on_actionPreferences_triggered()
         default:
             break;
         case QDialog::Accepted:
-            preferences.save();
             updateShortcuts();
             emit vmmGlobalConfigurationChanged();
-            config_save_global();
             break;
         case QDialog::Rejected:
             break;
