@@ -61,7 +61,7 @@ intel_ich2_trap_set_acpi(intel_ich2_trap_t *dev, acpi_t *acpi)
 }
 
 static void
-intel_ich2_trap_kick(UNUSED(int size), UNUSED(uint16_t addr), UNUSED(uint8_t write), UNUSED(uint8_t val), void *priv)
+intel_ich2_trap_kick(UNUSED(uint16_t size), UNUSED(uint16_t addr), UNUSED(uint8_t write), UNUSED(uint8_t val), void *priv)
 {
     intel_ich2_trap_t *dev = (intel_ich2_trap_t *) priv;
     intel_ich2_trap_log("Intel ICH2 Trap: Entered an I/O Trap. Provoking an SMI.\n");
