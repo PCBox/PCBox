@@ -18104,8 +18104,7 @@ const machine_t machines[] = {
         .aliases                  = { "Intel Yamamoto", "" }
     },
     /*
-       PhoenixBIOS 4.0 Rel 6.0 for 430TX, has onboard Yamaha YMF701 which
-       is not emulated yet.
+       PhoenixBIOS 4.0 Rel 6.0 for 430TX.
 
        Has a SM(S)C FDC37C935 Super I/O chip with on-chip KBC with Phoenix
        MultiKey/42 (version 1.38) KBC firmware.
@@ -18131,8 +18130,7 @@ const machine_t machines[] = {
             .max_multi   = 3.5
         },
         .bus_flags = MACHINE_PS2_PCI | MACHINE_BUS_USB,
-        /* Machine has internal sound: Yamaha YMF701-S */
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_GAMEPORT | MACHINE_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_SOUND | MACHINE_GAMEPORT | MACHINE_USB,
         .ram       = {
             .min  = 8192,
             .max  = 262144,
@@ -18154,7 +18152,7 @@ const machine_t machines[] = {
         .kbd_device               = NULL,
         .fdc_device               = NULL,
         .vid_device               = NULL,
-        .snd_device               = NULL,
+        .snd_device               = &ymf701_device,
         .net_device               = NULL,
         .aliases                  = { "" }
     },
