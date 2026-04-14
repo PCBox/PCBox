@@ -2049,6 +2049,42 @@ pc_run(void)
     startblit();
     if (num_cpus > 1) {
         /* SMP: cooperative time-slicing across all CPUs. */
+        static int smp_logged_startup  = 0;
+        static int smp_iter_count      = 0;
+        static int smp_last_generation = -1;
+
+        /* Reset all static diagnostic state when a hard reset has occurred. */
+        if (smp_last_generation != smp_boot_generation) {
+            smp_last_generation  = smp_boot_generation;
+            smp_logged_startup   = 0;
+            smp_iter_count       = 0;
+            /* Log the start of this boot's SMP execution. */
+            FILE *f = fopen("/tmp/86box_smp_boot.log", "a");
+            if (f) {
+                fprintf(f, "[SMP_BOOT] SMP loop starting (gen=%d): active_cpu=%d num_cpus=%d\n",
+                        smp_boot_generation, active_cpu, num_cpus);
+                fprintf(f, "[SMP_BOOT] cpu_contexts[0].halted=%d wait_for_sipi=%d apic=%p\n",
+                        cpu_contexts[0].halted, cpu_contexts[0].wait_for_sipi,
+                        (void *) cpu_contexts[0].apic);
+                if (num_cpus > 1)
+                    fprintf(f, "[SMP_BOOT] cpu_contexts[1].halted=%d wait_for_sipi=%d apic=%p\n",
+                            cpu_contexts[1].halted, cpu_contexts[1].wait_for_sipi,
+                            (void *) cpu_contexts[1].apic);
+                fclose(f);
+            }
+        }
+
+        if (!smp_logged_startup) {
+            int32_t startup_total = (int32_t) cpu_s->rspeed / (force_10ms ? 100 : 1000);
+            int32_t startup_per   = startup_total / num_cpus;
+            fprintf(stderr, "SMP: SMP execution mode active, num_cpus=%d, rspeed=%d, "
+                            "total_cycles=%d, cycles_per_cpu=%d\n",
+                    num_cpus, (int) cpu_s->rspeed, startup_total, startup_per);
+            smp_logged_startup = 1;
+        }
+
+        smp_iter_count++;
+
         int32_t total_cycles   = (int32_t) cpu_s->rspeed / (force_10ms ? 100 : 1000);
         int32_t cycles_per_cpu = total_cycles / num_cpus;
 
@@ -2058,6 +2094,19 @@ pc_run(void)
            Otherwise, give each CPU its full per-CPU budget in one go. */
         int32_t slice_cycles;
         int     num_sub_iters;
+
+        if (smp_fine_slice_countdown > 0) {
+            slice_cycles  = 1000;
+            num_sub_iters = cycles_per_cpu / slice_cycles;
+            if (num_sub_iters < 1)
+                num_sub_iters = 1;
+            smp_fine_slice_countdown--;
+            if (smp_fine_slice_countdown == 0)
+                fprintf(stderr, "SMP: fine-slice mode ended [iter %d]\n", smp_iter_count);
+        } else {
+            slice_cycles  = cycles_per_cpu;
+            num_sub_iters = 1;
+        }
 
         for (int sub = 0; sub < num_sub_iters; sub++) {
             int ran_cpu = 0;
@@ -2087,6 +2136,37 @@ pc_run(void)
                 if (cpu_contexts[i].halted)
                     cpu_contexts[i].halted = 0;
 
+                /* Log first execution of CPU 1 after SIPI — detailed dump. */
+                static int cpu1_first_exec_logged         = 0;
+                static int cpu1_first_exec_logged_gen     = -1;
+                if (cpu1_first_exec_logged_gen != smp_boot_generation) {
+                    cpu1_first_exec_logged_gen = smp_boot_generation;
+                    cpu1_first_exec_logged     = 0;
+                }
+                if (i == 1 && !cpu1_first_exec_logged) {
+                    uint32_t ap_lin = cpu_state.seg_cs.base + cpu_state.pc;
+                    fprintf(stderr, "\n=== SMP DIAG: AP (CPU1) FIRST EXEC ===\n");
+                    fprintf(stderr, "  IP=%04X CS=%04X CS.base=%08X linear=%08X\n",
+                            cpu_state.pc, cpu_state.seg_cs.seg, cpu_state.seg_cs.base, ap_lin);
+                    fprintf(stderr, "  EAX=%08X EBX=%08X ECX=%08X EDX=%08X\n",
+                            cpu_state.regs[0].l, cpu_state.regs[3].l,
+                            cpu_state.regs[1].l, cpu_state.regs[2].l);
+                    fprintf(stderr, "  ESI=%08X EDI=%08X EBP=%08X ESP=%08X\n",
+                            cpu_state.regs[6].l, cpu_state.regs[7].l,
+                            cpu_state.regs[5].l, cpu_state.regs[4].l);
+                    fprintf(stderr, "  DS=%04X ES=%04X SS=%04X flags=%04X eflags=%08X CR0=%08X\n",
+                            cpu_state.seg_ds.seg, cpu_state.seg_es.seg,
+                            cpu_state.seg_ss.seg, cpu_state.flags, cpu_state.eflags,
+                            cpu_state.CR0.l);
+                    /* Dump 32 bytes of AP trampoline code at its start point */
+                    fprintf(stderr, "  Code at linear %08X: ", ap_lin);
+                    for (int b = 0; b < 32; b++)
+                        fprintf(stderr, "%02X ", mem_readb_phys(ap_lin + b));
+                    fprintf(stderr, "\n");
+                    fprintf(stderr, "=== END AP FIRST EXEC ===\n\n");
+                    cpu1_first_exec_logged = 1;
+                }
+
                 /* Track TSC before execution so we can compute the delta. */
                 uint64_t tsc_before = tsc;
                 uint32_t pc_before  = cpu_state.pc;
@@ -2094,10 +2174,262 @@ pc_run(void)
                 uint32_t ds_before  = cpu_state.seg_ds.seg;
                 uint32_t lin_before = cpu_state.seg_cs.base + pc_before;
 
+                /* One-shot PRE-EXEC dump: BSP state right before first fine-slice exec */
+                {
+                    static int diag_pre_exec_done = 0;
+                    if (smp_fine_slice_countdown > 0 && !diag_pre_exec_done && i == 0 && sub == 0) {
+                        diag_pre_exec_done = 1;
+                        uint32_t lin = cpu_state.seg_cs.base + cpu_state.pc;
+                        fprintf(stderr, "\n=== SMP DIAG: BSP PRE-EXEC (about to enter fine-slice) ===\n");
+                        fprintf(stderr, "  IP=%04X CS=%04X CS.base=%08X linear=%08X\n",
+                                cpu_state.pc, cpu_state.seg_cs.seg, cpu_state.seg_cs.base, lin);
+                        fprintf(stderr, "  EAX=%08X EBX=%08X ECX=%08X EDX=%08X\n",
+                                cpu_state.regs[0].l, cpu_state.regs[3].l,
+                                cpu_state.regs[1].l, cpu_state.regs[2].l);
+                        fprintf(stderr, "  ESI=%08X EDI=%08X EBP=%08X ESP=%08X\n",
+                                cpu_state.regs[6].l, cpu_state.regs[7].l,
+                                cpu_state.regs[5].l, cpu_state.regs[4].l);
+                        fprintf(stderr, "  DS=%04X ES=%04X SS=%04X flags=%04X eflags=%08X\n",
+                                cpu_state.seg_ds.seg, cpu_state.seg_es.seg,
+                                cpu_state.seg_ss.seg, cpu_state.flags, cpu_state.eflags);
+                        fprintf(stderr, "  CR0=%08X\n", cpu_state.CR0.l);
+                        /* Dump 48 bytes of code at BSP linear address */
+                        fprintf(stderr, "  Code bytes at linear %08X:\n  ", lin);
+                        for (int b = 0; b < 48; b++) {
+                            fprintf(stderr, "%02X ", mem_readb_phys(lin + b));
+                            if ((b & 15) == 15) fprintf(stderr, "\n  ");
+                        }
+                        fprintf(stderr, "\n");
+                        /* Key memory locations */
+                        fprintf(stderr, "  BDA[0472] (warm flag): %02X %02X\n",
+                                mem_readb_phys(0x472), mem_readb_phys(0x473));
+                        fprintf(stderr, "  BDA[0467] (warm vec):  %02X %02X %02X %02X\n",
+                                mem_readb_phys(0x467), mem_readb_phys(0x468),
+                                mem_readb_phys(0x469), mem_readb_phys(0x46A));
+                        /* Dump the AP trampoline at 0x50000 (first 64 bytes) */
+                        fprintf(stderr, "  AP trampoline at 50000:\n  ");
+                        for (int b = 0; b < 64; b++) {
+                            fprintf(stderr, "%02X ", mem_readb_phys(0x50000 + b));
+                            if ((b & 15) == 15) fprintf(stderr, "\n  ");
+                        }
+                        fprintf(stderr, "\n");
+                        /* Dump memory at several potential handshake locations */
+                        fprintf(stderr, "  Mem[000B8000] (status?): ");
+                        for (int b = 0; b < 8; b++)
+                            fprintf(stderr, "%02X ", mem_readb_phys(0xB8000 + b));
+                        fprintf(stderr, "\n");
+                        fprintf(stderr, "=== END BSP PRE-EXEC ===\n\n");
+                    }
+                }
+
+                /* === DIAGNOSTIC: Memory watch on physical 0x05FF ===
+                   During fine-slice mode, for CPU 0, log the value at 0x05FF
+                   before each execution. Log first 20 values and on change. */
+                {
+                    static uint8_t  watch_last_val  = 0xFF;
+                    static int      watch_log_count = 0;
+                    static int      watch_inited    = 0;
+                    if (smp_fine_slice_countdown > 0 && i == 0) {
+                        uint8_t val = mem_readb_phys(0x05FF);
+                        if (!watch_inited || val != watch_last_val || watch_log_count < 20) {
+                            fprintf(stderr, "MEMWATCH[05FF] CPU0 pre-exec sub=%d: %02X%s\n",
+                                    sub, val,
+                                    (watch_inited && val != watch_last_val) ? " ** CHANGED **" : "");
+                            watch_last_val = val;
+                            watch_inited   = 1;
+                            watch_log_count++;
+                        }
+                    }
+                    /* Also watch for CPU 1 (AP) writing to 0x05FF */
+                    if (smp_fine_slice_countdown > 0 && i == 1) {
+                        static uint8_t  ap_watch_last = 0xFF;
+                        static int      ap_watch_cnt  = 0;
+                        static int      ap_watch_init = 0;
+                        uint8_t val = mem_readb_phys(0x05FF);
+                        if (!ap_watch_init || val != ap_watch_last || ap_watch_cnt < 20) {
+                            fprintf(stderr, "MEMWATCH[05FF] CPU1 pre-exec sub=%d: %02X%s\n",
+                                    sub, val,
+                                    (ap_watch_init && val != ap_watch_last) ? " ** CHANGED **" : "");
+                            ap_watch_last = val;
+                            ap_watch_init = 1;
+                            ap_watch_cnt++;
+                        }
+                    }
+                }
+
                 int32_t exec_cycles = slice_cycles;
+                int     bios_step_trace = 0;
+                int     bios_step_index = 0;
+
+                {
+                    static int bios_step_gen   = -1;
+                    static int bios_step_count = 0;
+
+                    if (bios_step_gen != smp_boot_generation) {
+                        bios_step_gen   = smp_boot_generation;
+                        bios_step_count = 0;
+                    }
+
+                    /* Narrow diagnostic for the first divergent BP6 BIOS window.
+                       Shrink CPU0's slice only while it is executing the ROM region
+                       around F000:7B05 so we can resolve the branch path without
+                       slowing the entire boot. */
+                    if (i == 0
+                        && smp_fine_slice_countdown == 0
+                        && (((lin_before >= 0x000F7AF0) && (lin_before < 0x000F7DB0))
+                            || ((lin_before >= 0x000FF500) && (lin_before < 0x000FF540)))
+                        && bios_step_count < 512) {
+                        exec_cycles = ((lin_before >= 0x000FF500) && (lin_before < 0x000FF540)) ? 1 : 32;
+                        bios_step_trace = 1;
+                        bios_step_index = ++bios_step_count;
+                    }
+                }
 
                 cpu_exec(exec_cycles);
 
+                /* Early-boot trace (CPU0 only): capture first slices after reset.
+                   This helps compare good vs black boots before APIC setup. */
+                {
+                    static int early_trace_gen   = -1;
+                    static int early_trace_count = 0;
+                    if (early_trace_gen != smp_boot_generation) {
+                        early_trace_gen   = smp_boot_generation;
+                        early_trace_count = 0;
+                    }
+
+                    if (i == 0 && sub == 0 && early_trace_count < 64) {
+                        early_trace_count++;
+                        uint32_t pc_after  = cpu_state.pc;
+                        uint32_t lin_after = cpu_state.seg_cs.base + pc_after;
+                        fprintf(stderr,
+                                "SMP-EARLY[%d]: CS:IP %04X:%04X (%08X) -> %04X:%04X (%08X) "
+                                "DS=%04X->%04X ES=%04X AX=%04X BX=%04X CX=%04X DX=%04X "
+                                "flags=%04X CR0=%08X [0472]=%02X%02X [05FF]=%02X\n",
+                                early_trace_count,
+                                cs_before, pc_before, lin_before,
+                                cpu_state.seg_cs.seg, pc_after, lin_after,
+                                ds_before, cpu_state.seg_ds.seg, cpu_state.seg_es.seg,
+                                cpu_state.regs[0].w, cpu_state.regs[3].w,
+                                cpu_state.regs[1].w, cpu_state.regs[2].w,
+                                cpu_state.flags, cpu_state.CR0.l,
+                                mem_readb_phys(0x473), mem_readb_phys(0x472),
+                                mem_readb_phys(0x05FF));
+                    }
+                }
+
+                if (bios_step_trace) {
+                    uint32_t pc_after  = cpu_state.pc;
+                    uint32_t lin_after = cpu_state.seg_cs.base + pc_after;
+                    fprintf(stderr,
+                            "SMP-BIOS-STEP[%d]: %08X -> %08X "
+                            "CS=%04X DS=%04X ES=%04X AX=%04X BX=%04X CX=%04X DX=%04X "
+                            "flags=%04X bytes=%02X %02X %02X %02X %02X %02X\n",
+                            bios_step_index,
+                            lin_before, lin_after,
+                            cpu_state.seg_cs.seg, cpu_state.seg_ds.seg, cpu_state.seg_es.seg,
+                            cpu_state.regs[0].w, cpu_state.regs[3].w,
+                            cpu_state.regs[1].w, cpu_state.regs[2].w,
+                            cpu_state.flags,
+                            mem_readb_phys(lin_before + 0),
+                            mem_readb_phys(lin_before + 1),
+                            mem_readb_phys(lin_before + 2),
+                            mem_readb_phys(lin_before + 3),
+                            mem_readb_phys(lin_before + 4),
+                            mem_readb_phys(lin_before + 5));
+                }
+
+                /* === DIAGNOSTIC: detailed SMP fine-slice logging === */
+                {
+                    static int      diag_fine_logged     = 0;
+                    static int      diag_bsp_stuck_cnt   = 0;
+                    static uint32_t diag_bsp_last_pc     = 0xFFFFFFFF;
+                    static int      diag_trace_count     = 0;
+                    static int      diag_fine_gen        = -1;
+                    if (diag_fine_gen != smp_boot_generation) {
+                        diag_fine_gen       = smp_boot_generation;
+                        diag_fine_logged    = 0;
+                        diag_bsp_stuck_cnt  = 0;
+                        diag_bsp_last_pc    = 0xFFFFFFFF;
+                        diag_trace_count    = 0;
+                    }
+
+                    /* Trace FIRST 500 sub-iterations after SIPI for BSP.
+                       This captures the delay loop, the [05FF] check, and whatever happens next.
+                       Also dumps DS.base to determine if BSP in protected mode reads a different
+                       physical address for [DS:05FF] than [0:05FF]. */
+                    if (smp_fine_slice_countdown > 0 && i == 0 && diag_trace_count < 500) {
+                        diag_trace_count++;
+                        uint32_t lin_before = cpu_state.seg_cs.base + pc_before;
+                        uint32_t lin_after  = cpu_state.seg_cs.base + cpu_state.pc;
+                        uint32_t ds_base    = cpu_state.seg_ds.base;
+                        uint8_t  flag_05ff  = mem_readb_phys(0x05FF);
+                        uint8_t  flag_0501  = mem_readb_phys(0x0501);
+                        uint8_t  flag_0500  = mem_readb_phys(0x0500);
+                        /* Read what BSP actually sees at DS:05FF (protected mode base) */
+                        uint8_t  ds_flag    = mem_readb_phys(ds_base + 0x05FF);
+                        fprintf(stderr, "TRACE[%d] BSP sub=%d: %08X->%08X CS=%04X CX=%04X "
+                                "DS=%04X DS.base=%08X [phys05FF]=%02X [DS:05FF]=%02X "
+                                "[0501]=%02X [0500]=%02X flags=%04X CR0=%08X\n",
+                                diag_trace_count, sub, lin_before, lin_after,
+                                cpu_state.seg_cs.seg, cpu_state.regs[1].w,
+                                cpu_state.seg_ds.seg, ds_base,
+                                flag_05ff, ds_flag,
+                                flag_0501, flag_0500, cpu_state.flags,
+                                cpu_state.CR0.l);
+                    }
+                    /* Also trace first 200 AP sub-iterations */
+                    {
+                        static int diag_ap_trace    = 0;
+                        static int ap_code_dumped   = 0;
+                        static int diag_ap_gen      = -1;
+                        if (diag_ap_gen != smp_boot_generation) {
+                            diag_ap_gen     = smp_boot_generation;
+                            diag_ap_trace   = 0;
+                            ap_code_dumped  = 0;
+                        }
+                        if (smp_fine_slice_countdown > 0 && i == 1 && diag_ap_trace < 200) {
+                            diag_ap_trace++;
+                            uint32_t lin_after = cpu_state.seg_cs.base + cpu_state.pc;
+                            uint32_t ap_ds_base = cpu_state.seg_ds.base;
+                            fprintf(stderr, "TRACE[%d] AP  sub=%d: -> %08X CS=%04X "
+                                    "DS=%04X DS.base=%08X ES=%04X ES.base=%08X "
+                                    "[phys05FF]=%02X [0501]=%02X CR0=%08X "
+                                    "AX=%04X SP=%04X flags=%04X\n",
+                                    diag_ap_trace, sub, lin_after,
+                                    cpu_state.seg_cs.seg,
+                                    cpu_state.seg_ds.seg, ap_ds_base,
+                                    cpu_state.seg_es.seg, cpu_state.seg_es.base,
+                                    mem_readb_phys(0x05FF), mem_readb_phys(0x0501),
+                                    cpu_state.CR0.l,
+                                    cpu_state.regs[0].w,
+                                    cpu_state.regs[4].w,
+                                    cpu_state.flags);
+                            /* One-shot: dump code at AP's current location the first time
+                               it's seen at a BIOS address (F000:xxxx) */
+                            if (!ap_code_dumped && cpu_state.seg_cs.seg == 0xF000) {
+                                ap_code_dumped = 1;
+                                fprintf(stderr, "=== AP CODE DUMP at linear %08X ===\n  ", lin_after);
+                                for (int b = -8; b < 24; b++)
+                                    fprintf(stderr, "%02X ", mem_readb_phys(lin_after + b));
+                                fprintf(stderr, "\n=== END AP CODE DUMP ===\n");
+                            }
+                            /* Also dump when AP transitions away from F000 segment */
+                            if (diag_ap_trace > 1 && cpu_state.seg_cs.seg != 0xF000) {
+                                static int ap_transition_logged = 0;
+                                if (!ap_transition_logged) {
+                                    ap_transition_logged = 1;
+                                    fprintf(stderr, "=== AP LEFT F000 SEGMENT ===\n");
+                                    fprintf(stderr, "  now at CS=%04X IP=%04X linear=%08X\n",
+                                            cpu_state.seg_cs.seg, cpu_state.pc, lin_after);
+                                    fprintf(stderr, "  Code: ");
+                                    for (int b = 0; b < 32; b++)
+                                        fprintf(stderr, "%02X ", mem_readb_phys(lin_after + b));
+                                    fprintf(stderr, "\n  EAX=%08X ECX=%08X flags=%04X\n",
+                                            cpu_state.regs[0].l, cpu_state.regs[1].l,
+                                            cpu_state.flags);
+                                    fprintf(stderr, "=== END AP TRANSITION ===\n");
+                    }
+                }
             }
 
             /* All CPUs may legally sit in HLT while waiting for timer-driven
@@ -2106,6 +2438,202 @@ pc_run(void)
             if (!ran_cpu)
                 smp_advance_timers_while_idle(slice_cycles);
         }
+
+                    /* One-shot detailed dump at START of fine-slice (first iteration after SIPI). */
+                    if (smp_fine_slice_countdown > 0 && !diag_fine_logged && sub == 0 && i == 0) {
+                        diag_fine_logged = 1;
+                        uint32_t lin = cpu_state.seg_cs.base + cpu_state.pc;
+                        fprintf(stderr, "\n=== SMP DIAG: Fine-slice BSP initial state (post-exec) ===\n");
+                        fprintf(stderr, "  IP=%04X CS=%04X CS.base=%08X linear=%08X\n",
+                                cpu_state.pc, cpu_state.seg_cs.seg, cpu_state.seg_cs.base, lin);
+                        fprintf(stderr, "  EAX=%08X EBX=%08X ECX=%08X EDX=%08X\n",
+                                cpu_state.regs[0].l, cpu_state.regs[3].l,
+                                cpu_state.regs[1].l, cpu_state.regs[2].l);
+                        fprintf(stderr, "  ESI=%08X EDI=%08X EBP=%08X ESP=%08X\n",
+                                cpu_state.regs[6].l, cpu_state.regs[7].l,
+                                cpu_state.regs[5].l, cpu_state.regs[4].l);
+                        fprintf(stderr, "  DS=%04X ES=%04X SS=%04X flags=%04X eflags=%08X\n",
+                                cpu_state.seg_ds.seg, cpu_state.seg_es.seg,
+                                cpu_state.seg_ss.seg, cpu_state.flags, cpu_state.eflags);
+                        fprintf(stderr, "  CR0=%08X\n", cpu_state.CR0.l);
+                        /* Dump 32 bytes of code at BSP linear address */
+                        fprintf(stderr, "  Code at linear %08X: ", lin);
+                        for (int b = 0; b < 32; b++)
+                            fprintf(stderr, "%02X ", mem_readb_phys(lin + b));
+                        fprintf(stderr, "\n");
+                        /* Dump BDA warm boot flag at 0x472 and warm boot vector at 0x467 */
+                        fprintf(stderr, "  BDA[0472] (warm boot flag): %02X %02X\n",
+                                mem_readb_phys(0x472), mem_readb_phys(0x473));
+                        fprintf(stderr, "  BDA[0467] (warm boot vec): %02X %02X %02X %02X\n",
+                                mem_readb_phys(0x467), mem_readb_phys(0x468),
+                                mem_readb_phys(0x469), mem_readb_phys(0x46A));
+                        /* Dump start of AP trampoline at 0x50000 */
+                        fprintf(stderr, "  AP tramp [50000]: ");
+                        for (int b = 0; b < 32; b++)
+                            fprintf(stderr, "%02X ", mem_readb_phys(0x50000 + b));
+                        fprintf(stderr, "\n");
+                        fprintf(stderr, "=== END BSP initial ===\n\n");
+                    }
+
+                    /* Frequent logging during fine-slice: every 10 sub-iterations, both CPUs */
+                    if (smp_fine_slice_countdown > 0 && sub == 0
+                        && (smp_fine_slice_countdown % 50 == 0
+                            || smp_fine_slice_countdown >= 4990)) {
+                        uint32_t lin = cpu_state.seg_cs.base + cpu_state.pc;
+                        fprintf(stderr, "SMP-FINE[%d]: CPU%d pc=%04X->%04X lin=%08X "
+                                "AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X "
+                                "DS=%04X ES=%04X SP=%04X flags=%04X\n",
+                                smp_fine_slice_countdown, i,
+                                pc_before, cpu_state.pc, lin,
+                                cpu_state.regs[0].w, cpu_state.regs[3].w,
+                                cpu_state.regs[1].w, cpu_state.regs[2].w,
+                                cpu_state.regs[6].w, cpu_state.regs[7].w,
+                                cpu_state.seg_ds.seg, cpu_state.seg_es.seg,
+                                cpu_state.regs[4].w, cpu_state.flags);
+                    }
+
+                    /* BSP stuck detection: if BSP IP unchanged for 20 consecutive fine-slice execs,
+                       dump the memory it's polling */
+                    if (smp_fine_slice_countdown > 0 && i == 0 && sub == 0) {
+                        if (cpu_state.pc == diag_bsp_last_pc) {
+                            diag_bsp_stuck_cnt++;
+                        } else {
+                            diag_bsp_stuck_cnt = 0;
+                            diag_bsp_last_pc = cpu_state.pc;
+                        }
+                        if (diag_bsp_stuck_cnt == 20) {
+                            uint32_t lin = cpu_state.seg_cs.base + cpu_state.pc;
+                            fprintf(stderr, "\n=== SMP DIAG: BSP STUCK at pc=%04X (linear=%08X) for 20 iters ===\n",
+                                    cpu_state.pc, lin);
+                            fprintf(stderr, "  EAX=%08X EBX=%08X ECX=%08X EDX=%08X\n",
+                                    cpu_state.regs[0].l, cpu_state.regs[3].l,
+                                    cpu_state.regs[1].l, cpu_state.regs[2].l);
+                            fprintf(stderr, "  ESI=%08X EDI=%08X EBP=%08X ESP=%08X\n",
+                                    cpu_state.regs[6].l, cpu_state.regs[7].l,
+                                    cpu_state.regs[5].l, cpu_state.regs[4].l);
+                            fprintf(stderr, "  DS=%04X ES=%04X SS=%04X flags=%04X\n",
+                                    cpu_state.seg_ds.seg, cpu_state.seg_es.seg,
+                                    cpu_state.seg_ss.seg, cpu_state.flags);
+                            /* Dump 32 bytes of code at and before BSP stuck point */
+                            fprintf(stderr, "  Code at linear %08X-16: ", lin);
+                            for (int b = -16; b < 32; b++)
+                                fprintf(stderr, "%02X ", mem_readb_phys(lin + b));
+                            fprintf(stderr, "\n");
+                            /* Dump the memory region that BSP might be polling.
+                               Common locations: BDA, low memory AP flags */
+                            fprintf(stderr, "  BDA[0472]=%02X%02X BDA[0467]=%02X%02X%02X%02X\n",
+                                    mem_readb_phys(0x473), mem_readb_phys(0x472),
+                                    mem_readb_phys(0x46A), mem_readb_phys(0x469),
+                                    mem_readb_phys(0x468), mem_readb_phys(0x467));
+                            /* Dump memory at DS:0 and ES:0 and ES:DI (common poll targets).
+                               Use seg.base (not seg<<4) — correct for protected mode. */
+                            uint32_t ds_base = cpu_state.seg_ds.base;
+                            uint32_t es_base = cpu_state.seg_es.base;
+                            uint32_t es_di   = es_base + cpu_state.regs[7].w;
+                            fprintf(stderr, "  DS.base=%08X (sel=%04X) ES.base=%08X (sel=%04X) CR0=%08X\n",
+                                    ds_base, cpu_state.seg_ds.seg,
+                                    es_base, cpu_state.seg_es.seg,
+                                    cpu_state.CR0.l);
+                            /* Critical: show what [DS:05FF] resolves to */
+                            fprintf(stderr, "  [phys 05FF]=%02X  [DS:05FF @ %08X]=%02X\n",
+                                    mem_readb_phys(0x05FF),
+                                    ds_base + 0x05FF, mem_readb_phys(ds_base + 0x05FF));
+                            fprintf(stderr, "  DS:0000 (%08X): ", ds_base);
+                            for (int b = 0; b < 16; b++)
+                                fprintf(stderr, "%02X ", mem_readb_phys(ds_base + b));
+                            fprintf(stderr, "\n");
+                            fprintf(stderr, "  ES:0000 (%08X): ", es_base);
+                            for (int b = 0; b < 16; b++)
+                                fprintf(stderr, "%02X ", mem_readb_phys(es_base + b));
+                            fprintf(stderr, "\n");
+                            fprintf(stderr, "  ES:DI   (%08X): ", es_di);
+                            for (int b = 0; b < 16; b++)
+                                fprintf(stderr, "%02X ", mem_readb_phys(es_di + b));
+                            fprintf(stderr, "\n");
+                            /* Also dump the APIC ID register area at FEE00020 */
+                            fprintf(stderr, "  APIC@FEE00020: %02X%02X%02X%02X\n",
+                                    mem_readb_phys(0xFEE00023), mem_readb_phys(0xFEE00022),
+                                    mem_readb_phys(0xFEE00021), mem_readb_phys(0xFEE00020));
+                            /* Dump memory at SS:SP (stack) */
+                            uint32_t ss_sp = ((uint32_t)cpu_state.seg_ss.seg << 4) + cpu_state.regs[4].w;
+                            fprintf(stderr, "  Stack SS:SP (%08X): ", ss_sp);
+                            for (int b = 0; b < 16; b++)
+                                fprintf(stderr, "%02X ", mem_readb_phys(ss_sp + b));
+                            fprintf(stderr, "\n");
+                            fprintf(stderr, "=== END BSP STUCK ===\n\n");
+                        }
+                    }
+
+                    /* Error halt detection: EB FE (JMP $) in BIOS area */
+                    {
+                        static int diag_halt_logged[2]     = {0, 0};
+                        static int diag_halt_logged_gen     = -1;
+                        if (diag_halt_logged_gen != smp_boot_generation) {
+                            diag_halt_logged_gen   = smp_boot_generation;
+                            diag_halt_logged[0]    = 0;
+                            diag_halt_logged[1]    = 0;
+                        }
+                        if (i < 2 && !diag_halt_logged[i]) {
+                            uint32_t lin = cpu_state.seg_cs.base + cpu_state.pc;
+                            uint8_t b0 = mem_readb_phys(lin);
+                            uint8_t b1 = mem_readb_phys(lin + 1);
+                            if (b0 == 0xEB && b1 == 0xFE) {
+                                diag_halt_logged[i] = 1;
+                                fprintf(stderr, "\n=== SMP DIAG: CPU%d HIT ERROR HALT (EB FE) at linear %08X ===\n", i, lin);
+                                fprintf(stderr, "  IP=%04X CS=%04X DS=%04X ES=%04X SS=%04X\n",
+                                        cpu_state.pc, cpu_state.seg_cs.seg,
+                                        cpu_state.seg_ds.seg, cpu_state.seg_es.seg,
+                                        cpu_state.seg_ss.seg);
+                                fprintf(stderr, "  DS.base=%08X ES.base=%08X SS.base=%08X CS.base=%08X\n",
+                                        cpu_state.seg_ds.base, cpu_state.seg_es.base,
+                                        cpu_state.seg_ss.base, cpu_state.seg_cs.base);
+                                fprintf(stderr, "  [phys 05FF]=%02X  [DS:05FF @ %08X]=%02X  [0501]=%02X [0500]=%02X\n",
+                                        mem_readb_phys(0x05FF),
+                                        cpu_state.seg_ds.base + 0x05FF,
+                                        mem_readb_phys(cpu_state.seg_ds.base + 0x05FF),
+                                        mem_readb_phys(0x0501), mem_readb_phys(0x0500));
+                                fprintf(stderr, "  EAX=%08X EBX=%08X ECX=%08X EDX=%08X\n",
+                                        cpu_state.regs[0].l, cpu_state.regs[3].l,
+                                        cpu_state.regs[1].l, cpu_state.regs[2].l);
+                                fprintf(stderr, "  ESI=%08X EDI=%08X EBP=%08X ESP=%08X\n",
+                                        cpu_state.regs[6].l, cpu_state.regs[7].l,
+                                        cpu_state.regs[5].l, cpu_state.regs[4].l);
+                                fprintf(stderr, "  flags=%04X eflags=%08X CR0=%08X\n",
+                                        cpu_state.flags, cpu_state.eflags, cpu_state.CR0.l);
+                                /* What was the last port output (diagnostic code)? */
+                                /* Dump code just before halt: 32 bytes leading up to EB FE */
+                                fprintf(stderr, "  Code before halt (linear %08X): ", lin - 32);
+                                for (int b = -32; b < 2; b++)
+                                    fprintf(stderr, "%02X ", mem_readb_phys(lin + b));
+                                fprintf(stderr, "\n");
+                                /* BDA state */
+                                fprintf(stderr, "  BDA[0472]=%02X%02X BDA[0467]=%02X%02X%02X%02X\n",
+                                        mem_readb_phys(0x473), mem_readb_phys(0x472),
+                                        mem_readb_phys(0x46A), mem_readb_phys(0x469),
+                                        mem_readb_phys(0x468), mem_readb_phys(0x467));
+                                /* Stack dump — use seg.base (correct for pmode) */
+                                uint32_t ss_sp = cpu_state.seg_ss.base + cpu_state.regs[4].l;
+                                fprintf(stderr, "  Stack SS:SP (%08X): ", ss_sp);
+                                for (int b = 0; b < 32; b++)
+                                    fprintf(stderr, "%02X ", mem_readb_phys(ss_sp + b));
+                                fprintf(stderr, "\n");
+                                fprintf(stderr, "  fine_slice_countdown=%d iter=%d\n",
+                                        smp_fine_slice_countdown, smp_iter_count);
+                                fprintf(stderr, "=== END ERROR HALT ===\n\n");
+                            }
+                        }
+                    }
+
+                    /* Normal periodic logging (coarse mode) */
+                    if (smp_fine_slice_countdown == 0 && sub == 0 && (smp_iter_count % 1000) == 1) {
+                        fprintf(stderr, "SMP: CPU %d exec: pc=%08X -> %08X, cs_base=%08X linear=%08X, "
+                                        "slice=%d [iter %d]\n",
+                                i, pc_before, cpu_state.pc, cpu_state.seg_cs.base,
+                                cpu_state.seg_cs.base + cpu_state.pc, slice_cycles,
+                                smp_iter_count);
+                    }
+                }
+
                 /* Compute actual cycles consumed and save state. */
                 uint64_t tsc_delta = tsc - tsc_before;
                 cpu_save_context(i);
@@ -2118,6 +2646,24 @@ pc_run(void)
                         cpu_contexts[j].tsc += tsc_delta;
                 }
             }
+        }
+
+        /* SMP DIAG: Periodic PIC state dump for interrupt debugging. */
+        {
+            static int irq_diag_count = 0;
+            if ((smp_iter_count % 5000) == 1) {
+                irq_diag_count++;
+                if (irq_diag_count <= 30) {
+                    extern pic_t pic, pic2;
+                    fprintf(stderr, "SMP-IRQ-STATE[%d] iter=%d: "
+                            "PIC1: irr=%02X imr=%02X isr=%02X int_pending=%d | "
+                            "PIC2: irr=%02X imr=%02X isr=%02X int_pending=%d\n",
+                            irq_diag_count, smp_iter_count,
+                            pic.irr, pic.imr, pic.isr, pic.int_pending,
+                            pic2.irr, pic2.imr, pic2.isr, pic2.int_pending);
+                }
+            }
+        }
     } else {
         /* Single-CPU fast path — no context switching overhead. */
         cpu_exec((int32_t) cpu_s->rspeed / (force_10ms ? 100 : 1000));
