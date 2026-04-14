@@ -16,6 +16,7 @@
 #
 
 add_library(cpu OBJECT
+    apic.c
     cpu.c
     cpu_table.c
     fpu.c x86.c

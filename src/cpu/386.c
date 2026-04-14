@@ -19,6 +19,7 @@
 #include "x87.h"
 #include <86box/io.h>
 #include <86box/nmi.h>
+#include <86box/apic.h>
 #include <86box/mem.h>
 #include <86box/pic.h>
 #include <86box/timer.h>
@@ -382,8 +383,18 @@ block_ended:
 #else
                 nmi = 0;
 #endif
-            } else if ((cpu_state.flags & I_FLAG) && pic.int_pending && !cpu_end_block_after_ins) {
-                vector = picinterrupt();
+            } else if ((cpu_state.flags & I_FLAG) && !cpu_end_block_after_ins) {
+                vector = -1;
+
+                /* Check APIC first if enabled. */
+                if (apic_enabled()) {
+                    vector = apic_get_interrupt();
+                    if (vector == -1 && pic.int_pending)
+                        vector = picinterrupt();
+                } else if (pic.int_pending) {
+                    vector = picinterrupt();
+                }
+
                 if (vector != -1) {
                     flags_rebuild();
                     if (msw & 1)

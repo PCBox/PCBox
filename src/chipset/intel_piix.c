@@ -171,13 +171,15 @@ piix_ide_handlers(piix_t *dev, int bus)
         }
 
         if ((dev->regs[1][0x04] & 0x01) && (dev->regs[1][0x41] & 0x80)) {
-            piix_log("Enabling primary IDE...\n");
+            fprintf(stderr, "PIIX IDE: Enabling primary IDE (reg04=%02X reg41=%02X)\n",
+                    dev->regs[1][0x04], dev->regs[1][0x41]);
             ide_pri_enable();
         }
     }
 
     if (bus & 0x02) {
-        piix_log("Disabling secondary IDE...\n");
+        fprintf(stderr, "PIIX IDE: Disabling secondary IDE (reg04=%02X reg43=%02X)\n",
+                dev->regs[1][0x04], dev->regs[1][0x43]);
         ide_sec_disable();
 
         if (dev->type == 5) {
@@ -194,7 +196,8 @@ piix_ide_handlers(piix_t *dev, int bus)
         }
 
         if ((dev->regs[1][0x04] & 0x01) && (dev->regs[1][0x43] & 0x80)) {
-            piix_log("Enabling secondary IDE...\n");
+            fprintf(stderr, "PIIX IDE: Enabling secondary IDE (reg04=%02X reg43=%02X)\n",
+                    dev->regs[1][0x04], dev->regs[1][0x43]);
             ide_sec_enable();
         }
     }
@@ -918,6 +921,9 @@ piix_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
                 break;
             case 0x41:
             case 0x43:
+                fprintf(stderr, "PIIX IDE: PCI write reg[%02X] = %02X (masked=%02X, channel=%s)\n",
+                        addr, val, val & ((dev->type > 1) ? 0xf3 : 0xb3),
+                        (addr & 0x02) ? "secondary" : "primary");
                 fregs[addr] = val & ((dev->type > 1) ? 0xf3 : 0xb3);
                 piix_ide_handlers(dev, 1 << !!(addr & 0x02));
                 break;

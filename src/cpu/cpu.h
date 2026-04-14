@@ -131,8 +131,8 @@ enum {
 #define CCR1_SMAC     (1 << 2)
 #define CCR1_SM3      (1 << 7)
 
-#define CCR3_SMI_LOCK (1 << 0)
-#define CCR3_NMI_EN   (1 << 1)
+#define CCR3_SMI_LOCK        (1 << 0)
+#define CCR3_NMI_EN          (1 << 1)
 
 #if (defined __amd64__ || defined _M_X64)
 #    define LOOKUP_INV -1LL
@@ -319,7 +319,7 @@ typedef struct {
     uint64_t bios_updt; /* 0x00000079 */
 
     uint64_t bbl_cr_dx[4]; /* 0x00000088 - 0x0000008b */
-    uint64_t perfctr[2];  /* 0x000000c1, 0x000000c2 */
+    uint64_t perfctr[2];   /* 0x000000c1, 0x000000c2 */
     uint64_t mtrr_cap;     /* 0x000000fe */
 
     uint64_t bbl_cr_addr; /* 0x00000116 */
@@ -333,8 +333,8 @@ typedef struct {
     uint32_t sysenter_esp; /* 0x00000175 - Pentium II and later */
     uint32_t sysenter_eip; /* 0x00000176 - Pentium II and later */
 
-    uint64_t mcg_ctl;           /* 0x0000017b */
-    uint64_t evntsel[2];        /* 0x00000186, 0x00000187 */
+    uint64_t mcg_ctl;    /* 0x0000017b */
+    uint64_t evntsel[2]; /* 0x00000186, 0x00000187 */
 
     uint32_t debug_ctl;         /* 0x000001d9 */
     uint32_t rob_cr_bkuptmpdr6; /* 0x000001e0 */
@@ -385,7 +385,7 @@ typedef struct {
 
     uint8_t tag[8];
 
-    x86seg  *ea_seg;
+    x86seg *ea_seg;
     union {
         uint32_t eaaddr;
         uint16_t eaa16[2];
@@ -440,7 +440,7 @@ typedef struct {
     uint32_t new_fp_control;
 #    endif
 #    if defined __amd64__ || defined _M_X64
-    uint32_t trunc_fp_control;
+    uint32_t    trunc_fp_control;
 #    endif
 #else
     uint16_t old_npxc;
@@ -511,13 +511,11 @@ typedef struct {
 #    define CPU_STATUS_MASK      0xffff0000
 #endif
 
-
 #ifdef EXTREME_DEBUG
-#   define COMPILE_TIME_ASSERT(expr) typedef char COMP_TIME_ASSERT[(expr) ? 1 : 0];
+#    define COMPILE_TIME_ASSERT(expr) typedef char COMP_TIME_ASSERT[(expr) ? 1 : 0];
 #else
-#   define COMPILE_TIME_ASSERT(expr) /*nada*/
+#    define COMPILE_TIME_ASSERT(expr) /*nada*/
 #endif
-
 
 COMPILE_TIME_ASSERT(sizeof(cpu_state_t) <= 128)
 
@@ -560,10 +558,10 @@ COMPILE_TIME_ASSERT(sizeof(cpu_state_t) <= 128)
 /* Global variables. */
 extern cpu_state_t cpu_state;
 
-extern const cpu_family_t         cpu_families[];
-extern cpu_family_t              *cpu_f;
-extern CPU                       *cpu_s;
-extern int                        cpu_override;
+extern const cpu_family_t cpu_families[];
+extern cpu_family_t      *cpu_f;
+extern CPU               *cpu_s;
+extern int                cpu_override;
 
 extern int    cpu_isintel;
 extern int    cpu_iscyrix;
@@ -576,7 +574,7 @@ extern double fpu_multi;
 extern double cpu_busspeed;
 extern int    cpu_cyrix_alignment; /* Cyrix 5x86/6x86 only has data misalignment
                                       penalties when crossing 8-byte boundaries. */
-extern int    cpu_cpurst_on_sr;    /* SiS 551x and 5571: Issue CPURST on soft reset. */
+extern int cpu_cpurst_on_sr;       /* SiS 551x and 5571: Issue CPURST on soft reset. */
 
 extern int is8086;
 extern int is186;
@@ -663,8 +661,8 @@ extern uint32_t eip_msr;
 extern uint64_t amd_efer;
 extern uint64_t star;
 
-#define cr0                  cpu_state.CR0.l
-#define msw                  cpu_state.CR0.w
+#define cr0 cpu_state.CR0.l
+#define msw cpu_state.CR0.w
 extern uint32_t cr2;
 extern uint32_t cr3;
 extern uint32_t cr4;
@@ -902,10 +900,10 @@ extern void nmi_raise(void);
 extern MMX_REG  *MMP[8];
 extern uint16_t *MMEP[8];
 
-extern int  cpu_block_end;
+extern int cpu_block_end;
 
-extern int  cpu_force_interpreter;
-extern int  cpu_override_dynarec;
+extern int cpu_force_interpreter;
+extern int cpu_override_dynarec;
 
 extern void mmx_init(void);
 extern void prefetch_flush(void);
@@ -938,6 +936,165 @@ extern int      prefetch_queue_get_prefetching(void);
 extern int      prefetch_queue_get_size(void);
 
 #define prefetch_queue_set_suspended(s) prefetch_queue_set_prefetching(!s)
-#define prefetch_queue_get_suspended !prefetch_queue_get_prefetching
+#define prefetch_queue_get_suspended    !prefetch_queue_get_prefetching
+
+/* ============================================================
+ * SMP (Symmetric Multiprocessing) -- Dual CPU State Management
+ * ============================================================
+ *
+ * The context switch model copies all per-CPU globals in/out of
+ * a single set of globals (cpu_state, fpu_state, cr2, gdt, etc.)
+ * without changing any macros or dynarec offset calculations.
+ */
+
+#define MAX_CPUS 2
+
+#include "x87_sf.h"
+
+/*
+ * Per-CPU context: holds a snapshot of ALL per-CPU state so that
+ * two CPUs can be maintained simultaneously.
+ */
+typedef struct cpu_context_t {
+    /* Core CPU state (registers, flags, segments, FP stack). */
+    cpu_state_t cpu_state;
+
+    /* SoftFloat FPU state. */
+    fpu_state_t fpu_state;
+
+    /* x87 instruction/operand pointers (from x87.c). */
+    uint32_t x87_pc_off;
+    uint32_t x87_op_off;
+    uint16_t x87_pc_seg;
+    uint16_t x87_op_seg;
+
+    /* MSR state. */
+    msr_t    msr;
+    uint64_t tsc;
+
+    /* Control registers (cr0 is inside cpu_state.CR0). */
+    uint32_t cr2;
+    uint32_t cr3;
+    uint32_t cr4;
+
+    /* Debug registers. */
+    uint32_t dr[8];
+
+    /* Descriptor table registers. */
+    x86seg gdt;
+    x86seg ldt;
+    x86seg idt;
+    x86seg tr;
+    x86seg _oldds;
+
+    /* Dynarec status. */
+#ifdef USE_NEW_DYNAREC
+    uint16_t cpu_cur_status;
+#else
+    uint32_t cpu_cur_status;
+#endif
+
+    /* Prefetch cache. */
+    uint32_t pccache;
+    uint8_t *pccache2;
+
+    /* Segment cache. */
+    uint32_t oldds;
+    uint32_t oldss;
+    uint32_t olddslimit;
+    uint32_t oldsslimit;
+    uint32_t olddslimitw;
+    uint32_t oldsslimitw;
+
+    /* Current opcode. */
+    uint8_t opcode;
+
+    /* SMM state. */
+    int smi_latched;
+    int smm_in_hlt;
+    int smi_block;
+
+    /* Dynarec control. */
+    int cpu_end_block_after_ins;
+    int cpu_block_end;
+
+    /* CPU CR4 mask. */
+    uint64_t cpu_CR4_mask;
+
+    /* Cyrix CCRs. */
+    uint8_t ccr0;
+    uint8_t ccr1;
+    uint8_t ccr2;
+    uint8_t ccr3;
+    uint8_t ccr4;
+    uint8_t ccr5;
+    uint8_t ccr6;
+    uint8_t ccr7;
+
+    /* Cyrix state. */
+    cyrix_t cyrix;
+
+    /* Translation control. */
+    uint8_t do_translate;
+    uint8_t do_translate2;
+
+    /* Misc per-CPU state. */
+    int cpl_override;
+    int in_sys;
+    int unmask_a20_in_smm;
+
+    /* Cache. */
+    uint32_t _tr_regs[8];
+    uint32_t cache_index;
+    uint8_t  _cache[2048];
+
+    /* Segment data temp. */
+    uint16_t temp_seg_data[4];
+
+    /* APIC pointer for this CPU (opaque, set by APIC init). */
+    void *apic;
+
+    /* Interrupt state. */
+    int nmi_pending;   /* NMI pending on this CPU */
+    int trap_pending;  /* TRAP flag pending on this CPU */
+
+    /* SMP scheduling state. */
+    int halted;        /* CPU is in HLT state */
+    int wait_for_sipi; /* AP waiting for Startup IPI */
+} cpu_context_t;
+
+/* SMP global variables. */
+extern int           num_cpus;
+extern int           active_cpu;
+extern cpu_context_t cpu_contexts[MAX_CPUS];
+
+/* SMP fine-grained time slicing.
+   When > 0, the SMP execution loop uses small time slices (e.g. 1000 cycles)
+   instead of the normal large slices.  Set by SIPI delivery so the AP and BSP
+   interleave tightly during the boot handshake.  Decremented each iteration
+   until it reaches 0, then normal slicing resumes. */
+extern int smp_fine_slice_countdown;
+
+/* AP instruction-level ring buffer trace.
+   When > 0, exec386() captures AP state each instruction.
+   Set to 500 by SIPI delivery; decrements to 0, then flushes and goes to -1. */
+extern int ap_trace_remaining;
+
+/* SMP context switch functions. */
+extern void cpu_save_context(int cpu_id);
+extern void cpu_load_context(int cpu_id);
+extern void cpu_switch_to(int cpu_id);
+extern void cpu_log_smp_reset_state(const char *tag);
+
+/* Initialize SMP contexts after cpu_set(). Call once during machine init.
+   CPU 0 (BSP) gets current globals. CPU 1 (AP) starts in wait-for-SIPI. */
+extern void cpu_smp_init(void);
+
+/* Clean up SMP state. */
+extern void cpu_smp_close(void);
+
+/* Check if a CPU has a pending interrupt (PIC or APIC).
+   Used by the SMP scheduler to decide whether to wake a halted CPU. */
+extern int cpu_has_pending_interrupt(int cpu_id);
 
 #endif /*EMU_CPU_H*/

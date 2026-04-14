@@ -816,13 +816,26 @@ pit_read(uint16_t addr, void *priv)
 void
 pit_irq0_timer_ps2(int new_out, int old_out, UNUSED(void *priv))
 {
+    static int pit_irq0_log_count = 0;
+
     if (new_out && !old_out) {
+        if (pit_irq0_log_count < 200) {
+            pit_irq0_log_count++;
+            fprintf(stderr, "PIT-IRQ0[%d]: rise active_cpu=%d tsc=%" PRIu64 " pic_pending=%d\n",
+                    pit_irq0_log_count, active_cpu, tsc, pic.int_pending);
+        }
         picint(1);
         pit_devs[1].set_gate(pit_devs[1].data, 0, 1);
     }
 
-    if (!new_out)
+    if (!new_out) {
+        if (pit_irq0_log_count < 200) {
+            pit_irq0_log_count++;
+            fprintf(stderr, "PIT-IRQ0[%d]: low active_cpu=%d tsc=%" PRIu64 " pic_pending=%d\n",
+                    pit_irq0_log_count, active_cpu, tsc, pic.int_pending);
+        }
         picintc(1);
+    }
 
     if (!new_out && old_out)
         pit_devs[1].ctr_clock(pit_devs[1].data, 0);

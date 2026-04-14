@@ -630,6 +630,20 @@ svga_in(uint16_t addr, void *priv)
 
             if ((svga->fcr & 0x08) && svga->dispon)
                 ret |= 0x08;
+
+            /* SMP diagnostic: log port 3DA reads */
+            {
+                static int vga_3da_count = 0;
+                static int vga_3da_retrace = 0;
+                vga_3da_count++;
+                if (ret & 0x08)
+                    vga_3da_retrace++;
+                if ((vga_3da_count % 100000) == 1)
+                    fprintf(stderr, "VGA: port 3DA read #%d, ret=0x%02X, cgastat=0x%02X, "
+                            "fcr=0x%02X, dispon=%d, retrace_hits=%d/%d, vc=%d vsyncstart=%d\n",
+                            vga_3da_count, ret, svga->cgastat, svga->fcr, svga->dispon,
+                            vga_3da_retrace, vga_3da_count, svga->vc, svga->vsyncstart);
+            }
             break;
 
         default:

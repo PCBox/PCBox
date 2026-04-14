@@ -36,6 +36,7 @@
 #include <86box/apm.h>
 #include <86box/nvr.h>
 #include <86box/acpi.h>
+#include <86box/ioapic.h>
 #include <86box/plat_unused.h>
 
 enum {
@@ -50,17 +51,17 @@ pic_t pic2;
 
 static pc_timer_t pic_timer;
 
-static int shadow = 0;
+static int shadow       = 0;
 static int elcr_enabled = 0;
-static int tmr_inited = 0;
-static int pic_pci = 0;
-static int kbd_latch = 0;
-static int mouse_latch = 0;
+static int tmr_inited   = 0;
+static int pic_pci      = 0;
+static int kbd_latch    = 0;
+static int mouse_latch  = 0;
 
 static uint16_t smi_irq_mask   = 0x0000;
 static uint16_t smi_irq_status = 0x0000;
 
-static uint16_t latched_irqs   = 0x0000;
+static uint16_t latched_irqs = 0x0000;
 
 static void (*update_pending)(void);
 
@@ -232,7 +233,7 @@ pic_update_pending_at(void)
 {
     if (!(pic.interrupt & 0x20)) {
         pic2.int_pending = (find_best_interrupt(&pic2) != -1);
- 
+
         if (pic2.int_pending)
             pic.irr |= (1 << pic2.icw3);
         else
@@ -410,7 +411,7 @@ pic_latch_read(UNUSED(uint16_t addr), UNUSED(void *priv))
 uint8_t
 pic_read_icw(uint8_t pic_id, uint8_t icw)
 {
-    pic_t *dev = pic_id ? &pic2 : &pic;
+    pic_t  *dev = pic_id ? &pic2 : &pic;
     uint8_t ret = 0xff;
 
     switch (icw) {
@@ -434,7 +435,7 @@ pic_read_icw(uint8_t pic_id, uint8_t icw)
 uint8_t
 pic_read_ocw(uint8_t pic_id, uint8_t ocw)
 {
-    pic_t *dev = pic_id ? &pic2 : &pic;
+    pic_t  *dev = pic_id ? &pic2 : &pic;
     uint8_t ret = 0xff;
 
     switch (ocw) {
@@ -551,7 +552,7 @@ pic_write(uint16_t addr, uint8_t val, void *priv)
             dev->irr              = 0x00;
             for (uint8_t i = 0; i <= 7; i++) {
                 if (dev->lines[i] > 0)
-                    dev->irr              |= (1 << i);
+                    dev->irr |= (1 << i);
             }
             dev->imr = dev->isr = 0x00;
             dev->ack_bytes = dev->priority = 0x00;
@@ -627,7 +628,7 @@ pic_reset_hard(void)
 
     /* Explicitly reset the latches. */
     kbd_latch = mouse_latch = 0;
-    latched_irqs = 0x0000;
+    latched_irqs            = 0x0000;
 
     /* The situation is as follows: There is a giant mess when it comes to these latches on real hardware,
        to the point that there's even boards with board-level latched that get used in place of the latches
@@ -649,7 +650,7 @@ pic_toggle_latch(int is_ps2)
 
     /* Explicitly reset the latches. */
     kbd_latch = mouse_latch = 0;
-    latched_irqs = 0x0000;
+    latched_irqs            = 0x0000;
 
     /* The situation is as follows: There is a giant mess when it comes to these latches on real hardware,
        to the point that there's even boards with board-level latched that get used in place of the latches
@@ -688,10 +689,10 @@ pic2_init(void)
 void
 picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
 {
-    int     raise;
-    int     max = 16;
-    uint8_t b;
-    uint8_t slaves = 0;
+    int      raise;
+    int      max = 16;
+    uint8_t  b;
+    uint8_t  slaves = 0;
     uint16_t w;
     uint16_t lines = level ? 0x0000 : num;
     pic_t   *dev;
@@ -742,8 +743,7 @@ picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
                 if ((!!*irq_state) != !!set)
                     set ? dev->lines[b]++ : dev->lines[b]--;
 
-                if (!pic_level_triggered(dev, b) ||
-                    (((!!*irq_state) != !!set) && (dev->lines[b] == (!!set))))
+                if (!pic_level_triggered(dev, b) || (((!!*irq_state) != !!set) && (dev->lines[b] == (!!set))))
                     lines |= w;
             }
         }
@@ -752,16 +752,48 @@ picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
             *irq_state = set;
 
         num = lines;
-   }
+    }
 
-   if (!slaves)
-       num &= 0x00ff;
+    if (!slaves)
+        num &= 0x00ff;
 
-   if (num & 0x0100)
-       acpi_rtc_status = !!set;
+    if (num & 0x0100)
+        acpi_rtc_status = !!set;
 
-   if (num) {
-       if (set) {
+    /* I/O APIC dispatch: route interrupts through the I/O APIC if it
+       is active and the redirection entry for this IRQ is unmasked.
+       Any IRQ handled by the I/O APIC is removed from the bitmask so
+       the PIC does not also process it. */
+    if (num && ioapic_active()) {
+        uint16_t ioapic_handled = 0;
+        for (int i = 0; i < max; i++) {
+            if (num & (1 << i)) {
+                if (ioapic_irq(i, set))
+                    ioapic_handled |= (1 << i);
+            }
+        }
+        /* SMP DIAG: Log IDE routing paths. */
+        if (num & (1 << 14)) {
+            static int irq14_log_count = 0;
+            if (irq14_log_count < 50) {
+                irq14_log_count++;
+                fprintf(stderr, "SMP-IRQ14[%d]: set=%d, ioapic_handled=%04X, remaining=%04X (cpu=%d)\n",
+                        irq14_log_count, set, ioapic_handled, num & ~ioapic_handled, active_cpu);
+            }
+        }
+        if (num & (1 << 15)) {
+            static int irq15_log_count = 0;
+            if (irq15_log_count < 50) {
+                irq15_log_count++;
+                fprintf(stderr, "SMP-IRQ15[%d]: set=%d, ioapic_handled=%04X, remaining=%04X (cpu=%d)\n",
+                        irq15_log_count, set, ioapic_handled, num & ~ioapic_handled, active_cpu);
+            }
+        }
+        num &= ~ioapic_handled;
+    }
+
+    if (num) {
+        if (set) {
             if (smi_irq_mask & num) {
                 smi_raise();
                 smi_irq_status |= num;
@@ -899,7 +931,7 @@ picinterrupt(void)
                 // exit(-1);
                 /* Error correction mechanism: Do a supurious IRQ 15 (spurious IRQ 7 on PIC 2). */
                 pic.slaves[pic.interrupt]->int_pending = 1;
-                pic.slaves[pic.interrupt]->interrupt = 0x07;
+                pic.slaves[pic.interrupt]->interrupt   = 0x07;
             } else
                 pic.interrupt |= 0x40; /* Mark slave pending. */
         }
@@ -907,7 +939,7 @@ picinterrupt(void)
         /* pic.int_pending was somehow cleared despite the fact we made it here,
            do a spurious IRQ 7. */
         pic.int_pending = 1;
-        pic.interrupt = 0x07;
+        pic.interrupt   = 0x07;
     }
 
     if ((pic.interrupt == 0) && (pit_devs[1].data != NULL))

@@ -24,6 +24,7 @@
 #include <86box/io.h>
 #include <86box/mem.h>
 #include <86box/nmi.h>
+#include <86box/apic.h>
 #include <86box/pic.h>
 #include <86box/random.h>
 #include <86box/timer.h>
@@ -57,6 +58,147 @@ int cpu_override_dynarec    = 0;
 int inrecomp                = 0;
 int cpu_block_end           = 0;
 int cpu_end_block_after_ins = 0;
+
+/* ============================================================
+ * AP Instruction-Level Ring Buffer Trace
+ * ============================================================
+ * Captures the last AP_TRACE_SIZE instruction states for CPU 1
+ * (AP).  Triggered by SIPI delivery; auto-flushes to stderr
+ * after ap_trace_remaining instructions have been captured.
+ * ============================================================ */
+#define AP_TRACE_SIZE 4096
+
+typedef struct {
+    uint32_t linear_pc;
+    uint16_t cs_sel, ds_sel, es_sel, ss_sel;
+    uint32_t cs_base, ds_base, es_base, ss_base;
+    uint32_t reg_cr0, reg_cr3, reg_cr4;
+    uint32_t gdtr_base, idtr_base;
+    uint16_t gdtr_limit, idtr_limit;
+    uint32_t eax, ebx, ecx, edx, esi, edi, esp, ebp;
+    uint8_t  mem_0500, mem_0501, mem_05ff;
+    uint32_t apic_id;
+    uint32_t apic_svr;
+    uint32_t apic_base_msr;
+    uint32_t eflags_val;
+} ap_trace_entry_t;
+
+static ap_trace_entry_t ap_trace_buf[AP_TRACE_SIZE];
+static int              ap_trace_head      = 0;
+static int              ap_trace_count     = 0;
+int                     ap_trace_remaining = 0;
+
+static void
+ap_trace_flush(void)
+{
+    int start, count, idx;
+
+    count = (ap_trace_count < AP_TRACE_SIZE) ? ap_trace_count : AP_TRACE_SIZE;
+    start = (ap_trace_count < AP_TRACE_SIZE) ? 0 : ap_trace_head;
+
+    fprintf(stderr, "\n=== AP TRACE DUMP (%d entries) ===\n", count);
+
+    for (int i = 0; i < count; i++) {
+        idx                 = (start + i) % AP_TRACE_SIZE;
+        ap_trace_entry_t *e = &ap_trace_buf[idx];
+
+        fprintf(stderr,
+                "AP[%03d] lin=%08X CS=%04X:%08X DS=%04X:%08X ES=%04X:%08X SS=%04X:%08X\n",
+                i, e->linear_pc,
+                e->cs_sel, e->cs_base,
+                e->ds_sel, e->ds_base,
+                e->es_sel, e->es_base,
+                e->ss_sel, e->ss_base);
+        fprintf(stderr,
+                "        CR0=%08X CR3=%08X CR4=%08X EFLAGS=%08X\n",
+                e->reg_cr0, e->reg_cr3, e->reg_cr4, e->eflags_val);
+        fprintf(stderr,
+                "        GDT=%08X/%04X IDT=%08X/%04X\n",
+                e->gdtr_base, e->gdtr_limit,
+                e->idtr_base, e->idtr_limit);
+        fprintf(stderr,
+                "        EAX=%08X EBX=%08X ECX=%08X EDX=%08X\n",
+                e->eax, e->ebx, e->ecx, e->edx);
+        fprintf(stderr,
+                "        ESI=%08X EDI=%08X ESP=%08X EBP=%08X\n",
+                e->esi, e->edi, e->esp, e->ebp);
+        fprintf(stderr,
+                "        [0500]=%02X [0501]=%02X [05FF]=%02X APIC_ID=%02X SVR=%08X APIC_BASE=%08X\n",
+                e->mem_0500, e->mem_0501, e->mem_05ff,
+                e->apic_id, e->apic_svr, e->apic_base_msr);
+    }
+
+    fprintf(stderr, "=== END AP TRACE DUMP ===\n\n");
+}
+
+static void
+ap_trace_capture(void)
+{
+    ap_trace_entry_t *e = &ap_trace_buf[ap_trace_head];
+
+    e->linear_pc  = cpu_state.seg_cs.base + cpu_state.pc;
+    e->cs_sel     = cpu_state.seg_cs.seg;
+    e->ds_sel     = cpu_state.seg_ds.seg;
+    e->es_sel     = cpu_state.seg_es.seg;
+    e->ss_sel     = cpu_state.seg_ss.seg;
+    e->cs_base    = cpu_state.seg_cs.base;
+    e->ds_base    = cpu_state.seg_ds.base;
+    e->es_base    = cpu_state.seg_es.base;
+    e->ss_base    = cpu_state.seg_ss.base;
+    e->reg_cr0    = cpu_state.CR0.l;
+    e->reg_cr3    = cr3;
+    e->reg_cr4    = cr4;
+    e->gdtr_base  = gdt.base;
+    e->gdtr_limit = (uint16_t) gdt.limit;
+    e->idtr_base  = idt.base;
+    e->idtr_limit = (uint16_t) idt.limit;
+    e->eax        = cpu_state.regs[0].l;
+    e->ebx        = cpu_state.regs[3].l;
+    e->ecx        = cpu_state.regs[1].l;
+    e->edx        = cpu_state.regs[2].l;
+    e->esi        = cpu_state.regs[6].l;
+    e->edi        = cpu_state.regs[7].l;
+    e->esp        = cpu_state.regs[4].l;
+    e->ebp        = cpu_state.regs[5].l;
+    e->mem_0500   = mem_readb_phys(0x0500);
+    e->mem_0501   = mem_readb_phys(0x0501);
+    e->mem_05ff   = mem_readb_phys(0x05FF);
+    e->eflags_val = ((uint32_t) cpu_state.eflags << 16) | (uint32_t) cpu_state.flags;
+
+    /* APIC data -- use accessors since apic_t is opaque. */
+    {
+        uint32_t raw_id  = apic_get_id(1);
+        e->apic_id       = (raw_id != 0xFFFFFFFF) ? ((raw_id >> 24) & 0xF) : 0xFF;
+        e->apic_svr      = apic_get_svr(1);
+        e->apic_base_msr = (uint32_t) msr.apic_base;
+    }
+
+    ap_trace_head = (ap_trace_head + 1) % AP_TRACE_SIZE;
+    ap_trace_count++;
+
+    /* Early dump: if AP reaches the watchdog reset area (F000:5B6x)
+       or the BIOS error halt area (F000:7DAx), dump the ring buffer
+       immediately — don't wait for ap_trace_remaining to reach 0.
+       This captures the instructions leading UP TO the failure. */
+    if (e->linear_pc >= 0x000F5B60 && e->linear_pc <= 0x000F5B70) {
+        fprintf(stderr, "\nAP TRACE: EARLY DUMP — AP reached watchdog at lin=%05X\n", e->linear_pc);
+        ap_trace_flush();
+        ap_trace_remaining = -1;
+        return;
+    }
+    if (e->linear_pc >= 0x000F7DA0 && e->linear_pc <= 0x000F7DB0) {
+        fprintf(stderr, "\nAP TRACE: EARLY DUMP — AP reached error halt at lin=%05X\n", e->linear_pc);
+        ap_trace_flush();
+        ap_trace_remaining = -1;
+        return;
+    }
+
+    ap_trace_remaining--;
+    if (ap_trace_remaining == 0) {
+        ap_trace_flush();
+        ap_trace_remaining = -1; /* Don't trigger again. */
+    }
+}
 
 #ifdef ENABLE_386_DYNAREC_LOG
 int x386_dynarec_do_log = ENABLE_386_DYNAREC_LOG;
@@ -440,7 +582,7 @@ exec386_dynarec_int(void)
             CPU_BLOCK_END();
         else if (nmi && nmi_enable && nmi_mask)
             CPU_BLOCK_END();
-        else if ((cpu_state.flags & I_FLAG) && pic.int_pending && !cpu_end_block_after_ins)
+        else if ((cpu_state.flags & I_FLAG) && (pic.int_pending || apic_int_pending()) && !cpu_end_block_after_ins)
             CPU_BLOCK_END();
     }
 
@@ -461,11 +603,11 @@ block_ended:
     cpu_end_block_after_ins = 0;
 }
 
-#if defined(__linux__) && !defined(__clang__) && defined(USE_NEW_DYNAREC)
+#    if defined(__linux__) && !defined(__clang__) && defined(USE_NEW_DYNAREC)
 static inline void __attribute__((optimize("O2")))
-#else
+#    else
 static __inline void
-#endif
+#    endif
 exec386_dynarec_dyn(void)
 {
     uint32_t start_pc  = 0;
@@ -496,8 +638,7 @@ exec386_dynarec_dyn(void)
             int      byte_offset = (phys_addr >> PAGE_BYTE_MASK_SHIFT) & PAGE_BYTE_MASK_OFFSET_MASK;
             uint64_t byte_mask   = 1ULL << (phys_addr & PAGE_BYTE_MASK_MASK);
 
-            if ((page->code_present_mask & mask) ||
-                ((page->mem != page_ff) && (page->byte_code_present_mask[byte_offset] & byte_mask)))
+            if ((page->code_present_mask & mask) || ((page->mem != page_ff) && (page->byte_code_present_mask[byte_offset] & byte_mask)))
 #    else
             if (page->code_present_mask[(phys_addr >> PAGE_MASK_INDEX_SHIFT) & PAGE_MASK_INDEX_MASK] & mask)
 #    endif
@@ -663,10 +804,10 @@ exec386_dynarec_dyn(void)
                 cpu_state.pc &= 0xffff;
 #    endif
 
-                /* Cap source code at 4000 bytes per block; this
-                   will prevent any block from spanning more than
-                   2 pages. In practice this limit will never be
-                   hit, as host block size is only 2kB*/
+            /* Cap source code at 4000 bytes per block; this
+               will prevent any block from spanning more than
+               2 pages. In practice this limit will never be
+               hit, as host block size is only 2kB*/
 #    ifdef USE_NEW_DYNAREC
             if (((cs + cpu_state.pc) - start_pc) >= max_block_size)
 #    else
@@ -685,7 +826,7 @@ exec386_dynarec_dyn(void)
                 CPU_BLOCK_END();
             if (nmi && nmi_enable && nmi_mask)
                 CPU_BLOCK_END();
-            if ((cpu_state.flags & I_FLAG) && pic.int_pending && !cpu_end_block_after_ins)
+            if ((cpu_state.flags & I_FLAG) && (pic.int_pending || apic_int_pending()) && !cpu_end_block_after_ins)
                 CPU_BLOCK_END();
 
             if (cpu_end_block_after_ins) {
@@ -766,10 +907,10 @@ exec386_dynarec_dyn(void)
                 cpu_state.pc &= 0xffff;
 #    endif
 
-                /* Cap source code at 4000 bytes per block; this
-                   will prevent any block from spanning more than
-                   2 pages. In practice this limit will never be
-                   hit, as host block size is only 2kB */
+            /* Cap source code at 4000 bytes per block; this
+               will prevent any block from spanning more than
+               2 pages. In practice this limit will never be
+               hit, as host block size is only 2kB */
 #    ifdef USE_NEW_DYNAREC
             if (((cs + cpu_state.pc) - start_pc) >= max_block_size)
 #    else
@@ -788,7 +929,7 @@ exec386_dynarec_dyn(void)
                 CPU_BLOCK_END();
             if (nmi && nmi_enable && nmi_mask)
                 CPU_BLOCK_END();
-            if ((cpu_state.flags & I_FLAG) && pic.int_pending && !cpu_end_block_after_ins)
+            if ((cpu_state.flags & I_FLAG) && (pic.int_pending || apic_int_pending()) && !cpu_end_block_after_ins)
                 CPU_BLOCK_END();
 
             if (cpu_end_block_after_ins) {
@@ -854,7 +995,7 @@ exec386_dynarec(int32_t cycs)
             cycles_old       = cycles;
             oldtsc           = tsc;
             tsc_old          = tsc;
-            if (cpu_force_interpreter || cpu_override_dynarec ||  (!CACHE_ON())) /*Interpret block*/
+            if (cpu_force_interpreter || cpu_override_dynarec || (!CACHE_ON())) /*Interpret block*/
             {
                 exec386_dynarec_int();
             } else {
@@ -894,7 +1035,7 @@ exec386_dynarec(int32_t cycs)
                 oldcs = CS;
 #    endif
                 cpu_state.oldpc = cpu_state.pc;
-                new_ne = 0;
+                new_ne          = 0;
                 x86_int(16);
             }
 
@@ -915,8 +1056,22 @@ exec386_dynarec(int32_t cycs)
 #    else
                 nmi = 0;
 #    endif
-            } else if ((cpu_state.flags & I_FLAG) && pic.int_pending) {
-                vector = picinterrupt();
+            } else if (cpu_state.flags & I_FLAG) {
+                vector = -1;
+
+                /* Check APIC first if enabled. */
+                if (apic_enabled()) {
+                    /* Check for APIC-generated interrupts (timer, etc). */
+                    vector = apic_get_interrupt();
+                    if (vector == -1 && pic.int_pending) {
+                        /* Virtual wire mode: LINT0 as ExtINT passes PIC through. */
+                        vector = picinterrupt();
+                    }
+                } else if (pic.int_pending) {
+                    /* Legacy PIC path (APIC disabled). */
+                    vector = picinterrupt();
+                }
+
                 if (vector != -1) {
 #    ifndef USE_NEW_DYNAREC
                     oldcs = CS;
@@ -1010,6 +1165,10 @@ exec386(int32_t cycs)
             fetchdat = fastreadl_fetch(cs + cpu_state.pc);
 
             if (!cpu_state.abrt) {
+                /* AP instruction trace -- capture before opcode dispatch. */
+                if (active_cpu == 1 && ap_trace_remaining > 0)
+                    ap_trace_capture();
+
 #ifdef ENABLE_386_LOG
                 if (in_smm)
                     x386_dynarec_log("[%04X:%08X] %08X\n", CS, cpu_state.pc, fetchdat);
@@ -1055,7 +1214,7 @@ exec386(int32_t cycs)
 block_ended:
 #endif
             if (cpu_state.abrt) {
-                uint8_t oop    = opcode;
+                uint8_t oop = opcode;
                 flags_rebuild();
                 tempi          = cpu_state.abrt & ABRT_MASK;
                 cpu_state.abrt = 0;
@@ -1080,7 +1239,7 @@ block_ended:
                 }
 
 #ifdef USE_DEBUG_REGS_486
-                if (is386 && !x86_was_reset  && ins_fetch_fault)
+                if (is386 && !x86_was_reset && ins_fetch_fault)
                     x86gen();
 #endif
             } else if (new_ne) {
@@ -1124,8 +1283,18 @@ block_ended:
 #else
                 nmi = 0;
 #endif
-            } else if ((cpu_state.flags & I_FLAG) && pic.int_pending && !cpu_end_block_after_ins) {
-                vector = picinterrupt();
+            } else if ((cpu_state.flags & I_FLAG) && !cpu_end_block_after_ins) {
+                vector = -1;
+
+                /* Check APIC first if enabled. */
+                if (apic_enabled()) {
+                    vector = apic_get_interrupt();
+                    if (vector == -1 && pic.int_pending)
+                        vector = picinterrupt();
+                } else if (pic.int_pending) {
+                    vector = picinterrupt();
+                }
+
                 if (vector != -1) {
                     flags_rebuild();
                     if (msw & 1)

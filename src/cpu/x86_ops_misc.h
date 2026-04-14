@@ -717,6 +717,11 @@ opHLT(UNUSED(uint32_t fetchdat))
         CLOCK_CYCLES(5);
     }
 
+    /* SMP: mark this CPU as halted so the scheduler can skip it
+       until an interrupt arrives. */
+    if (num_cpus > 1)
+        cpu_contexts[active_cpu].halted = 1;
+
     CPU_BLOCK_END();
     PREFETCH_RUN(100, 1, -1, 0, 0, 0, 0, 0);
 

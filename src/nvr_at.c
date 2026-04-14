@@ -326,6 +326,17 @@ typedef struct local_t {
 
 static uint8_t nvr_at_inited = 0;
 
+static int
+nvr_bp6_trace_active(void)
+{
+    if (active_cpu != 0)
+        return 0;
+
+    const uint32_t lin = cpu_state.seg_cs.base + cpu_state.pc;
+    return ((lin >= 0x000F7AF0) && (lin < 0x000F7DB0))
+        || ((lin >= 0x000FF500) && (lin < 0x000FF540));
+}
+
 /* Get the current NVR time. */
 static void
 time_get(nvr_t *nvr, struct tm *tm)
@@ -440,9 +451,16 @@ timer_update_irq(nvr_t *nvr)
 {
     local_t *local = (local_t *) nvr->data;
     uint8_t irq = (nvr->regs[RTC_REGB] & nvr->regs[RTC_REGC]) & (REGB_UIE | REGB_AIE | REGB_PIE);
+    static int rtc_irq_log_count = 0;
 
     if (irq || (local->irq_state != !!irq)) {
         if (irq) {
+            if (rtc_irq_log_count < 200) {
+                rtc_irq_log_count++;
+                fprintf(stderr,
+                        "RTC-IRQ8[%d]: raise flags=%02X regb=%02X regc=%02X active_cpu=%d tsc=%" PRIu64 "\n",
+                        rtc_irq_log_count, irq, nvr->regs[RTC_REGB], nvr->regs[RTC_REGC], active_cpu, tsc);
+            }
             nvr->regs[RTC_REGC] |= REGC_IRQF;
             picintlevel(1 << nvr->irq, &local->irq_state);
             if (local->smi_enable) {
@@ -450,6 +468,12 @@ timer_update_irq(nvr_t *nvr)
                 local->smi_status = 1;
             }
         } else {
+            if (rtc_irq_log_count < 200) {
+                rtc_irq_log_count++;
+                fprintf(stderr,
+                        "RTC-IRQ8[%d]: clear regb=%02X regc=%02X active_cpu=%d tsc=%" PRIu64 "\n",
+                        rtc_irq_log_count, nvr->regs[RTC_REGB], nvr->regs[RTC_REGC], active_cpu, tsc);
+            }
             nvr->regs[RTC_REGC] &= ~REGC_IRQF;
             picintclevel(1 << nvr->irq, &local->irq_state);
         }
@@ -582,6 +606,12 @@ nvr_reg_common_write(uint16_t reg, uint8_t val, nvr_t *nvr, local_t *local)
     if ((reg >= 0xb8) && (reg <= 0xbf) && local->wp[1])
         return;
     if (nvr->regs[reg] != val) {
+        if ((reg == 0x38) && (machines[machine].init == machine_at_bp6_init)) {
+            fprintf(stderr,
+                    "SMP-CMOS38-WRITE: cpu=%d pc=%08X %02X->%02X flags=%04X nvr=%p\n",
+                    active_cpu, cpu_state.seg_cs.base + cpu_state.pc,
+                    nvr->regs[reg], val, local->flags, (void *) nvr);
+        }
         nvr->regs[reg] = val;
         if ((reg >= 0x0d) && ((local->cent == 0xff) || (reg != local->cent)))
             nvr_dosave     = 1;
@@ -637,7 +667,8 @@ nvr_reg_write(uint16_t reg, uint8_t val, void *priv)
             break;
 
         case 0x39:
-            if (machines[machine].init == machine_at_bx6_init)
+            if ((machines[machine].init == machine_at_bx6_init) ||
+                (machines[machine].init == machine_at_bp6_init))
                 nvr_reg_common_write(reg, val | 0x08, nvr, local);
             else
                 nvr_reg_common_write(reg, val, nvr, local);
@@ -667,6 +698,7 @@ nvr_write(uint16_t addr, uint8_t val, void *priv)
     nvr_t   *nvr     = (nvr_t *) priv;
     local_t *local   = (local_t *) nvr->data;
     uint8_t  addr_id = (addr & 0x0e) >> 1;
+    uint16_t index_before = local->addr[addr_id];
 
     cycles -= ISA_CYCLES(8);
 
@@ -693,6 +725,13 @@ nvr_write(uint16_t addr, uint8_t val, void *priv)
             local->addr[addr_id] = (local->addr[addr_id] & 0x7f) | (0x80 * local->bank[addr_id]);
         if (!(local->flags & FLAG_NO_NMI))
             nmi_mask = (~val & 0x80);
+    }
+
+    if (nvr_bp6_trace_active() && ((addr & 1) == 0)) {
+        fprintf(stderr,
+                "SMP-CMOS-W: cpu=%d pc=%08X port=%04X raw=%02X index=%02X->%02X bank=%02X nvr=%p\n",
+                active_cpu, cpu_state.seg_cs.base + cpu_state.pc, addr, val,
+                index_before & 0xff, local->addr[addr_id] & 0xff, local->bank[addr_id], (void *) nvr);
     }
 }
 
@@ -805,7 +844,8 @@ nvr_read(uint16_t addr, void *priv)
             case 0x39:
                 if (!(local->lock[local->addr[addr_id]] & 0x02)) {
                     ret = nvr->regs[local->addr[addr_id]];
-                    if (machines[machine].init == machine_at_bx6_init)
+                    if ((machines[machine].init == machine_at_bx6_init) ||
+                        (machines[machine].init == machine_at_bp6_init))
                         ret |= 0x08;
                 }
                 break;
@@ -911,6 +951,13 @@ nvr_read(uint16_t addr, void *priv)
             ret &= 0x80;
         if (alt_access)
             ret = (ret & 0x7f) | (nmi_mask ? 0x00 : 0x80);
+    }
+
+    if (nvr_bp6_trace_active() && (addr & 1)) {
+        fprintf(stderr,
+                "SMP-CMOS-R: cpu=%d pc=%08X port=%04X index=%02X ret=%02X bank=%02X nvr=%p\n",
+                active_cpu, cpu_state.seg_cs.base + cpu_state.pc, addr,
+                local->addr[addr_id] & 0xff, ret, local->bank[addr_id], (void *) nvr);
     }
 
     return ret;
@@ -1025,6 +1072,21 @@ nvr_start(nvr_t *nvr)
     /* Start the RTC. */
     nvr->regs[RTC_REGA] = (REGA_RS2 | REGA_RS1);
     nvr->regs[RTC_REGB] = REGB_2412;
+
+    if (machines[machine].init == machine_at_bp6_init) {
+        /* BP6's BIOS persists CMOS[0x38] with bit 0 cleared during a
+           successful boot. Restoring the latched config bit before POST
+           keeps the next launch on the same checksum-validated path. */
+        nvr->regs[0x38] |= 0x01;
+        nvr->regs[0x39] |= 0x08;
+    }
+
+    if (machines[machine].init == machine_at_bp6_init) {
+        fprintf(stderr,
+                "SMP-CMOS38-START: reg38=%02X reg39=%02X reg7d=%02X reg7e=%02X is_new=%d flags=%04X nvr=%p\n",
+                nvr->regs[0x38], nvr->regs[0x39], nvr->regs[0x7d], nvr->regs[0x7e],
+                nvr->is_new, local->flags, (void *) nvr);
+    }
 }
 
 static void
@@ -1196,7 +1258,8 @@ nvr_at_init(const device_t *info)
     local->cent         = (info->local >> 16) & 0xff;
     local->default_addr = (info->local >> 24) & 0xffff;
     local->def          = (local->flags & FLAG_ZERO_DEFAULT) ? 0x00 : 0xff;
-    nvr->irq            = (info->local >> 40) & 0xff;
+    {
+        const uint8_t raw_irq = (info->local >> 40) & 0xff;
 
     if (nvr->irq == 0x7f)
         nvr->irq = -1;

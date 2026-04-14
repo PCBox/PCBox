@@ -1499,6 +1499,10 @@ ide_write_devctl(UNUSED(uint16_t addr), uint8_t val, void *priv)
     ide_other = ide_drives[ch ^ 1];
 
     ide_log("[%04X:%08X] ide_write_devctl(%04X, %02X, %08X)\n", CS, cpu_state.pc, addr, val, priv);
+    if (ide->board == 1) {
+        fprintf(stderr, "IDE-SEC-DEVCTL: pc=%08X cur_dev=%d val=%02X type=%d other_type=%d\n",
+                cpu_state.pc, ch, val, ide->type, ide_other->type);
+    }
 
     if ((addr & 0x0001) || ((ide->type == IDE_NONE) && (ide_other->type == IDE_NONE)))
         return;
@@ -1611,6 +1615,13 @@ ide_writeb(uint16_t addr, uint8_t val, void *priv)
     prev      = ide->command;
 
     ide_log("[%04X:%08X] ide_writeb(%04X, %02X, %08X)\n", CS, cpu_state.pc, addr, val, priv);
+    if ((ide->board == 1) && ((addr & 0x7) != 0x0)) {
+        fprintf(stderr, "IDE-SEC-WRITE: pc=%08X port=%04X reg=%u val=%02X cur_dev=%d type=%d other_type=%d status=%02X other_status=%02X cyl=%04X sec=%02X nsec=%02X drvsel=%02X\n",
+                cpu_state.pc, addr, addr & 0x7, val, ch, ide->type, ide_other->type,
+                ide->tf ? ide->tf->atastat : 0xff, ide_other->tf ? ide_other->tf->atastat : 0xff,
+                ide->tf ? ide->tf->cylinder : 0xffff, ide->tf ? ide->tf->sector : 0xff,
+                ide->tf ? ide->tf->secount : 0xff, ide->tf ? ide->tf->drvsel : 0xff);
+    }
 
     addr &= 0x7;
 
@@ -2146,6 +2157,13 @@ ide_readb(uint16_t addr, void *priv)
     }
 
     ide_log("[%04X:%08X] ide_readb(%04X, %08X) = %02X\n", CS, cpu_state.pc, addr, priv, ret);
+    if ((ide->board == 1) && ((addr & 0x7) != 0x0)) {
+        fprintf(stderr, "IDE-SEC-READ: pc=%08X port=%04X reg=%u ret=%02X cur_dev=%d type=%d other_type=%d status=%02X other_status=%02X cyl=%04X sec=%02X nsec=%02X drvsel=%02X\n",
+                cpu_state.pc, addr, addr & 0x7, ret, ch, ide->type, ide_drives[ch ^ 1]->type,
+                ide->tf ? ide->tf->atastat : 0xff, ide_drives[ch ^ 1]->tf ? ide_drives[ch ^ 1]->tf->atastat : 0xff,
+                ide->tf ? ide->tf->cylinder : 0xffff, ide->tf ? ide->tf->sector : 0xff,
+                ide->tf ? ide->tf->secount : 0xff, ide->tf ? ide->tf->drvsel : 0xff);
+    }
 
     return ret;
 }
@@ -2765,6 +2783,8 @@ void
 ide_handlers(uint8_t board, int set)
 {
     if (ide_boards[board] != NULL) {
+        fprintf(stderr, "IDE-HANDLERS: board=%u set=%d base=%04X side=%04X irq=%d\n",
+                board, set, ide_boards[board]->base[0], ide_boards[board]->base[1], ide_boards[board]->irq);
         if (ide_boards[board]->base[0]) {
             io_handler(set, ide_boards[board]->base[0], 8,
                        ide_readb, ide_readw, ide_readl,
@@ -2777,7 +2797,7 @@ ide_handlers(uint8_t board, int set)
                        ide_read_alt_status, NULL, NULL,
                        ide_write_devctl, NULL, NULL,
                        ide_boards[board]);
-       }
+        }
     }
 }
 
@@ -3218,8 +3238,6 @@ ide_drive_reset(int d)
 
     if ((d & 1) && (ide_drives[d]->type == IDE_NONE) && (ide_drives[d ^ 1]->type != IDE_NONE)) {
         ide_drives[d]->type = ide_drives[d ^ 1]->type | IDE_SHADOW;
-        free(ide_drives[d]->tf);
-        ide_drives[d]->tf = ide_drives[d ^ 1]->tf;
     } else
         ide_drives[d]->tf->atastat  = DRDY_STAT | DSC_STAT;
 
@@ -3269,9 +3287,6 @@ ide_drives_set_shadow(void)
 
         if ((d & 1) && (ide_drives[d]->type == IDE_NONE) && (ide_drives[d ^ 1]->type != IDE_NONE)) {
             ide_drives[d]->type = ide_drives[d ^ 1]->type | IDE_SHADOW;
-            if (ide_drives[d]->tf != NULL)
-                free(ide_drives[d]->tf);
-            ide_drives[d]->tf = ide_drives[d ^ 1]->tf;
         }
     }
 }

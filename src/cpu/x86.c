@@ -418,6 +418,8 @@ softresetx86(void)
 void
 hardresetx86(void)
 {
+    cpu_log_smp_reset_state("hardresetx86:start");
+
     dma_reset();
     /* TODO: Hack, but will do for time being, because all AT machines currently are 286+,
        and vice-versa. */
