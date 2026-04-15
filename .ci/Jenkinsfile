@@ -88,7 +88,7 @@ def presetFlags = [
 
 def gitClone(repository, branch) {
 	/* Clean workspace. */
-	cleanWs()
+	cleanWs(disableDeferredWipeout: true, deleteDirs: true, notFailBuild: true)
 
 	/* Perform git clone if stashed data isn't available yet, or if
 	   this is not debian.citadel where stash is faster than clone. */
@@ -175,6 +175,38 @@ pipeline {
 
 			steps {
 				script {
+					/* Extract the polled commit from the polling log, so that git checkout
+					   can be used to avoid JENKINS-20518 race conditions caused by the
+					   webhook being triggered more than once in a short period of time.
+					   This is a backup strategy for FilterProxy's webhook queuing. */
+					node('master') { /* must run on master node to read polling log */
+						/* Ignore exceptions as this is not really critical. */
+						try {
+							/* Switch to this build's directory. */
+							dir("${env.JENKINS_HOME}/jobs/${env.JOB_NAME}/builds/${env.BUILD_NUMBER}") {
+								/* Parse polling log. */
+								def pollingLog = readFile file: 'polling.log'
+								def match = pollingLog =~ /Latest remote head revision on [^ ]+ is: ([a-zA-Z0-9]+)/
+								if (match && match[0]) {
+									env.GIT_COMMIT = match[0][1]
+									println "[-] Read git commit [${env.GIT_COMMIT}] from polling log"
+								}
+							}
+						} catch (e) {}
+					}
+
+					/* Adding to the above, run a git clone as soon as possible on any node
+					   to further avoid race conditions caused by busy node executor delays. */
+					retry(10) {
+						node('!Windows') {
+							/* Run git clone. */
+							gitClone(repository[buildBranch], branch[buildBranch])
+
+							/* Clean workspace, in case this is running in a non-build node. */
+							cleanWs(disableDeferredWipeout: true, deleteDirs: true, notFailBuild: true)
+						}
+					}
+
 					/* Determine build metadata. */
 					def buildFlags = "-D \"BUILD_TYPE=$BUILD_TYPE\" -D \"EMU_BUILD=build ${env.BUILD_NUMBER}\" -D \"EMU_BUILD_NUM=${env.BUILD_NUMBER}\""
 					def buildSuffix = "-b${env.BUILD_NUMBER}"
