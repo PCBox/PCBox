@@ -30,6 +30,7 @@ typedef struct lpt_device_s {
 } lpt_device_t;
 
 #ifdef _TIMER_H_
+#include <86box/char.h>
 typedef struct lpt_t {
     uint8_t       enabled;
     uint8_t       irq;
@@ -61,6 +62,7 @@ typedef struct lpt_t {
     uint16_t      pad0[2];
     int           enable_irq;
     lpt_device_t *dt;
+    char_port_t   port;
 #ifdef FIFO_H
     fifo16_t *    fifo;
 #else
@@ -95,15 +97,6 @@ extern const device_t      dss_device;
 extern const device_t      lpt_hasp_savquest_device;
 
 extern const device_t      lpt_loopback_device;
-
-extern int                 lpt_device_available(int id);
-#ifdef EMU_DEVICE_H
-extern const device_t     *lpt_device_getdevice(const int id);
-#endif
-extern int                 lpt_device_has_config(const int id);
-extern const char         *lpt_device_get_name(int id);
-extern const char         *lpt_device_get_internal_name(int id);
-extern int                 lpt_device_get_from_internal_name(const char *str);
 
 extern void                lpt_write(uint16_t port, uint8_t val, void *priv);
 
