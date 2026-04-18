@@ -230,10 +230,9 @@ public:
         else        
             generate(&m_buffer[m_buf_pos * 2], *m_buf_pos_global - m_buf_pos);
 
-        for (; m_buf_pos < *m_buf_pos_global; m_buf_pos++) {
-            m_buffer[m_buf_pos * 2] /= 2;
-            m_buffer[(m_buf_pos * 2) + 1] /= 2;
-        }
+        /* No attenuation here — the card mixer applies its own FM volume
+           scaling.  Pre-dividing would make OPL ~6 dB too quiet. */
+        m_buf_pos = *m_buf_pos_global;
 
         return m_buffer;
     }
