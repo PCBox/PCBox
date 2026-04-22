@@ -11571,7 +11571,7 @@ const machine_t machines[] = {
         .bus_flags = MACHINE_PCI,
         .flags     = MACHINE_PS2_KBC | MACHINE_IDE_DUAL | MACHINE_APM,
         .ram       = {
-            .min  = 1024,
+            .min  = 2048,
             .max  = 131072,
             .step = 1024
         },
