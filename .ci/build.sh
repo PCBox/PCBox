@@ -638,12 +638,9 @@ then
 		sudo sed -i -e 's/--enable-libproxy/--disable-libproxy/g' "$wget_portfile"
 		sudo sed -i -e 's/port:libproxy//g' "$wget_portfile"
 
-		# Work around assimp failing to build with newer zlib. Upstream issue as of writing.
-		sudo "$macports/bin/port" install zlib
-		for header in "$macports/include/minizip/"*.h
-		do
-			sudo ln -s "$header" "$macports/include/" 2>/dev/null
-		done
+		# Work around openal-soft failing to build due to C++20. (MacPorts issue 73874)
+		alsoft_portfile="$macports/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports/audio/openal-soft/Portfile"
+		wc -c "$alsoft_portfile" | grep -q ' 6722 ' && sudo sed -i -e 's/configure.args-append/configure.compiler macports-clang-19\nconfigure.args-append/' "$alsoft_portfile"
 
 		while :
 		do

@@ -91,7 +91,7 @@ rx_setup_wait:
             break;
 
         case 0xe5:
-            lpt_log("[W] PTI reset\n");
+            lpt_log("[W] PTI 4-bit mode\n");
             break;
 
         case 0xf1:
@@ -108,7 +108,7 @@ tx_setup_wait:
         default:
             break;
     }
-    lpt_log("[R] PTI %02X = %02X (status %02X)\n", cmd, dev->char_pti_readout, dev->char_pti_readout << 3);
+    lpt_log("[R] PTI %02X = %02X (status %02X)\n", mode, dev->char_pti_readout, dev->char_pti_readout << 3);
 }
 
 static void
@@ -116,11 +116,14 @@ lpt_char_write_data(uint8_t val, void *priv)
 {
     lpt_t *dev = (lpt_t *) priv;
 
+    /* Reset status read spin loop counter. */
+    dev->char_spin_count = 0;
+
     if ((dev->port.chardev.flags & CHAR_LPT_PTI) && ((dev->ctrl & 0x0f) == 0x0e)) {
         /* PTI command mode. */
         lpt_char_pti_mode(dev, val);
-    } else if ((((dev->char_pti_mode & 0xef) == 0xe1) && (dev->ctrl & 0x08)) || (dev->char_pti_mode == 0xf3)) {
-        /* PTI bidirectional modes and ECP transmit: don't send more status updates until the receiver is set up. */
+    } else if (((dev->char_pti_mode & 0xed) == 0xe1) && (dev->ctrl & 0x08)) {
+        /* PTI bidirectional/ECP modes: stop sending status updates until the receiver is set up (SelectIn goes low). */
         lpt_log("Not writing byte %02X due to status hold (ctrl=%02X ecr=%02X)\n", val, dev->ctrl, dev->ecr);
     } else if ((dev->port.chardev.flags & CHAR_LPT_USESTROBE) || (dev->char_pti_mode == 0xf1)) { /* PTI bidirectional transmit */
         /* Store data for strobe. */
@@ -217,6 +220,9 @@ lpt_char_write_ctrl(uint8_t val, void *priv)
 {
     lpt_t *dev = (lpt_t *) priv;
 
+    /* Reset status read spin loop counter. */
+    dev->char_spin_count = 0;
+
     if ((dev->port.chardev.flags & CHAR_LPT_PTI) && ((val & 0x0f) == 0x0e)) { /* PTI command mode (SelectIn|nInit|autofd) */
         lpt_char_pti_mode(dev, dev->dat);
     } else if ((dev->char_pti_mode & 0xef) == 0xe1) { /* PTI bidirectional modes */
@@ -256,10 +262,16 @@ lpt_char_read_status(void *priv)
     if ((dev->port.chardev.flags & CHAR_LPT_PTI) && ((dev->ctrl & 0x0f) == 0x0e)) { /* PTI command mode */
         return dev->char_pti_readout << 3;
     } else if (dev->port.chardev.flags & (CHAR_LPT_NIBBLE | CHAR_LPT_PTI)) {
-#ifdef DROP_EMULATION_SPEED_INSTEAD
-        if (!dev->enable_irq)
+        /* Trigger a read outside the timer if the guest appears to be waiting for a
+           response by spin-looping status reads. Strictest loop limits for reference:
+           - Windows DCC (ptilink.sys 1.1.0.0): 4096 spins with 1us wait
+           - Linux PLIP >=1.1.20: 500 spins with 1us wait
+                         <1.1.20: 4 jiffies (40ms?)
+           - Crynwr DOS PLIP: 137ms */
+        if (++dev->char_spin_count >= 125) {
+            dev->char_spin_count = 0;
             lpt_char_read_data(dev);
-#endif
+        }
         return (dev->char_read << 3) ^ (CHAR_RAW_STATUS(0) >> 8);
     } else if (dev->port.chardev.status) {
         return CHAR_RAW_STATUS(dev->port.chardev.status(dev->port.chardev.priv)) >> 8;
