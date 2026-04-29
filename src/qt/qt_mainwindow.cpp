@@ -1265,7 +1265,7 @@ MainWindow::on_actionSettings_triggered()
         default:
             break;
         case QDialog::Accepted:
-            settings.save();
+            settings.save(0);
             config_changed = 2;
             emit vmmConfigurationChanged();
             pc_reset_hard();
