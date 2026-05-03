@@ -161,6 +161,7 @@ mac_signidentity() {
 	echo "-s -"
 }
 mac_notarize() {
+	is_mac || return 0
 	if keychain_name=$(mac_keychain)
 	then
 		if [ -n "$keychain_name" ]
@@ -172,8 +173,13 @@ mac_notarize() {
 				if [ -n "$keychain_path" ]
 				then
 					echo [-] Notarizing with profile [$keychain_profile] in keychain [$keychain_name]
-					xcrun notarytool submit "$1" --keychain-profile "$keychain_profile" --keychain "$keychain_path" --no-wait
-					return $?
+					if xcrun notarytool submit "$1" --keychain-profile "$keychain_profile" --keychain "$keychain_path" --no-wait
+					then
+						echo [-] Notarization submission successful
+						return 0
+					else
+						err="Notarization submission failed"
+					fi
 				else
 					err="File path for keychain [$keychain_name] not found"
 				fi
@@ -575,11 +581,12 @@ then
 		fi
 
 		# Notarize the compressed app bundle.
-		mac_notarize "$zip_name"
+		status=0
+		mac_notarize "$zip_name" || status=50
 
 		# All good.
 		echo [-] Universal build of [$package_name] for [$arch] with flags [$cmake_flags] successful
-		exit 0
+		exit $status
 	fi
 
 	# Switch into the correct architecture if required.
@@ -631,12 +638,9 @@ then
 		sudo sed -i -e 's/--enable-libproxy/--disable-libproxy/g' "$wget_portfile"
 		sudo sed -i -e 's/port:libproxy//g' "$wget_portfile"
 
-		# Work around assimp failing to build with newer zlib. Upstream issue as of writing.
-		sudo "$macports/bin/port" install zlib
-		for header in "$macports/include/minizip/"*.h
-		do
-			sudo ln -s "$header" "$macports/include/" 2>/dev/null
-		done
+		# Work around openal-soft failing to build due to C++20. (MacPorts issue 73874)
+		alsoft_portfile="$macports/var/macports/sources/rsync.macports.org/macports/release/tarballs/ports/audio/openal-soft/Portfile"
+		wc -c "$alsoft_portfile" | grep -q ' 6722 ' && sudo sed -i -e 's/configure.args-append/configure.compiler macports-clang-19\nconfigure.args-append/' "$alsoft_portfile"
 
 		while :
 		do
@@ -1295,10 +1299,7 @@ fi
 
 # Notarize the compressed app bundle if we're on macOS.
 status=0
-if is_mac
-then
-	mac_notarize "$zip_name" || status=50
-fi
+mac_notarize "$zip_name" || status=50
 
 # All good.
 echo [-] Build of [$package_name] for [$arch] with flags [$cmake_flags] successful

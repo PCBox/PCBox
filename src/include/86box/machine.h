@@ -158,8 +158,9 @@
 #define DMA_NONE                 -1
 #define DMA_ANY                  -1
 
-#define IS_ARCH(m, a)            ((machines[m].bus_flags & (a)) ? 1 : 0)
-#define IS_AT(m)                 (((machines[m].bus_flags & (MACHINE_BUS_ISA16 | MACHINE_BUS_EISA | MACHINE_BUS_VLB | MACHINE_BUS_MCA | MACHINE_BUS_PCI | MACHINE_BUS_PCMCIA | MACHINE_BUS_AGP | MACHINE_BUS_AC97)) && !(machines[m].bus_flags & MACHINE_PC98)) ? 1 : 0)
+#define IS_ARCH(m, a) ((machines[m].bus_flags & (a)) ? 1 : 0)
+#define IS_AT(m)      (((machines[m].bus_flags & (MACHINE_BUS_ISA16 | MACHINE_BUS_EISA | MACHINE_BUS_VLB | MACHINE_BUS_MCA | MACHINE_BUS_PCI | MACHINE_BUS_PCMCIA | MACHINE_BUS_AGP | MACHINE_BUS_AC97)) && !(machines[m].bus_flags & MACHINE_PC98)) ? 1 : 0)
+#define IS_MCA(m)     ((machines[m].bus_flags & (MACHINE_BUS_MCA | MACHINE_BUS_MCA32)) ? 1 : 0)
 
 #define CPU_BLOCK(...)  \
     (const uint8_t[]) { \
@@ -875,9 +876,12 @@ extern int machine_at_486vipio2_init(const machine_t *);
 extern int machine_at_itoxstar_init(const machine_t *);
 
 /* STPC Consumer-II */
-extern int machine_at_arb1423c_init(const machine_t *);
-extern int machine_at_arb1479_init(const machine_t *);
-extern int machine_at_iach488_init(const machine_t *);
+extern int             machine_at_arb1423c_init(const machine_t *);
+#ifdef EMU_DEVICE_H
+extern const device_t  arb1479_device;
+#endif
+extern int             machine_at_arb1479_init(const machine_t *);
+extern int             machine_at_iach488_init(const machine_t *);
 
 /* STPC Elite */
 extern int machine_at_pcm9340_init(const machine_t *);
@@ -1114,12 +1118,16 @@ extern int machine_at_mb520n_init(const machine_t *);
 extern int machine_at_i430vx_init(const machine_t *);
 
 /* i430TX */
-extern int  machine_at_nupro592_init(const machine_t *);
-extern int  machine_at_tx97_init(const machine_t *);
-extern int  machine_at_tx97xv_init(const machine_t *);
-extern void machine_at_optiplex_21152_init(void);
-extern int  machine_at_optiplexgn_init(const machine_t *);
-extern int  machine_at_tomahawk_init(const machine_t *);
+extern int             machine_at_nupro592_init(const machine_t *);
+extern int             machine_at_tx97_init(const machine_t *);
+extern int             machine_at_tx97xv_init(const machine_t *);
+#ifdef EMU_DEVICE_H
+extern const device_t  txp4x_device;
+#endif
+extern int             machine_at_txp4x_init(const machine_t *);
+extern void            machine_at_optiplex_21152_init(void);
+extern int             machine_at_optiplexgn_init(const machine_t *);
+extern int             machine_at_tomahawk_init(const machine_t *);
 #ifdef EMU_DEVICE_H
 extern const device_t an430tx_device;
 #endif
@@ -1360,7 +1368,7 @@ extern int machine_at_atc7020bxii_init(const machine_t *);
 extern int machine_at_m773_init(const machine_t *);
 
 /* VIA Apollo Pro */
-extern int machine_at_apas3_init(const machine_t *);
+extern int             machine_at_vim863s_init(const machine_t *);
 
 /* VIA Apollo Pro 133 */
 extern int machine_at_p6bap_init(const machine_t *);

@@ -116,7 +116,9 @@ static const SOUND_CARD sound_cards[] = {
     { &device_internal              },
     /* ISA */
     { &adgold_device                },
+    { &soundmaster_device           },
     { &cms_device                   },
+    { &imfc_device                  },
     { &ssi2001_device               },
     { &thunderboard_device          },
     { &mmb_device                   },
@@ -131,6 +133,7 @@ static const SOUND_CARD sound_cards[] = {
     { &sb_pro_v2_device             },
     { &entertainer_device           },
     { &pssj_isa_device              },
+    { &saaym_device                 },
     { &tndy_device                  },
     /* ISA/Sidecar */
     { &adlib_device                 },

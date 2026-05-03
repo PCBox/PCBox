@@ -118,7 +118,7 @@ if(NOT (WIN32 OR APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
 endif()
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_FIND_PACKAGE_PREFER_CONFIG ON)
 
 # Optional features
@@ -246,3 +246,7 @@ endif()
 set(CMAKE_TOP_LEVEL_PROCESSED TRUE)
 
 add_subdirectory(src)
+
+if(WIN32)
+    target_link_libraries(PCBox ucrt)
+endif()

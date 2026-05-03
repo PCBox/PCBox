@@ -74,7 +74,6 @@
 #include <86box/isartc.h>
 #include <86box/lpt.h>
 #include <86box/serial.h>
-#include <86box/serial_passthrough.h>
 #include <86box/keyboard.h>
 #include <86box/mouse.h>
 #include <86box/gameport.h>
@@ -190,71 +189,69 @@ int clear_flash = 0;
 int auto_paused = 0;
 
 /* Configuration values. */
-int window_remember;
-int vid_resize;                                                            /* (C) allow resizing */
-int invert_display    = 0;                                                 /* (C) invert the display */
-int suppress_overscan = 0;                                                 /* (C) suppress overscans */
-int lang_id           = 0;                                                 /* (G) language id */
-int scale             = 0;                                                 /* (C) screen scale factor */
-int dpi_scale         = 0;                                                 /* (C) DPI scaling of the emulated
-                                                                                  screen */
-int  vid_api                                    = 0;                       /* (C) video renderer */
-int  vid_cga_contrast                           = 0;                       /* (C) video */
-int  video_fullscreen                           = 0;                       /* (C) video */
-int  video_fullscreen_scale                     = 0;                       /* (C) video */
-int  fullscreen_ui_visible                      = 0;                       /* (C) video */
-int  enable_overscan                            = 0;                       /* (C) video */
-int  force_43                                   = 0;                       /* (C) video */
-int  video_filter_method                        = 1;                       /* (C) video */
-int  video_vsync                                = 0;                       /* (C) video */
-int  video_framerate                            = -1;                      /* (C) video */
-bool serial_passthrough_enabled[SERIAL_MAX - 1] = { 0, 0, 0, 0, 0, 0, 0 }; /* (C) activation and kind of
-                                                                              pass-through for serial ports */
-int      bugger_enabled              = 0;                                  /* (C) enable ISAbugger */
-int      novell_keycard_enabled      = 0;                                  /* (C) enable Novell NetWare 2.x key card emulation. */
-int      postcard_enabled            = 0;                                  /* (C) enable POST card */
-int      unittester_enabled          = 0;                                  /* (C) enable unit tester device */
-int      gameport_type[GAMEPORT_MAX] = { 0, 0 };                           /* (C) enable gameports */
-int      isamem_type[ISAMEM_MAX]     = { 0, 0, 0, 0 };                     /* (C) enable ISA mem cards */
-int      isarom_type[ISAROM_MAX]     = { 0, 0, 0, 0 };                     /* (C) enable ISA ROM cards */
-int      isartc_type                 = 0;                                  /* (C) enable ISA RTC card */
-int      gfxcard[GFXCARD_MAX]        = { 0, 0 };                           /* (C) graphics/video card */
-int      show_second_monitors        = 1;                                  /* (C) show non-primary monitors */
-int      sound_is_float              = 1;                                  /* (C) sound uses FP values */
-int      voodoo_enabled              = 0;                                  /* (C) video option */
-int      ibm8514_standalone_enabled  = 0;                                  /* (C) video option */
-int      xga_standalone_enabled      = 0;                                  /* (C) video option */
-int      da2_standalone_enabled      = 0;                                  /* (C) video option */
-uint32_t mem_size                    = 0;                                  /* (C) memory size (Installed on
-                                                                                  system board)*/
-uint32_t isa_mem_size      = 0;                                            /* (C) memory size (ISA Memory Cards) */
-int      cpu_use_dynarec   = 0;                                            /* (C) cpu uses/needs Dyna */
-int      cpu               = 0;                                            /* (C) cpu type */
-int      fpu_type          = 0;                                            /* (C) fpu type */
-int      fpu_softfloat     = 0;                                            /* (C) fpu uses softfloat */
-int      time_sync         = 0;                                            /* (C) enable time sync */
-int      confirm_reset     = 1;                                            /* (G) enable reset confirmation */
-int      confirm_exit      = 1;                                            /* (G) enable exit confirmation */
-int      confirm_save      = 1;                                            /* (G) enable save confirmation */
-int      enable_discord    = 0;                                            /* (C) enable Discord integration */
-int      pit_mode          = -1;                                           /* (C) force setting PIT mode */
-int      fm_driver         = 0;                                            /* (C) select FM sound driver */
-int      open_dir_usr_path = 0;                                            /* (G) default file open dialog directory
-                                                                                  of usr_path */
-int video_fullscreen_scale_maximized = 0;                                  /* (C) Whether fullscreen scaling settings
-                                                                                  also apply when maximized. */
-int do_auto_pause = 0;                                                     /* (C) Auto-pause the emulator on focus
-                                                                                  loss */
-int  force_constant_mouse      = 0;                                        /* (C) Force constant updating of the mouse */
-int  hook_enabled              = 1;                                        /* (C) Keyboard hook is enabled */
-int  test_mode                 = 0;                                        /* (C) Test mode */
-char uuid[MAX_UUID_LEN]        = { '\0' };                                 /* (C) UUID or machine identifier */
-int  sound_muted               = 0;                                        /* (C) Is sound muted? */
-int  jumpered_internal_ecp_dma = 0;                                        /* (C) Jumpered internal EPC DMA */
-int  inhibit_multimedia_keys;                                              /* (G) Inhibit multimedia keys on Windows. */
-int  force_10ms;                                                           /* (C) Force 10ms CPU frame intervals. */
-int  vmm_disabled       = 0;                                               /* (G) disable built-in manager */
-char vmm_path_cfg[1024] = { '\0' };                                        /* (G) VMs path (unless -E is used)*/
+int      window_remember;
+int      vid_resize;                                              /* (C) allow resizing */
+int      invert_display                         = 0;              /* (C) invert the display */
+int      suppress_overscan                      = 0;              /* (C) suppress overscans */
+int      lang_id                                = 0;              /* (G) language id */
+int      scale                                  = 0;              /* (C) screen scale factor */
+int      dpi_scale                              = 0;              /* (C) DPI scaling of the emulated
+                                                                         screen */
+int      vid_api                                = 0;              /* (C) video renderer */
+int      vid_cga_contrast                       = 0;              /* (C) video */
+int      video_fullscreen                       = 0;              /* (C) video */
+int      video_fullscreen_scale                 = 0;              /* (C) video */
+int      fullscreen_ui_visible                  = 0;              /* (C) video */
+int      enable_overscan                        = 0;              /* (C) video */
+int      force_43                               = 0;              /* (C) video */
+int      video_filter_method                    = 1;              /* (C) video */
+int      video_vsync                            = 0;              /* (C) video */
+int      video_framerate                        = -1;             /* (C) video */
+int      bugger_enabled                         = 0;              /* (C) enable ISAbugger */
+int      novell_keycard_enabled                 = 0;              /* (C) enable Novell NetWare 2.x key card emulation. */
+int      postcard_enabled                       = 0;              /* (C) enable POST card */
+int      unittester_enabled                     = 0;              /* (C) enable unit tester device */
+int      gameport_type[GAMEPORT_MAX]            = { 0, 0 };       /* (C) enable gameports */
+int      isamem_type[ISAMEM_MAX]                = { 0, 0, 0, 0 }; /* (C) enable ISA mem cards */
+int      isarom_type[ISAROM_MAX]                = { 0, 0, 0, 0 }; /* (C) enable ISA ROM cards */
+int      isartc_type                            = 0;              /* (C) enable ISA RTC card */
+int      gfxcard[GFXCARD_MAX]                   = { 0, 0 };       /* (C) graphics/video card */
+int      show_second_monitors                   = 1;              /* (C) show non-primary monitors */
+int      sound_is_float                         = 1;              /* (C) sound uses FP values */
+int      voodoo_enabled                         = 0;              /* (C) video option */
+int      ibm8514_standalone_enabled             = 0;              /* (C) video option */
+int      xga_standalone_enabled                 = 0;              /* (C) video option */
+int      da2_standalone_enabled                 = 0;              /* (C) video option */
+uint32_t mem_size                               = 0;              /* (C) memory size (Installed on
+                                                                         system board)*/
+uint32_t isa_mem_size                           = 0;              /* (C) memory size (ISA Memory Cards) */
+int      cpu_use_dynarec                        = 0;              /* (C) cpu uses/needs Dyna */
+int      cpu                                    = 0;              /* (C) cpu type */
+int      fpu_type                               = 0;              /* (C) fpu type */
+int      fpu_softfloat                          = 0;              /* (C) fpu uses softfloat */
+int      time_sync                              = 0;              /* (C) enable time sync */
+int      confirm_reset                          = 1;              /* (G) enable reset confirmation */
+int      confirm_exit                           = 1;              /* (G) enable exit confirmation */
+int      confirm_save                           = 1;              /* (G) enable save confirmation */
+int      enable_discord                         = 0;              /* (C) enable Discord integration */
+int      pit_mode                               = -1;             /* (C) force setting PIT mode */
+int      fm_driver                              = 0;              /* (C) select FM sound driver */
+int      open_dir_usr_path                      = 0;              /* (G) default file open dialog directory
+                                                                         of usr_path */
+int      video_fullscreen_scale_maximized       = 0;              /* (C) Whether fullscreen scaling settings
+                                                                         also apply when maximized. */
+int      do_auto_pause                          = 0;              /* (C) Auto-pause the emulator on focus
+                                                                         loss */
+int      force_constant_mouse                   = 0;              /* (C) Force constant updating of the mouse */
+int      hook_enabled                           = 1;              /* (C) Keyboard hook is enabled */
+int      test_mode                              = 0;              /* (C) Test mode */
+char     uuid[MAX_UUID_LEN]                     = { '\0' };       /* (C) UUID or machine identifier */
+int      sound_muted                            = 0;              /* (C) Is sound muted? */
+int      jumpered_internal_ecp_dma              = 0;              /* (C) Jumpered internal EPC DMA */
+int      inhibit_multimedia_keys;                                 /* (G) Inhibit multimedia keys on Windows. */
+int      force_10ms;                                              /* (C) Force 10ms CPU frame intervals. */
+int      vmm_disabled                           = 0;              /* (G) disable built-in manager */
+char     vmm_path_cfg[1024]                     = { '\0' };       /* (G) VMs path (unless -E is used)*/
 
 int other_ide_present = 0;  /* IDE controllers from non-IDE cards are
                                present */
@@ -334,6 +331,7 @@ extern int writelnum;
 /* emulator % */
 int fps;
 int framecount;
+static uint32_t fps_sample_elapsed_ms = 1000;
 
 extern int CPUID;
 extern int output;
@@ -345,7 +343,8 @@ char  exe_path[2048];        /* path (dir) of executable */
 char  usr_path[1024];        /* path (dir) of user data */
 char  cfg_path[1024];        /* full path of config file */
 char  global_cfg_path[1024]; /* full path of config file */
-FILE *stdlog = NULL;         /* file to log output to */
+FILE *stdlog = NULL;  /* file to log output to */
+void (*pclog_hook)(const char *) = NULL; /* optional UI log hook */
 #if 0
 int   scrnsz_x = SCREEN_RES_X; /* current screen size, X */
 int   scrnsz_y = SCREEN_RES_Y; /* current screen size, Y */
@@ -417,7 +416,7 @@ pclog_ex(UNUSED(const char *fmt), UNUSED(va_list ap))
 #ifndef RELEASE_BUILD
     char temp[LOG_SIZE_BUFFER];
 
-    if (strcmp(fmt, "") == 0)
+    if (!fmt || !fmt[0])
         return;
 
     pclog_ensure_stdlog_open();
@@ -431,6 +430,8 @@ pclog_ex(UNUSED(const char *fmt), UNUSED(va_list ap))
         seen = 0;
         strcpy(buff, temp);
         fprintf(stdlog, "%s", temp);
+        if (pclog_hook)
+            pclog_hook(temp);
     }
 
     fflush(stdlog);
@@ -478,6 +479,8 @@ always_log(const char *fmt, ...)
 
     vsprintf(temp, fmt, ap);
     fprintf(stdlog, "%s", temp);
+    if (pclog_hook)
+        pclog_hook(temp);
     fflush(stdlog);
     va_end(ap);
 }
@@ -590,6 +593,8 @@ warning(const char *fmt, ...)
 
     vsprintf(temp, fmt, ap);
     fprintf(stdlog, "%s", temp);
+    if (pclog_hook)
+        pclog_hook(temp);
     fflush(stdlog);
     va_end(ap);
 
@@ -681,7 +686,22 @@ delete_nvr_file(uint8_t flash)
     fn = NULL;
 }
 
-extern void device_find_all_descs(void);
+#ifdef _WIN32
+void
+pc_debug_console(void)
+{
+    if (!force_debug && AllocConsole()) {
+        force_debug = 1;
+        freopen("CONIN$", "r", stdin);
+        freopen("CONOUT$", "w", stdout);
+        freopen("CONOUT$", "w", stderr);
+    }
+    if (force_debug && vm_name[0])
+        SetConsoleTitle(vm_name);
+}
+#endif
+
+extern void  device_find_all_descs(void);
 
 static void
 pc_show_usage(void)
@@ -849,7 +869,7 @@ usage:
             lvmp = 1;
 #ifdef _WIN32
         } else if (!strcasecmp(argv[c], "--debug") || !strcasecmp(argv[c], "-D")) {
-            force_debug = 1;
+            pc_debug_console();
 #endif
 #ifndef USE_SDL_UI
         } else if (!strcasecmp(argv[c], "--vmmpath") || !strcasecmp(argv[c], "-E")) {
@@ -1200,11 +1220,17 @@ usage:
      * If no --vmname parameter specified we'll use the
      *   working directory name as the VM's name.
      */
-    if (strlen(vm_name) == 0) {
+    if (!vm_name[0]) {
         char ltemp[1024] = { '\0' };
         path_get_dirname(ltemp, usr_path);
         strcpy(vm_name, path_get_filename(ltemp));
     }
+
+#ifdef _WIN32
+    /* Update debug console title with the VM name. */
+    if (force_debug)
+        pc_debug_console();
+#endif
 
     /*
      * This is where we start outputting to the log file,
@@ -1745,7 +1771,6 @@ pc_reset_hard_init(void)
     /* Reset and reconfigure the serial ports. */
     /* note: SLIP COM side has to be initialized before the network side */
     serial_standalone_init();
-    serial_passthrough_init();
 
     /* Reset and reconfigure the Network Card layer. */
     network_reset();
@@ -2688,7 +2713,22 @@ pc_run(void)
     }
 
     if (title_update) {
+        int      speed_percent;
+        int      target_fps;
+        uint32_t elapsed_ms;
+        int64_t  numerator;
+
         mouse_msg_idx = ((mouse_type == MOUSE_TYPE_NONE) || (mouse_input_mode >= 1)) ? 2 : !!mouse_capture;
+        target_fps    = force_10ms ? 100 : 1000;
+        elapsed_ms    = fps_sample_elapsed_ms ? fps_sample_elapsed_ms : 1;
+
+        /*
+         * Use real sample duration for title speed percent so delayed timer
+         * callbacks do not create false dip/rebound spikes in speed reporting.
+         */
+        numerator     = (int64_t) fps * 100000LL;
+        speed_percent = (int) ((numerator + ((int64_t) elapsed_ms * target_fps / 2)) /
+                               ((int64_t) elapsed_ms * target_fps));
 #ifdef SCREENSHOT_MODE
         if (force_10ms)
             fps = ((fps + 2) / 5) * 5;
@@ -2700,7 +2740,7 @@ pc_run(void)
          * mouse_msg[] stores suffixes only on macOS (see update_mouse_msg).
          * Build the title without passing non-ASCII chars through swprintf.
          */
-        swprintf(temp, sizeof_w(temp), L"%i%%", fps / (force_10ms ? 1 : 10));
+        swprintf(temp, sizeof_w(temp), L"%i%%", speed_percent);
         if (mouse_msg[mouse_msg_idx][0]) {
             wcsncat(temp, L" - ", sizeof_w(temp) - wcslen(temp) - 1);
             wcsncat(temp, mouse_msg[mouse_msg_idx], sizeof_w(temp) - wcslen(temp) - 1);
@@ -2708,7 +2748,7 @@ pc_run(void)
         /* Needed due to modifying the UI on the non-main thread is a big no-no. */
         dispatch_async_f(dispatch_get_main_queue(), wcsdup((const wchar_t *) temp), _ui_window_title);
 #else
-        swprintf(temp, sizeof_w(temp), mouse_msg[mouse_msg_idx], fps / (force_10ms ? 1 : 10));
+        swprintf(temp, sizeof_w(temp), mouse_msg[mouse_msg_idx], speed_percent);
         ui_window_title(temp);
 #endif
         title_update = 0;
@@ -2719,6 +2759,14 @@ pc_run(void)
 void
 pc_onesec(void)
 {
+    static uint32_t last_sample_ms = 0;
+    uint32_t        now_ms         = plat_get_ticks();
+
+    fps_sample_elapsed_ms = last_sample_ms ? (now_ms - last_sample_ms) : 1000;
+    if (!fps_sample_elapsed_ms)
+        fps_sample_elapsed_ms = 1;
+    last_sample_ms = now_ms;
+
     fps        = framecount;
     framecount = 0;
 
@@ -2887,8 +2935,8 @@ int
 FindAccelerator(const char *name)
 {
     for (int x = 0; x < NUM_ACCELS; x++) {
-        if (strcmp(acc_keys[x].name, name) == 0)
-            return (x);
+        if (!strcmp(acc_keys[x].name, name))
+            return x;
     }
 
     // No key was found

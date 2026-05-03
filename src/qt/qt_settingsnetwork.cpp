@@ -231,7 +231,6 @@ SettingsNetwork::changed()
         auto *hostname_value         = findChild<QLineEdit *>(QString("hostnameSwitch%1").arg(i + 1));
         auto *promisc_value          = findChild<QCheckBox *>(QString("boxPromisc%1").arg(i + 1));
         auto *secret_value           = findChild<QLineEdit *>(QString("secretSwitch%1").arg(i + 1));
-        has_changed                 |= (net_cards_conf[i].net_type != cbox->currentData().toInt());
         char  temp_host_dev_name[128];
         char  temp_secret[256];
         char  temp_nrs_hostname[128];
@@ -275,8 +274,11 @@ SettingsNetwork::restore()
 }
 
 void
-SettingsNetwork::save()
+SettingsNetwork::save(int soft)
 {
+    if (soft)
+        return;
+
     for (int i = 0; i < NET_CARD_MAX; ++i) {
         auto *cbox = findChild<QComboBox *>(QString("comboBoxNIC%1").arg(i + 1));
 #ifdef HAS_VDE

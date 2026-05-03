@@ -918,16 +918,16 @@ mystique_getclock(int clock, void *priv)
     const mystique_t *mystique = (mystique_t *) priv;
 
     if (clock == 0)
-        return 25175000.0;
+        return 25175000.0f;
     if (clock == 1)
-        return 28322000.0;
+        return 28322000.0f;
 
     int m  = mystique->xpixpll[2].m;
     int n  = mystique->xpixpll[2].n;
     int pl = mystique->xpixpll[2].p;
 
-    float fvco = 14318181.0 * (n + 1) / (m + 1);
-    float fo   = fvco / (pl + 1);
+    float fvco = 14318181.0f * ((float) n + 1.0f) / ((float) m + 1.0f);
+    float fo   = fvco / ((float) pl + 1.0);
 
     return fo;
 }
@@ -938,29 +938,32 @@ mystique_recalctimings(svga_t *svga)
     mystique_t *mystique = (mystique_t *) svga->priv;
     int         clk_sel  = (svga->miscout >> 2) & 3;
 
-    svga->clock = (cpuclock * (float) (1ULL << 32)) / svga->getclock(clk_sel & 3, svga->clock_gen);
+    svga->clock = (cpuclock * (double) (1ULL << 32)) / svga->getclock(clk_sel & 3, svga->clock_gen);
 
+    svga->htotal = (int) (uint32_t) svga->crtc[0];
     if (mystique->crtcext_regs[1] & CRTCX_R1_HTOTAL8)
-        svga->htotal |= 0x100;
+        svga->htotal += 0x100;
+    svga->htotal += 5;
 
-    svga->hblankstart    = (((mystique->crtcext_regs[1] & 0x02) >> 2) << 8) + svga->crtc[2];
+    uint32_t hblankstart = (((mystique->crtcext_regs[1] & 0x02) >> 2) << 8) + svga->crtc[2];
+    svga->hblankstart    = (int) hblankstart;
 
     if (mystique->crtcext_regs[2] & CRTCX_R2_VTOTAL10)
-        svga->vtotal |= 0x400;
+        svga->vtotal += 0x400;
     if (mystique->crtcext_regs[2] & CRTCX_R2_VTOTAL11)
-        svga->vtotal |= 0x800;
+        svga->vtotal += 0x800;
     if (mystique->crtcext_regs[2] & CRTCX_R2_VDISPEND10)
-        svga->dispend |= 0x400;
+        svga->dispend += 0x400;
     if (mystique->crtcext_regs[2] & CRTCX_R2_VBLKSTR10)
-        svga->vblankstart |= 0x400;
+        svga->vblankstart += 0x400;
     if (mystique->crtcext_regs[2] & CRTCX_R2_VBLKSTR11)
-        svga->vblankstart |= 0x800;
+        svga->vblankstart += 0x800;
     if (mystique->crtcext_regs[2] & CRTCX_R2_VSYNCSTR10)
-        svga->vsyncstart |= 0x400;
+        svga->vsyncstart += 0x400;
     if (mystique->crtcext_regs[2] & CRTCX_R2_VSYNCSTR11)
-        svga->vsyncstart |= 0x800;
+        svga->vsyncstart += 0x800;
     if (mystique->crtcext_regs[2] & CRTCX_R2_LINECOMP10)
-        svga->split |= 0x400;
+        svga->split += 0x400;
 
     if (mystique->type == MGA_2064W || mystique->type == MGA_2164W) {
         tvp3026_recalctimings(svga->ramdac, svga);
@@ -971,13 +974,13 @@ mystique_recalctimings(svga_t *svga)
     if (mystique->crtcext_regs[3] & CRTCX_R3_MGAMODE) {
         svga->lowres        = 0;
         svga->char_width    = 8;
-        svga->hdisp         = (svga->crtc[1] + 1) << 3;
+        svga->hdisp         = (int) (((uint32_t) (svga->crtc[1] + 1)) << 3);
         svga->hdisp_time    = svga->hdisp;
         svga->rowoffset     = svga->crtc[0x13] | ((mystique->crtcext_regs[0] & CRTCX_R0_OFFSET_MASK) << 4);
 
         svga->dots_per_clock  = 8;
-        svga->hblank_end_val  = (svga->crtc[3] & 0x1f) | (((svga->crtc[5] & 0x80) >> 7) << 5) |
-                                (((mystique->crtcext_regs[1] & 0x40) >> 6) << 6);
+        svga->hblank_end_val  = (int) (((uint32_t) svga->crtc[3] & 0x1f) | ((((uint32_t) svga->crtc[5] & 0x80) >> 7) << 5) |
+                                      ((((uint32_t) mystique->crtcext_regs[1] & 0x40) >> 6) << 6));
         svga->hblank_end_mask = 0x0000007f;
 
         if (mystique->type != MGA_2164W && mystique->type != MGA_2064W)
@@ -6865,9 +6868,10 @@ mystique_init(const device_t *info)
     mystique->pci_regs[0x2e] = mystique->bios_rom.rom[0x7ffa];
     mystique->pci_regs[0x2f] = mystique->bios_rom.rom[0x7ffb];
 
-    mystique->svga.miscout   = 1;
-    mystique->pci_regs[0x41] = 0x01; /* vgaboot = 1 */
-    mystique->pci_regs[0x43] = 0x40; /* biosen = 1 */
+    mystique->svga.miscout    = 1;
+    mystique->svga.adv_flags |= FLAG_PANNING_ATI;
+    mystique->pci_regs[0x41]  = 0x01; /* vgaboot = 1 */
+    mystique->pci_regs[0x43]  = 0x40; /* biosen = 1 */
 
     for (uint16_t c = 0; c < 256; c++) {
         dither5[c][0][0] = c >> 3;

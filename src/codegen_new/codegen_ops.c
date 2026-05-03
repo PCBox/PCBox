@@ -27,6 +27,14 @@
 #include "codegen_ops_shift.h"
 #include "codegen_ops_stack.h"
 
+#if defined __ARM_EABI__ || defined _ARM_ || defined _M_ARM || defined __aarch64__ || defined _M_ARM64
+#    define ARM64_ROP_PREFETCH ropPREFETCH
+#    define ARM64_ROP_FEMMS    ropFEMMS
+#else
+#    define ARM64_ROP_PREFETCH NULL
+#    define ARM64_ROP_FEMMS    NULL
+#endif
+
 RecompOpFn recomp_opcodes[512] = {
     // clang-format off
         /*16-bit data*/
@@ -43,7 +51,7 @@ RecompOpFn recomp_opcodes[512] = {
 
 /*80*/  rop80,          rop81_w,        rop80,          rop83_w,        ropTEST_b_rm,   ropTEST_w_rm,   ropXCHG_8,      ropXCHG_16,     ropMOV_b_r,     ropMOV_w_r,     ropMOV_r_b,     ropMOV_r_w,     ropMOV_w_seg,   ropLEA_16,      ropMOV_seg_w,   ropPOP_W,
 /*90*/  ropNOP,         ropXCHG_AX,     ropXCHG_AX,     ropXCHG_AX,     ropXCHG_AX,     ropXCHG_AX,     ropXCHG_AX,     ropXCHG_AX,     ropCBW,         ropCWD,         NULL,           NULL,           ropPUSHF,       NULL,           NULL,           NULL,
-/*a0*/  ropMOV_AL_abs,  ropMOV_AX_abs,  ropMOV_abs_AL,  ropMOV_abs_AX,  NULL,           NULL,           NULL,           NULL,           ropTEST_AL_imm, ropTEST_AX_imm, NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*a0*/  ropMOV_AL_abs,  ropMOV_AX_abs,  ropMOV_abs_AL,  ropMOV_abs_AX,  ropMOVS_b,      ropMOVS_w,      NULL,           NULL,           ropTEST_AL_imm, ropTEST_AX_imm, ropSTOS_b,      ropSTOS_w,      ropLODS_b,      ropLODS_w,      NULL,           NULL,
 /*b0*/  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rw_imm,  ropMOV_rw_imm,  ropMOV_rw_imm,  ropMOV_rw_imm,  ropMOV_rw_imm,  ropMOV_rw_imm,  ropMOV_rw_imm,  ropMOV_rw_imm,
 
 /*c0*/  ropC0,          ropC1_w,        ropRET_imm_16,  ropRET_16,      ropLES_16,      ropLDS_16,      ropMOV_b_imm,   ropMOV_w_imm,   NULL,           ropLEAVE_16,    ropRETF_imm_16, ropRETF_16,     NULL,           NULL,           NULL,           NULL,
@@ -65,7 +73,7 @@ RecompOpFn recomp_opcodes[512] = {
 
 /*80*/  rop80,          rop81_l,        rop80,          rop83_l,        ropTEST_b_rm,   ropTEST_l_rm,   ropXCHG_8,      ropXCHG_32,     ropMOV_b_r,     ropMOV_l_r,     ropMOV_r_b,     ropMOV_r_l,     ropMOV_l_seg,   ropLEA_32,      ropMOV_seg_w,   ropPOP_L,
 /*90*/  ropNOP,         ropXCHG_EAX,    ropXCHG_EAX,    ropXCHG_EAX,    ropXCHG_EAX,    ropXCHG_EAX,    ropXCHG_EAX,    ropXCHG_EAX,    ropCWDE,        ropCDQ,         NULL,           NULL,           ropPUSHFD,      NULL,           NULL,           NULL,
-/*a0*/  ropMOV_AL_abs,  ropMOV_EAX_abs, ropMOV_abs_AL,  ropMOV_abs_EAX, NULL,           NULL,           NULL,           NULL,           ropTEST_AL_imm, ropTEST_EAX_imm,NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*a0*/  ropMOV_AL_abs,  ropMOV_EAX_abs, ropMOV_abs_AL,  ropMOV_abs_EAX, ropMOVS_b,      ropMOVS_l,      NULL,           NULL,           ropTEST_AL_imm, ropTEST_EAX_imm,ropSTOS_b,      ropSTOS_l,      ropLODS_b,      ropLODS_l,      NULL,           NULL,
 /*b0*/  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rb_imm,  ropMOV_rl_imm,  ropMOV_rl_imm,  ropMOV_rl_imm,  ropMOV_rl_imm,  ropMOV_rl_imm,  ropMOV_rl_imm,  ropMOV_rl_imm,  ropMOV_rl_imm,
 
 /*c0*/  ropC0,          ropC1_l,        NULL,           ropRET_32,      ropLES_32,      ropLDS_32,      ropMOV_b_imm,   ropMOV_l_imm,   NULL,           ropLEAVE_32,    ropRETF_imm_32, ropRETF_32,     NULL,           NULL,           NULL,           NULL,
@@ -79,7 +87,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
     // clang-format off
         /*16-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
-/*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
 /*10*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
@@ -105,7 +113,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
 
         /*32-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
-/*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
 /*10*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
@@ -135,7 +143,7 @@ RecompOpFn recomp_opcodes_0f_no_mmx[512] = {
     // clang-format off
         /*16-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
-/*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
 /*10*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
@@ -157,7 +165,7 @@ RecompOpFn recomp_opcodes_0f_no_mmx[512] = {
 
         /*32-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
-/*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
 /*10*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
@@ -182,7 +190,31 @@ RecompOpFn recomp_opcodes_0f_no_mmx[512] = {
 RecompOpFn recomp_opcodes_3DNOW[256] = {
 // clang-format off
 #if defined __ARM_EABI__ || defined _ARM_ || defined _M_ARM || defined __aarch64__ || defined _M_ARM64
-0
+    /* ARM64: enable only opcodes with implemented and validated rop+lowerer support. */
+    [0x0c] = ropPI2FW,
+    [0x0d] = ropPI2FD,
+    [0x1c] = ropPF2IW,
+    [0x1d] = ropPF2ID,
+    [0x8a] = ropPFNACC,
+    [0x8e] = ropPFPNACC,
+    [0x90] = ropPFCMPGE,
+    [0x94] = ropPFMIN,
+    [0x96] = ropPFRCP,
+    [0x97] = ropPFRSQRT,
+    [0x9a] = ropPFSUB,
+    [0x9e] = ropPFADD,
+    [0xa0] = ropPFCMPGT,
+    [0xa4] = ropPFMAX,
+    [0xa6] = ropPFRCPIT,
+    [0xa7] = ropPFRSQIT1,
+    [0xaa] = ropPFSUBR,
+    [0xae] = ropPFACC,
+    [0xb0] = ropPFCMPEQ,
+    [0xb4] = ropPFMUL,
+    [0xb6] = ropPFRCPIT,
+    [0xb7] = ropPMULHRW,
+    [0xbb] = ropPSWAPD,
+    [0xbf] = ropPAVGUSB,
 #else
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropPI2FD,       NULL,           NULL,

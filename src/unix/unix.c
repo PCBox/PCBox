@@ -25,6 +25,7 @@
 #include <wchar.h>
 #include <pwd.h>
 #include <stdatomic.h>
+#include <spawn.h>
 
 /* Block device ioctl headers */
 #ifdef __linux__
@@ -51,6 +52,7 @@
 #include <86box/hdd.h>
 #include <86box/path.h>
 #include <86box/plat.h>
+#include <86box/cdrom.h>
 #include <86box/plat_dynld.h>
 #include <86box/thread.h>
 #include <86box/device.h>
@@ -1295,7 +1297,7 @@ unix_executeLine(char *line)
         } else if (strncasecmp(xargv[0], "fddeject", 8) == 0 && cmdargc >= 2) {
             floppy_eject(atoi(xargv[1]));
         } else if (strncasecmp(xargv[0], "cdeject", 7) == 0 && cmdargc >= 2) {
-            cdrom_mount(atoi(xargv[1]), "");
+            cdrom_eject(atoi(xargv[1]));
         } else if (strncasecmp(xargv[0], "moeject", 7) == 0 && cmdargc >= 2) {
             mo_eject(atoi(xargv[1]));
         } else if (strncasecmp(xargv[0], "carteject", 9) == 0 && cmdargc >= 2) {
@@ -1481,12 +1483,12 @@ main(int argc, char **argv)
     } else
         fprintf(stderr, "libedit not found, line editing will be limited.\n");
     mousemutex = SDL_CreateMutex();
+
+    if (start_in_fullscreen)
+        video_fullscreen = 1;
+
     sdl_initho();
 
-    if (start_in_fullscreen) {
-        video_fullscreen = 1;
-        sdl_set_fs(1);
-    }
     /* Fire up the machine. */
     pc_reset_hard_init();
 
@@ -1507,8 +1509,9 @@ main(int argc, char **argv)
         static int osd_first_key_pressed = 0;
         static int flag_osd_open = 0;
 
-        while (SDL_PollEvent(&event))
-        {
+        if (!SDL_WaitEventTimeout(&event, 1))
+            goto check_flags;
+        do {
             if (flag_osd_open == 1)
             {
                 // route almost everything to the OSD
@@ -1720,8 +1723,9 @@ main(int argc, char **argv)
                     }
                 }
             }
-        }
+        } while (SDL_PollEvent(&event));
 
+check_flags:
         if (blitreq) {
             extern void sdl_blit(int x, int y, int w, int h);
             sdl_blit(params.x, params.y, params.w, params.h);
@@ -1777,7 +1781,7 @@ void
 plat_set_thread_name(void *thread, const char *name)
 {
 #ifdef __APPLE__
-    if (thread) /* Apple pthread can only set self's name */
+    if (thread) /* macOS pthread can only set self's name */
         return;
     char truncated[64];
 #elif defined(__NetBSD__)
@@ -1805,6 +1809,68 @@ plat_language_code_r(UNUSED(int id), UNUSED(char *outbuf), UNUSED(int len))
 {
     /* or maybe not */
     return;
+}
+
+int
+plat_run_command(const char *cmd, const char **env, const char *title)
+{
+    /* Append environment variables to the existing environment. */
+    extern char **environ;
+    const char **new_env = NULL;
+    if (env && env[0] && env[0][0]) {
+        int c = 0;
+        while (environ[c])
+            c++;
+        int d = 0;
+        while (env[d] && env[d][0])
+            d++;
+        new_env = (const char **) malloc((c + d + 1) * sizeof(char *));
+        for (c = 0; environ[c]; c++)
+            new_env[c] = environ[c];
+        for (d = 0; env[d] && env[d][0]; d++)
+            new_env[c++] = env[d];
+        new_env[c] = NULL;
+    }
+
+    /* Execute command under a terminal emulator if requested. */
+    int ret;
+    pid_t pid;
+    const char *args[] = {NULL, NULL, NULL, NULL, "/bin/sh", "-c", cmd, NULL};
+    if (title) {
+        /* Set arguments for xdg-terminal-exec. */
+        int len = strlen(title) + 10;
+        args[1] = malloc(len);
+        snprintf((char *) args[1], len, "--title=%s", title);
+        len = strlen(usr_path) + 7;
+        args[2] = malloc(len);
+        snprintf((char *) args[2], len, "--dir=%s", usr_path);
+        args[3] = "--";
+
+        /* Try terminals. */
+        static const char *terminals[] = {"xdg-terminal-exec", "x-terminal-emulator", "xterm", "urxvt", "rxvt"};
+        for (int i = 0; i < (sizeof(terminals) / sizeof(terminals[0])); i++) {
+            args[0] = terminals[i];
+            ret = !posix_spawnp(&pid, args[0], NULL, NULL, (char * const *) args, new_env ? (char * const *) new_env : (char * const *) environ);
+            if (len) {
+                /* Set arguments for other terminals. */
+                len = 0;
+                free((void *) args[1]);
+                free((void *) args[2]);
+                args[1] = "-T";
+                args[2] = title;
+                args[3] = "-e";
+            }
+            if (ret)
+                goto end;
+        }
+    }
+
+    /* Execute command directly. */
+    ret = !posix_spawn(&pid, args[4], NULL, NULL, (char * const *) &args[4], new_env ? (char * const *) new_env : (char * const *) environ);
+end:
+    if (new_env)
+        free(new_env);
+    return ret;
 }
 
 void
