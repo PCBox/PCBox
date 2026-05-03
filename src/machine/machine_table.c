@@ -22502,7 +22502,8 @@ const machine_t machines[] = {
         .fdc_device               = NULL,
         .vid_device               = NULL,
         .snd_device               = NULL,
-        .net_device               = NULL
+        .net_device               = NULL,
+        .aliases                  = { "" }
     },
 
     /* 440ZX */
