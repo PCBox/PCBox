@@ -98,7 +98,7 @@ if(USE_SDL_SHADER)
         message(FATAL_ERROR "USE_SDL_SHADER=ON requires GLESv2 and GLES2/gl2.h; use -DUSE_SDL_SHADER=OFF to build without the shader pipeline")
     endif()
 
-    target_link_libraries(86Box ${GLESV2_LIBRARY})
+    target_link_libraries(OCBox ${GLESV2_LIBRARY})
     target_include_directories(ui PRIVATE ${GLESV2_INCLUDE_DIR})
 endif()
 
