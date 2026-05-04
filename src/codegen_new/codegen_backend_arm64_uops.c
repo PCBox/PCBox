@@ -1353,6 +1353,8 @@ codegen_MOV_REG_PTR(codeblock_t *block, uop_t *uop)
     host_arm64_MOVX_IMM(block, REG_TEMP, (uint64_t) uop->p);
     if (REG_IS_L(dest_size)) {
         host_arm64_LDR_IMM_W(block, dest_reg, REG_TEMP, 0);
+    } else if (REG_IS_D(dest_size) || REG_IS_Q(dest_size)) {
+        host_arm64_LDR_IMM_F64(block, dest_reg, REG_TEMP, 0);
     } else
         fatal("MOV_REG_PTR %02x\n", uop->dest_reg_a_real);
 

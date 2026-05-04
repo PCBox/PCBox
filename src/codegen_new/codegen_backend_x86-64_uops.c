@@ -1297,6 +1297,8 @@ codegen_MOV_REG_PTR(codeblock_t *block, uop_t *uop)
 
     if (REG_IS_L(dest_size)) {
         host_x86_MOV32_REG_ABS(block, dest_reg, uop->p);
+    } else if (REG_IS_D(dest_size) || REG_IS_Q(dest_size)) {
+        host_x86_MOVQ_XREG_ABS(block, dest_reg, uop->p);
     } else
         fatal("MOV_REG_PTR %02x\n", uop->dest_reg_a_real);
 
