@@ -175,6 +175,7 @@ extern "C" void qt_blit(int x, int y, int w, int h, int monitor_index);
 
 extern MainWindow *main_window;
 
+#ifdef Q_OS_WINDOWS
 static bool
 canProcessUiEventsInCurrentState()
 {
@@ -183,7 +184,6 @@ canProcessUiEventsInCurrentState()
     return !cpu_thread_run || dopause || has_modal_widget || has_settings_open;
 }
 
-#ifdef Q_OS_WINDOWS
 static void
 processEventsOnlyWhenPausedOrModal()
 {
