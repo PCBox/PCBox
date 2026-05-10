@@ -153,6 +153,10 @@ if(STATIC_BUILD)
         target_link_options(PCBox PRIVATE "-static")
         set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
     endif()
+
+    if(MINGW AND NOT $ENV{MSYSTEM} MATCHES "MINGW")
+        target_link_libraries(PCBox ucrt)
+    endif()
 endif()
 
 if(APPLE)
