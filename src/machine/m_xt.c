@@ -1257,7 +1257,7 @@ static const device_config_t pc500_config[] = {
 };
 
 const device_t pc500_device = {
-    .name          = "Multitech PC-500 / Franklin PC 8000",
+    .name          = "Multitech PC-500",
     .internal_name = "pc500",
     .flags         = 0,
     .local         = 0,
@@ -1454,7 +1454,7 @@ static const device_config_t pc700_config[] = {
 };
 
 const device_t pc700_device = {
-    .name           = "Multitech PC-700 / Siemens SICOMP PC 16 05",
+    .name           = "Multitech PC-700",
     .internal_name  = "pc700",
     .flags          = 0,
     .local          = 0,
@@ -1825,7 +1825,7 @@ static const device_config_t vendex_config[] = {
 };
 
 const device_t vendex_device = {
-    .name          = "Vendex 888T",
+    .name          = "Vendex HeadStart Turbo 888-XT",
     .internal_name = "vendex",
     .flags         = 0,
     .local         = 0,
