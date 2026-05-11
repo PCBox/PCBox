@@ -1139,7 +1139,7 @@ static int
 have_env_var(const char *var, const char *cmp = NULL)
 {
     const char *val = getenv(var);
-    return val && ((!cmp && val[0]) || !strnicmp(val, cmp, strlen(cmp)));
+    return val && (cmp ? !strnicmp(val, cmp, strlen(cmp)) : val[0]);
 }
 #endif
 
@@ -1149,7 +1149,7 @@ plat_run_command(const char *cmd, const char **env, const char *title)
     auto process = new QProcess();
     process->setInputChannelMode(QProcess::ForwardedInputChannel);
     process->setProcessChannelMode(QProcess::ForwardedChannels);
-    process->setWorkingDirectory(usr_path);
+    process->setWorkingDirectory(QString::fromUtf8(usr_path));
 
     /* Take advantage of macOS displaying the script name in the title bar. */
     auto titleq = QString::fromUtf8(title);
@@ -1201,7 +1201,7 @@ plat_run_command(const char *cmd, const char **env, const char *title)
     }
 
     /* Execute command. */
-    process->setProgram(getenv("ComSpec"));
+    process->setProgram(QString::fromUtf8(getenv("ComSpec")));
     process->setNativeArguments(QString::fromUtf8(cmd).prepend(QStringLiteral("/c ")));
     return process->startDetached();
 #else
@@ -1214,9 +1214,8 @@ plat_run_command(const char *cmd, const char **env, const char *title)
         return 0;
     f.write("#!/bin/sh\nrm -f -- \"$0\"\n");
     if (!titleq.isEmpty()) {
-        titleq.replace(QStringLiteral("\a"), QStringLiteral("")).replace(QStringLiteral("'"), QStringLiteral("'\\''"));
         f.write("printf '\e]0;%s\a' '");
-        f.write(titleq.toUtf8());
+        f.write(titleq.replace(QStringLiteral("\a"), QStringLiteral("")).replace(QStringLiteral("'"), QStringLiteral("'\\''")).toUtf8());
         f.write("'\n");
     }
     if (!titleq.isNull() && env && *env) { /* set environment variables for terminal execution */
@@ -1253,7 +1252,8 @@ plat_run_command(const char *cmd, const char **env, const char *title)
         if (process->waitForStarted() && process->waitForFinished())
             return 1;
 #    else
-        /* Derived from xdg-utils/scripts/xdg-utils-common.in:detectDE */
+        /* Build terminal list, prioritizing the detected desktop environment's own terminal.
+           Derived from xdg-utils/scripts/xdg-utils-common.in:detectDE */
         QStringList terminals;
         if (have_env_var("XDG_CURRENT_DESKTOP", "KDE") || have_env_var("DESKTOP_SESSION", "trinity") || have_env_var("KDE_FULL_SESSION"))
             terminals.prepend(QStringLiteral("konsole"));
@@ -1281,10 +1281,11 @@ plat_run_command(const char *cmd, const char **env, const char *title)
             terminals.prepend(QStringLiteral("lxterminal"));
         else
             terminals << QStringLiteral("lxterminal");
-        terminals.prepend(QStringLiteral("x-terminal-emulator"));
-        terminals.prepend(QStringLiteral("xdg-terminal-exec"));
-        terminals << QStringLiteral("xterm") << QStringLiteral("urxvt") << QStringLiteral("rxvt");
+        terminals.prepend(QStringLiteral("x-terminal-emulator")); /* priority 2 (Debian alternatives system) */
+        terminals.prepend(QStringLiteral("xdg-terminal-exec")); /* priority 1 (still a proposal with limited adoption as of writing) */
+        terminals << QStringLiteral("xterm") << QStringLiteral("urxvt") << QStringLiteral("rxvt"); /* priority last */
 
+        /* Try executing terminals. */
         for (const auto &terminal : terminals) {
             process->setProgram(terminal);
             QStringList args;
