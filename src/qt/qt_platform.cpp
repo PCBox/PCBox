@@ -1214,23 +1214,24 @@ plat_run_command(const char *cmd, const char **env, const char *title)
         return 0;
     f.write("#!/bin/sh\nrm -f -- \"$0\"\n");
     if (!titleq.isEmpty()) {
-        f.write("printf '\e]0;%s\a' '");
+        f.write("printf '\\e]0;%s\\a' '");
         f.write(titleq.replace(QStringLiteral("\a"), QStringLiteral("")).replace(QStringLiteral("'"), QStringLiteral("'\\''")).toUtf8());
         f.write("'\n");
     }
-    if (!titleq.isNull() && env && *env) { /* set environment variables for terminal execution */
-        f.write("export");
-        while (*env) {
-            if (!*env[0]) {
-                env++;
-                continue;
+    if (!titleq.isNull()) {
+        if (env && *env) { /* set environment variables for terminal execution */
+            f.write("export");
+            while (*env) {
+                if (!*env[0]) {
+                    env++;
+                    continue;
+                }
+                f.write(QString::fromUtf8(*env++).replace(QStringLiteral("'"), QStringLiteral("'\\''")).prepend(QStringLiteral(" '")).append(QStringLiteral("'")).toUtf8());
             }
-            f.write(QString::fromUtf8(*env++).replace(QStringLiteral("'"), QStringLiteral("'\\''")).prepend(QStringLiteral(" '")).append(QStringLiteral("'")).toUtf8());
+            f.write("\n");
         }
-        f.write("\n");
-    }
-    if (!titleq.isNull())
         f.write("clear\n");
+    }
     f.write(cmd);
     f.write("\n");
     f.close();
