@@ -66,28 +66,22 @@ typedef struct lpt_t {
     uint32_t      char_control;
     unsigned int  char_spin_count;
     lpt_device_t *dt;
-    char_port_t   port;
 #ifdef FIFO_H
     fifo16_t *    fifo;
 #else
     void *        fifo;
 #endif
+    char_port_t   char_port;
 
     pc_timer_t    fifo_out_timer;
     pc_timer_t    char_timer;
 } lpt_t;
 #endif /* _TIMER_H_ */
 
-enum {
-    LPT_PORT_DETACHED = 0,
-    LPT_PORT_HOTPLUGGABLE,
-    LPT_PORT_NOTHOTPLUGGABLE
-};
-
 typedef struct lpt_port_s {
     uint8_t       enabled;
 
-    uint8_t       attached;
+    uint8_t       hotunplug;
     int           device;
 
     lpt_t        *lpt;
