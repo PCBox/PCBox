@@ -2407,6 +2407,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							riva128_pdma_interrupt(4, riva128);
 							goto method_end;
 						}
+						src_pte_frame_new &= 0xfffff000;
 						uint32_t src_paged_addr = src_pte_frame_new | src_pte_byte;
 
 						uint32_t dst_unpaged_addr = dst_pte_frame + dst_logical_addr;
@@ -2428,6 +2429,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 							riva128_pdma_interrupt(8, riva128);
 							goto method_end;
 						}
+						dst_pte_frame_new &= 0xfffff000;
 						uint32_t dst_paged_addr = dst_pte_frame_new | dst_pte_byte;
 
 						uint8_t buf[4] = { 0 };
