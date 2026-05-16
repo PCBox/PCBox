@@ -250,6 +250,13 @@ typedef struct riva128_t
 		int m2mf_pending;
 	} pgraph;
 	
+	struct
+	{
+		uint32_t intr, intr_en;
+		uint32_t src_ctx;
+	} pdma;
+	
+
 	struct {
         uint32_t gen_ctrl;
 		uint32_t nvpll, mpll, vpll;
@@ -543,7 +550,7 @@ riva128_ramin_write_l(uint32_t addr, uint32_t val, void *p)
 
 	addr &= 0x3fffff;
 
-	//pclog("[RIVA 128] RAMIN write %08x %08x\n", addr, val);
+	pclog("[RIVA 128] RAMIN write %08x %08x\n", addr, val);
 
 	vram_l[(addr ^ 0x3ffff0) >> 2] = val;
 }
@@ -572,6 +579,8 @@ riva128_pmc_recompute_intr(int send_intr, void *p)
 	if ((riva128->pgraph.intr_0 & ~(1 << 8))
 			&& (riva128->pgraph.intr_en_0 & ~(1 << 8)))
 		intr |= (1 << 12);
+	if (riva128->pdma.intr & riva128->pdma.intr_en)
+		intr |= (1 << 13);
 	if (riva128->ptimer.intr & riva128->ptimer.intr_en)
 		intr |= (1 << 20);
 	if (riva128->pmc.intr & (1u << 31))
@@ -1231,6 +1240,49 @@ riva128_pgraph_write(uint32_t addr, uint32_t val, void *p)
 	}
 }
 
+void
+riva128_pdma_interrupt(int num, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	riva128->pdma.intr |= (1u << num);	
+	riva128_pmc_recompute_intr(1, riva128);
+}
+
+uint32_t
+riva128_pdma_read(uint32_t addr, void *p)
+{	riva128_t *riva128 = (riva128_t *)p;
+	//pclog("RIVA 128 PDMA read %08x\n", addr);
+	switch(addr) {
+		case 0x401100:
+			return riva128->pdma.intr;
+		case 0x401140:
+			return riva128->pdma.intr_en;
+		case 0x401400:
+			return riva128->pdma.src_ctx;
+	}
+	return 0;
+}
+
+void
+riva128_pdma_write(uint32_t addr, uint32_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	pclog("RIVA 128 PDMA write %08x %08x\n", addr, val);
+	switch(addr) {
+		case 0x401100:
+			riva128->pdma.intr &= ~val;
+			pci_clear_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state);
+			break;
+		case 0x400140:
+			riva128->pdma.intr_en = val & 0x11111111;
+			riva128_pmc_recompute_intr(1, riva128);
+			break;
+		case 0x401400:
+			riva128->pdma.src_ctx = val;
+			break;
+	}
+}
+
 uint32_t
 riva128_pramdac_read(uint32_t addr, void *p)
 {
@@ -1681,8 +1733,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 
 	uint8_t objclass = (ctx >> 16) & 0x1f;
 
-	if(objclass != 0x1c && objclass != 0x05) pclog("[RIVA 128] PGRAPH execute grobj0 %08x objclass %02x method %04x param %08x\n", graphobj0
-			, objclass, method, param);
+	if(objclass != 0x1c && objclass != 0x05) pclog("[RIVA 128] PGRAPH execute grobj0 %08x grobj1 %08x grobj2 %08x objclass %02x method %04x param %08x\n", graphobj0, graphobj1, graphobj2, objclass, method, param);
 
     switch(method) {
 	case 0x104:
@@ -2300,18 +2351,28 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
     			break;
 		    }
 		    riva128->pgraph.notify_impending = 1;
-		    riva128->pgraph.m2mf_obj = (param & 0xf) << 20;
+		    //riva128->pgraph.m2mf_obj = (param & 0xf) << 20;
 
-			uint32_t notify_obj_addr = (graphobj2 & 0xffff) << 4;
-			uint32_t flags = riva128_ramin_read_l(notify_obj_addr,
+			uint32_t src_obj_addr = (graphobj1 & 0xffff) << 4;
+			uint32_t dst_obj_addr = (graphobj2 & 0xffff) << 4;
+			uint32_t src_flags = riva128_ramin_read_l(src_obj_addr,
 				riva128);
-			 uint32_t limit = riva128_ramin_read_l(notify_obj_addr
+			uint32_t dst_flags = riva128_ramin_read_l(dst_obj_addr,
+				riva128);
+			uint32_t src_limit = riva128_ramin_read_l(src_obj_addr
 				+ 4, riva128);
-			uint32_t pte = riva128_ramin_read_l(notify_obj_addr + 8,
+			uint32_t dst_limit = riva128_ramin_read_l(dst_obj_addr
+				+ 4, riva128);
+			uint32_t src_pte = riva128_ramin_read_l(src_obj_addr + 8,
 				riva128);
-			uint32_t pte_frame = pte & 0xfffff000;
-			uint32_t adjust = flags & 0xfff;
-			int target = (flags >> 24) & 3;
+			uint32_t dst_pte = riva128_ramin_read_l(dst_obj_addr + 8,
+				riva128);
+			uint32_t src_pte_frame = src_pte & 0xfffff000;
+			uint32_t dst_pte_frame = dst_pte & 0xfffff000;
+			uint32_t src_adjust = src_flags & 0xfff;
+			uint32_t dst_adjust = dst_flags & 0xfff;
+			int src_target = (src_flags >> 24) & 3;
+			int dst_target = (dst_flags >> 24) & 3;
 			int inc_in = riva128->pgraph.m2mf_format & 7;
 			int inc_out = (riva128->pgraph.m2mf_format >> 8) & 7;
 
@@ -2322,51 +2383,72 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
     			break;
 			}
 
-			uint32_t logical_addr = riva128->pgraph.m2mf_obj << 4;
-
-			uint32_t unpaged_addr = pte_frame + adjust + logical_addr;
-			uint32_t pte_index = (logical_addr + adjust) >> 12;
-			uint32_t paged_addr = (riva128_ramin_read_l(notify_obj_addr + (pte_index << 2) + 8, riva128) & 0xfffff000) | ((logical_addr + adjust) & 0xfff);
-
-			//uint32_t pitch_out = riva128->pgraph.m2mf_pitch_in > riva128->pgraph.m2mf_pitch_out ? riva128->pgraph.m2mf_pitch_in : riva128->pgraph.m2mf_pitch_out;
-			if(target == 2)
-			{
 				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
 				{
-					uint32_t out_dma = riva128->pgraph.m2mf_out_dma_cur;
 					for(uint32_t pixel = 0; pixel < riva128->pgraph.m2mf_scan_len; pixel++)
 					{
 						uint32_t in_off  = riva128->pgraph.m2mf_in_dma_cur  + (pixel * inc_in);
         				uint32_t out_off = riva128->pgraph.m2mf_out_dma_cur + (pixel * inc_out);
+
+						uint32_t src_logical_addr = in_off + src_adjust;
+						uint32_t dst_logical_addr = out_off + dst_adjust;
+
+						uint32_t src_unpaged_addr = src_pte_frame + src_logical_addr;
+						uint32_t src_pte_index = src_logical_addr >> 12;
+						uint32_t src_pte_byte = src_logical_addr & 0xfff;
+						uint32_t src_pte_frame_new = riva128_ramin_read_l(src_obj_addr + (src_pte_index << 2) + 8, riva128);
+						if(src_pte_frame_new == 0xffffffffu)
+						{
+							riva128_pdma_interrupt(12, riva128);
+							goto method_end;
+						}
+						if(!(src_pte_frame_new & 1))
+						{
+							riva128_pdma_interrupt(4, riva128);
+							goto method_end;
+						}
+						uint32_t src_paged_addr = src_pte_frame_new | src_pte_byte;
+
+						uint32_t dst_unpaged_addr = dst_pte_frame + dst_logical_addr;
+						uint32_t dst_pte_index = dst_logical_addr >> 12;
+						uint32_t dst_pte_byte = dst_logical_addr & 0xfff;
+						uint32_t dst_pte_frame_new = riva128_ramin_read_l(dst_obj_addr + (dst_pte_index << 2) + 8, riva128);
+						if(dst_pte_frame_new == 0xffffffffu)
+						{
+							riva128_pdma_interrupt(12, riva128);
+							goto method_end;
+						}
+						if(!(dst_pte_frame_new & 1))
+						{
+							riva128_pdma_interrupt(4, riva128);
+							goto method_end;
+						}
+						if(!(dst_pte_frame_new & 2))
+						{
+							riva128_pdma_interrupt(8, riva128);
+							goto method_end;
+						}
+						uint32_t dst_paged_addr = dst_pte_frame_new | dst_pte_byte;
+
 						uint8_t buf[4] = { 0 };
 						//dma_bm_read(paged_addr + riva128->pgraph.m2mf_in_dma_cur + pixel, (uint8_t*)&buf, 1, 1);
-						memcpy(buf, &svga->vram[(in_off + adjust) & 0x3fffff], inc_in);
+						if(!src_target) memcpy(buf, &svga->vram[(src_unpaged_addr) & 0x3fffff], inc_in);
+						else dma_bm_read(src_paged_addr, buf, inc_in, inc_in);
 
 						uint32_t copy_size = (inc_in < inc_out) ? inc_in : inc_out;
-						dma_bm_write(paged_addr + out_off + adjust, (uint8_t*)&buf, copy_size, copy_size);
+						if(!src_target)
+						{
+							memcpy(&svga->vram[(dst_unpaged_addr ) & 0x3fffff], buf, copy_size);
+							svga->changedvram[((dst_unpaged_addr) & 0x3fffff) >> 12] = changeframecount;
+						}
+						else dma_bm_write(dst_paged_addr, (uint8_t*)&buf, copy_size, copy_size);
 						//svga->vram[(paged_addr + riva128->pgraph.m2mf_out_dma_cur) & 0x3fffff] = buf;
 						//svga->changedvram[((paged_addr + riva128->pgraph.m2mf_out_dma_cur) & 0x3fffff) >> 12] = changeframecount;
 					}
 
 					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
-					riva128->pgraph.m2mf_out_dma_cur = out_dma + riva128->pgraph.m2mf_pitch_out;
+					riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;
 				}
-			}
-			else
-			{
-				pclog("VRAM M2MF\n");
-				/*for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
-				{
-					for(uint32_t pixel = 0; pixel < pitch_out; pixel += inc_in)
-					{
-						uint8_t buf = 0;
-						dma_bm_read(unpaged_addr + riva128->pgraph.m2mf_in_dma_cur, (uint8_t*)&buf, 1, 1);
-						dma_bm_read(unpaged_addr + riva128->pgraph.m2mf_out_dma_cur, (uint8_t*)&buf, 1, 1);
-
-						riva128->pgraph.m2mf_out_dma_cur += inc_out;
-					}
-				}*/
-			}
 			}
 		    break;
         }
@@ -3140,6 +3222,8 @@ riva128_mmio_read_l(uint32_t addr, void *p)
 		ret = riva128_pfb_read(addr, riva128);
 	if ((addr >= 0x400000) && (addr <= 0x400fff))
 		ret = riva128_pgraph_read(addr, riva128);
+	if ((addr >= 0x401000) && (addr <= 0x40ffff))
+		ret = riva128_pdma_read(addr, riva128);
 	if ((addr >= 0x680000) && (addr <= 0x680fff))
 		ret = riva128_pramdac_read(addr, riva128);
 	if ((addr >= 0x110000) && (addr <= 0x11ffff))
@@ -3261,6 +3345,8 @@ riva128_mmio_write_l(uint32_t addr, uint32_t val, void *p)
 		riva128_pfb_write(addr, val, riva128);
 	if ((addr >= 0x400000) && (addr <= 0x400fff))
 		riva128_pgraph_write(addr, val, riva128);
+	if ((addr >= 0x401000) && (addr <= 0x40ffff))
+		riva128_pdma_write(addr, val, riva128);
 	if ((addr >= 0x680000) && (addr <= 0x680fff))
 		riva128_pramdac_write(addr, val, riva128);
 	if (addr >= 0x800000)
