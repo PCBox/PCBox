@@ -147,13 +147,35 @@ plat_dir_count_children(plat_dir_t *context)
     return ret;
 }
 
+static const char *plat_dir_get_path(plat_dir_t *context);
+
 static inline int
 plat_dir_read(plat_dir_t *context)
 {
     context->path[context->path_dir_len] = '\0';
     while (FindNextFileA(context->find, &context->data)) {
-        if (!plat_dir_is_special_entry(context->data.cFileName))
-            return 1;
+        if (!plat_dir_is_special_entry(context->data.cFileName)) {
+            /* If this entry is a symlink, follow it and fill the target's attributes instead. */
+            if ((context->data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) && (context->data.dwReserved0 == IO_REPARSE_TAG_SYMLINK)) {
+                HANDLE file = CreateFileA(plat_dir_get_path(context), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+                if (file != INVALID_HANDLE_VALUE) {
+                    char buf[4096];
+                    if (UNLIKELY(GetFinalPathNameByHandleA(file, buf, sizeof(buf), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS) <= 0))
+                        buf[0] = '\0';
+                    CloseHandle(file);
+                    if (LIKELY(buf[0])) {
+                        HANDLE find = FindFirstFileExA(buf, FindExInfoBasic, &context->data, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH);
+                        if (LIKELY(find != INVALID_HANDLE_VALUE)) {
+                            FindClose(find);
+                            return 1;
+                        }
+                    }
+
+                }
+            } else {
+                return 1;
+            }
+        }
     }
     return 0;
 }
@@ -404,12 +426,11 @@ plat_dir_close(plat_dir_t *context)
 static inline int
 plat_dir_rewind(plat_dir_t *context)
 {
-    if (!lseek(context->find, 0, SEEK_SET)) {
-        context->attr_remain = 0;
-        plat_dir_read_base(context);
-        return 1;
-    }
-    return 0;
+    if (lseek(context->find, 0, SEEK_SET))
+        return 0;
+    context->attr_remain = 0;
+    plat_dir_read_base(context);
+    return 1;
 }
 
 static inline size_t
@@ -421,10 +442,11 @@ plat_dir_count_children(plat_dir_t *context)
         context->dir_entrycount = 0;
         lseek(context->find, 0, SEEK_SET);
         struct attrlist attr_list = { .commonattr = ATTR_CMN_RETURNED_ATTRS | ATTR_CMN_NAME };
+        uint8_t buf[4096];
         int entries;
-        while ((entries = getattrlistbulk(context->find, &attr_list, context->attr_buf, context->attr_len, 0)) > 0)
+        while ((entries = getattrlistbulk(context->find, &attr_list, buf, sizeof(buf), 0)) > 0)
             context->dir_entrycount += entries;
-        plat_dir_rewind(context);
+        lseek(context->find, 0, SEEK_SET);
     }
     return context->dir_entrycount;
 }
@@ -543,8 +565,10 @@ plat_dir_rewind(plat_dir_t *context)
 {
     rewinddir(context->find);
     context->path[context->path_dir_len] = '\0';
-    context->data                        = &context->base_data;
-    context->stats_valid                 = !stat(context->path, &context->stats);
+    if (context->data != &context->base_data) {
+        context->data        = &context->base_data;
+        context->stats_valid = !stat(context->path, &context->stats);
+    }
     return 1;
 }
 
@@ -624,7 +648,7 @@ plat_dir_read(plat_dir_t *context)
 #    define plat_dir_is_system(context) (plat_dir_is_char((context)) || plat_dir_is_block((context)) || plat_dir_is_socket((context)))
 #endif
 
-static inline const char *
+static const char *
 plat_dir_get_path(plat_dir_t *context)
 {
     if (context->path[context->path_dir_len])
