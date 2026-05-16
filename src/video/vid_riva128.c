@@ -2397,15 +2397,18 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						uint32_t src_pte_index = src_logical_addr >> 12;
 						uint32_t src_pte_byte = src_logical_addr & 0xfff;
 						uint32_t src_pte_frame_new = riva128_ramin_read_l(src_obj_addr + (src_pte_index << 2) + 8, riva128);
-						if(src_pte_frame_new == 0xffffffffu)
+						if(src_target == 2)
 						{
-							riva128_pdma_interrupt(12, riva128);
-							goto method_end;
-						}
-						if(!(src_pte_frame_new & 1))
-						{
-							riva128_pdma_interrupt(4, riva128);
-							goto method_end;
+							if(src_pte_frame_new == 0xffffffffu)
+							{
+								riva128_pdma_interrupt(12, riva128);
+								goto method_end;
+							}
+							if(!(src_pte_frame_new & 1))
+							{
+								riva128_pdma_interrupt(4, riva128);
+								goto method_end;
+							}
 						}
 						src_pte_frame_new &= 0xfffff000;
 						uint32_t src_paged_addr = src_pte_frame_new | src_pte_byte;
@@ -2414,20 +2417,23 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						uint32_t dst_pte_index = dst_logical_addr >> 12;
 						uint32_t dst_pte_byte = dst_logical_addr & 0xfff;
 						uint32_t dst_pte_frame_new = riva128_ramin_read_l(dst_obj_addr + (dst_pte_index << 2) + 8, riva128);
-						if(dst_pte_frame_new == 0xffffffffu)
+						if(dst_target == 2)
 						{
-							riva128_pdma_interrupt(12, riva128);
-							goto method_end;
-						}
-						if(!(dst_pte_frame_new & 1))
-						{
-							riva128_pdma_interrupt(4, riva128);
-							goto method_end;
-						}
-						if(!(dst_pte_frame_new & 2))
-						{
-							riva128_pdma_interrupt(8, riva128);
-							goto method_end;
+							if(dst_pte_frame_new == 0xffffffffu)
+							{
+								riva128_pdma_interrupt(12, riva128);
+								goto method_end;
+							}
+							if(!(dst_pte_frame_new & 1))
+							{
+								riva128_pdma_interrupt(4, riva128);
+								goto method_end;
+							}
+							if(!(dst_pte_frame_new & 2))
+							{	
+								riva128_pdma_interrupt(8, riva128);
+								goto method_end;
+							}
 						}
 						dst_pte_frame_new &= 0xfffff000;
 						uint32_t dst_paged_addr = dst_pte_frame_new | dst_pte_byte;
@@ -2440,7 +2446,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						uint32_t copy_size = (inc_in < inc_out) ? inc_in : inc_out;
 						if(!src_target)
 						{
-							memcpy(&svga->vram[(dst_unpaged_addr ) & 0x3fffff], buf, copy_size);
+							memcpy(&svga->vram[(dst_unpaged_addr) & 0x3fffff], buf, copy_size);
 							svga->changedvram[((dst_unpaged_addr) & 0x3fffff) >> 12] = changeframecount;
 						}
 						else dma_bm_write(dst_paged_addr, (uint8_t*)&buf, copy_size, copy_size);
