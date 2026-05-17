@@ -35,7 +35,7 @@ public:
     ~MainWindow();
 
     void         showMessage(int flags, const QString &header, const QString &message, bool richText);
-    void         getTitle(wchar_t *title);
+    QString      getTitle();
     void         blitToWidget(int x, int y, int w, int h, int monitor_index);
     QSize        getRenderWidgetSize();
     void         setSendKeyboardInput(bool enabled);
@@ -67,7 +67,6 @@ signals:
     void setMouseCapture(bool state);
 
     void showMessageForNonQtThread(int flags, const QString &header, const QString &message, bool richText, std::atomic_bool *done);
-    void getTitleForNonQtThread(wchar_t *title);
 
     void vmmRunningStateChanged(VMManagerProtocol::RunningState state);
     void vmmConfigurationChanged();
@@ -138,7 +137,6 @@ private slots:
 
     void refreshMediaMenu();
     void showMessage_(int flags, const QString &header, const QString &message, bool richText, std::atomic_bool *done = nullptr);
-    void getTitle_(wchar_t *title);
 
     void on_actionMCA_devices_triggered();
 
