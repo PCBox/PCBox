@@ -317,26 +317,31 @@ VISO_WRITE_STR_FUNC(viso_write_wstring, uint16_t, uint16_t, cpu_to_be16)
 static int
 viso_fill_fn_short(char *data, const viso_entry_t *entry, viso_entry_t **entries)
 {
+    /* Trim leading dots. */
+    const char *basename = entry->basename;
+    while (basename[0] == '.')
+        basename++;
+
     /* Get name and extension length. */
-    const char *ext_pos = strrchr(entry->basename, '.');
+    const char *ext_pos = strrchr(basename, '.');
     int         name_len;
     int         ext_len;
     if (ext_pos) {
-        name_len = ext_pos - entry->basename;
+        name_len = ext_pos - basename;
         ext_len  = strlen(ext_pos);
     } else {
-        name_len = strlen(entry->basename);
+        name_len = strlen(basename);
         ext_len  = 0;
     }
 
     /* Copy name. */
     int name_copy_len = MIN(8, name_len);
-    viso_write_string((uint8_t *) data, entry->basename, name_copy_len, VISO_CHARSET_D);
+    viso_write_string((uint8_t *) data, basename, name_copy_len, VISO_CHARSET_D);
     data[name_copy_len] = '\0';
 
     /* Copy extension to temporary buffer. */
     char ext[5]     = { 0 };
-    int  force_tail = (name_len > 8) || (ext_len == 1);
+    int  force_tail = (name_len > 8) || (ext_len == 1) || (basename != entry->basename);
     if (ext_len > 1) {
         ext[0] = '.';
         if (ext_len > 4) {
@@ -863,7 +868,7 @@ viso_init(const uint8_t id, const char *dirname, int *error)
     while (LIKELY(dir)) {
         /* Open directory for listing. */
         int    have_dir       = plat_dir_open(&context, dir->path);
-        size_t children_count = 3; /* include terminator, . and .. */
+        size_t children_count = 2; /* include . and .. (terminator is the +1 when allocating) */
         if (UNLIKELY(dir == viso->root_dir)) {
             /* Handle root directory. */
             if (have_dir && plat_dir_is_dir(&context))
@@ -878,7 +883,7 @@ viso_init(const uint8_t id, const char *dirname, int *error)
 
         /* Grow array if required. */
         if (children_count > dir_entries_len) {
-            viso_entry_t **new_dir_entries = (viso_entry_t **) calloc(children_count, sizeof(viso_entry_t *));
+            viso_entry_t **new_dir_entries = (viso_entry_t **) malloc((children_count + 1) * sizeof(viso_entry_t *));
             if (LIKELY(new_dir_entries)) {
                 if (LIKELY(dir_entries))
                     free(dir_entries);
@@ -913,6 +918,18 @@ viso_init(const uint8_t id, const char *dirname, int *error)
         /* Iterate through this directory's children again, making the entries. */
         if (have_dir) {
             while (plat_dir_read(&context)) {
+                /* Grow array if the original size is inaccurate. */
+                if (UNLIKELY(children_count >= dir_entries_len)) {
+                    size_t         new_entries_len = children_count + 1;
+                    viso_entry_t **new_dir_entries = (viso_entry_t **) realloc(dir_entries, (new_entries_len + 1) * sizeof(viso_entry_t *));
+                    if (LIKELY(new_dir_entries)) {
+                        dir_entries     = new_dir_entries;
+                        dir_entries_len = new_entries_len;
+                    } else {
+                        break;
+                    }
+                }
+
                 /* Add and fill entry. */
                 const char *path = plat_dir_get_path(&context);
                 size_t path_buf_size = strlen(path) + 1;
