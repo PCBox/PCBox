@@ -1455,11 +1455,32 @@ msgstr "El archivo selecionado será sobreescrito. ¿Está seguro de querer usar
 msgid "Unsupported disk image"
 msgstr "Imagen de disco no soportada"
 
-msgid "Overwrite"
-msgstr "Sobreescribir"
+msgid "Unable to read device"
+msgstr ""
 
-msgid "Don't overwrite"
-msgstr "No sobreescribir"
+msgid "Could not determine block device size. Make sure you have permission to access this device."
+msgstr ""
+
+msgid "Device too large"
+msgstr ""
+
+msgid "Block device is too large to be used as a hard disk."
+msgstr ""
+
+msgid "Block device detected"
+msgstr ""
+
+msgid "Detected block device: %1\nSize: %2 MB\nGeometry: %3 cylinders, %4 heads, %5 sectors"
+msgstr ""
+
+msgid "Failed to write the disk image."
+msgstr ""
+
+msgid "Failed to read the disk image."
+msgstr ""
+
+msgid "The disk image has been successfully created."
+msgstr ""
 
 msgid "Raw image"
 msgstr "Imagen plana"
@@ -2352,20 +2373,47 @@ msgstr "Tamaño de memoria de EMS 2"
 msgid "Enable EMS"
 msgstr "Habilitar EMS"
 
-msgid "Enable EMS 1"
-msgstr "Habilitar EMS 1"
-
-msgid "Enable EMS 2"
-msgstr "Habilitar EMS 2"
-
 msgid "Address for > 2 MB"
 msgstr "Dirección para > 2 MB"
 
 msgid "Frame Address"
 msgstr "Dirección del marco"
 
-msgid "USA"
-msgstr "EE.UU."
+msgid "English"
+msgstr ""
+
+msgid "English (US)"
+msgstr ""
+
+msgid "English (UK)"
+msgstr ""
+
+msgid "English (Canada)"
+msgstr ""
+
+msgid "German"
+msgstr ""
+
+msgid "French"
+msgstr ""
+
+msgid "Spanish"
+msgstr ""
+
+msgid "Swedish"
+msgstr ""
+
+msgid "Italian"
+msgstr ""
+
+msgid "Portuguese"
+msgstr ""
+
+msgid "Norwegian"
+msgstr ""
+
+msgid "Greek"
+msgstr ""
 
 msgid "Danish"
 msgstr "Danés"
@@ -2562,9 +2610,6 @@ msgstr "Escala de gris"
 msgid "Color"
 msgstr "Color"
 
-msgid "U.S. English"
-msgstr "Inglés de EE.UU."
-
 msgid "Scandinavian"
 msgstr "Escandinavo"
 
@@ -2649,32 +2694,77 @@ msgstr ""
 msgid "Serial Passthrough"
 msgstr "Paso de puerto serie"
 
-msgid "Passthrough Mode"
-msgstr "Modo de paso"
-
-msgid "Host Serial Device"
+msgid "Host serial device"
 msgstr "Dispositivo serie anfitrión"
 
-msgid "Name of pipe"
-msgstr "Nombre de tubería"
+msgid "Named Pipe"
+msgstr "Tubería con nombre"
 
-msgid "Data bits"
-msgstr "Bits de datos"
+msgid "Output file"
+msgstr ""
 
-msgid "Stop bits"
-msgstr "Bits de parada"
+msgid "Append to file if it exists"
+msgstr ""
 
-msgid "Baud Rate of Passthrough"
-msgstr "Tasa de baudios de paso"
+msgid "Input file"
+msgstr ""
 
-msgid "Named Pipe (Server)"
-msgstr "Tubería con nombre (servidor)"
+msgid "Loop input file"
+msgstr ""
 
-msgid "Named Pipe (Client)"
-msgstr "Tubería con nombre (cliente)"
+msgid "Require STROBE signal"
+msgstr ""
 
-msgid "Host Serial Passthrough"
-msgstr "Paso del puerto serie del host"
+msgid "Loopback Type"
+msgstr ""
+
+msgid "Parallel cable"
+msgstr ""
+
+msgid "Unidirectional (8-bit) / LapLink (4-bit)"
+msgstr ""
+
+msgid "Bidirectional (8-bit)"
+msgstr ""
+
+msgid "Pipe path"
+msgstr ""
+
+msgid "FIFO / terminal"
+msgstr ""
+
+msgid "Mode"
+msgstr ""
+
+msgid "Server"
+msgstr "Servidor"
+
+msgid "Client"
+msgstr "Cliente"
+
+msgid "Reconnect automatically"
+msgstr ""
+
+msgid "Use standard input/output"
+msgstr ""
+
+msgid "Create pseudoterminal"
+msgstr ""
+
+msgid "Start terminal emulator"
+msgstr ""
+
+msgid "Run custom command"
+msgstr ""
+
+msgid "Custom command"
+msgstr ""
+
+msgid "Run custom command in terminal"
+msgstr ""
+
+msgid "Virtual Console"
+msgstr ""
 
 msgid "E&ject %1"
 msgstr "E&xtraer %1"
@@ -2718,8 +2808,8 @@ msgstr "[Genérico] 1998 (5400 RPM)"
 msgid "[Generic] 2000 (7200 RPM)"
 msgstr "[Genérico] 2000 (7200 RPM)"
 
-msgid "IBM 8514/A clone (ISA)"
-msgstr "Clon IBM 8514/A (ISA)"
+msgid "IBM 8514/A clone"
+msgstr "Clon IBM 8514/A"
 
 msgid "Vendor"
 msgstr "Fabricante"
@@ -3068,3 +3158,156 @@ msgstr "Dispositivo de salida de audio:"
 
 msgid "System Default"
 msgstr "Por defecto del sistema"
+
+msgid "Unable to open image or folder \"%s\"."
+msgstr ""
+
+msgid "Unable to open cue sheet \"%s\"."
+msgstr ""
+
+msgid "Unable to open MDS file \"%s\"."
+msgstr ""
+
+msgid "Unable to load CD-ROM image \"%s\"."
+msgstr ""
+
+msgid "Unable to load image \"%s\": mdsx.so is missing, which is required for Daemon Tools MDS v2 and MDX image support."
+msgstr ""
+
+msgid "The DVD image \"%s\" has been inserted into a drive that does not support DVD media and will be ignored."
+msgstr ""
+
+msgid "%s: Could not connect to %s: %s"
+msgstr ""
+
+msgid "%s: Could not create %s: %s"
+msgstr ""
+
+msgid "%s: Attached to %s"
+msgstr ""
+
+msgid "%s: Virtual console already in use by %s"
+msgstr ""
+
+msgid "%s: Could not create terminal: %s"
+msgstr ""
+
+msgid "Auto-detect"
+msgstr ""
+
+msgid "Channel"
+msgstr ""
+
+msgid "Both Channels"
+msgstr ""
+
+msgid "Left Channel"
+msgstr ""
+
+msgid "Right Channel"
+msgstr ""
+
+msgid "Allow Flash BIOS Updates"
+msgstr ""
+
+msgid "Slot #"
+msgstr ""
+
+msgid "Parallel Port"
+msgstr ""
+
+msgid "Paper Size"
+msgstr ""
+
+msgid "Legal (sideways)"
+msgstr ""
+
+msgid "B4 (sideways)"
+msgstr ""
+
+msgid "Quality"
+msgstr ""
+
+msgid "Draft"
+msgstr ""
+
+msgid "(Near) Letter"
+msgstr ""
+
+msgid "Auto LF"
+msgstr ""
+
+msgid "Tandy PSSJ Clone"
+msgstr ""
+
+msgid "PC-CM (Color)"
+msgstr ""
+
+msgid "PC-MM (Monochrome)"
+msgstr ""
+
+msgid "White Monochrome"
+msgstr ""
+
+msgid "Hardware font"
+msgstr ""
+
+msgid "Diagnostic mode"
+msgstr ""
+
+msgid "CGA monitor"
+msgstr ""
+
+msgid "MDA monitor"
+msgstr ""
+
+msgid "Television"
+msgstr ""
+
+msgid "Invert LCD colors"
+msgstr ""
+
+msgid "LCD (CGA mode)"
+msgstr ""
+
+msgid "LCD (MDA mode)"
+msgstr ""
+
+msgid "Disabled (250h)"
+msgstr ""
+
+msgid "Enabled (350h)"
+msgstr ""
+
+msgid "Test mode"
+msgstr ""
+
+msgid "32 MB"
+msgstr ""
+
+msgid "64 MB"
+msgstr ""
+
+msgid "2048 MB"
+msgstr ""
+
+msgid "Refresh rate"
+msgstr ""
+
+msgid "US (CP 437)"
+msgstr ""
+
+msgid "IBM Nordic (CP 437-Nordic)"
+msgstr ""
+
+msgid "Czech Kamenicky (CP 895) #1"
+msgstr ""
+
+msgid "Czech Kamenicky (CP 895) #2"
+msgstr ""
+
+msgid "932 (Japanese)"
+msgstr ""
+
+msgid "938 (Traditional Chinese)"
+msgstr ""
