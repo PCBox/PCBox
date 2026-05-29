@@ -579,9 +579,9 @@ rivatnt_pfb_read(uint32_t addr, void *p)
         case 0x100000:
             switch(rivatnt->vram_size)
             {
-                case 4 << 20: return 0x15;
-                case 8 << 20: return 0x16;
-                case 16 << 20: return 0x1f;
+                case 4 << 20: return 0x1015;
+                case 8 << 20: return 0x1016;
+                case 16 << 20: return 0x101f;
             }
             break;
     }
