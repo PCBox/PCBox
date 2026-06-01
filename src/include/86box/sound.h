@@ -52,6 +52,9 @@ extern int gated;
 extern int speakval;
 extern int speakon;
 
+extern int midi_freq;
+extern int midi_buf_size;
+
 extern int sound_pos_global;
 
 extern int music_pos_global;
@@ -108,6 +111,9 @@ extern void sound_hdd_thread_init(void);
 extern void sound_hdd_thread_end(void);
 
 extern const char *sound_get_output_devices(void); /* returns double-null-terminated list, or NULL */
+extern int         sound_get_device_sample_rate(const char *device_name);   /* probe native rate, 0 = unknown */
+extern int         sound_get_device_supported_rates(const char *device_name, /* probe supported rates into rates_out; returns count */
+                                                    int *rates_out, int max_rates);
 extern void        closeal(void);
 extern void        inital(void);
 extern void givealbuffer(const void *buf);
