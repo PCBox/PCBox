@@ -43,6 +43,10 @@ public:
     QShortcut   *windowedShortcut;
     QKeySequence FindAcceleratorSeq(const char *name);
 
+    QString mouseStringUncaptured;
+    QString mouseStringCaptured;
+    void    updateMouseStrings();
+
     std::array<std::unique_ptr<RendererStack>, 8> renderers;
 signals:
     void paint(const QImage &image);
