@@ -142,14 +142,11 @@ add_library(vid OBJECT
 
     # Generic
     vid_bochs_vbe.c
-<<<<<<< HEAD
 
     nv/nv_rivatimer.c
 
     vid_riva128.c
     vid_rivatnt.c
-=======
->>>>>>> 53f570dbe7ed149ca32a7f46079cdbfd9b745650
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
