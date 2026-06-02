@@ -297,7 +297,7 @@ struct accelKey def_acc_keys[NUM_ACCELS] = {
     {
         .name="pause",
         .desc="Toggle pause",
-        .seq="Ctrl+Alt+F1"
+        .seq="Ctrl+Alt+P"
     },
     {
         .name="mute",
@@ -1669,6 +1669,8 @@ pc_reset_hard_close(void)
     nvr_close();
 
     mouse_close();
+    
+    sound_close();
 
     device_close_all();
 
@@ -1915,6 +1917,8 @@ pc_close(UNUSED(thread_t *ptr))
 #endif
 
     video_close();
+
+    sound_close();
 
     device_close_all();
 
