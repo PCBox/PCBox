@@ -175,20 +175,20 @@ video_cards[] = {
     { .device = &gd5440_pci_device,                             .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &gd5446_pci_device,                             .flags = VIDEO_FLAG_TYPE_SECONDARY },
     { .device = &gd5480_pci_device,                             .flags = VIDEO_FLAG_TYPE_NONE      },
-    { .device = &millennium_device,                             .flags = VIDEO_FLAG_TYPE_NONE      },
-    { .device = &millennium_ii_device,                          .flags = VIDEO_FLAG_TYPE_NONE      },
-    { .device = &mystique_device,                               .flags = VIDEO_FLAG_TYPE_NONE      },
-    { .device = &mystique_220_device,                           .flags = VIDEO_FLAG_TYPE_NONE      },
+    { .device = &millennium_device,                             .flags = VIDEO_FLAG_TYPE_SECONDARY },
+    { .device = &millennium_ii_device,                          .flags = VIDEO_FLAG_TYPE_SECONDARY },
+    { .device = &mystique_device,                               .flags = VIDEO_FLAG_TYPE_SECONDARY },
+    { .device = &mystique_220_device,                           .flags = VIDEO_FLAG_TYPE_SECONDARY },
     { .device = &s3_86c928_pci_device,                          .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_trio32_pci_device,                          .flags = VIDEO_FLAG_TYPE_NONE      },
-    { .device = &s3_trio3d2x_pci_device,                        .flags = VIDEO_FLAG_TYPE_SECONDARY },
+    { .device = &s3_trio3d2x_pci_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_trio64_pci_device,                          .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_trio64vplus_pci_device,                     .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_trio64v2dx_pci_device,                      .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_virge_pci_device,                           .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_virge_dx_pci_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_virge_gx_pci_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
-    { .device = &s3_virge_gx2_pci_device,                       .flags = VIDEO_FLAG_TYPE_SECONDARY },
+    { .device = &s3_virge_gx2_pci_device,                       .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_virge_vx_pci_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_vision864_pci_device,                       .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_vision964_pci_device,                       .flags = VIDEO_FLAG_TYPE_NONE      },
@@ -208,12 +208,17 @@ video_cards[] = {
 #ifdef USE_G100
     { .device = &productiva_g100_device,                        .flags = VIDEO_FLAG_TYPE_SPECIAL   },
 #endif /*USE_G100 */
+<<<<<<< HEAD
     { .device = &s3_trio3d2x_agp_device,                        .flags = VIDEO_FLAG_TYPE_SECONDARY },
     { .device = &s3_virge_gx2_agp_device,                       .flags = VIDEO_FLAG_TYPE_SECONDARY },
 #ifdef USE_NV3
     { .device = &riva128_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &rivatnt_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE },
 #endif
+=======
+    { .device = &s3_trio3d2x_agp_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
+    { .device = &s3_virge_gx2_agp_device,                       .flags = VIDEO_FLAG_TYPE_NONE      },
+>>>>>>> 8212f5ec62e2f7df9aac887c979b7f8e01da749e
     { .device = NULL,                                           .flags = VIDEO_FLAG_TYPE_NONE      }
   // clang-format on
 };
