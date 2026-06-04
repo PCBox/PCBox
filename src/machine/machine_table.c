@@ -19087,7 +19087,8 @@ const machine_t machines[] = {
         .net_device               = NULL,
         .aliases                  = { "" }
     },
-
+    /* Has the VIA VT82C586B southbridge with on-chip KBC identical to the VIA
+       VT82C42N. */
     {
         .name              = "[VIA VP3] Lucky Star 5AVP3",
         .internal_name     = "5avp3",
@@ -19112,7 +19113,7 @@ const machine_t machines[] = {
         .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_USB,
         .ram       = {
             .min  = 8192,
-            .max  = 524288,
+            .max  = 1048576,
             .step = 8192
         },
         .nvrmask                  = 127,
@@ -19135,7 +19136,6 @@ const machine_t machines[] = {
         .net_device               = NULL,
         .aliases                  = { "" }
     },
-    
     /* Has the VIA VT82C586B southbridge with on-chip KBC identical to the VIA
        VT82C42N. */
     {
