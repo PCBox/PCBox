@@ -24,4 +24,4 @@ target_include_directories(osd PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/imgui
 )
 
-target_link_libraries(86Box osd)
+target_link_libraries(PCBox osd)
