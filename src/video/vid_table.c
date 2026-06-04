@@ -208,17 +208,12 @@ video_cards[] = {
 #ifdef USE_G100
     { .device = &productiva_g100_device,                        .flags = VIDEO_FLAG_TYPE_SPECIAL   },
 #endif /*USE_G100 */
-<<<<<<< HEAD
-    { .device = &s3_trio3d2x_agp_device,                        .flags = VIDEO_FLAG_TYPE_SECONDARY },
-    { .device = &s3_virge_gx2_agp_device,                       .flags = VIDEO_FLAG_TYPE_SECONDARY },
+    { .device = &s3_trio3d2x_agp_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
+    { .device = &s3_virge_gx2_agp_device,                       .flags = VIDEO_FLAG_TYPE_NONE      },
 #ifdef USE_NV3
     { .device = &riva128_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE },
     { .device = &rivatnt_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE },
 #endif
-=======
-    { .device = &s3_trio3d2x_agp_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
-    { .device = &s3_virge_gx2_agp_device,                       .flags = VIDEO_FLAG_TYPE_NONE      },
->>>>>>> 8212f5ec62e2f7df9aac887c979b7f8e01da749e
     { .device = NULL,                                           .flags = VIDEO_FLAG_TYPE_NONE      }
   // clang-format on
 };
