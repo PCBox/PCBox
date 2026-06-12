@@ -8502,7 +8502,7 @@ const machine_t machines[] = {
         .flags     = MACHINE_FLAGS_NONE,
         .ram       = {
             .min  = 1024,
-            .max  = 65536,
+            .max  = 32768,
             .step = 1024
         },
         .nvrmask                  = 127,
@@ -9283,7 +9283,7 @@ const machine_t machines[] = {
         .flags     = MACHINE_APM,
         .ram       = {
             .min  = 1024,
-            .max  = 32768,
+            .max  = 131072,
             .step = 1024
         },
         .nvrmask                  = 127,
