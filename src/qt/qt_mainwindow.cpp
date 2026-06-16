@@ -314,8 +314,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     ui->toolBar->addWidget(toolbar_label_widget);
 
+    this->setWindowFlag(Qt::CustomizeWindowHint, true);
     this->setWindowFlag(Qt::MSWindowsFixedSizeDialogHint, vid_resize != 1);
     this->setWindowFlag(Qt::WindowMaximizeButtonHint, vid_resize == 1);
+    this->setWindowFlag(Qt::WindowFullscreenButtonHint, vid_resize == 1);
 
     QString vmname(vm_name);
     if (vmname.at(vmname.size() - 1) == '"' || vmname.at(vmname.size() - 1) == '\'')
@@ -445,6 +447,14 @@ MainWindow::MainWindow(QWidget *parent)
             if (resizableonce == false)
                 ui->stackedWidget->setFixedSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
             resizableonce = true;
+        }
+        if (!hide_status_bar) {
+            statusBar()->hide();
+            statusBar()->show();
+        }
+        if (!hide_tool_bar) {
+            ui->toolBar->hide();
+            ui->toolBar->show();
         }
         if (!QApplication::platformName().contains("eglfs") && vid_resize != 1) {
             w = static_cast<int>(w / (!dpi_scale ? util::screenOfWidget(this)->devicePixelRatio() : 1.));
@@ -1871,6 +1881,7 @@ MainWindow::on_actionResizable_window_triggered(bool checked)
         setFixedSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
         setWindowFlag(Qt::MSWindowsFixedSizeDialogHint, false);
         setWindowFlag(Qt::WindowMaximizeButtonHint, true);
+        setWindowFlag(Qt::WindowFullscreenButtonHint, true);
         for (int i = 1; i < MONITORS_NUM; i++) {
             if (monitors[i].target_buffer) {
                 renderers[i]->setWindowFlag(Qt::WindowMaximizeButtonHint, true);
@@ -1879,11 +1890,13 @@ MainWindow::on_actionResizable_window_triggered(bool checked)
         }
     } else {
         vid_resize = 0;
+        setWindowFlag(Qt::WindowFullscreenButtonHint, false);
         setWindowFlag(Qt::WindowMaximizeButtonHint, false);
         setWindowFlag(Qt::MSWindowsFixedSizeDialogHint);
         for (int i = 1; i < MONITORS_NUM; i++) {
             if (monitors[i].target_buffer) {
                 renderers[i]->setWindowFlag(Qt::WindowMaximizeButtonHint, false);
+                renderers[i]->setWindowFlag(Qt::WindowFullscreenButtonHint, false);
                 emit resizeContentsMonitor(monitors[i].mon_scrnsz_x, monitors[i].mon_scrnsz_y, i);
             }
         }
