@@ -39,6 +39,9 @@ public:
 
 #   endif
 
+// FIXME: Hacks to get it to build on Debian Bullseye.
+typedef void (VKAPI_PTR *PFN_vkCmdBeginRenderingKHR_alt)(VkCommandBuffer commandBuffer, const VkRenderingInfo* pRenderingInfo);
+typedef void (VKAPI_PTR *PFN_vkCmdEndRenderingKHR_alt)(VkCommandBuffer commandBuffer);
 class VulkanWindowRenderer : public QWindow, public RendererCommon {
     Q_OBJECT
 public:
@@ -73,7 +76,7 @@ private:
     void initialize();
 
     void cleanupSwapchain();
-    void recreateSwapchain(bool force = false);
+    void recreateSwapchain();
 
     bool isPhysicalDeviceUsable(VkPhysicalDevice& phys_dev);
 
@@ -144,10 +147,10 @@ private:
     PFN_vkAcquireNextImageKHR fn_vkAcquireNextImageKHR = nullptr;
     PFN_vkQueuePresentKHR fn_vkQueuePresentKHR = nullptr;
 
-    PFN_vkCmdBeginRenderingKHR fn_vkCmdBeginRendering = nullptr;
-    PFN_vkCmdEndRenderingKHR fn_vkCmdEndRendering = nullptr;
+    PFN_vkCmdBeginRenderingKHR_alt fn_vkCmdBeginRendering = nullptr;
+    PFN_vkCmdEndRenderingKHR_alt fn_vkCmdEndRendering = nullptr;
 
-    VkExtent2D curExtent { 0x7FFFFFFF, 0x7FFFFFFF };
+    VkExtent2D curExtent;
 
     ImGui_ImplVulkan_InitInfo init_info{};
     
