@@ -496,7 +496,7 @@ apic_lapic_set_base(uint32_t base)
         return;
 
     mem_mapping_set_addr(&current_lapic->lapic_mem_window, base & 0xFFFFF000, 0x100000);
-    if (base & (1 << 11)) {
+    if (!(base & (1 << 11))) {
         mem_mapping_disable(&current_lapic->lapic_mem_window);
         current_lapic->lapic_spurious_interrupt &= ~0x100;
     }
