@@ -1230,16 +1230,44 @@ VulkanWindowRenderer::isPhysicalDeviceUsable(VkPhysicalDevice &phys_dev)
     return true;
 }
 
+class raii_set_value
+{
+private:
+    bool& dest_val;
+public:   
+    raii_set_value(bool& val)
+    : dest_val(val)
+    {
+
+    }
+
+    ~raii_set_value() {
+        dest_val = false;
+    }
+};
+
 void
 VulkanWindowRenderer::initialize()
 {
     if (isFinalized || isInitialized)
         return;
+    if (initialization_in_progress)
+        return;
+    initialization_in_progress = true;
+    raii_set_value value_cleanup(initialization_in_progress);
     try {
+#ifdef LIBRA_RUNTIME_VULKAN
 #ifndef LIBRASHADER_STATIC
+        static bool not_found_msg_disp = false;
         if (!ensure_librashader_instance()) {
-            QMessageBox::critical(main_window, tr("Error"), tr("librashader not found. Shaders will not be available"));
+            if (!not_found_msg_disp) {
+                auto msgBox = new QMessageBox(QMessageBox::Critical, tr("Error"), tr("librashader not found. Shaders will not be available"), QMessageBox::Ok);
+                msgBox->setAttribute(Qt::WA_DeleteOnClose);
+                msgBox->show();
+            }
+            not_found_msg_disp = true;
         }
+#endif
 #endif
         window_surface = instance.surfaceForWindow(this);
         if (!window_surface) {
@@ -1504,8 +1532,8 @@ skip_shaders:
 
                 osdRenderTimer->start(16);
 
-                fn_vkCmdBeginRendering          = (PFN_vkCmdBeginRenderingKHR_alt) instance.functions()->vkGetDeviceProcAddr(logi_device, "vkCmdBeginRendering");
-                fn_vkCmdEndRendering            = (PFN_vkCmdEndRenderingKHR_alt) instance.functions()->vkGetDeviceProcAddr(logi_device, "vkCmdEndRendering");
+                fn_vkCmdBeginRendering          = (PFN_vkCmdBeginRenderingKHR) instance.functions()->vkGetDeviceProcAddr(logi_device, "vkCmdBeginRendering");
+                fn_vkCmdEndRendering            = (PFN_vkCmdEndRenderingKHR) instance.functions()->vkGetDeviceProcAddr(logi_device, "vkCmdEndRendering");
                 render();
                 emit rendererInitialized();
             }
