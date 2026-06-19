@@ -96,6 +96,7 @@ typedef struct ide_s {
     int      reset;
     int      mdma_mode;
     int      do_initial_read;
+    uint8_t  is_jride;
     uint32_t drive;
     uint32_t cfg_spt;
     uint32_t cfg_hpc;
@@ -185,6 +186,10 @@ extern void   ide_atapi_attach(ide_t *dev);
 
 extern void *ide_xtide_init(void);
 extern void  ide_xtide_close(void);
+extern void  ide_xtide_set_is_jride(int is_jride);
+extern uint8_t *ide_get_pio_buffer(void *priv);
+extern void  ide_complete_pio_buffer_read(void *priv);
+extern void  ide_complete_pio_buffer_write(void *priv);
 
 extern void  ide_drives_set_shadow(void);
 
@@ -210,6 +215,7 @@ extern void ide_handlers(uint8_t board, int set);
 extern void ide_board_set_force_ata3(int board, int force_ata3);
 #ifdef EMU_ISAPNP_H
 extern void ide_pnp_config_changed(uint8_t ld, isapnp_device_config_t *config, void *priv);
+extern void ide_pnp_config_changed_opti931(uint8_t ld, isapnp_device_config_t *config, void *priv);
 extern void ide_pnp_config_changed_1addr(uint8_t ld, isapnp_device_config_t *config, void *priv);
 #endif
 

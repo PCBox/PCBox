@@ -19,6 +19,9 @@
 #include <QProcess>
 #include <QApplication>
 #include <QAbstractNativeEventFilter>
+#include <QCursor>
+#include <QWidget>
+#include <QWindow>
 
 #include "qt_mainwindow.hpp"
 extern MainWindow *main_window;
@@ -43,8 +46,9 @@ extern "C" {
 
 static Display            *disp       = nullptr;
 static QThread            *procThread = nullptr;
+static QWidget            *grab_widget = nullptr;
 static XIEventMask         ximask;
-static std::atomic<bool>   exitfromthread = false;
+static std::atomic<bool>   exitfromthread  = false;
 static std::atomic<double> xi2_mouse_abs_x = 0, xi2_mouse_abs_y = 0;
 static int                 xi2opcode      = 0;
 static double              prev_coords[2] = { 0.0 };
@@ -56,8 +60,8 @@ parse_valuators(const double        *input_values,
                 const unsigned char *mask, int mask_len,
                 double *output_values, int output_values_len)
 {
-    int i = 0;
-    int z = 0;
+    int i   = 0;
+    int z   = 0;
     int top = mask_len * 8;
     if (top > 16)
         top = 16;
@@ -241,11 +245,36 @@ common_motion:
 void
 xinput2_exit()
 {
+    if (grab_widget)
+        grab_widget->releaseMouse();
     if (!exitthread) {
         exitthread = true;
-        procThread->wait(5000);
-        procThread->terminate();
+        if (procThread) {
+            procThread->wait(5000);
+            procThread->terminate();
+        }
     }
+}
+
+void
+xinput2_set_grab_widget(QWidget *widget)
+{
+    grab_widget = widget;
+}
+
+void
+xinput2_mouse_capture(QWindow *window)
+{
+    Q_UNUSED(window);
+    if (grab_widget)
+        grab_widget->grabMouse(QCursor(Qt::BlankCursor));
+}
+
+void
+xinput2_mouse_uncapture()
+{
+    if (grab_widget)
+        grab_widget->releaseMouse();
 }
 
 void

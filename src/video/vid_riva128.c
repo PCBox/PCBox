@@ -1,0 +1,4027 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * 86Box	A hypervisor and IBM PC system emulator that specializes in
+ *		running old operating systems and software designed for IBM
+ *		PC systems and compatibles from 1981 through fairly recent
+ *		system designs based on the PCI bus.
+ *
+ *		This file is part of the 86Box distribution.
+ *
+ *		Emulation of nVidia's RIVA 128 graphics card.
+ *		Special thanks to Marcelina Kościelnicka, without whom this
+ *		would not have been possible.
+ *
+ * Version:	@(#)vid_riva128.c	1.0.0	2019/09/13
+ *
+ * Authors:	Miran Grca, <mgrca8@gmail.com>
+ *		Melody Goad,
+ *		Connor Hyde
+ *
+ *		Copyright 2019 Miran Grca.
+ *		Copyright 2025 Melody Goad.
+ *		Copyright 2025 Connor Hyde
+ */
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <wchar.h>
+#include <86box/86box.h>
+#include "../cpu/cpu.h"
+#include <86box/dma.h>
+#include <86box/io.h>
+#include <86box/mem.h>
+#include <86box/pci.h>
+#include <86box/rom.h>
+#include <86box/device.h>
+#include <86box/timer.h>
+#include <86box/video.h>
+#include <86box/i2c.h>
+#include <86box/vid_ddc.h>
+#include <86box/vid_svga.h>
+#include <86box/vid_svga_render.h>
+#include <86box/utils/video_stdlib.h>
+#include <86box/plat_unused.h>
+
+#define BIOS_RIVA128_PATH "roms/video/nvidia/Diamond_V330_rev-e.vbi"
+
+#define RIVA128_VENDOR_ID 0x12d2
+#define RIVA128_DEVICE_ID 0x0018
+
+#define RIVA128_PGRAPH_SURF_FORMAT_Y16 0
+#define RIVA128_PGRAPH_SURF_FORMAT_Y8 1
+#define RIVA128_PGRAPH_SURF_FORMAT_X1R5G5B5 2
+#define RIVA128_PGRAPH_SURF_FORMAT_X8R8G8B8 3
+
+typedef struct riva128_t
+{
+	mem_mapping_t	mmio_mapping;
+	mem_mapping_t 	linear_mapping;
+	mem_mapping_t 	linear_mapping2;
+	mem_mapping_t 	ramin_mapping;
+	mem_mapping_t 	ramin_mapping2;
+
+	svga_t	svga;
+
+	rom_t bios_rom;
+
+	uint32_t vram_size, vram_mask,
+		mmio_base, lfb_base;
+
+	uint32_t cursor_offset;
+	int cursor_vram;
+	int cursor_enabled;
+
+	uint8_t	read_bank, write_bank;
+
+	uint8_t	pci_regs[256];
+	uint8_t pci_slot;
+	uint8_t irq_state;
+	uint8_t	int_line;
+
+	int card;
+
+	struct {
+		uint8_t rma_access_reg[4];
+		uint8_t rma_mode;
+		uint32_t rma_dst_addr;
+		uint32_t rma_data;
+	} rma;
+
+	struct {
+		uint32_t intr;
+		uint32_t intr_en;
+		uint32_t intr_line;
+		uint32_t enable;
+	} pmc;
+
+	struct {
+		uint32_t cache_error;
+		uint32_t intr;
+		uint32_t intr_en;
+
+		uint32_t ramht;
+		uint32_t ramht_addr;
+		uint32_t ramht_size;
+
+		uint32_t ramfc;
+		uint32_t ramfc_addr;
+
+		uint32_t ramro;
+		uint32_t ramro_addr;
+		uint32_t ramro_size;
+
+		uint16_t chan_mode;
+		uint16_t chan_dma;
+		uint16_t chan_size; /* 0 = 1024, 1 = 512 */
+
+		uint32_t runout_put, runout_get;
+
+		int caches_reassign;
+
+		struct {
+			uint32_t dmaput;
+			uint32_t dmaget;
+		} channels[16];
+
+		struct {
+			int chanid;
+			int push_enabled;
+			int runout;
+			uint32_t get, put;
+			uint8_t dma_ctrl;
+			uint32_t dma_length;
+			uint32_t dma_addr;
+			uint32_t pull_ctrl;
+			uint32_t pull_state;
+			uint32_t ctx[8];
+		} caches[2];
+
+		struct {
+			int subchan;
+			uint16_t method;
+			uint32_t param;
+		} cache0, cache1[64];
+	} pfifo;
+
+	struct {
+		uint32_t intr, intr_en;
+
+		uint64_t time;
+		uint32_t alarm;
+
+		uint16_t clock_mul, clock_div;
+	} ptimer;
+
+	struct {
+		uint16_t width;
+		int bpp;
+
+		uint32_t config_0;
+	} pfb;
+	
+
+	struct {
+		uint32_t debug_0;
+
+		int notify_impending;
+		uint32_t notifier_obj;
+
+		uint32_t dma_obj, m2mf_obj;
+
+		uint32_t intr_0, intr_1;
+		uint32_t intr_en_0, intr_en_1;
+
+		uint32_t ctx_switch_a, ctx_control;
+		uint32_t ctx_user;
+		uint32_t ctx_cache[8];
+
+		uint32_t pattern_mono_color_rgb[2];
+		uint32_t pattern_mono_color_a[2];
+		uint32_t pattern_shape;
+		uint32_t pattern_bitmap[2];
+
+		uint32_t chroma;
+		uint8_t rop;
+
+		uint16_t clipx_min, clipx_max, clipy_min, clipy_max, clipw,
+				cliph;
+
+		uint32_t surf_offset[4];
+		uint32_t beta;
+
+		uint16_t surf_pitch[4];
+
+		int fifo_access;
+		uint32_t surf_config;
+
+		uint16_t lin_start_x, lin_end_x, lin_start_y, lin_end_y;
+		uint32_t lin_color;
+
+		uint16_t gdi_vtx_x_a[0x40];
+		uint16_t gdi_vtx_y_a[0x40];
+		uint16_t gdi_rect_w_a[0x40];
+		uint16_t gdi_rect_h_a[0x40];
+
+		uint16_t rect_vtx_x[0x40];
+		uint16_t rect_vtx_y[0x40];
+		uint16_t rect_vtx_w[0x40];
+		uint16_t rect_vtx_h[0x40];
+		uint32_t rect_color;
+
+		uint32_t gdi_color_a;
+
+		uint32_t gdi_color_b;
+		uint16_t gdi_clip_bottom_b, gdi_clip_left_b, gdi_clip_right_b, gdi_clip_top_b;
+		uint16_t gdi_left_b[0x40], gdi_right_b[0x40], gdi_top_b[0x40], gdi_bottom_b[0x40];
+
+		uint16_t gdi_clip_bottom_c, gdi_clip_left_c, gdi_clip_right_c, gdi_clip_top_c;
+		uint32_t gdi_color_c;
+		uint16_t gdi_vtx_x_c, gdi_vtx_y_c, gdi_vtx_w_c, gdi_vtx_h_c;
+		uint16_t gdi_cur_x_c, gdi_cur_y_c;
+
+		uint16_t gdi_clip_bottom_d, gdi_clip_left_d, gdi_clip_right_d, gdi_clip_top_d;
+		uint32_t gdi_color_d;
+		uint16_t gdi_vtx_x_d, gdi_vtx_y_d, gdi_vtx_w_d_in, gdi_vtx_h_d_in, gdi_vtx_w_d_out, gdi_vtx_h_d_out;
+		uint16_t gdi_cur_x_d, gdi_cur_y_d;
+
+		uint16_t gdi_clip_bottom_e, gdi_clip_left_e, gdi_clip_right_e, gdi_clip_top_e;
+		uint32_t gdi_color_e[2];
+		uint16_t gdi_vtx_x_e, gdi_vtx_y_e, gdi_vtx_w_e, gdi_vtx_h_e;
+		uint16_t gdi_cur_x_e, gdi_cur_y_e;
+
+		uint32_t m2mf_in_dma, m2mf_out_dma, m2mf_in_dma_cur, m2mf_out_dma_cur, m2mf_pitch_in, m2mf_pitch_out, m2mf_scan_len, m2mf_scan_num, m2mf_format;
+
+		uint16_t blit_in_x, blit_in_y, blit_out_x, blit_out_y, blit_size_w, blit_size_h;
+
+		uint16_t ifc_vtx_x, ifc_vtx_y, ifc_vtx_w, ifc_vtx_h, ifc_cur_x, ifc_cur_y;
+
+		uint16_t itm_vtx_x;
+		uint16_t itm_vtx_y;
+		uint16_t itm_rect_w;
+		uint16_t itm_rect_h;
+		uint16_t itm_pitch;
+		uint32_t itm_offset;
+
+		uint16_t sifc_vtx_x, sifc_vtx_y, sifc_vtx_w_out, sifc_vtx_h_out, sifc_cur_x, sifc_cur_y;
+		uint32_t sifc_dx_du, sifc_dy_dv;
+
+		int m2mf_pending;
+	} pgraph;
+	
+	struct
+	{
+		uint32_t intr, intr_en;
+		uint32_t src_ctx;
+	} pdma;
+	
+
+	struct {
+        uint32_t gen_ctrl;
+		uint32_t nvpll, mpll, vpll;
+        uint32_t cursor_pos;
+	} pramdac;
+
+	pc_timer_t nvtimer;
+	pc_timer_t mtimer;
+
+	double nvtime;
+	double mtime;
+
+	void *i2c, *ddc;
+} riva128_t;
+
+static video_timings_t timing_riva128 = {VIDEO_PCI, 2, 2, 1, 20, 20, 21};
+
+static uint8_t riva128_in(uint16_t addr, void *p);
+static void riva128_out(uint16_t addr, uint8_t val, void *p);
+void riva128_do_gpu_work(void *p);
+
+static uint8_t 
+riva128_pci_read(int func, int addr, UNUSED(int len), void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	/* svga_t *svga = &riva128->svga; */
+
+	/* pclog("RIVA 128 PCI reg read %02x\n", addr); */
+
+	switch (addr) {
+	case 0x00:
+		return 0xd2; /*nVidia*/
+	case 0x01:
+		return 0x12;
+
+	case 0x02:
+		return 0x18;
+	case 0x03:
+		return 0x00;
+	
+	case 0x04:
+		return riva128->pci_regs[0x04] & 0x37; /* IO/memory access*/
+	case 0x05:
+		return riva128->pci_regs[0x05] & 0x01;
+
+	case 0x06:
+		return 0x20;
+	case 0x07:
+		return 0x02; /*Fast DEVSEL timing*/
+
+	case 0x08:
+		return 0x10; /*Revision ID*/
+	case 0x09:
+		return 0x00; /*Programming interface*/
+
+	case 0x0a:
+		return 0x00; /*Supports VGA interface*/
+	case 0x0b:
+		return 0x03;
+
+	case 0x13:
+		return riva128->mmio_base >> 24;
+
+	case 0x17:
+		return riva128->lfb_base >> 24;
+
+	case 0x2c: case 0x2d: case 0x2e:
+	case 0x2f:
+		return riva128->pci_regs[addr];
+
+	case 0x30:
+		return (riva128->pci_regs[0x30] & 0x01); /*BIOS ROM address*/
+	case 0x31:
+		return 0x00;
+	case 0x32:
+		return riva128->pci_regs[0x32];
+	case 0x33:
+		return riva128->pci_regs[0x33];
+
+	case 0x3c:
+		return riva128->int_line;
+	case 0x3d:
+		return PCI_INTA;
+
+	case 0x3e:
+		return 0x03;
+	case 0x3f:
+		return 0x01;
+	}
+
+	return 0x00;
+}
+
+
+static void 
+riva128_recalc_mapping(riva128_t *riva128)
+{
+	svga_t *svga = &riva128->svga;
+		
+	if (!(riva128->pci_regs[PCI_REG_COMMAND] & PCI_COMMAND_MEM)) {
+		/* pclog("PCI mem off\n"); */
+		mem_mapping_disable(&svga->mapping);
+		mem_mapping_disable(&riva128->mmio_mapping);
+		mem_mapping_disable(&riva128->ramin_mapping);
+		mem_mapping_disable(&riva128->ramin_mapping2);
+		mem_mapping_disable(&riva128->linear_mapping);
+		mem_mapping_disable(&riva128->linear_mapping2);
+	return;
+	}
+
+	/* pclog("PCI mem on\n");
+	pclog("riva128->mmio_base = %08X\n", riva128->mmio_base); */
+	if (riva128->mmio_base)
+		mem_mapping_set_addr(&riva128->mmio_mapping, riva128->mmio_base,
+				0x1000000);
+	else
+		mem_mapping_disable(&riva128->mmio_mapping);
+
+	/* pclog("riva128->lfb_base = %08X\n", riva128->lfb_base); */
+	if (riva128->lfb_base) {
+		mem_mapping_set_addr(&riva128->linear_mapping,
+				riva128->lfb_base, 0x0400000);
+		mem_mapping_set_addr(&riva128->ramin_mapping2,
+				riva128->lfb_base + 0x0400000, 0x0400000);
+		mem_mapping_set_addr(&riva128->linear_mapping2,
+				riva128->lfb_base + 0x0800000, 0x0400000);
+		mem_mapping_set_addr(&riva128->ramin_mapping,
+				riva128->lfb_base + 0x0c00000, 0x0400000);
+	} else {
+		mem_mapping_disable(&riva128->linear_mapping);
+		mem_mapping_disable(&riva128->linear_mapping2);
+		mem_mapping_disable(&riva128->ramin_mapping);
+		mem_mapping_disable(&riva128->ramin_mapping2);
+	}
+
+	switch (svga->gdcreg[6] & 0x0c) {
+	case 0x0: /*128k at A0000*/
+		mem_mapping_set_addr(&svga->mapping, 0xa0000, 0x20000);
+		svga->banked_mask = 0x1ffff;
+		break;
+	case 0x4: /*64k at A0000*/
+		mem_mapping_set_addr(&svga->mapping, 0xa0000, 0x10000);
+		svga->banked_mask = 0xffff;
+		break;
+	case 0x8: /*32k at B0000*/
+		mem_mapping_set_addr(&svga->mapping, 0xb0000, 0x08000);
+		svga->banked_mask = 0x7fff;
+		break;
+	case 0xC: /*32k at B8000*/
+		mem_mapping_set_addr(&svga->mapping, 0xb8000, 0x08000);
+		svga->banked_mask = 0x7fff;
+		break;
+	}
+}
+
+
+static void 
+riva128_pci_write(int func, int addr, UNUSED(int len), uint8_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	/* pclog("RIVA 128 PCI reg write %02x val %02x\n", addr, val); */
+
+	switch (addr) {
+	case PCI_REG_COMMAND:
+		riva128->pci_regs[PCI_REG_COMMAND] = val & 0x37;
+		io_removehandler(0x03c0, 0x0020, riva128_in, NULL, NULL,
+				riva128_out, NULL, NULL, riva128);
+		if (val & PCI_COMMAND_IO)
+			io_sethandler(0x03c0, 0x0020, riva128_in, NULL, NULL,
+					riva128_out, NULL, NULL, riva128);
+		riva128_recalc_mapping(riva128);
+		break;
+
+	case 0x05:
+		riva128->pci_regs[0x05] = val & 0x01;
+		break;
+
+	case 0x07:
+		riva128->pci_regs[0x07] = (riva128->pci_regs[0x07] & 0x08f)
+				| (val & 0x70);
+		break;
+
+	case 0x13:
+		riva128->mmio_base = val << 24;
+		riva128_recalc_mapping(riva128);
+		break;
+
+	case 0x17: 
+		riva128->lfb_base = val << 24;
+		riva128_recalc_mapping(riva128);
+		break;
+
+	case 0x30: case 0x32:
+	case 0x33:
+		riva128->pci_regs[addr] = val;
+		if (riva128->pci_regs[0x30] & 0x01) {
+			uint32_t addr = (riva128->pci_regs[0x32] << 16)
+					| (riva128->pci_regs[0x33] << 24);
+			mem_mapping_set_addr(&riva128->bios_rom.mapping, addr,
+					0x8000);
+		} else
+			mem_mapping_disable(&riva128->bios_rom.mapping);
+		break;
+
+	case 0x3c:
+		riva128->int_line = val;
+		break;
+
+	case 0x40: case 0x41: case 0x42:
+	case 0x43:
+		/* 0x40-0x43 are ways to write to 0x2c-0x2f */
+		riva128->pci_regs[0x2c + (addr & 0x03)] = val;
+		break;
+	}
+}
+
+uint8_t
+riva128_ramin_read(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+
+	addr &= 0x3fffff;
+
+	return svga->vram[addr ^ 0x3ffff0];
+}
+
+
+uint16_t
+riva128_ramin_read_w(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+	uint16_t *vram_w = (uint16_t *)svga->vram;
+
+	addr &= 0x3fffff;
+
+	return vram_w[(addr ^ 0x3ffff0) >> 1];
+}
+
+
+uint32_t
+riva128_ramin_read_l(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+	uint32_t *vram_l = (uint32_t *)svga->vram;
+
+	addr &= 0x3fffff;
+
+	return vram_l[(addr ^ 0x3ffff0) >> 2];
+}
+
+
+void
+riva128_ramin_write(uint32_t addr, uint8_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+
+	addr &= 0x3fffff;
+
+	//pclog("[RIVA 128] RAMIN write %08x %02x\n", addr, val);
+
+	svga->vram[addr ^ 0x3ffff0] = val;
+}
+
+
+void
+riva128_ramin_write_w(uint32_t addr, uint16_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+	uint16_t *vram_w = (uint16_t *)svga->vram;
+
+	addr &= 0x3fffff;
+
+	//pclog("[RIVA 128] RAMIN write %08x %04x\n", addr, val);
+
+	vram_w[(addr ^ 0x3ffff0) >> 1] = val;
+}
+
+
+void
+riva128_ramin_write_l(uint32_t addr, uint32_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+	uint32_t *vram_l = (uint32_t *)svga->vram;
+
+	addr &= 0x3fffff;
+
+	pclog("[RIVA 128] RAMIN write %08x %08x\n", addr, val);
+
+	vram_l[(addr ^ 0x3ffff0) >> 2] = val;
+}
+
+void
+riva128_pfifo_reset(void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	
+	riva128->pfifo.intr_en = 0;
+	riva128->pfifo.ramro = 0x1e00;
+	riva128->pfifo.ramro_addr = 0x1e00;
+	riva128->pfifo.ramro_size = 512;
+}
+
+uint32_t
+riva128_pmc_recompute_intr(int send_intr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	uint32_t intr = 0;
+	if (riva128->pfifo.intr & riva128->pfifo.intr_en)
+		intr |= (1 << 8);
+	if ((riva128->pgraph.intr_0 & (1 << 8))
+			&& (riva128->pgraph.intr_en_0 & (1 << 8)))
+		intr |= (1 << 24);
+	if ((riva128->pgraph.intr_0 & ~(1 << 8))
+			&& (riva128->pgraph.intr_en_0 & ~(1 << 8)))
+		intr |= (1 << 12);
+	if (riva128->pdma.intr & riva128->pdma.intr_en)
+		intr |= (1 << 13);
+	if (riva128->ptimer.intr & riva128->ptimer.intr_en)
+		intr |= (1 << 20);
+	if (riva128->pmc.intr & (1u << 31))
+		intr |= (1u << 31);
+	
+	if (!send_intr)
+		return intr;
+
+	/* Hardware interrupt */
+	if ((intr & 0x7fffffff) && (riva128->pmc.intr_en & 1))
+		pci_set_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state);
+	else
+		pci_clear_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state);
+
+	return intr;
+}
+
+uint32_t
+riva128_pmc_read(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	switch(addr) {
+	case 0x000000:
+		return 0x00030110; /* ID register. */
+	case 0x000100:
+		pci_clear_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state);
+		return riva128_pmc_recompute_intr(0, riva128);
+	case 0x000140:
+		return riva128->pmc.intr_en;
+	case 0x000200:
+		return riva128->pmc.enable;
+	}
+	return 0;
+}
+
+void
+riva128_pmc_write(uint32_t addr, uint32_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	switch(addr) {
+	case 0x000100:
+		riva128->pmc.intr = val & (1u << 31);
+		if ((val & (1u << 31)) && (riva128->pmc.intr_en & 2))
+			pci_set_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state); /* sw interrupt */
+		/* else
+			pci_clear_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state); */
+		break;
+	case 0x000140:
+		riva128->pmc.intr_en = val & 3;
+		riva128_pmc_recompute_intr(!!val, riva128);
+		break;
+	case 0x000200:
+		riva128->pmc.enable = val;
+		break;
+	}
+}
+
+void
+riva128_pfifo_interrupt(int num, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	riva128->pfifo.intr |= (1 << num);
+	riva128_pmc_recompute_intr(1, riva128);
+}
+
+/* Apparently, PFIFO's CACHE1 uses some sort of Gray code... oh well */
+uint32_t riva128_pfifo_normal2gray(uint32_t val)
+{
+	return val ^ (val >> 1);
+}
+
+uint32_t riva128_pfifo_gray2normal(uint32_t val)
+{
+	uint32_t mask = val >> 1;
+	while(mask) {
+		val ^= mask;
+		mask >>= 1;
+	}
+	return val;
+}
+
+uint32_t riva128_pfifo_free(void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	uint32_t put = riva128_pfifo_gray2normal(
+			riva128->pfifo.caches[1].put >> 2) << 2;
+	uint32_t get = riva128_pfifo_gray2normal(
+			riva128->pfifo.caches[1].get >> 2) << 2;
+	
+	uint32_t free = (get - put - 4) & 0x7c;
+	return free;
+}
+
+uint32_t
+riva128_pfifo_read(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	/* pclog("[RIVA 128] PFIFO read addr %08x\n", addr); */
+
+	switch(addr) {
+	case 0x002080:
+		return riva128->pfifo.cache_error;
+	case 0x002100:
+		return riva128->pfifo.intr;
+	case 0x002140:
+		return riva128->pfifo.intr_en;
+	case 0x002210:
+		return riva128->pfifo.ramht;
+	case 0x002214:
+		return riva128->pfifo.ramfc;
+	case 0x002218:
+		return riva128->pfifo.ramro;
+	case 0x002400: {
+		uint32_t temp = 0;
+		if (riva128->pfifo.runout_put == riva128->pfifo.runout_get)
+			temp |= 0x010;
+		else temp |= 0x001;
+		if (((riva128->pfifo.runout_put + 8)
+				& (riva128->pfifo.ramro_size - 8))
+						== riva128->pfifo.runout_get)
+			temp |= 0x100;
+		return temp;
+	}
+	case 0x002410:
+		return riva128->pfifo.runout_put;
+	case 0x002420:
+		return riva128->pfifo.runout_get;
+	case 0x002500:
+		return riva128->pfifo.caches_reassign & 1;
+	case 0x003010:
+		return riva128->pfifo.caches[0].put;
+	case 0x003014: {
+		uint32_t temp = 0;
+		if (riva128->pfifo.caches[0].put
+				== riva128->pfifo.caches[0].get)
+			temp |= 0x010;
+		else
+			temp |= 0x100;
+		return temp;
+	}
+	case 0x003040:
+		return riva128->pfifo.caches[0].pull_ctrl;
+	case 0x003070:
+		return riva128->pfifo.caches[0].get;
+	case 0x003080:
+		return riva128->pfifo.caches[0].ctx[0];
+	case 0x003100:
+		return riva128->pfifo.cache0.method |
+			(riva128->pfifo.cache0.subchan << 13);
+	case 0x003104:
+		return riva128->pfifo.cache0.param;
+	case 0x003200:
+		return riva128->pfifo.caches[1].push_enabled;
+	case 0x003204:
+		return riva128->pfifo.caches[1].chanid;
+	case 0x003210:
+		return riva128->pfifo.caches[1].put;
+	case 0x003214: {
+		uint32_t temp = 0;
+		if (riva128->pfifo.caches[1].put
+				== riva128->pfifo.caches[1].get)
+			temp |= 0x010;
+		if (riva128_pfifo_free(riva128) == 0)
+			temp |= 0x100;
+		if (riva128->pfifo.runout_put != riva128->pfifo.runout_get)
+			temp |= 0x001;
+		return temp;
+	}
+	case 0x003220:
+		return riva128->pfifo.caches[1].dma_ctrl;
+	case 0x003224:
+		return riva128->pfifo.caches[1].dma_length;
+	case 0x003228:
+		return riva128->pfifo.caches[1].dma_addr;
+	case 0x003240:
+		return riva128->pfifo.caches[1].pull_ctrl;
+	case 0x003250:
+		return riva128->pfifo.caches[1].pull_state;
+	case 0x003270:
+		return riva128->pfifo.caches[1].get;
+	case 0x003280:
+		return riva128->pfifo.caches[1].ctx[0];
+	case 0x003290:
+		return riva128->pfifo.caches[1].ctx[1];
+	case 0x0032a0:
+		return riva128->pfifo.caches[1].ctx[2];
+	case 0x0032b0:
+		return riva128->pfifo.caches[1].ctx[3];
+	case 0x0032c0:
+		return riva128->pfifo.caches[1].ctx[4];
+	case 0x0032d0:
+		return riva128->pfifo.caches[1].ctx[5];
+	case 0x0032e0:
+		return riva128->pfifo.caches[1].ctx[6];
+	case 0x0032f0:
+		return riva128->pfifo.caches[1].ctx[7];
+	}
+
+	if ((addr < 0x003300) || (addr > 0x003403))
+		return 0;
+	else if (addr & 4)
+		return riva128->pfifo.cache1[(addr >> 3) & 0x1f].param;
+	else
+		return riva128->pfifo.cache1[(addr >> 3) & 0x1f].method
+				| (riva128->pfifo.cache1[(addr >> 3)
+						& 0x1f].subchan << 13);
+}
+
+void
+riva128_pfifo_write(uint32_t addr, uint32_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	/* pclog("[RIVA 128] PFIFO write addr %08x data %02x\n", addr, val); */
+
+	switch(addr) {
+	case 0x002100: {
+		uint32_t tmp = riva128->pfifo.intr & ~val;
+		riva128->pfifo.intr = tmp;
+		pci_clear_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state);
+		if (!(riva128->pfifo.intr & 1))
+			riva128->pfifo.cache_error = 0;
+		break;
+	}
+	case 0x002140:
+		riva128->pfifo.intr_en = val & 0x11111;
+		riva128_pmc_recompute_intr(1, riva128);
+		break;
+	case 0x002210:
+		riva128->pfifo.ramht = val & 0x3f000;
+		riva128->pfifo.ramht_addr = val & 0xf000;
+		switch(val & 0x30000) {
+			case 0x00000:
+				riva128->pfifo.ramht_size = 4096;
+				break;
+			case 0x10000:
+				riva128->pfifo.ramht_size = 8192;
+				break;
+			case 0x20000:
+				riva128->pfifo.ramht_size = 16384;
+				break;
+			case 0x30000:
+				riva128->pfifo.ramht_size = 32768;
+				break;
+		}
+		/*pclog("[RIVA 128] PFIFO RAMHT at %04x with size %04x\n",
+				riva128->pfifo.ramht_addr,
+				riva128->pfifo.ramht_size);*/
+		break;
+	case 0x002214:
+		riva128->pfifo.ramfc = riva128->pfifo.ramfc_addr = val & 0xfe00;
+		//pclog("[RIVA 128] PFIFO RAMFC at %04x\n", riva128->pfifo.ramfc_addr);
+		break;
+	case 0x002218:
+		riva128->pfifo.ramro = val & 0x1fe00;
+		riva128->pfifo.ramro_addr = val & 0xfe00;
+		if (val & 0x10000)
+			riva128->pfifo.ramro_size = 8192;
+		else
+			riva128->pfifo.ramro_size = 512;
+		/*pclog("[RIVA 128] PFIFO RAMRO at %04x with size %04x\n",
+				riva128->pfifo.ramro_addr,
+				riva128->pfifo.ramro_size);*/
+		break;
+	case 0x002410:	
+		riva128->pfifo.runout_put = val & 0x1ff8;
+		break;
+	case 0x002420:
+		riva128->pfifo.runout_get = val & 0x1ff8;
+		break;
+	case 0x002500:
+		riva128->pfifo.caches_reassign = val & 1;
+		break;
+	case 0x003000:
+		riva128->pfifo.caches[0].push_enabled = val & 1;
+		break;
+	case 0x003004:
+		riva128->pfifo.caches[0].chanid = val;
+		break;
+	case 0x003010:
+		riva128->pfifo.caches[0].put = val & 4;
+		break;
+	case 0x003040:
+		riva128->pfifo.caches[0].pull_ctrl = val & 0x1;
+		break;
+	case 0x003070:
+		riva128->pfifo.caches[0].get = val & 4;
+		break;
+	case 0x003080:
+		riva128->pfifo.caches[0].ctx[0] = val & 0xffffff;
+		break;
+	case 0x003100:
+		riva128->pfifo.cache0.method = val & 0x1ffc;
+		riva128->pfifo.cache0.subchan = val >> 13;
+		break;
+	case 0x003104:
+		riva128->pfifo.cache0.param = val;
+		/*pclog("[RIVA 128] CACHE0 method %04x param %08x subchannel %d\n"
+				, riva128->pfifo.cache0.method,
+				riva128->pfifo.cache0.param,
+				riva128->pfifo.cache0.subchan);*/
+		riva128_do_gpu_work(riva128);
+		break;
+	case 0x003200:
+		riva128->pfifo.caches[1].push_enabled = val & 1;
+		break;
+	case 0x003204:
+		riva128->pfifo.caches[1].chanid = val;
+		break;
+	case 0x003210:
+		riva128->pfifo.caches[1].put = val & 0x7c;
+		break;
+	case 0x003220:
+		riva128->pfifo.caches[1].dma_ctrl &= ~0x10;
+		riva128->pfifo.caches[1].dma_ctrl |= val & 1;
+		break;
+	case 0x003224:
+		riva128->pfifo.caches[1].dma_length = val & 0x7ffffc;
+		break;
+	case 0x003228:
+		riva128->pfifo.caches[1].dma_addr = val & 0x7ffffc;
+		break;
+	case 0x003240:
+		riva128->pfifo.caches[1].pull_ctrl = val & 0x1;
+		break;
+	case 0x003250:
+		riva128->pfifo.caches[1].pull_state = val & 0x10;
+		break;
+	case 0x003270:
+		riva128->pfifo.caches[1].get = val & 0x7c;
+		break;
+	case 0x003280:
+		riva128->pfifo.caches[1].ctx[0] = val;
+		riva128->pfifo.caches[1].pull_state |= 0x10;
+		break;
+	case 0x003290:
+		riva128->pfifo.caches[1].ctx[1] = val;
+		riva128->pfifo.caches[1].pull_state |= 0x10;
+		break;
+	case 0x0032a0:
+		riva128->pfifo.caches[1].ctx[2] = val;
+		riva128->pfifo.caches[1].pull_state |= 0x10;
+		break;
+	case 0x0032b0:
+		riva128->pfifo.caches[1].ctx[3] = val;
+		riva128->pfifo.caches[1].pull_state |= 0x10;
+		break;
+	case 0x0032c0:
+		riva128->pfifo.caches[1].ctx[4] = val;
+		riva128->pfifo.caches[1].pull_state |= 0x10;
+		break;
+	case 0x0032d0:
+		riva128->pfifo.caches[1].ctx[5] = val;
+		riva128->pfifo.caches[1].pull_state |= 0x10;
+		break;
+	case 0x0032e0:
+		riva128->pfifo.caches[1].ctx[6] = val;
+		riva128->pfifo.caches[1].pull_state |= 0x10;
+		break;
+	case 0x0032f0:
+		riva128->pfifo.caches[1].ctx[7] = val;
+		riva128->pfifo.caches[1].pull_state |= 0x10;
+		break;
+	}
+	if ((addr < 0x003300) || (addr > 0x003403))
+		return;
+	
+	if (addr & 4) {
+		riva128->pfifo.cache1[
+				riva128_pfifo_normal2gray((addr >> 3) & 0x1f)
+			].param = val;
+		return;
+	}
+	riva128->pfifo.cache1[
+			riva128_pfifo_normal2gray((addr >> 3) & 0x1f)].method
+					= val & 0x1ffc;
+	riva128->pfifo.cache1[riva128_pfifo_normal2gray((addr >> 3) & 0x1f)
+			].subchan = val >> 13;
+}
+
+void
+riva128_ptimer_interrupt(int num, void *p)
+{
+	/* nv_riva_log("RIVA 128 PTIMER interrupt #%d fired!\n", num); */
+	riva128_t *riva128 = (riva128_t *)p;
+
+	riva128->ptimer.intr |= (1 << num);
+
+	riva128_pmc_recompute_intr(1, riva128);
+}
+
+uint32_t
+riva128_ptimer_read(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	switch(addr)
+	{
+	case 0x009100:
+		return riva128->ptimer.intr;
+	case 0x009140:
+		return riva128->ptimer.intr_en;
+	case 0x009200:
+		return riva128->ptimer.clock_div;
+	case 0x009210:
+		return riva128->ptimer.clock_mul;
+	case 0x009400:
+		return riva128->ptimer.time & 0xffffffffULL;
+	case 0x009410:
+		return riva128->ptimer.time >> 32;
+	case 0x009420:
+		return riva128->ptimer.alarm;
+	}
+	return 0;
+}
+
+void
+riva128_ptimer_write(uint32_t addr, uint32_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	switch(addr)
+	{
+	case 0x009100:
+		riva128->ptimer.intr &= ~val;
+		pci_clear_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state);
+		break;
+	case 0x009140:
+		riva128->ptimer.intr_en = val & 1;
+		riva128_pmc_recompute_intr(1, riva128);
+		break;
+	case 0x009200:
+		if (!((uint16_t) val))
+			val = 1;
+		riva128->ptimer.clock_div = (uint16_t)val;
+		break;
+	case 0x009210:
+		riva128->ptimer.clock_mul = (uint16_t)val;
+		break;
+	case 0x009400:
+		riva128->ptimer.time &= 0x0fffffff00000000ULL;
+		riva128->ptimer.time |= val & 0xffffffe0;
+		break;
+	case 0x009410:
+		riva128->ptimer.time &= 0xffffffe0;
+		riva128->ptimer.time |= (uint64_t)(val & 0x0fffffff) << 32;
+		break;
+	case 0x009420:
+		riva128->ptimer.alarm = val & 0xffffffe0;
+		break;
+	}
+}
+
+uint32_t
+riva128_pfb_read(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	uint32_t result = 0;
+	switch(addr) {
+	case 0x100000:
+		switch(riva128->vram_size) {
+		case 1 << 20:
+			result = 0;
+			break;
+		case 2 << 20:
+			result = 1;
+			break;
+		case 4 << 20:
+			result = 2;
+			break;
+		}
+		return result | 0x0c;
+	case 0x100200:
+		return riva128->pfb.config_0;
+	}
+	return 0;
+}
+
+void
+riva128_pfb_write(uint32_t addr, uint32_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	switch(addr) {
+	case 0x100200:
+		riva128->pfb.config_0 = (val & 0x33f) | 0x1000;
+		riva128->pfb.width = (val & 0x3f) << 5;
+		switch((val >> 8) & 3) {
+		case 1:
+			riva128->pfb.bpp = 8;
+			break;
+		case 2:
+			riva128->pfb.bpp = 16;
+			break;
+		case 3:
+			riva128->pfb.bpp = 32;
+			break;
+		}
+		break;
+	}
+}
+
+void
+riva128_pgraph_interrupt(int num, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	riva128->pgraph.intr_0 |= (1u << num);	
+	riva128_pmc_recompute_intr(1, riva128);
+}
+
+void
+riva128_pgraph_invalid_interrupt(int num, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	riva128->pgraph.intr_1 |= (1 << num);
+	if (riva128->pgraph.intr_en_0 & 1)
+		riva128->pgraph.intr_0 |= (1 << 0);
+
+	if (riva128->pgraph.intr_en_1 & (1u << num))
+		riva128_pmc_recompute_intr(1, riva128);
+}
+
+uint32_t
+riva128_pgraph_read(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	//pclog("RIVA 128 PGRAPH read %08x\n", addr);
+	switch(addr) {
+	case 0x400080:
+		return riva128->pgraph.debug_0;
+	case 0x400100:
+		return riva128->pgraph.intr_0;
+	case 0x400104:
+		return riva128->pgraph.intr_1;
+	case 0x400140:
+		return riva128->pgraph.intr_en_0;
+	case 0x400144:
+		return riva128->pgraph.intr_en_1;
+	case 0x400180:
+		return riva128->pgraph.ctx_switch_a;
+	case 0x400194:
+		return riva128->pgraph.ctx_user;
+	case 0x40062c:
+		return riva128->pgraph.chroma;
+	case 0x400630:
+		return riva128->pgraph.surf_offset[0];
+	case 0x400634:
+		return riva128->pgraph.surf_offset[1];
+	case 0x400638:
+		return riva128->pgraph.surf_offset[2];
+	case 0x40063c:
+		return riva128->pgraph.surf_offset[3];
+	case 0x400650:
+		return riva128->pgraph.surf_pitch[0];
+	case 0x400654:
+		return riva128->pgraph.surf_pitch[1];
+	case 0x400658:
+		return riva128->pgraph.surf_pitch[2];
+	case 0x40065c:
+		return riva128->pgraph.surf_pitch[3];
+	case 0x400684:
+		return riva128->pgraph.notifier_obj;
+	case 0x400688:
+		return riva128->pgraph.dma_obj;
+	case 0x40068c:
+		return riva128->pgraph.m2mf_obj;
+	case 0x4006a4:
+		return riva128->pgraph.fifo_access;
+	case 0x4006a8:
+		return riva128->pgraph.surf_config;
+	}
+	return 0;
+}
+
+void
+riva128_pgraph_write(uint32_t addr, uint32_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	//pclog("[RIVA 128] PGRAPH write %08x data %08x\n", addr, val);
+	switch(addr) {
+	case 0x400080:
+		riva128->pgraph.debug_0 = val;
+		break;
+	case 0x400100:
+		riva128->pgraph.intr_0 &= ~val;
+		pci_clear_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state);
+		break;
+	case 0x400104:
+		riva128->pgraph.intr_1 &= ~val;
+		/* if (!riva128->pgraph.intr_1)
+			riva128->pgraph.intr_0 &= ~1; */
+		pci_clear_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state);
+		break;
+	case 0x400140:
+		riva128->pgraph.intr_en_0 = val & 0x11111111;
+		riva128_pmc_recompute_intr(1, riva128);
+		break;
+	case 0x400144:
+		riva128->pgraph.intr_en_1 = val & 0x00011111;
+		riva128_pmc_recompute_intr(1, riva128);
+		break;
+	case 0x400180:
+		riva128->pgraph.ctx_switch_a = val & 0x3ff3f71f;
+		break;
+	case 0x400194:
+		riva128->pgraph.ctx_user = val;
+		break;
+	case 0x400624:
+		riva128->pgraph.rop = val & 0xff;
+		break;
+	case 0x40062c:
+		riva128->pgraph.chroma = val;
+		break;
+	case 0x400630:
+		riva128->pgraph.surf_offset[0] = val & 0x3ffff0;
+		break;
+	case 0x400634:
+		riva128->pgraph.surf_offset[1] = val & 0x3ffff0;
+		break;
+	case 0x400638:
+		riva128->pgraph.surf_offset[2] = val & 0x3ffff0;
+		break;
+	case 0x40063c:
+		riva128->pgraph.surf_offset[3] = val & 0x3ffff0;
+		break;
+	case 0x400650:
+		riva128->pgraph.surf_pitch[0] = val & 0x1ff0;
+		break;
+	case 0x400654:
+		riva128->pgraph.surf_pitch[1] = val & 0x1ff0;
+		break;
+	case 0x400658:
+		riva128->pgraph.surf_pitch[2] = val & 0x1ff0;
+		break;
+	case 0x40065c:
+		riva128->pgraph.surf_pitch[3] = val & 0x1ff0;
+		break;
+	case 0x400684:
+		riva128->pgraph.notifier_obj = val & 0xffffff;
+		break;
+	case 0x400688:
+		riva128->pgraph.dma_obj = val & 0xffff;
+		break;
+	case 0x40068c:
+		riva128->pgraph.m2mf_obj = val & 0xffff;
+		break;
+	case 0x4006a4:
+		riva128->pgraph.fifo_access = val & 1;
+		break;
+	case 0x4006a8:
+		riva128->pgraph.surf_config = val;
+		break;
+	}
+}
+
+void
+riva128_pdma_interrupt(int num, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	riva128->pdma.intr |= (1u << num);	
+	riva128_pmc_recompute_intr(1, riva128);
+}
+
+uint32_t
+riva128_pdma_read(uint32_t addr, void *p)
+{	riva128_t *riva128 = (riva128_t *)p;
+	//pclog("RIVA 128 PDMA read %08x\n", addr);
+	switch(addr) {
+		case 0x401100:
+			return riva128->pdma.intr;
+		case 0x401140:
+			return riva128->pdma.intr_en;
+		case 0x401400:
+			return riva128->pdma.src_ctx;
+	}
+	return 0;
+}
+
+void
+riva128_pdma_write(uint32_t addr, uint32_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	pclog("RIVA 128 PDMA write %08x %08x\n", addr, val);
+	switch(addr) {
+		case 0x401100:
+			riva128->pdma.intr &= ~val;
+			pci_clear_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state);
+			break;
+		case 0x400140:
+			riva128->pdma.intr_en = val & 0x11111111;
+			riva128_pmc_recompute_intr(1, riva128);
+			break;
+		case 0x401400:
+			riva128->pdma.src_ctx = val;
+			break;
+	}
+}
+
+uint32_t
+riva128_pramdac_read(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	switch(addr) {
+    case 0x680300:
+        return riva128->pramdac.cursor_pos;
+	case 0x680500:
+		return riva128->pramdac.nvpll;
+	case 0x680504:
+		return riva128->pramdac.mpll;
+	case 0x680508:
+		return riva128->pramdac.vpll;
+    case 0x680600:
+        return riva128->pramdac.gen_ctrl;
+	}
+	return 0;
+}
+
+void
+riva128_pramdac_write(uint32_t addr, uint32_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+	switch(addr) {
+    case 0x680300:
+        riva128->pramdac.cursor_pos = val & 0x0fff0fff;
+		svga->hwcursor.x = val & 0xfff;
+		svga->hwcursor.y = (val >> 16) & 0xfff;
+		svga->hwcursor.yoff = 0;
+		svga->hwcursor.xoff = 0;
+        break;
+	case 0x680500:
+		riva128->pramdac.nvpll = val;
+		break;
+	case 0x680504:
+		riva128->pramdac.mpll = val;
+		break;
+	case 0x680508:
+		riva128->pramdac.vpll = val;
+		break;
+    case 0x680600:
+        riva128->pramdac.gen_ctrl = val;
+        break;
+	}
+	svga_recalctimings(&riva128->svga);
+}
+
+uint8_t
+riva128_ramht_hash(uint32_t handle, uint8_t chanid)
+{
+	return (handle ^ (handle >> 8) ^ (handle >> 16) ^ (handle >> 24)
+			^ (chanid & 0x7f)) & 0xff;
+}
+
+int
+riva128_ramht_lookup(uint32_t handle, int cache_num, uint8_t chanid,
+		int subchanid, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	int bucket_entries = 2;
+
+	switch(riva128->pfifo.ramht_size) {
+	case 4096:
+		bucket_entries = 2;
+		break;
+	case 8192:
+		bucket_entries = 4;
+		break;
+	case 16384:
+		bucket_entries = 8;
+		break;
+	case 32768:
+		bucket_entries = 16;
+		break;
+	}
+
+	uint32_t ramht_addr = riva128->pfifo.ramht_addr +
+			((uint32_t)riva128_ramht_hash(handle, chanid)
+					* bucket_entries * 8);
+
+	//pclog("[RIVA 128] RAMHT addr to search at %08x\n", ramht_addr);
+
+	int found = 0;
+
+	for(int i = 0; i < bucket_entries; i++) {
+		uint32_t handle_check =
+				riva128_ramin_read_l(ramht_addr, riva128);
+		uint8_t chanid_check =
+				riva128_ramin_read(ramht_addr + 7, riva128);
+		if (handle_check == handle && chanid_check == chanid) {
+			found = 1;
+			break;
+		}
+		ramht_addr += 8;
+	}
+
+	if (!found) {
+		//pclog("[RIVA 128] Cache error: Handle not found!\n");
+		riva128->pfifo.caches[cache_num].pull_ctrl |= 0x010;
+		riva128->pfifo.caches[cache_num].pull_ctrl &= ~1;
+		riva128->pfifo.cache_error |= cache_num ? 0x10 : 0x01;
+		riva128_pfifo_interrupt(0, riva128);
+		return 1;
+	}
+
+	//pclog("[RIVA 128] Object found at RAMHT addr %08x\n", ramht_addr);
+	uint32_t ctx = riva128_ramin_read_l(ramht_addr + 4, riva128);
+	riva128->pfifo.caches[cache_num].pull_ctrl &= ~0x010;
+	if (cache_num)
+		riva128->pfifo.caches[1].ctx[subchanid] = ctx & 0xffffff;
+	else
+		riva128->pfifo.caches[0].ctx[0] = ctx & 0xffffff;
+	//pclog("[RIVA 128] CTX %08x\n", ctx & 0xffffff);
+	if (!(ctx & 0x800000)) {
+		//pclog("[RIVA 128] Cache error: Software object!\n");
+		riva128->pfifo.caches[cache_num].pull_ctrl |= 0x100;
+		riva128->pfifo.caches[cache_num].pull_ctrl &= ~1;
+		riva128->pfifo.cache_error |= cache_num ? 0x10 : 0x01;
+		riva128_pfifo_interrupt(0, riva128);
+		return 1;
+	} else
+		riva128->pfifo.caches[cache_num].pull_ctrl &= ~0x100;
+
+	return 0;
+}
+
+typedef struct riva128_pgraph_color
+{
+	uint16_t r, g, b;
+	uint8_t a, i;
+	uint16_t i16;
+	enum
+	{
+		RIVA128_COLOR_MODE_RGB5,
+		RIVA128_COLOR_MODE_RGB8,
+		RIVA128_COLOR_MODE_RGB10,
+		RIVA128_COLOR_MODE_Y8,
+		RIVA128_COLOR_MODE_Y16,
+	} mode;
+} riva128_pgraph_color_t;
+
+riva128_pgraph_color_t
+riva128_pgraph_expand_color(uint32_t graphobj0, uint32_t color, void *p)
+{
+	/* riva128_t *riva128 = (riva128_t *)p; */
+	riva128_pgraph_color_t color_ret;
+
+	int format = graphobj0 & 0x7;
+	int fa = (graphobj0 >> 3) & 1;
+
+	switch(format) {
+	case 0:
+		/* X16A1R5G5B5 */
+		color_ret.a = ((color >> 15) & 1) * 0xff;
+		color_ret.r = ((color >> 10) & 0x1f) * 0x20;
+		color_ret.g = ((color >> 5) & 0x1f) * 0x20;
+		color_ret.b = ((color >> 0) & 0x1f) * 0x20;
+		color_ret.mode = RIVA128_COLOR_MODE_RGB5;
+		break;
+	case 1:
+		/* A8R8G8B8 */
+		color_ret.a = color >> 24;
+		color_ret.r = (((color >> 16) & 0xff) * 0x4);
+		color_ret.g = (((color >> 8) & 0xff) * 0x4);
+		color_ret.b = (((color >> 0) & 0xff) * 0x4);
+		color_ret.mode = RIVA128_COLOR_MODE_RGB8;
+		break;
+	case 2:
+		/* A2R10G10B10 */
+		color_ret.a = (color >> 30) * 0x55;
+		color_ret.r = (color >> 20) & 0x3ff;
+		color_ret.g = (color >> 10) & 0x3ff;
+		color_ret.b = (color >> 0) & 0x3ff;
+		color_ret.mode = RIVA128_COLOR_MODE_RGB10;
+		break;
+	case 3:
+		/* X16A8Y8 */
+		color_ret.a = (color >> 8) & 0xff;
+		color_ret.r = color_ret.g = color_ret.b
+				= ((color & 0xff) * 0x4);
+		color_ret.mode = RIVA128_COLOR_MODE_Y8;
+		break;
+	case 4:
+		/* A16Y16 */
+		color_ret.a = (color >> 16) & 0xffff;
+		color_ret.r = color_ret.g = color_ret.b
+				= (color & 0xffff) >> 6;
+		color_ret.mode = RIVA128_COLOR_MODE_Y16;
+		break;
+	}
+	color_ret.i = color & 0xff;
+	color_ret.i16 = color & 0xffff;
+	if (!fa)
+		color_ret.a = 0xff;
+
+	return color_ret;
+}
+
+uint32_t
+riva128_pgraph_to_a1r10g10b10(riva128_pgraph_color_t color)
+{
+	return !!color.a << 30 | color.r << 20 | color.g << 10 | color.b;
+}
+
+uint8_t
+riva128_translate_rop(uint32_t graphobj0, uint8_t rop)
+{
+	uint32_t patch_config_rop = (graphobj0 >> 24) & 0x1f;
+	if(patch_config_rop == 0x17) //SRC_BYPASS
+		return VIDEO_ROP_SRC_COPY;
+	
+	uint8_t result = 0;
+	int swizzle[3];
+
+	if (patch_config_rop < 8) {
+		swizzle[0] = patch_config_rop >> 0 & 1;
+		swizzle[1] = patch_config_rop >> 1 & 1;
+		swizzle[2] = patch_config_rop >> 2 & 1;
+	} else if (patch_config_rop < 0x10) {
+		swizzle[0] = (patch_config_rop >> 0 & 1) + 1;
+		swizzle[1] = (patch_config_rop >> 1 & 1) + 1;
+		swizzle[2] = (patch_config_rop >> 2 & 1) + 1;
+	} else if (patch_config_rop == 0x10) {
+		swizzle[0] = 0, swizzle[1] = 1, swizzle[2] = 2;
+	} else if (patch_config_rop == 0x11) {
+		swizzle[0] = 1, swizzle[1] = 0, swizzle[2] = 2;
+	} else if (patch_config_rop == 0x12) {
+		swizzle[0] = 0, swizzle[1] = 2, swizzle[2] = 1;
+	} else if (patch_config_rop == 0x13) {
+		swizzle[0] = 2, swizzle[1] = 0, swizzle[2] = 1;
+	} else if (patch_config_rop == 0x14) {
+		swizzle[0] = 1, swizzle[1] = 2, swizzle[2] = 0;
+	} else if (patch_config_rop == 0x15) {
+		swizzle[0] = 2, swizzle[1] = 1, swizzle[2] = 0;
+	} else {
+        warning("NV3 ROP: Invalid patch configuration %02x!", rop);
+	}
+
+	if (patch_config_rop == 0) {
+		if (rop & 0x01)
+			result |= 0x11;
+		if (rop & 0x16)
+			result |= 0x44;
+		if (rop & 0x68)
+			result |= 0x22;
+		if (rop & 0x80)
+			result |= 0x88;
+	} else if (patch_config_rop == 0xf) {
+		if (rop & 0x01)
+			result |= 0x03;
+		if (rop & 0x16)
+			result |= 0x0c;
+		if (rop & 0x68)
+			result |= 0x30;
+		if (rop & 0x80)
+			result |= 0xc0;
+	} else {
+		int32_t i;
+		for (i = 0; i < 8; i++) {
+			int32_t s0 = i >> swizzle[0] & 1;
+			int32_t s1 = i >> swizzle[1] & 1;
+			int32_t s2 = i >> swizzle[2] & 1;
+			int32_t s = s2 << 2 | s1 << 1 | s0;
+			if (rop >> s & 1)
+				result |= 1 << i;
+		}
+	}
+
+	return result;
+}
+
+uint32_t
+riva128_read_pixel_from_buffer(uint32_t graphobj0, uint16_t x, uint16_t y, int buffer, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+
+	uint16_t *vram_w = (uint16_t *)svga->vram;
+	uint32_t *vram_l = (uint32_t *)svga->vram;
+
+	switch(graphobj0 & 7) {
+	case 3: {
+        uint32_t addr = ((x + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		return svga->vram[addr & riva128->vram_mask];
+		}
+	case 0: case 4: {
+        uint32_t addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		return vram_w[(addr & riva128->vram_mask) >> 1];
+		}
+	case 1: case 2: {
+        uint32_t addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		return vram_l[(addr & riva128->vram_mask) >> 2];
+		}
+	}
+	return 0;
+}
+
+void
+riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
+		uint32_t color, uint8_t a, int buffer, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+
+	uint16_t *vram_w = (uint16_t *)svga->vram;
+	uint32_t *vram_l = (uint32_t *)svga->vram;
+
+	uint16_t clipx_min = riva128->pgraph.clipx_min;
+	uint16_t clipx_max = riva128->pgraph.clipx_min + riva128->pgraph.clipw;
+	uint16_t clipy_min = riva128->pgraph.clipy_min;
+	uint16_t clipy_max = riva128->pgraph.clipy_min + riva128->pgraph.cliph;
+
+	if ((((x < clipx_min) || (x > clipx_max))
+			|| ((y < clipy_min) || (y > clipy_max))) && (graphobj0 & 0x8000))
+		return;
+
+	int chroma_key_enabled = (graphobj0 >> 13) & 1;
+
+	if(chroma_key_enabled && (riva128->pgraph.chroma == color)) return;
+
+    uint32_t addr;
+
+	uint8_t rop = riva128_translate_rop(graphobj0, riva128->pgraph.rop);
+
+	int pattern_bit = 0;
+
+	switch(riva128->pgraph.pattern_shape)
+	{
+		case 0: pattern_bit = (x & 7) | ((y & 7) << 3); break;
+		case 1: pattern_bit = y & 0x3f; break;
+		case 2: pattern_bit = x & 0x3f; break;
+	}
+
+	int use_color1 = 0;
+	if(pattern_bit >= 32) use_color1 = (riva128->pgraph.pattern_bitmap[1] >> (pattern_bit - 32)) & 1;
+	else use_color1 = (riva128->pgraph.pattern_bitmap[0] >> pattern_bit) & 1;
+
+	uint32_t pattern = use_color1 ? riva128->pgraph.pattern_mono_color_rgb[1] : riva128->pgraph.pattern_mono_color_rgb[0];
+	uint32_t src, dst, pat;
+
+	switch((riva128->pgraph.surf_config >> (buffer * 4)) & 3)
+	{
+		case 1:
+		addr = ((x + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		dst = svga->vram[addr & riva128->vram_mask];
+		break;
+		case 0: case 2:
+		addr = (((x << 1) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		dst = vram_w[(addr & riva128->vram_mask) >> 1];
+		break;
+		case 3:
+		addr = (((x << 2) + (riva128->pgraph.surf_pitch[buffer]
+			* y))) + riva128->pgraph.surf_offset[buffer];
+		dst = vram_l[(addr & riva128->vram_mask) >> 2];
+		break;
+	}
+
+	switch(graphobj0 & 7) {
+	case 3: {
+		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
+		src = src_exp.i;
+		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
+		pat = pat_exp.i;
+		break;
+	}
+    case 0:
+	{
+		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
+		src = ((src_exp.r >> 5) << 10) | ((src_exp.g >> 5) << 5) | ((src_exp.b >> 5) & 0x1f);
+		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
+		pat = ((pat_exp.r >> 5) << 10) | ((pat_exp.g >> 5) << 5) | ((pat_exp.b >> 5) & 0x1f);
+		if(((riva128->pgraph.surf_config >> (buffer * 4)) & 3) == 3)
+		{
+			src = video_15to32[src];
+			pat = video_15to32[pat];
+		}
+		break;
+	}
+	case 4: {
+		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
+		src = svga_lookup_lut_ram(svga, src_exp.i16);
+		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
+		pat = pat_exp.i16;
+		break;
+	}
+	case 1:
+	{
+		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
+		src = ((src_exp.r >> 2) << 16) | ((src_exp.g >> 2) << 8) | ((src_exp.b >> 2) & 0xff);
+		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
+		pat = ((pat_exp.r >> 2) << 16) | ((pat_exp.g >> 2) << 8) | ((pat_exp.b >> 2) & 0xff);
+		break;
+	}
+	case 2: {
+		src = color;
+		pat = pattern;
+		break;
+	}
+	}
+	switch((riva128->pgraph.surf_config >> (buffer * 4)) & 3)
+	{
+		case 1:
+		svga->vram[addr & riva128->vram_mask] =
+			video_rop_gdi_ternary(rop,
+					src, dst, pat) & 0xff;
+		break;
+		case 0: case 2:
+		vram_w[(addr & riva128->vram_mask) >> 1] =
+			video_rop_gdi_ternary(rop,
+					src, dst, pat) & 0xffff;
+		break;
+		case 3:
+		vram_l[(addr & riva128->vram_mask) >> 2] =
+			video_rop_gdi_ternary(rop,
+					src, dst, pat);
+		break;
+	}
+
+	svga->changedvram[(addr & riva128->vram_mask) >> 12] =
+			changeframecount;
+}
+
+void
+riva128_pgraph_write_pixel(uint32_t graphobj0, uint16_t x, uint16_t y,
+		uint32_t color, uint8_t a, void *p)
+{
+    riva128_t *riva128 = (riva128_t *)p;
+    //riva128_pgraph_write_pixel_to_buffer(x, y, color, a, (riva128->pgraph.ctx_switch_a >> 16) & 3, riva128);
+    if((graphobj0 >> 20) & 1) riva128_pgraph_write_pixel_to_buffer(graphobj0, x, y, color, a, 0, riva128);
+    if((graphobj0 >> 21) & 1) riva128_pgraph_write_pixel_to_buffer(graphobj0, x, y, color, a, 1, riva128);
+    if((graphobj0 >> 22) & 1) riva128_pgraph_write_pixel_to_buffer(graphobj0, x, y, color, a, 2, riva128);
+    if((graphobj0 >> 23) & 1) riva128_pgraph_write_pixel_to_buffer(graphobj0, x, y, color, a, 3, riva128);
+}
+
+void
+riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
+		uint32_t graphobj0, uint32_t graphobj1, uint32_t graphobj2,
+		uint32_t graphobj3, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+
+	uint8_t objclass = (ctx >> 16) & 0x1f;
+
+	if(objclass != 0x1c && objclass != 0x05) pclog("[RIVA 128] PGRAPH execute grobj0 %08x grobj1 %08x grobj2 %08x objclass %02x method %04x param %08x\n", graphobj0, graphobj1, graphobj2, objclass, method, param);
+
+    switch(method) {
+	case 0x104:
+		if (riva128->pgraph.notify_impending) {
+			riva128_pgraph_invalid_interrupt(12, riva128);
+			break;
+		}
+		riva128->pgraph.notify_impending = 2;
+		riva128->pgraph.notifier_obj = (param & 0xf) << 20;
+		break;
+    }
+    
+	switch(objclass) {
+	case 0x01:
+		switch(method) {
+		case 0x300:
+			if (param & 0x80000000)
+				riva128->pgraph.beta = 0;
+			else
+				riva128->pgraph.beta = param & 0x7f800000;
+			break;
+		default:
+			riva128_pgraph_invalid_interrupt(0, riva128);
+		}
+		break;
+	case 0x02:
+		if (method == 0x300)
+			riva128->pgraph.rop = param & 0xff;
+		else
+			riva128_pgraph_invalid_interrupt(0, riva128);	
+		break;
+	case 0x03:
+		if (method == 0x304)
+			riva128->pgraph.chroma = riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param, riva128));
+		else
+			riva128_pgraph_invalid_interrupt(0, riva128);
+		break;
+	case 0x05:
+		switch(method) {
+		case 0x300:
+			riva128->pgraph.clipx_min = (param >> 16) & 0xffff;
+			riva128->pgraph.clipy_min = param & 0xffff;
+			break;
+		case 0x304:
+			riva128->pgraph.clipw = (param >> 16) & 0xffff;
+			riva128->pgraph.cliph = param & 0xffff;
+			break;
+		}
+		break;
+	case 0x06:
+		switch(method) {
+		case 0x304:
+			riva128_pgraph_invalid_interrupt(0, riva128);
+			break;
+		case 0x308:
+			riva128->pgraph.pattern_shape = param & 3;
+			break;
+		case 0x310: {
+			riva128->pgraph.pattern_mono_color_rgb[0] = riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param, riva128));
+			break;
+		}
+		case 0x314: {
+			riva128->pgraph.pattern_mono_color_rgb[1] = riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param, riva128));
+			break;
+		}
+		case 0x318:
+			riva128->pgraph.pattern_bitmap[1] = param;
+			//riva128->pgraph.pattern_bitmap[0] = 0;
+			break;
+		case 0x31c:
+			riva128->pgraph.pattern_bitmap[0] = param;
+			break;
+		}
+		break;
+    case 0x07:
+        if (!(method & 4) && (method >= 0x400 && method < 0x480)) {
+			riva128->pgraph.rect_vtx_x[(method & 0x1fc) >> 3] =
+					param & 0xffff;
+			riva128->pgraph.rect_vtx_y[(method & 0x1fc) >> 3] =
+					(param >> 16) & 0xffff;
+		} else if ((method & 4) && ((method >= 0x400)
+					&& (method < 0x480))) {
+			riva128->pgraph.rect_vtx_w[(method & 0x1fc) >> 3] =
+					param & 0xffff;
+			riva128->pgraph.rect_vtx_h[(method & 0x1fc) >> 3] =
+					(param >> 16) & 0xffff;
+			uint16_t startx = riva128->pgraph.rect_vtx_x[
+					(method & 0x1fc) >> 3];
+			uint16_t starty = riva128->pgraph.rect_vtx_y[
+					(method & 0x1fc) >> 3];
+			uint16_t endx = startx + riva128->pgraph.rect_vtx_w[
+					(method & 0x1fc) >> 3];
+			uint16_t endy = starty +
+					riva128->pgraph.rect_vtx_h[
+							(method & 0x1fc) >> 3];
+			for(uint16_t y = starty; y < endy; y++) {
+				for(uint16_t x = startx; x < endx; x++) {
+					riva128_pgraph_write_pixel(graphobj0, x, y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.rect_color, riva128)),
+						0xff, riva128);
+				}
+			}
+		}
+        else switch(method)
+        {
+            case 0x304:
+                riva128->pgraph.rect_color = param;
+                break;
+        }
+        break;
+	case 0x0a:
+		switch(method) {
+		case 0x304:
+			riva128->pgraph.lin_color = param;
+			break;
+		case 0x400:
+			riva128->pgraph.lin_start_y = (param >> 16) & 0xffff;
+			riva128->pgraph.lin_start_x = param & 0xffff;
+			break;
+		case 0x404:
+			riva128->pgraph.lin_end_y = (param >> 16) & 0xffff;
+			riva128->pgraph.lin_end_x = param & 0xffff;
+			if (riva128->pgraph.lin_start_x
+					== riva128->pgraph.lin_end_x) {
+				for(int y = riva128->pgraph.lin_start_y;
+						y < riva128->pgraph.lin_end_y;
+						y++) {
+					riva128_pgraph_write_pixel(graphobj0,
+						riva128->pgraph.lin_start_x,
+						y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.lin_color, riva128)),
+						0xff, riva128);
+				}
+			} else if (riva128->pgraph.lin_start_y
+					== riva128->pgraph.lin_end_y) {
+				for(int x = riva128->pgraph.lin_start_x;
+						x < riva128->pgraph.lin_end_x;
+						x++) {
+					riva128_pgraph_write_pixel(graphobj0, x,
+						riva128->pgraph.lin_start_y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.lin_color, riva128)),
+						0xff, riva128);
+				}
+			}
+			else
+				pclog("RIVA 128 lin not vertical/horizontal\n");
+			break;
+		}
+		break;
+	case 0x0c:
+		if (!(method & 4) && (method >= 0x400 && method < 0x600)) {
+			riva128->pgraph.gdi_vtx_x_a[(method & 0x1fc) >> 3] =
+					(param >> 16) & 0xffff;
+			riva128->pgraph.gdi_vtx_y_a[(method & 0x1fc) >> 3] =
+					param & 0xffff;
+		} else if ((method & 4) && ((method >= 0x400)
+					&& (method < 0x480))) {
+			riva128->pgraph.gdi_rect_w_a[(method & 0x1fc) >> 3] =
+					(param >> 16) & 0xffff;
+			riva128->pgraph.gdi_rect_h_a[(method & 0x1fc) >> 3] =
+					param & 0xffff;
+			uint16_t startx = riva128->pgraph.gdi_vtx_x_a[
+					(method & 0x1fc) >> 3];
+			uint16_t starty = riva128->pgraph.gdi_vtx_y_a[
+					(method & 0x1fc) >> 3];
+			uint16_t endx = startx + riva128->pgraph.gdi_rect_w_a[
+					(method & 0x1fc) >> 3];
+			uint16_t endy = starty +
+					riva128->pgraph.gdi_rect_h_a[
+							(method & 0x1fc) >> 3];
+			for(uint16_t y = starty; y < endy; y++) {
+				for(uint16_t x = startx; x < endx; x++) {
+					riva128_pgraph_write_pixel(graphobj0, x, y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_a, riva128)),
+						0xff, riva128);
+				}
+			}
+		}
+		else if (!(method & 4) && (method >= 0x800 && method < 0xa00)) {
+			riva128->pgraph.gdi_top_b[(method & 0x1fc) >> 3] =
+					(param >> 16) & 0xffff;
+			riva128->pgraph.gdi_left_b[(method & 0x1fc) >> 3] =
+					param & 0xffff;
+		} else if ((method & 4) && ((method >= 0x800)
+					&& (method < 0x880))) {
+			riva128->pgraph.gdi_bottom_b[(method & 0x1fc) >> 3] =
+					(param >> 16) & 0xffff;
+			riva128->pgraph.gdi_right_b[(method & 0x1fc) >> 3] =
+					param & 0xffff;
+			uint16_t startx = riva128->pgraph.gdi_left_b[
+					(method & 0x1fc) >> 3];
+			uint16_t starty = riva128->pgraph.gdi_top_b[
+					(method & 0x1fc) >> 3];
+			uint16_t endx = riva128->pgraph.gdi_right_b[
+					(method & 0x1fc) >> 3];
+			uint16_t endy = riva128->pgraph.gdi_bottom_b[
+							(method & 0x1fc) >> 3];
+			for(uint16_t y = starty; y < endy; y++) {
+				for(uint16_t x = startx; x < endx; x++) {
+					if(x >= riva128->pgraph.gdi_clip_left_b && x <= riva128->pgraph.gdi_clip_right_b
+					&& y >= riva128->pgraph.gdi_clip_top_b && y <= riva128->pgraph.gdi_clip_bottom_b)
+						riva128_pgraph_write_pixel(graphobj0, x, y,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_b, riva128)),
+							0xff, riva128);
+				}
+			}
+		}
+		else if(method >= 0xc00 && method < 0xd00)
+		{
+			for(int bit = 7; bit >= 0; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_c, riva128->pgraph.gdi_cur_y_c,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_c, riva128)),
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_c++;
+					if(riva128->pgraph.gdi_cur_x_c >= (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
+					{
+						riva128->pgraph.gdi_cur_x_c = riva128->pgraph.gdi_vtx_x_c;
+						riva128->pgraph.gdi_cur_y_c++;
+						if(riva128->pgraph.gdi_cur_y_c >= (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+							goto method_end;
+					}
+				}
+
+				for(int bit = 15; bit >= 8; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_c, riva128->pgraph.gdi_cur_y_c,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_c, riva128)),
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_c++;
+					if(riva128->pgraph.gdi_cur_x_c >= (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
+					{
+						riva128->pgraph.gdi_cur_x_c = riva128->pgraph.gdi_vtx_x_c;
+						riva128->pgraph.gdi_cur_y_c++;
+						if(riva128->pgraph.gdi_cur_y_c >= (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+							goto method_end;
+					}
+				}
+
+				for(int bit = 23; bit >= 16; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_c, riva128->pgraph.gdi_cur_y_c,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_c, riva128)),
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_c++;
+					if(riva128->pgraph.gdi_cur_x_c >= (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
+					{
+						riva128->pgraph.gdi_cur_x_c = riva128->pgraph.gdi_vtx_x_c;
+						riva128->pgraph.gdi_cur_y_c++;
+						if(riva128->pgraph.gdi_cur_y_c >= (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+							goto method_end;
+					}
+				}
+
+				for(int bit = 31; bit >= 24; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_c, riva128->pgraph.gdi_cur_y_c,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_c, riva128)),
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_c++;
+					if(riva128->pgraph.gdi_cur_x_c >= (riva128->pgraph.gdi_vtx_x_c + riva128->pgraph.gdi_vtx_w_c))
+					{
+						riva128->pgraph.gdi_cur_x_c = riva128->pgraph.gdi_vtx_x_c;
+						riva128->pgraph.gdi_cur_y_c++;
+						if(riva128->pgraph.gdi_cur_y_c >= (riva128->pgraph.gdi_vtx_y_c + riva128->pgraph.gdi_vtx_h_c))
+							goto method_end;
+					}
+			}
+		}
+		else if(method >= 0x1000 && method < 0x1200)
+		{
+			for(int bit = 7; bit >= 0; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_d, riva128->pgraph.gdi_cur_y_d,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_d, riva128)),
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_d++;
+					if(riva128->pgraph.gdi_cur_x_d >= (riva128->pgraph.gdi_vtx_x_d + riva128->pgraph.gdi_vtx_w_d_in))
+					{
+						riva128->pgraph.gdi_cur_x_d = riva128->pgraph.gdi_vtx_x_d;
+						riva128->pgraph.gdi_cur_y_d++;
+						if(riva128->pgraph.gdi_cur_y_d >= (riva128->pgraph.gdi_vtx_y_d + riva128->pgraph.gdi_vtx_h_d_in))
+							goto method_end;
+					}
+
+					
+				}
+
+				for(int bit = 15; bit >= 8; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_d, riva128->pgraph.gdi_cur_y_d,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_d, riva128)),
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_d++;
+					if(riva128->pgraph.gdi_cur_x_d >= (riva128->pgraph.gdi_vtx_x_d + riva128->pgraph.gdi_vtx_w_d_in))
+					{
+						riva128->pgraph.gdi_cur_x_d = riva128->pgraph.gdi_vtx_x_d;
+						riva128->pgraph.gdi_cur_y_d++;
+						if(riva128->pgraph.gdi_cur_y_d >= (riva128->pgraph.gdi_vtx_y_d + riva128->pgraph.gdi_vtx_h_d_in))
+							goto method_end;
+					}
+
+				}
+
+				for(int bit = 23; bit >= 16; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_d, riva128->pgraph.gdi_cur_y_d,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_d, riva128)),
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_d++;
+					if(riva128->pgraph.gdi_cur_x_d >= (riva128->pgraph.gdi_vtx_x_d + riva128->pgraph.gdi_vtx_w_d_in))
+					{
+						riva128->pgraph.gdi_cur_x_d = riva128->pgraph.gdi_vtx_x_d;
+						riva128->pgraph.gdi_cur_y_d++;
+						if(riva128->pgraph.gdi_cur_y_d >= (riva128->pgraph.gdi_vtx_y_d + riva128->pgraph.gdi_vtx_h_d_in))
+							goto method_end;
+					}
+
+				}
+
+				for(int bit = 31; bit >= 24; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_d, riva128->pgraph.gdi_cur_y_d,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_d, riva128)),
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_d++;
+					if(riva128->pgraph.gdi_cur_x_d >= (riva128->pgraph.gdi_vtx_x_d + riva128->pgraph.gdi_vtx_w_d_in))
+					{
+						riva128->pgraph.gdi_cur_x_d = riva128->pgraph.gdi_vtx_x_d;
+						riva128->pgraph.gdi_cur_y_d++;
+						if(riva128->pgraph.gdi_cur_y_d >= (riva128->pgraph.gdi_vtx_y_d + riva128->pgraph.gdi_vtx_h_d_in))
+							goto method_end;
+					}
+
+			}
+		}
+		else if(method >= 0x1400 && method < 0x1600)
+		{
+			/*if(riva128->pgraph.gdi_cur_x_e >= riva128->pgraph.gdi_clip_left_e
+			&& riva128->pgraph.gdi_cur_x_e <= riva128->pgraph.gdi_clip_right_e
+			&& riva128->pgraph.gdi_cur_y_e >= riva128->pgraph.gdi_clip_top_e
+			&& riva128->pgraph.gdi_cur_y_e <= riva128->pgraph.gdi_clip_bottom_e)
+			{*/
+				for(int bit = 7; bit >= 0; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[1], riva128)),
+							0xff, riva128);
+					}
+					else
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[0], riva128)),
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_e++;
+					if(riva128->pgraph.gdi_cur_x_e >= (riva128->pgraph.gdi_vtx_x_e + riva128->pgraph.gdi_vtx_w_e))
+					{
+						riva128->pgraph.gdi_cur_x_e = riva128->pgraph.gdi_vtx_x_e;
+						riva128->pgraph.gdi_cur_y_e++;
+						if(riva128->pgraph.gdi_cur_y_e >= (riva128->pgraph.gdi_vtx_y_e + riva128->pgraph.gdi_vtx_h_e))
+							goto method_end;
+					}
+				}
+
+				for(int bit = 15; bit >= 8; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[1], riva128)),
+							0xff, riva128);
+					}
+					else
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[0], riva128)),
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_e++;
+					if(riva128->pgraph.gdi_cur_x_e >= (riva128->pgraph.gdi_vtx_x_e + riva128->pgraph.gdi_vtx_w_e))
+					{
+						riva128->pgraph.gdi_cur_x_e = riva128->pgraph.gdi_vtx_x_e;
+						riva128->pgraph.gdi_cur_y_e++;
+						if(riva128->pgraph.gdi_cur_y_e >= (riva128->pgraph.gdi_vtx_y_e + riva128->pgraph.gdi_vtx_h_e))
+							goto method_end;
+					}
+				}
+
+				for(int bit = 23; bit >= 16; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[1], riva128)),
+							0xff, riva128);
+					}
+					else
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[0], riva128)),
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_e++;
+					if(riva128->pgraph.gdi_cur_x_e >= (riva128->pgraph.gdi_vtx_x_e + riva128->pgraph.gdi_vtx_w_e))
+					{
+						riva128->pgraph.gdi_cur_x_e = riva128->pgraph.gdi_vtx_x_e;
+						riva128->pgraph.gdi_cur_y_e++;
+						if(riva128->pgraph.gdi_cur_y_e >= (riva128->pgraph.gdi_vtx_y_e + riva128->pgraph.gdi_vtx_h_e))
+							goto method_end;
+					}
+				}
+
+				for(int bit = 31; bit >= 24; bit--)
+				{
+					if((param >> bit) & 1)
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[1], riva128)),
+							0xff, riva128);
+					}
+					else
+					{
+						riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.gdi_cur_x_e, riva128->pgraph.gdi_cur_y_e,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, riva128->pgraph.gdi_color_e[0], riva128)),
+							0xff, riva128);
+					}
+					riva128->pgraph.gdi_cur_x_e++;
+					if(riva128->pgraph.gdi_cur_x_e >= (riva128->pgraph.gdi_vtx_x_e + riva128->pgraph.gdi_vtx_w_e))
+					{
+						riva128->pgraph.gdi_cur_x_e = riva128->pgraph.gdi_vtx_x_e;
+						riva128->pgraph.gdi_cur_y_e++;
+						if(riva128->pgraph.gdi_cur_y_e >= (riva128->pgraph.gdi_vtx_y_e + riva128->pgraph.gdi_vtx_h_e))
+							goto method_end;
+					}
+				}
+			//}
+		}
+		else switch (method) {
+			case 0x3fc:
+			{
+				riva128->pgraph.gdi_color_a = param;
+				break;
+			}
+			case 0x7f4:
+			{
+				riva128->pgraph.gdi_clip_left_b = param & 0xffff;
+				riva128->pgraph.gdi_clip_top_b = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x7f8:
+			{
+				riva128->pgraph.gdi_clip_right_b = param & 0xffff;
+				riva128->pgraph.gdi_clip_bottom_b = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x7fc:
+			{
+				riva128->pgraph.gdi_color_b = param;
+				break;
+			}
+			case 0xbec:
+			{
+				riva128->pgraph.gdi_clip_left_c = param & 0xffff;
+				riva128->pgraph.gdi_clip_top_c = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xbf0:
+			{
+				riva128->pgraph.gdi_clip_right_c = param & 0xffff;
+				riva128->pgraph.gdi_clip_bottom_c = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xbf4:
+			{
+				riva128->pgraph.gdi_color_c = param;
+				break;
+			}
+			case 0xbf8:
+			{
+				riva128->pgraph.gdi_vtx_w_c = param & 0xffff;
+				riva128->pgraph.gdi_vtx_h_c = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xbfc:
+			{
+				riva128->pgraph.gdi_vtx_x_c = riva128->pgraph.gdi_cur_x_c = param & 0xffff;
+				riva128->pgraph.gdi_vtx_y_c = riva128->pgraph.gdi_cur_y_c = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xfe8:
+			{
+				riva128->pgraph.gdi_clip_left_d = param & 0xffff;
+				riva128->pgraph.gdi_clip_top_d = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xfec:
+			{
+				riva128->pgraph.gdi_clip_right_d = param & 0xffff;
+				riva128->pgraph.gdi_clip_bottom_d = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xff0:
+			{
+				riva128->pgraph.gdi_color_d = param;
+				break;
+			}
+			case 0xff4:
+			{
+				riva128->pgraph.gdi_vtx_w_d_in = param & 0xffff;
+				riva128->pgraph.gdi_vtx_h_d_in = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xff8:
+			{
+				riva128->pgraph.gdi_vtx_w_d_out = param & 0xffff;
+				riva128->pgraph.gdi_vtx_h_d_out = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0xffc:
+			{
+				riva128->pgraph.gdi_vtx_x_d = riva128->pgraph.gdi_cur_x_d = param & 0xffff;
+				riva128->pgraph.gdi_vtx_y_d = riva128->pgraph.gdi_cur_y_d = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x13e4:
+			{
+				riva128->pgraph.gdi_clip_left_e = param & 0xffff;
+				riva128->pgraph.gdi_clip_top_e = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x13e8:
+			{
+				riva128->pgraph.gdi_clip_right_e = param & 0xffff;
+				riva128->pgraph.gdi_clip_bottom_e = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x13ec:
+			{
+				riva128->pgraph.gdi_color_e[0] = param;
+				break;
+			}
+			case 0x13f0:
+			{
+				riva128->pgraph.gdi_color_e[1] = param;
+				break;
+			}
+			case 0x13f4:
+			{
+				riva128->pgraph.gdi_vtx_w_e = param & 0xffff;
+				riva128->pgraph.gdi_vtx_h_e = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x13fc:
+			{
+				riva128->pgraph.gdi_vtx_x_e = riva128->pgraph.gdi_cur_x_e = param & 0xffff;
+				riva128->pgraph.gdi_vtx_y_e = riva128->pgraph.gdi_cur_y_e = (param >> 16) & 0xffff;
+				break;
+			}
+		}
+		break;
+    case 0x0d:
+        switch(method) {
+			case 0x30c:
+			riva128->pgraph.m2mf_in_dma = riva128->pgraph.m2mf_in_dma_cur = param;
+			break;
+			case 0x310:
+			riva128->pgraph.m2mf_out_dma = riva128->pgraph.m2mf_out_dma_cur = param;
+			break;
+			case 0x314:
+			riva128->pgraph.m2mf_pitch_in = param;
+			break;
+			case 0x318:
+			riva128->pgraph.m2mf_pitch_out = !param ? riva128->pgraph.m2mf_pitch_in : param;
+			break;
+			case 0x31c:
+			riva128->pgraph.m2mf_scan_len = param;
+			break;
+			case 0x320:
+			riva128->pgraph.m2mf_scan_num = param;
+			break;
+			case 0x324:
+			riva128->pgraph.m2mf_format = param;
+			break;
+            case 0x328:
+			{
+            if (riva128->pgraph.notify_impending) {
+    			riva128_pgraph_invalid_interrupt(12, riva128);
+    			break;
+		    }
+		    riva128->pgraph.notify_impending = 1;
+		    riva128->pgraph.m2mf_obj = (param & 0xf) << 20;
+
+			uint32_t src_obj_addr = (graphobj1 & 0xffff) << 4;
+			uint32_t dst_obj_addr = (graphobj2 & 0xffff) << 4;
+			uint32_t src_flags = riva128_ramin_read_l(src_obj_addr,
+				riva128);
+			uint32_t dst_flags = riva128_ramin_read_l(dst_obj_addr,
+				riva128);
+			uint32_t src_limit = riva128_ramin_read_l(src_obj_addr
+				+ 4, riva128);
+			uint32_t dst_limit = riva128_ramin_read_l(dst_obj_addr
+				+ 4, riva128);
+			uint32_t src_pte = riva128_ramin_read_l(src_obj_addr + 8,
+				riva128);
+			uint32_t dst_pte = riva128_ramin_read_l(dst_obj_addr + 8,
+				riva128);
+			uint32_t src_pte_frame = src_pte & 0xfffff000;
+			uint32_t dst_pte_frame = dst_pte & 0xfffff000;
+			uint32_t src_adjust = src_flags & 0xfff;
+			uint32_t dst_adjust = dst_flags & 0xfff;
+			int src_target = (src_flags >> 24) & 3;
+			int dst_target = (dst_flags >> 24) & 3;
+			int inc_in = riva128->pgraph.m2mf_format & 7;
+			int inc_out = (riva128->pgraph.m2mf_format >> 8) & 7;
+
+			if(!(src_flags & (1 << 16)) && (src_target == 2))
+			{
+				riva128_pdma_interrupt(4, riva128);
+				goto method_end;
+			}
+			if(!(dst_flags & (1 << 16)) && (dst_target == 2))
+			{
+				riva128_pdma_interrupt(4, riva128);
+				goto method_end;
+			}
+
+			/* Enforce expected byte sizes */
+			if (!((inc_in == 1) || (inc_in == 2) || (inc_in == 4)) ||
+    			!((inc_out == 1) || (inc_out == 2) || (inc_out == 4))) {
+    			pclog("RIVA 128 M2MF: unsupported format %08x\n", riva128->pgraph.m2mf_format);
+    			break;
+			}
+
+				for(int scan = 0; scan < riva128->pgraph.m2mf_scan_num; scan++)
+				{
+					for(uint32_t pixel = 0; pixel < riva128->pgraph.m2mf_scan_len; pixel++)
+					{
+						uint32_t in_off  = riva128->pgraph.m2mf_in_dma_cur  + (pixel * inc_in);
+        				uint32_t out_off = riva128->pgraph.m2mf_out_dma_cur + (pixel * inc_out);
+
+						uint32_t src_logical_addr = in_off + src_adjust;
+						uint32_t dst_logical_addr = out_off + dst_adjust;
+
+						uint32_t src_unpaged_addr = src_pte_frame + src_logical_addr;
+						uint32_t src_pte_index = src_logical_addr >> 12;
+						uint32_t src_pte_byte = src_logical_addr & 0xfff;
+						uint32_t src_pte_frame_new = riva128_ramin_read_l(src_obj_addr + (src_pte_index << 2) + 8, riva128);
+						if(src_logical_addr >= src_limit)
+						{
+							riva128_pdma_interrupt(12, riva128);
+							goto method_end;
+						}
+						if(src_target == 2)
+						{
+							if(src_pte_frame_new == 0xffffffffu)
+							{
+								riva128_pdma_interrupt(12, riva128);
+								goto method_end;
+							}
+							if(!(src_pte_frame_new & 1))
+							{
+								riva128_pdma_interrupt(4, riva128);
+								goto method_end;
+							}
+						}
+						src_pte_frame_new &= 0xfffff000;
+						uint32_t src_paged_addr = src_pte_frame_new | src_pte_byte;
+
+						uint32_t dst_unpaged_addr = dst_pte_frame + dst_logical_addr;
+						uint32_t dst_pte_index = dst_logical_addr >> 12;
+						uint32_t dst_pte_byte = dst_logical_addr & 0xfff;
+						uint32_t dst_pte_frame_new = riva128_ramin_read_l(dst_obj_addr + (dst_pte_index << 2) + 8, riva128);
+						if(dst_logical_addr >= dst_limit)
+						{
+							riva128_pdma_interrupt(12, riva128);
+							goto method_end;
+						}
+						if(dst_target == 2)
+						{
+							if(dst_pte_frame_new == 0xffffffffu)
+							{
+								riva128_pdma_interrupt(12, riva128);
+								goto method_end;
+							}
+							if(!(dst_pte_frame_new & 1))
+							{
+								riva128_pdma_interrupt(4, riva128);
+								goto method_end;
+							}
+							if(!(dst_pte_frame_new & 2))
+							{	
+								riva128_pdma_interrupt(8, riva128);
+								goto method_end;
+							}
+						}
+						dst_pte_frame_new &= 0xfffff000;
+						uint32_t dst_paged_addr = dst_pte_frame_new | dst_pte_byte;
+
+						uint8_t buf[4] = { 0 };
+						//dma_bm_read(paged_addr + riva128->pgraph.m2mf_in_dma_cur + pixel, (uint8_t*)&buf, 1, 1);
+						if(src_target == 0) memcpy(buf, &svga->vram[(src_unpaged_addr) & 0x3fffff], inc_in);
+						else dma_bm_read(src_paged_addr, buf, inc_in, inc_in);
+
+						uint32_t copy_size = (inc_in < inc_out) ? inc_in : inc_out;
+						if(dst_target == 0)
+						{
+							memcpy(&svga->vram[(dst_unpaged_addr) & 0x3fffff], buf, copy_size);
+							svga->changedvram[((dst_unpaged_addr) & 0x3fffff) >> 12] = changeframecount;
+						}
+						else dma_bm_write(dst_paged_addr, (uint8_t*)&buf, copy_size, copy_size);
+						//svga->vram[(paged_addr + riva128->pgraph.m2mf_out_dma_cur) & 0x3fffff] = buf;
+						//svga->changedvram[((paged_addr + riva128->pgraph.m2mf_out_dma_cur) & 0x3fffff) >> 12] = changeframecount;
+					}
+
+					riva128->pgraph.m2mf_in_dma_cur += riva128->pgraph.m2mf_pitch_in;
+					riva128->pgraph.m2mf_out_dma_cur += riva128->pgraph.m2mf_pitch_out;
+				}
+			}
+		    break;
+        }
+        break;
+	case 0x10:
+		switch(method)
+		{
+			case 0x300:
+			riva128->pgraph.blit_in_x = param & 0xffff;
+			riva128->pgraph.blit_in_y = (param >> 16) & 0xffff;
+			break;
+			case 0x304:
+			riva128->pgraph.blit_out_x = param & 0xffff;
+			riva128->pgraph.blit_out_y = (param >> 16) & 0xffff;
+			break;
+			case 0x308:
+			riva128->pgraph.blit_size_w = param & 0xffff;
+			riva128->pgraph.blit_size_h = (param >> 16) & 0xffff;
+			for(int x = 0; x < riva128->pgraph.blit_size_w; x++)
+			{
+				for(int y = 0; y < riva128->pgraph.blit_size_h; y++)
+				{
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.blit_out_x + x, riva128->pgraph.blit_out_y + y,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0,
+								riva128_read_pixel_from_buffer(graphobj0, riva128->pgraph.blit_in_x + x, riva128->pgraph.blit_in_y + y, (graphobj0 >> 16) & 3, riva128), riva128)),
+							0xff, riva128);
+				}
+			}
+			break;
+		}
+		break;
+	case 0x11:
+		if(method >= 0x400 && method < 0x480)
+		{
+			switch(graphobj0 & 7)
+			{
+				case 3:
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param & 0xff, riva128)),
+						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 8) & 0xff, riva128)),
+						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 16) & 0xff, riva128)),
+						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 24) & 0xff, riva128)),
+						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					break;
+				case 0: case 4:
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param & 0xffff, riva128)),
+						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 16) & 0xffff, riva128)),
+						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					break;
+				case 1: case 2:
+					riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.ifc_cur_x, riva128->pgraph.ifc_cur_y,
+						riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param, riva128)),
+						0xff, riva128);
+					riva128->pgraph.ifc_cur_x++;
+					if(riva128->pgraph.ifc_cur_x >= (riva128->pgraph.ifc_vtx_x + riva128->pgraph.ifc_vtx_w))
+					{
+						riva128->pgraph.ifc_cur_x = riva128->pgraph.ifc_vtx_x;
+						riva128->pgraph.ifc_cur_y++;
+						if(riva128->pgraph.ifc_cur_y >= (riva128->pgraph.ifc_vtx_y + riva128->pgraph.ifc_vtx_h))
+							goto method_end;
+					}
+					break;
+			}
+		}
+		else switch(method)
+		{
+		case 0x304:
+			riva128->pgraph.ifc_vtx_x = riva128->pgraph.ifc_cur_x = param & 0xffff;
+			riva128->pgraph.ifc_vtx_y = riva128->pgraph.ifc_cur_y = (param >> 16) & 0xffff;
+			break;
+		case 0x30c:
+			riva128->pgraph.ifc_vtx_w = param & 0xffff;
+			riva128->pgraph.ifc_vtx_h = (param >> 16) & 0xffff;
+			break;
+		}
+		break;
+	case 0x14:
+		switch(method) {
+		case 0x308:
+			riva128->pgraph.itm_vtx_x = param & 0xffff;
+			riva128->pgraph.itm_vtx_y = (param >> 16) & 0xffff;
+			break;
+		case 0x30c:
+			riva128->pgraph.itm_rect_w = param & 0xffff;
+			riva128->pgraph.itm_rect_h = (param >> 16) & 0xffff;
+			break;
+		case 0x310:
+			riva128->pgraph.itm_pitch = param & 0xffff;
+			if (param == 0) riva128->pgraph.itm_pitch = 1;
+			break;
+		case 0x314:
+		{
+			riva128->pgraph.itm_offset = param;
+			
+			uint32_t notify_obj_addr = (graphobj1 & 0xffff) << 4;
+			uint32_t flags = riva128_ramin_read_l(notify_obj_addr,
+				riva128);
+			/* uint32_t limit = riva128_ramin_read_l(notify_obj_addr
+				+ 4, riva128); */
+			uint32_t pte = riva128_ramin_read_l(notify_obj_addr + 8,
+				riva128);
+			uint32_t pte_frame = pte & 0xfffff000;
+			uint32_t adjust = flags & 0xfff;
+			int target = (flags >> 24) & 3;
+
+			uint32_t unpaged_addr = pte_frame + adjust + notify_obj_addr;
+			uint32_t pte_index = (notify_obj_addr + adjust) >> 12;
+			uint32_t paged_addr = 
+				(riva128_ramin_read_l(notify_obj_addr + (pte_index << 2) + 8, riva128) & 0xfffff000) | ((notify_obj_addr + adjust) & 0xfff);
+
+			uint16_t startx = riva128->pgraph.itm_vtx_x;
+			uint16_t endx = startx + riva128->pgraph.itm_rect_w;
+			uint16_t starty = riva128->pgraph.itm_vtx_y;
+			uint16_t endy = starty + riva128->pgraph.itm_rect_h;
+			for(int y = starty; y < endy; y++) {
+				for(int x = startx; x < endx; x++) {
+					uint32_t offset = 
+						riva128->pgraph.itm_offset + x
+						+ (riva128->pgraph.itm_pitch
+								* y);
+					pclog("ITM from %08x to x %d y %d w %d h %d pitch %04x\n", unpaged_addr + offset, riva128->pgraph.itm_vtx_x, riva128->pgraph.itm_vtx_y, riva128->pgraph.itm_rect_w, riva128->pgraph.itm_rect_h, riva128->pgraph.itm_pitch);
+					uint32_t itm_val = 0;
+					switch(graphobj0 & 7)
+					{
+						case 3:
+						dma_bm_read(unpaged_addr + offset, (uint8_t*)&itm_val, 1, 1);
+						break;
+						case 0: case 4:
+						dma_bm_read(unpaged_addr + offset, (uint8_t*)&itm_val, 2, 2);
+						break;
+						case 1: case 2:
+						dma_bm_read(unpaged_addr + offset, (uint8_t*)&itm_val, 4, 4);
+						break;
+					}
+					riva128_pgraph_write_pixel(graphobj0, x, y,
+							riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, itm_val, riva128)), 0xff, riva128);
+				}
+			}
+			
+			break;
+		}
+		}
+		break;
+	case 0x15:
+		if(method >= 0x400 && method < 0xb00)
+		{
+			pclog("[RIVA 128] SIFC x %08x y %08x w %08x h %08x dxdu %08x dydv %08x\n", riva128->pgraph.sifc_vtx_x, riva128->pgraph.sifc_vtx_y, riva128->pgraph.sifc_vtx_w_out, riva128->pgraph.sifc_vtx_h_out, riva128->pgraph.sifc_dx_du, riva128->pgraph.sifc_dy_dv);
+			int final_x = 0;
+			int final_y = 0;
+			int bytes_per_pixel = 1;
+			for(int y = 0; y < riva128->pgraph.sifc_dy_dv; y++)
+			{
+				for(int x = 0; x < riva128->pgraph.sifc_dx_du; x++)
+				{
+					final_x = riva128->pgraph.sifc_cur_x;
+					final_y = riva128->pgraph.sifc_cur_y;
+					switch(graphobj0 & 7)
+					{
+						case 3:
+							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param & 0xff, riva128)),
+									0xff, riva128);
+							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
+							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
+							{
+								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
+								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
+								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
+									goto method_end;	
+							};
+							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 8) & 0xff, riva128)),
+									0xff, riva128);
+							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
+							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
+							{
+								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
+								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
+								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
+									goto method_end;
+							}
+							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 16) & 0xff, riva128)),
+									0xff, riva128);
+							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
+							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
+							{
+								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
+								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
+								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
+									goto method_end;	
+							}
+							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 24) & 0xff, riva128)),
+									0xff, riva128);
+							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
+							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
+							{
+								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
+								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
+								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
+									goto method_end;	
+							}
+							break;
+						case 0: case 4:
+							riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.sifc_cur_x + x, riva128->pgraph.sifc_cur_y + y,
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param & 0xffff, riva128)),
+									0xff, riva128);
+							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
+							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
+							{
+								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
+								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
+								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
+									goto method_end;	
+							}
+							riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.sifc_cur_x + x, riva128->pgraph.sifc_cur_y + y,
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param >> 16, riva128)),
+									0xff, riva128);
+							bytes_per_pixel = 2;
+							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
+							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
+							{
+								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
+								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
+								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
+									goto method_end;	
+							}
+							break;
+						case 1: case 2:
+							riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.sifc_cur_x + x, riva128->pgraph.sifc_cur_y + y,
+									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param, riva128)),
+									0xff, riva128);
+							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
+							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
+							{
+								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
+								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
+								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
+									goto method_end;
+							}
+							break;
+					}
+				}
+			}
+		}
+		else switch(method) {
+			case 0x314:
+			{
+				riva128->pgraph.sifc_vtx_w_out = param & 0xffff;
+				riva128->pgraph.sifc_vtx_h_out = (param >> 16) & 0xffff;
+				break;
+			}
+			case 0x308:
+			{
+				//TODO fractional bits
+				riva128->pgraph.sifc_dx_du = param >> 20;
+				break;
+			}
+			case 0x30c:
+			{
+				//TODO fractional bits
+				riva128->pgraph.sifc_dy_dv = param >> 20;
+				break;
+			}
+			case 0x310:
+			{
+				riva128->pgraph.sifc_vtx_x = riva128->pgraph.sifc_cur_x = param & 0xffff;
+				riva128->pgraph.sifc_vtx_y = riva128->pgraph.sifc_cur_y = (param >> 16) & 0xffff;
+				break;
+			}
+		}
+		break;
+	case 0x1c:
+		switch(method) {
+		case 0x300: {
+			int surf_num = (graphobj0 >> 16) & 3;
+			uint32_t format = 1;
+			if (param & 1)
+				format = 0;
+			if (!(param & 0x00010000))
+				format = 2;
+			if (!(param & 0x01000000))
+				format = 3;
+			riva128->pgraph.surf_config &= ~(7 << (surf_num << 4));
+			/* bit 2 of the format being set means it's valid: */
+			riva128->pgraph.surf_config |= ((format | 4)
+					<< (surf_num << 4));
+			break;
+		}
+		case 0x304:
+			riva128_pgraph_invalid_interrupt(0, riva128);
+			break;
+		case 0x308: {
+			int surf_num = (graphobj0 >> 16) & 3;
+			riva128->pgraph.surf_pitch[surf_num] = param & 0x1ff0;
+			break;
+		}
+		case 0x30c: {
+			int surf_num = (graphobj0 >> 16) & 3;
+			riva128->pgraph.surf_offset[surf_num] =
+					param & 0x3ffff0;
+			break;
+		}}
+		break;
+	}
+
+method_end:
+	if (riva128->pgraph.notify_impending == 0)
+		return;
+
+	/* TODO: if notify pending then return check below looks fishy */
+	riva128->pgraph.notify_impending--;
+	if (riva128->pgraph.notify_impending != 0)
+		return;
+
+	uint32_t *vram_l = (uint32_t *)svga->vram;
+	uint32_t notify_obj_addr = (graphobj1 >> 16) << 4;
+	uint32_t flags = riva128_ramin_read_l(notify_obj_addr,
+			riva128);
+	/* uint32_t limit = riva128_ramin_read_l(notify_obj_addr
+			+ 4, riva128); */
+	uint32_t pte = riva128_ramin_read_l(notify_obj_addr + 8,
+			riva128);
+	uint32_t pte_frame = pte & 0xfffff000;
+	uint32_t adjust = flags & 0xfff;
+	int target = (flags >> 24) & 3;
+	uint32_t notifier[4];
+	notifier[0] = riva128->ptimer.time & 0xffffffffull;
+	notifier[1] = riva128->ptimer.time >> 32;
+	notifier[2] = notifier[3] = 0;
+	uint32_t notifier_obj = (riva128->pgraph.notifier_obj >> 20) & 0xf;
+	if (notifier_obj == 1) {
+		riva128_pgraph_interrupt(28, riva128);
+		notifier_obj = 0;
+	}
+	uint32_t logical_addr = notifier_obj << 4;
+	uint32_t unpaged_addr = pte_frame + adjust + logical_addr;
+	uint32_t pte_index = (logical_addr + adjust) >> 12;
+	uint32_t paged_addr = (
+		riva128_ramin_read_l(notify_obj_addr + (pte_index << 2)
+				+ 8, riva128) & 0xfffff000
+			) | ((logical_addr + adjust) & 0xfff);
+	if (target) {
+		//pclog("[RIVA 128] PCI notifier at %08x\n", paged_addr);
+		dma_bm_write(paged_addr, (uint8_t*)notifier, 16, 4);
+		return;
+	}
+	//pclog("[RIVA 128] VRAM notifier at %08x\n", unpaged_addr);
+	vram_l[(unpaged_addr >> 2) & 0xfffff] = notifier[0];
+	vram_l[((unpaged_addr >> 2) + 1) & 0xfffff] = notifier[1];
+	vram_l[((unpaged_addr >> 2) + 2) & 0xfffff] = notifier[2];
+	vram_l[((unpaged_addr >> 2) + 3) & 0xfffff] = notifier[3];
+    svga->changedvram[unpaged_addr >> 12] =
+			changeframecount;
+}
+
+void
+riva128_pgraph_command_submit(uint16_t method, uint8_t chanid, int subchanid,
+		uint32_t param, uint32_t ctx, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	if (!riva128->pgraph.fifo_access)
+		return;
+	
+	uint8_t current_chanid = (riva128->pgraph.ctx_user >> 24) & 0x7f;
+	if (chanid != current_chanid) {
+		/* PGRAPH context switch. */
+		riva128_pgraph_interrupt(4, riva128);
+	}
+
+	uint32_t ctx_user = (ctx & 0x001f0000) | (subchanid << 13)
+			| (chanid << 24);
+
+	riva128->pgraph.ctx_user = ctx_user;
+
+	uint16_t instance_addr = ctx & 0xffff;
+
+	uint32_t graphobj[4];
+	graphobj[0] = riva128_ramin_read_l((instance_addr << 4), riva128);
+	graphobj[1] = riva128_ramin_read_l((instance_addr << 4) + 4, riva128);
+	graphobj[2] = riva128_ramin_read_l((instance_addr << 4) + 8, riva128);
+	graphobj[3] = riva128_ramin_read_l((instance_addr << 4) + 12, riva128);
+
+	riva128_pgraph_execute_command(method, param, ctx, graphobj[0],
+	graphobj[1], graphobj[2], graphobj[3], riva128);
+}
+
+void
+riva128_do_cache0_puller(void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	if (!((riva128->pfifo.caches[0].pull_ctrl & 1))
+			|| (riva128->pfifo.caches[0].put
+					== riva128->pfifo.caches[0].get))
+		return;
+
+	uint16_t method = riva128->pfifo.cache0.method;
+	uint32_t param = riva128->pfifo.cache0.param;
+	uint8_t chanid = riva128->pfifo.caches[0].chanid;
+	int subchanid = riva128->pfifo.cache0.subchan;
+	/*pclog("[RIVA 128] CACHE0 puller method %04x param %08x ",
+			method, param);
+	pclog("channel %02x subchannel %x\n",
+			chanid, subchanid);*/
+	if (method == 0) {
+		int error = riva128_ramht_lookup(param, 0, chanid,
+				subchanid, riva128);
+		if (error)
+			return;
+
+		riva128->pfifo.caches[0].get ^= 4;
+		
+		uint32_t ctx = riva128->pfifo.caches[0].ctx[0];
+		/* TODO: forward to PGRAPH. */
+		pclog("[RIVA 128] CTX = %08x\n", ctx);
+		riva128_pgraph_command_submit(method, chanid,
+				subchanid, param, ctx, riva128);
+		return;
+	}
+
+	uint32_t ctx = riva128->pfifo.caches[0].ctx[0];
+	//pclog("[RIVA 128] CTX = %08x\n", ctx);
+	if (!(ctx & 0x800000)) {
+		//pclog("[RIVA 128] Cache error: Software method!\n");
+		riva128->pfifo.caches[0].pull_ctrl |= 0x100;
+		riva128->pfifo.caches[0].pull_ctrl &= ~1;
+		riva128->pfifo.cache_error |= 0x01;
+		riva128_pfifo_interrupt(0, riva128);
+		return;
+	}
+
+	riva128->pfifo.caches[0].get ^= 4;
+	/* TODO: forward to PGRAPH. */
+	riva128_pgraph_command_submit(method, chanid,
+			subchanid, param, ctx, riva128);
+}
+
+void
+riva128_do_cache1_puller(void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	if ((!(riva128->pfifo.caches[1].pull_ctrl & 1))
+			|| (riva128->pfifo.caches[1].put
+					== riva128->pfifo.caches[1].get))
+		return;
+
+	/*	
+	for(int i = 0; i <= 0x1f; i++)
+	{
+		int gray_i = riva128_pfifo_normal2gray(i);
+		pclog("RIVA 128 PFIFO CACHE1 method %04x subchannel %02x ",
+				riva128->pfifo.cache1[gray_i & 0x1f].method,
+				riva128->pfifo.cache1[gray_i & 0x1f].subchan);
+		pclog("param %08x\n",
+				riva128->pfifo.cache1[gray_i & 0x1f].param);
+	}
+	*/
+	uint16_t method = riva128->pfifo.cache1[riva128->pfifo.caches[1].get
+			>> 2].method;
+	uint32_t param = riva128->pfifo.cache1[riva128->pfifo.caches[1].get
+			>> 2].param;
+	uint8_t chanid = riva128->pfifo.caches[1].chanid;
+	int subchanid = riva128->pfifo.cache1[riva128->pfifo.caches[1].get 
+			>> 2].subchan;
+	/*pclog("[RIVA 128] CACHE1 puller method %04x param %08x ",
+			method, param);
+	pclog("channel %02x subchannel %x\n", chanid, subchanid);*/
+	if (method == 0) {
+		int error = riva128_ramht_lookup(param, 1, chanid,
+				subchanid, riva128);
+		if (error)
+			return;
+		uint32_t next_get = riva128_pfifo_gray2normal(
+				riva128->pfifo.caches[1].get >> 2);
+		next_get++;
+		next_get &= 31;
+		riva128->pfifo.caches[1].get =
+				riva128_pfifo_normal2gray(next_get) << 2;
+
+		uint32_t ctx = riva128->pfifo.caches[1].ctx[subchanid];
+
+		/* TODO: forward to PGRAPH. */
+		//pclog("[RIVA 128] CTX = %08x\n", ctx);
+		riva128_pgraph_command_submit(method, chanid,
+				subchanid, param, ctx, riva128);
+		return;
+	}
+
+	uint32_t ctx = riva128->pfifo.caches[1].ctx[subchanid];
+	//pclog("[RIVA 128] CTX = %08x\n", ctx);
+	if (!(ctx & 0x800000)) {
+		//pclog("[RIVA 128] Cache error: Software method!\n");
+		riva128->pfifo.caches[1].pull_ctrl |= 0x100;
+		riva128->pfifo.caches[1].pull_ctrl &= ~1;
+		riva128->pfifo.cache_error |= 0x10;
+		riva128_pfifo_interrupt(0, riva128);
+		return;
+	}
+
+	uint32_t next_get = riva128_pfifo_gray2normal(
+			riva128->pfifo.caches[1].get >> 2);
+	next_get++;
+	next_get &= 31;
+	riva128->pfifo.caches[1].get =
+			riva128_pfifo_normal2gray(next_get)
+					<< 2;
+	/* TODO: forward to PGRAPH. */
+	riva128_pgraph_command_submit(method, chanid,
+			subchanid, param, ctx, riva128);
+}
+
+void
+riva128_do_gpu_work(void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	/* svga_t *svga = &riva128->svga; */
+
+	/* if (riva128->pfifo.caches[1].dma_ctrl & 1) {
+		uint32_t *vram_l = (uint32_t *)svga->vram;
+		for(int i = riva128->pfifo.caches[1].dma_addr;
+				i <= (riva128->pfifo.caches[1].dma_addr
+					+ riva128->pfifo.caches[1].dma_length);
+				i+=4) {
+			uint32_t dma_cmd = vram_l[(i & riva128->vram_mask)
+					>> 2];
+			pclog("[RIVA 128] DMA command %04x\n");
+		}
+	} */
+
+	riva128_do_cache0_puller(riva128);
+	riva128_do_cache1_puller(riva128);
+}
+
+uint32_t
+riva128_user_read(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	/* int chanid = (addr >> 16) & 0xf;
+	int subchanid = (addr >> 13) & 0x7; */
+	int offset = addr & 0x1ffc;
+
+	if (offset == 0x0010)
+		return riva128_pfifo_free(riva128);
+
+	return 0;
+}
+
+void
+riva128_user_write(uint32_t addr, uint32_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	int chanid = (addr >> 16) & 0x7f;
+	int subchanid = (addr >> 13) & 0x7;
+	int offset = addr & 0x1ffc;
+
+	/* Set bit 23 because this is a write */
+	uint32_t err = (addr & 0x7ffffc) | 0x800000;
+
+	int ranout = 0;
+
+	/* REASON is 0 so don't modify err. */
+	if (offset == 0x0010)
+		ranout = 1;
+	else if (!riva128->pfifo.caches[1].push_enabled) {
+		ranout = 1;
+		err |= 1 << 28;
+	} else if (riva128->pfifo.runout_get != riva128->pfifo.runout_put) {
+		ranout = 1;
+		err |= 2 << 28;
+	} else if (riva128_pfifo_free(riva128) == 0) {
+		ranout = 1;
+		err |= 3 << 28;
+	} else if ((offset < 0x100) && (offset != 0)) {
+		ranout = 1;
+		err |= 5 << 28;
+	} else if (chanid != riva128->pfifo.caches[1].chanid) {
+		if (!riva128->pfifo.caches_reassign
+				|| (riva128->pfifo.caches[1].put
+					!= riva128->pfifo.caches[1].get)) {
+			ranout = 1;
+			err |= 2 << 28;
+		}
+		/* TODO: channel switch. */
+		pclog("[RIVA 128] PFIFO CHANNEL SWITCH\n");
+	}
+
+	if (ranout)
+	{
+		/*pclog("[RIVA 128] Command rejected to RAMRO! error %08x ",
+				err);
+		pclog("value %08x\n", val);*/
+		riva128_ramin_write_l(riva128->pfifo.ramro_addr
+				+ riva128->pfifo.runout_put, err, riva128);
+		riva128_ramin_write_l(riva128->pfifo.ramro_addr
+				+ riva128->pfifo.runout_put + 4, val, riva128);
+		riva128->pfifo.runout_put += 8;
+		if (riva128->pfifo.ramro_size == 8192)
+			riva128->pfifo.runout_put &= 0x1ff8;
+		else
+			riva128->pfifo.runout_put &= 0x1f8;
+		riva128_pfifo_interrupt(4, riva128);
+		if (riva128->pfifo.runout_put == riva128->pfifo.runout_get) {
+			riva128_pfifo_interrupt(8, riva128);
+		}
+		return;
+	}
+
+	/* Command passed pusher tests, send it off to CACHE1. */
+	riva128->pfifo.cache1[riva128->pfifo.caches[1].put >> 2].subchan
+			= subchanid;
+	riva128->pfifo.cache1[riva128->pfifo.caches[1].put >> 2].method
+			= offset;
+	riva128->pfifo.cache1[riva128->pfifo.caches[1].put >> 2].param = val;
+
+	uint32_t put_normal =
+		riva128_pfifo_gray2normal(riva128->pfifo.caches[1].put >> 2);
+	put_normal++;
+	put_normal &= 0x1f;
+	riva128->pfifo.caches[1].put =
+			riva128_pfifo_normal2gray(put_normal) << 2;
+}
+
+void
+riva128_ptimer_tick(void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	/*pclog("[RIVA 128] PTIMER tick! mul %04x div %04x\n",
+			riva128->ptimer.clock_mul, riva128->ptimer.clock_div);*/
+
+	/* Multiply by 10 to avoid timer system limitations. */
+	double time = ((double)riva128->ptimer.clock_mul * 10.0)
+			/ (double)riva128->ptimer.clock_div;
+
+	/* uint32_t tmp; */
+	int alarm_check;
+
+	/* if (cs == 0x0008 && !riva128->pgraph.beta) {
+		nv_riva_log("RIVA 128 PTIMER time elapsed %f alarm %08x, ",
+				time, riva128->ptimer.alarm);
+		nv_riva_log("time_low %08x\n",
+				riva128->ptimer.time & 0xffffffff);
+	} */
+
+	/* tmp = riva128->ptimer.time; */
+	riva128->ptimer.time += (uint64_t)time;
+
+	alarm_check = ((uint32_t)riva128->ptimer.time
+			>= (uint32_t)riva128->ptimer.alarm);
+
+	/* pclog("[RIVA 128] Timer %08x %016llx %08x %d\n",
+			riva128->ptimer.alarm,
+			riva128->ptimer.time, tmp, alarm_check); */
+
+	if (alarm_check) {
+		/* pclog("[RIVA 128] PTIMER ALARM interrupt fired!\n"); */
+		riva128_ptimer_interrupt(0, riva128);
+	}
+}
+
+void
+riva128_nvclk_poll(void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	riva128_do_gpu_work(riva128);
+	timer_on_auto(&riva128->nvtimer, riva128->nvtime);
+}
+
+void
+riva128_mclk_poll(void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	if (riva128->pmc.enable & (1 << 16))
+		riva128_ptimer_tick(riva128);
+
+	timer_on_auto(&riva128->mtimer, riva128->mtime);
+}
+
+uint32_t
+riva128_mmio_read_l(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	addr &= 0xffffff;
+
+	uint32_t ret = 0;
+
+	switch(addr) {
+	case 0x6013b4: case 0x6013b5:
+	case 0x6013d4: case 0x6013d5:
+	case 0x6013da:
+
+	case 0x0c03c2: case 0x0c03c3: case 0x0c03c4:
+	case 0x0c03c5: case 0x0c03cc:
+
+	case 0x6813c6: case 0x6813c7: case 0x6813c8:
+	case 0x6813c9: case 0x6813ca: case 0x6813cb:
+		ret = (riva128_in((addr+0) & 0x3ff,p) << 0)
+				| (riva128_in((addr+1) & 0x3ff,p) << 8)
+				| (riva128_in((addr+2) & 0x3ff,p) << 16)
+				| (riva128_in((addr+3) & 0x3ff,p) << 24);
+		break;
+	}
+
+	addr &= 0xfffffc;
+
+	if ((addr >= 0x000000) && (addr <= 0x000fff))
+		ret = riva128_pmc_read(addr, riva128);
+	if ((addr >= 0x002000) && (addr <= 0x003fff))
+		ret = riva128_pfifo_read(addr, riva128);
+	if ((addr >= 0x009000) && (addr <= 0x009fff))
+		ret = riva128_ptimer_read(addr, riva128);
+	if ((addr >= 0x100000) && (addr <= 0x100fff))
+		ret = riva128_pfb_read(addr, riva128);
+	if ((addr >= 0x400000) && (addr <= 0x400fff))
+		ret = riva128_pgraph_read(addr, riva128);
+	if ((addr >= 0x401000) && (addr <= 0x40ffff))
+		ret = riva128_pdma_read(addr, riva128);
+	if ((addr >= 0x680000) && (addr <= 0x680fff))
+		ret = riva128_pramdac_read(addr, riva128);
+	if ((addr >= 0x110000) && (addr <= 0x11ffff))
+		ret = ((uint32_t *) riva128->bios_rom.rom)
+				[(addr & riva128->bios_rom.mask) >> 2];
+	if ((addr >= 0x800000))
+		ret = riva128_user_read(addr, riva128);
+
+	if ((addr >= 0x1800) && (addr <= 0x18ff))
+		ret = (riva128_pci_read(0,(addr+0) & 0xff,1,p) << 0)
+				| (riva128_pci_read(0, (addr + 1) & 0xff,1,p)
+						<< 8)
+				| (riva128_pci_read(0, (addr + 2) & 0xff,1,p)
+						<< 16)
+				| (riva128_pci_read(0, (addr + 3) & 0xff,1,p)
+						<< 24);
+
+	/*if (!(addr <= 0x000fff) && !((addr >= 0x009000) && (addr <= 0x009fff)))
+		pclog("[RIVA 128] MMIO read %08x returns value %08x\n",
+				addr, ret);*/
+
+	riva128_do_gpu_work(riva128);
+
+	return ret;
+}
+
+
+uint8_t
+riva128_mmio_read(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	addr &= 0xffffff;
+
+	if ((addr >= 0x110000) && (addr <= 0x11ffff))
+		return riva128->bios_rom.rom[addr & riva128->bios_rom.mask];
+
+	if ((addr >= 0x1800) && (addr <= 0x18ff))
+	return riva128_pci_read(0,addr & 0xff,1,p);
+
+	switch(addr) {
+	case 0x6013b4: case 0x6013b5:
+	case 0x6013d4: case 0x6013d5:
+	case 0x6013da:
+
+	case 0x0c03c2: case 0x0c03c3: case 0x0c03c4:
+	case 0x0c03c5: case 0x0c03cc:
+
+	case 0x6813c6: case 0x6813c7: case 0x6813c8:
+	case 0x6813c9: case 0x6813ca: case 0x6813cb:
+		return riva128_in(addr & 0x3ff,p);
+	}
+
+	return (riva128_mmio_read_l(addr & 0xffffff, riva128)
+			>> ((addr & 3) << 3)) & 0xff;
+}
+
+
+uint16_t
+riva128_mmio_read_w(uint32_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	addr &= 0xffffff;
+
+	if ((addr >= 0x110000) && (addr <= 0x11ffff))
+		return ((uint16_t *) riva128->bios_rom.rom)
+				[(addr & riva128->bios_rom.mask) >> 1];
+
+	if ((addr >= 0x1800) && (addr <= 0x18ff))
+		return (riva128_pci_read(0,(addr+0) & 0xff,1,p) << 0)
+				| (riva128_pci_read(0,(addr+1) & 0xff,1,p) << 8);
+
+	switch(addr) {
+	case 0x6013b4: case 0x6013b5:
+	case 0x6013d4: case 0x6013d5:
+	case 0x6013da:
+
+	case 0x0c03c2: case 0x0c03c3: case 0x0c03c4:
+	case 0x0c03c5: case 0x0c03cc:
+
+	case 0x6813c6: case 0x6813c7: case 0x6813c8:
+	case 0x6813c9: case 0x6813ca: case 0x6813cb:
+		return (riva128_in((addr+0) & 0x3ff,p) << 0)
+				| (riva128_in((addr+1) & 0x3ff,p) << 8);
+		break;
+	}
+
+	return (riva128_mmio_read_l(addr & 0xffffff, riva128)
+			>> ((addr & 3) << 3)) & 0xffff;
+}
+
+
+void
+riva128_mmio_write_l(uint32_t addr, uint32_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	addr &= 0xffffff;
+
+	/* if (!(addr == 0x400100) && !(addr == 0x000140))
+		pclog("[RIVA 128] MMIO write %08x %08x\n", addr, val); */
+
+	if ((addr >= 0x1800) && (addr <= 0x18ff)) {
+		riva128_pci_write(0, addr & 0xff, 1, val & 0xff, p);
+		riva128_pci_write(0, (addr+1) & 0xff, 1, (val>>8) & 0xff, p);
+		riva128_pci_write(0, (addr+2) & 0xff, 1, (val>>16) & 0xff, p);
+		riva128_pci_write(0, (addr+3) & 0xff, 1, (val>>24) & 0xff, p);
+		return;
+	}
+
+	if ((addr >= 0x000000) && (addr <= 0x000fff))
+		riva128_pmc_write(addr, val, riva128);
+	if ((addr >= 0x002000) && (addr <= 0x003fff))
+		riva128_pfifo_write(addr, val, riva128);
+	if ((addr >= 0x009000) && (addr <= 0x009fff))
+		riva128_ptimer_write(addr, val, riva128);
+	if ((addr >= 0x100000) && (addr <= 0x100fff))
+		riva128_pfb_write(addr, val, riva128);
+	if ((addr >= 0x400000) && (addr <= 0x400fff))
+		riva128_pgraph_write(addr, val, riva128);
+	if ((addr >= 0x401000) && (addr <= 0x40ffff))
+		riva128_pdma_write(addr, val, riva128);
+	if ((addr >= 0x680000) && (addr <= 0x680fff))
+		riva128_pramdac_write(addr, val, riva128);
+	if (addr >= 0x800000)
+		riva128_user_write(addr, val, riva128);
+
+	riva128_do_gpu_work(riva128);
+
+	switch(addr) {
+	case 0x6013b4: case 0x6013b5:
+	case 0x6013d4: case 0x6013d5:
+	case 0x6013da:
+
+	case 0x0c03c2: case 0x0c03c3: case 0x0c03c4:
+	case 0x0c03c5: case 0x0c03cc:
+
+	case 0x6813c6: case 0x6813c7: case 0x6813c8:
+	case 0x6813c9: case 0x6813ca: case 0x6813cb:
+		riva128_out(addr & 0xfff, val & 0xff, p);
+		riva128_out((addr+1) & 0xfff, (val>>8) & 0xff, p);
+		riva128_out((addr+2) & 0xfff, (val>>16) & 0xff, p);
+		riva128_out((addr+3) & 0xfff, (val>>24) & 0xff, p);
+		break;
+	}
+}
+
+void
+riva128_mmio_write(uint32_t addr, uint8_t val, void *p)
+{
+	uint32_t tmp;
+
+	addr &= 0xffffff;
+
+	switch(addr) {
+	case 0x6013b4: case 0x6013b5:
+	case 0x6013d4: case 0x6013d5:
+	case 0x6013da:
+
+	case 0x0c03c2: case 0x0c03c3: case 0x0c03c4:
+	case 0x0c03c5: case 0x0c03cc:
+
+	case 0x6813c6: case 0x6813c7: case 0x6813c8:
+	case 0x6813c9: case 0x6813ca: case 0x6813cb:
+		riva128_out(addr & 0xfff, val & 0xff, p);
+		return;
+	}
+
+	tmp = riva128_mmio_read_l(addr,p);
+	tmp &= ~(0xff << ((addr & 3) << 3));
+	tmp |= val << ((addr & 3) << 3);
+	riva128_mmio_write_l(addr, tmp, p);
+
+	if ((addr >= 0x1800) && (addr <= 0x18ff))
+		riva128_pci_write(0, addr & 0xff, 1, val, p);
+}
+
+
+void
+riva128_mmio_write_w(uint32_t addr, uint16_t val, void *p)
+{
+	uint32_t tmp;
+
+	if ((addr >= 0x1800) && (addr <= 0x18ff)) {
+		riva128_pci_write(0, addr & 0xff, 1, val & 0xff, p);
+		riva128_pci_write(0, (addr+1) & 0xff, 1, (val>>8) & 0xff, p);
+		return;
+	}
+
+	addr &= 0xffffff;
+	tmp = riva128_mmio_read_l(addr,p);
+	tmp &= ~(0xffff << ((addr & 3) << 3));
+	tmp |= val << ((addr & 3) << 3);
+
+	riva128_mmio_write_l(addr, tmp, p);
+}
+
+uint8_t
+riva128_rma_in(uint16_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+	uint8_t ret = 0;
+
+	addr &= 0xff;
+
+	/* nv_riva_log("RIVA 128 RMA read %04X %04X:%08X\n",
+			addr, CS, cpu_state.pc); */
+
+	switch(addr) {
+	case 0x00:
+		ret = 0x65;
+		break;
+	case 0x01:
+		ret = 0xd0;
+		break;
+	case 0x02:
+		ret = 0x16;
+		break;
+	case 0x03:
+		ret = 0x2b;
+		break;
+	case 0x08:
+	case 0x09:
+	case 0x0a:
+	case 0x0b:
+		if (riva128->rma.rma_dst_addr < 0x1000000)
+			ret = riva128_mmio_read(
+					(riva128->rma.rma_dst_addr
+							+ (addr & 3))
+							& 0xffffff,
+					riva128);
+		else
+			ret = svga_read_linear(
+					(riva128->rma.rma_dst_addr - 0x1000000)
+							& 0xffffff,
+					svga);
+		break;
+	}
+
+	return ret;
+}
+
+
+void
+riva128_rma_out(uint16_t addr, uint8_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t* svga = &riva128->svga;
+
+	addr &= 0xff;
+
+	/* nv_riva_log("RIVA 128 RMA write %04X %02X %04X:%08X\n",
+			addr, val, CS, cpu_state.pc); */
+
+	switch(addr) {
+	case 0x04:
+		riva128->rma.rma_dst_addr &= ~0xff;
+		riva128->rma.rma_dst_addr |= val;
+		break;
+	case 0x05:
+		riva128->rma.rma_dst_addr &= ~0xff00;
+		riva128->rma.rma_dst_addr |= (val << 8);
+		break;
+	case 0x06:
+		riva128->rma.rma_dst_addr &= ~0xff0000;
+		riva128->rma.rma_dst_addr |= (val << 16);
+		break;
+	case 0x07:
+		riva128->rma.rma_dst_addr &= ~0xff000000;
+		riva128->rma.rma_dst_addr |= (val << 24);
+		break;
+	case 0x08:
+	case 0x0c:
+	case 0x10:
+	case 0x14:
+		riva128->rma.rma_data &= ~0xff;
+		riva128->rma.rma_data |= val;
+		break;
+	case 0x09:
+	case 0x0d:
+	case 0x11:
+	case 0x15:
+		riva128->rma.rma_data &= ~0xff00;
+		riva128->rma.rma_data |= (val << 8);
+		break;
+	case 0x0a:
+	case 0x0e:
+	case 0x12:
+	case 0x16:
+		riva128->rma.rma_data &= ~0xff0000;
+		riva128->rma.rma_data |= (val << 16);
+		break;
+	case 0x0b:
+	case 0x0f:
+	case 0x13:
+	case 0x17:
+		riva128->rma.rma_data &= ~0xff000000;
+		riva128->rma.rma_data |= (val << 24);
+		if (riva128->rma.rma_dst_addr < 0x1000000)
+			riva128_mmio_write_l(riva128->rma.rma_dst_addr
+						& 0xffffff,
+					riva128->rma.rma_data, riva128);
+		else
+			svga_writel_linear((riva128->rma.rma_dst_addr
+						- 0x1000000) & 0xffffff,
+					riva128->rma.rma_data, svga);
+		break;
+	}
+
+	if (addr & 0x10)
+		riva128->rma.rma_dst_addr += 4;
+}
+
+
+static void
+riva128_out(uint16_t addr, uint8_t val, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+	uint8_t old;
+
+	if ((addr >= 0x3d0) && (addr <= 0x3d3)) {
+		riva128->rma.rma_access_reg[addr & 3] = val;
+		if (!(riva128->rma.rma_mode & 1))
+			return;
+		riva128_rma_out(
+				((riva128->rma.rma_mode & 0xe) << 1)
+						+ (addr & 3),
+				riva128->rma.rma_access_reg[addr & 3], 
+				riva128);
+	}
+
+	if (((addr & 0xfff0) == 0x3d0 || (addr & 0xfff0) == 0x3b0)
+			&& !(svga->miscout & 1))
+		addr ^= 0x60;
+
+	switch (addr) {
+	case 0x3D4:
+		svga->crtcreg = val;
+		return;
+	case 0x3D5:
+		if ((svga->crtcreg < 7) && (svga->crtc[0x11] & 0x80))
+			return;
+		if ((svga->crtcreg == 7) && (svga->crtc[0x11] & 0x80))
+			val = (svga->crtc[7] & ~0x10) | (val & 0x10);
+		old = svga->crtc[svga->crtcreg];
+		svga->crtc[svga->crtcreg] = val;
+		if (svga->seqregs[0x06] == 0x57)
+		{
+			switch(svga->crtcreg) {
+			case 0x1e:
+				riva128->read_bank = val;
+				if (svga->chain4)
+					svga->read_bank = riva128->read_bank
+							<< 15;
+				else
+					svga->read_bank = riva128->read_bank
+							<< 13;
+				break;
+			case 0x1d:
+				riva128->write_bank = val;
+				if (svga->chain4)
+					svga->write_bank = riva128->write_bank
+							<< 15;
+				else
+					svga->write_bank = riva128->write_bank
+							<< 13;
+				break;
+			case 0x19: case 0x1a: case 0x25: case 0x28:
+			case 0x2d:
+				svga_recalctimings(svga);
+				break;
+            case 0x30:
+				riva128->cursor_offset = (riva128->cursor_offset & ~(0x7f << 12)) | ((val & 0x7f) << 12);
+				riva128->cursor_vram = !!(val & 0x80);
+                break;
+			case 0x31:
+				riva128->cursor_offset = (riva128->cursor_offset & ~(0xf8 << 4)) | ((val & 0xf8) << 4);
+				riva128->cursor_enabled = !!(val & 1);
+				svga->hwcursor.ena = !!(val & 1);
+                break;
+			case 0x38:
+				riva128->rma.rma_mode = val & 0xf;
+				break;
+			case 0x3f:
+				i2c_gpio_set(riva128->i2c, !!(val & 0x20),
+						!!(val & 0x10));
+				break;
+			}
+		}
+		/* if (svga->crtcreg > 0x18)
+			pclog("RIVA 128 Extended CRTC write %02X %02x\n",
+					svga->crtcreg, val); */
+		if (old != val) {
+			if ((svga->crtcreg < 0xe) || (svga->crtcreg > 0x10)) {
+				svga->fullchange = changeframecount;
+				svga_recalctimings(svga);
+			}
+		}
+		break;
+	}
+
+	svga_out(addr, val, svga);
+}
+
+
+static uint8_t
+riva128_in(uint16_t addr, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	svga_t *svga = &riva128->svga;
+	uint8_t temp;
+
+	if ((addr >= 0x3d0) && (addr <= 0x3d3)) {
+		if (!(riva128->rma.rma_mode & 1))
+			return 0x00;
+		return riva128_rma_in(((riva128->rma.rma_mode & 0xe) << 1)
+				+ (addr & 3), riva128);
+	}
+
+	if (((addr & 0xFFF0) == 0x3D0 || (addr & 0xFFF0) == 0x3B0)
+			&& !(svga->miscout & 1))
+		addr ^= 0x60;
+
+	switch (addr) {
+	case 0x3D4:
+		temp = svga->crtcreg;
+		break;
+	case 0x3D5:
+		switch(svga->crtcreg) {
+		case 0x28:
+			temp = svga->crtc[0x28] & 0x3f;
+			break;
+		case 0x34:
+			temp = svga->displine & 0xff;
+			break;
+		case 0x35:
+			temp = (svga->displine >> 8) & 7;
+			break;
+		case 0x3e:
+				/* DDC status register */
+			temp = (i2c_gpio_get_sda(riva128->i2c) << 3)
+					| (i2c_gpio_get_scl(riva128->i2c) << 2);
+			break;
+		default:
+			temp = svga->crtc[svga->crtcreg];
+			break;
+		}
+		break;
+	default:
+		temp = svga_in(addr, svga);
+		break;
+	}
+
+	return temp;
+}
+
+static void
+riva128_vblank_start(svga_t *svga)
+{
+	riva128_t *riva128 = (riva128_t *)svga->priv;
+
+	riva128_pgraph_interrupt(8, riva128);
+}
+
+static void
+riva128_recalctimings(svga_t *svga)
+{
+	riva128_t *riva128 = (riva128_t *)svga->priv;
+
+	svga->memaddr_latch += (svga->crtc[0x19] & 0x1f) << 16;
+	if (svga->crtc[0x25] & 0x01)
+		svga->vtotal += 0x400;
+	if (svga->crtc[0x25] & 0x02)
+		svga->dispend += 0x400;
+	if (svga->crtc[0x25] & 0x04)
+		svga->vblankstart += 0x400;
+	if (svga->crtc[0x25] & 0x08)
+		svga->vsyncstart += 0x400;
+	if (svga->crtc[0x25] & 0x10)
+		svga->htotal += 0x100;
+	if (svga->crtc[0x2d] & 0x01)
+		svga->hdisp += 0x100;	
+	/*
+	 * The effects of the large screen bit seem to just be
+	 * doubling the row offset. However, these large modes
+	 * still don't work. Possibly core SVGA bug? It does
+	 * report 640x2 res after all.
+	 */
+
+	switch(svga->crtc[0x28] & 3) {
+	case 1:
+        svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 1;
+		svga->bpp = 8;
+		svga->lowres = 0;
+		svga->render = svga_render_8bpp_highres;
+		break;
+	case 2:
+        if(svga->vsyncstart & 1)
+            svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 2;
+        else
+            svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 3;
+        if(riva128->pramdac.gen_ctrl & (1 << 12))
+        {
+		    svga->bpp = 16;
+            svga->render = svga_render_16bpp_highres;
+        }
+        else
+        {
+            svga->bpp = 15;
+            svga->render = svga_render_15bpp_highres;
+        }
+		svga->lowres = 0;
+		break;
+	case 3:
+        svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 3;
+		svga->bpp = 32;
+		svga->lowres = 0;
+		svga->render = svga_render_32bpp_highres;
+		break;
+	}
+
+	double freq = 13500000.0;
+	int m_m = riva128->pramdac.mpll & 0xff;
+	int m_n = (riva128->pramdac.mpll >> 8) & 0xff;
+	int m_p = (riva128->pramdac.mpll >> 16) & 7;
+
+	if (m_n == 0)
+		m_n = 1;
+	if (m_m == 0)
+		m_m = 1;
+
+	freq = (freq * m_n) / (m_m << m_p);
+	/* Multiply period by 10 to work around timer system limitations: */
+	riva128->mtime = 10000000.0 / freq;
+	/* pclog("[RIVA 128] mtime %f\n", riva128->mtime); */
+	timer_on_auto(&riva128->mtimer, riva128->mtime);
+
+	freq = 13500000;
+	int nv_m = riva128->pramdac.nvpll & 0xff;
+	int nv_n = (riva128->pramdac.nvpll >> 8) & 0xff;
+	int nv_p = (riva128->pramdac.nvpll >> 16) & 7;
+
+	if (nv_n == 0)
+		nv_n = 1;
+	if (nv_m == 0)
+		nv_m = 1;
+
+	freq = (freq * nv_n) / (nv_m << nv_p);
+	/* Multiply period by 10 to work around timer system limitations: */
+	riva128->nvtime = 10000000.0 / freq;
+	timer_on_auto(&riva128->nvtimer, riva128->nvtime);
+
+	freq = 13500000;
+	int v_m = riva128->pramdac.vpll & 0xff;
+	int v_n = (riva128->pramdac.vpll >> 8) & 0xff;
+	int v_p = (riva128->pramdac.vpll >> 16) & 7;
+
+	if (v_n == 0)
+		v_n = 1;
+	if (v_m == 0)
+		v_m = 1;
+
+	freq = (freq * v_n) / (v_m << v_p);
+	if((svga->crtc[0x28] & 3) != 0) svga->clock = (cpuclock * (double)(1ull << 32)) / freq;
+}
+
+static void
+riva128_hwcursor_draw(svga_t *svga, int displine)
+{
+    riva128_t *riva128 = (riva128_t *) svga->priv;
+    uint16_t startx = riva128->pramdac.cursor_pos & 0xfff;
+    uint16_t starty = (riva128->pramdac.cursor_pos >> 16) & 0xfff;
+	uint32_t cursor_offset = riva128->cursor_offset;
+	int         offset = svga->hwcursor_latch.x - svga->hwcursor_latch.xoff;
+
+    if(startx >= svga->hdisp || starty >= svga->dispend) return;
+
+    uint32_t cursor_bitmap = 0;
+    int replace_bit = 0;
+    int transparent = 0;
+
+	cursor_offset <<= 4;
+    for(int y = 0; y < 32; y++)
+	{
+    	for(int x = 0; x < 32; x++)
+    	{
+        	uint16_t raw = 0;
+			raw = riva128_ramin_read_w(cursor_offset, riva128);
+        	replace_bit = raw & 0x8000;
+        	transparent = raw == 0;
+        	cursor_bitmap = video_15to32[raw & 0x7fff];
+        	cursor_offset += 2;
+        	uint32_t current_col = buffer32->line[svga->hwcursor_latch.y + y][offset + x + svga->x_add];
+        	if(replace_bit) buffer32->line[svga->hwcursor_latch.y + y][offset + x + svga->x_add] = cursor_bitmap | 0xff000000;
+        	else buffer32->line[svga->hwcursor_latch.y + y][offset + x + svga->x_add] = transparent ? current_col | 0xff000000 : (current_col ^ cursor_bitmap) | 0xff000000;
+    	}
+	}
+}
+
+
+static void
+*riva128_init(const device_t *info)
+{
+	riva128_t *riva128 = malloc(sizeof(riva128_t));
+	svga_t *svga;
+	char *romfn = BIOS_RIVA128_PATH;
+	memset(riva128, 0, sizeof(riva128_t));
+	svga = &riva128->svga;
+
+	riva128->vram_size = device_get_config_int("memory") << 20;
+	riva128->vram_mask = riva128->vram_size - 1;
+
+	rom_init(&riva128->bios_rom, romfn, 0xc0000, 0x8000,
+			0x7fff, 0, MEM_MAPPING_EXTERNAL);
+
+	svga_init(info, &riva128->svga, riva128, riva128->vram_size,
+		riva128_recalctimings, riva128_in, riva128_out,
+		riva128_hwcursor_draw, NULL);
+
+	svga->hwcursor.cur_ysize = 32;
+
+	svga->decode_mask = riva128->vram_mask;
+	svga->force_old_addr = 1;
+
+	mem_mapping_add(&riva128->mmio_mapping, 0, 0, riva128_mmio_read,
+			riva128_mmio_read_w, riva128_mmio_read_l,
+			riva128_mmio_write, riva128_mmio_write_w,
+			riva128_mmio_write_l, NULL, MEM_MAPPING_EXTERNAL,
+			riva128);
+	mem_mapping_disable(&riva128->mmio_mapping);
+	mem_mapping_add(&riva128->linear_mapping, 0, 0, svga_read_linear,
+			svga_readw_linear, svga_readl_linear,
+			svga_write_linear, svga_writew_linear,
+			svga_writel_linear, NULL, MEM_MAPPING_EXTERNAL,
+			&riva128->svga);
+	mem_mapping_disable(&riva128->linear_mapping);
+	mem_mapping_add(&riva128->ramin_mapping, 0, 0, riva128_ramin_read,
+			riva128_ramin_read_w, riva128_ramin_read_l,
+			riva128_ramin_write, riva128_ramin_write_w,
+			riva128_ramin_write_l, NULL, MEM_MAPPING_EXTERNAL,
+			riva128);
+	mem_mapping_disable(&riva128->ramin_mapping);
+	mem_mapping_add(&riva128->linear_mapping2, 0, 0, svga_read_linear,
+			svga_readw_linear, svga_readl_linear,
+			svga_write_linear, svga_writew_linear,
+			svga_writel_linear, NULL, MEM_MAPPING_EXTERNAL,
+			&riva128->svga);
+	mem_mapping_disable(&riva128->linear_mapping2);
+	mem_mapping_add(&riva128->ramin_mapping2, 0, 0, riva128_ramin_read,
+			riva128_ramin_read_w, riva128_ramin_read_l,
+			riva128_ramin_write, riva128_ramin_write_w,
+			riva128_ramin_write_l, NULL, MEM_MAPPING_EXTERNAL,
+			riva128);
+	mem_mapping_disable(&riva128->ramin_mapping2);
+
+	mem_mapping_set_handler(&svga->mapping, svga_read, svga_readw,
+			svga_readl, svga_write, svga_writew, svga_writel);
+
+	svga->vblank_start = riva128_vblank_start;
+
+	io_sethandler(0x03c0, 0x0020, riva128_in, NULL, NULL, riva128_out,
+			NULL, NULL, riva128);
+
+	pci_add_card(PCI_ADD_NORMAL, riva128_pci_read,
+			riva128_pci_write, riva128, &riva128->pci_slot);
+
+	riva128->pci_regs[0x04] = 0x08;
+	riva128->pci_regs[0x07] = 0x02;
+
+	riva128->pci_regs[0x2c] = 0xd2;
+	riva128->pci_regs[0x2d] = 0x12;
+	riva128->pci_regs[0x2e] = 0x00;
+	riva128->pci_regs[0x2f] = 0x03;
+
+	riva128->pci_regs[0x30] = 0x00;
+	riva128->pci_regs[0x32] = 0x0c;
+	riva128->pci_regs[0x33] = 0x00;
+
+	riva128->pfifo.ramro = 0x1e00;
+	riva128->pfifo.ramro_addr = 0x1e00;
+	riva128->pfifo.ramro_size = 512;
+	riva128->pfifo.runout_get = riva128->pfifo.runout_put = 0;
+	riva128->pfifo.caches[1].put = riva128->pfifo.caches[1].get = 0;
+
+	timer_add(&riva128->nvtimer, riva128_nvclk_poll, riva128, 0);
+	timer_add(&riva128->mtimer, riva128_mclk_poll, riva128, 0);
+
+	video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_riva128);
+
+	riva128->i2c = i2c_gpio_init("ddc_riva128");
+	riva128->ddc = ddc_init(i2c_gpio_get_bus(riva128->i2c));
+
+	return riva128;
+}
+
+
+static int
+riva128_available(void)
+{
+	return rom_present(BIOS_RIVA128_PATH);
+}
+
+
+void
+riva128_close(void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	
+	svga_close(&riva128->svga);
+
+	ddc_close(riva128->ddc);
+	i2c_gpio_close(riva128->i2c);
+	
+	free(riva128);
+}
+
+
+void
+riva128_speed_changed(void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	
+	svga_recalctimings(&riva128->svga);
+}
+
+
+void
+riva128_force_redraw(void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+
+	riva128->svga.fullchange = changeframecount;
+}
+
+static const device_config_t riva128_config[] = {
+{
+	.name = "memory",
+	.description = "Memory size",
+	.type = CONFIG_SELECTION,
+	.selection = {{
+		.description = "1 MB",
+		.value = 1
+	}, {
+		.description = "2 MB",
+		.value = 2
+	}, {
+		.description = "4 MB",
+		.value = 4
+	}, {
+		.description = ""
+	}},
+	.default_int = 4
+},
+{ .type = -1 }
+};
+
+const device_t riva128_pci_device = {
+	.name = "nVidia RIVA 128 (PCI)",
+	.internal_name = "riva128",
+	.flags = DEVICE_PCI,
+	.local = RIVA128_DEVICE_ID,
+	.init = riva128_init,
+	.close = riva128_close, 
+	.reset = NULL,
+	.available = riva128_available,
+	.speed_changed = riva128_speed_changed,
+	.force_redraw = riva128_force_redraw,
+	.config = riva128_config
+};

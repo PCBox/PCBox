@@ -90,6 +90,8 @@ typedef struct pit_intf_t {
     void (*write)(uint16_t addr, uint8_t val, void *priv);
     /* Gets a counter's count. */
     uint16_t (*get_count)(void *data, int counter_id);
+    /* Gets a counter's out. */
+    int  (*get_outlevel)(void *data, int counter_id);
     /* Sets a counter's GATE input. */
     void (*set_gate)(void *data, int counter_id, int gate);
     /* Sets if a counter's CLOCK input is from the timer or not - used by PCjr. */
@@ -154,7 +156,7 @@ extern void pit_speaker_timer(int new_out, int old_out, void *priv);
 
 extern void pit_nmi_timer_ps2(int new_out, int old_out, void *priv);
 
-extern void pit_set_clock(uint32_t clock);
+extern void pit_set_clock(uint64_t clock);
 extern void pit_handler(int set, uint16_t base, int size, void *priv);
 
 extern uint8_t pit_read_reg(void *priv, uint8_t reg);

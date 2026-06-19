@@ -19,12 +19,14 @@
 def repository = ['https://github.com/PCBox/PCBox.git', scm.userRemoteConfigs[0].url]
 def commitBrowser = ['https://github.com/PCBox/PCBox/commit/%s', null]
 def branch = ['pcbox', scm.branches[0].name]
-def buildType = ['beta', 'alpha']
+def buildType = ['alpha', 'alpha']
 def tarballFlags = ['', '-t']
 def buildBranch = env.JOB_BASE_NAME.contains('-') ? 1 : 0
 
 def osArchs = [
-	'Windows': ['64'],
+	'Windows': ['64', 'ARM64'],
+	'Linux': ['x86_64', 'arm64'],
+	'macOS': ['x86_64+arm64']
 ]
 
 def osFlags = [
@@ -86,7 +88,7 @@ def presetFlags = [
 
 def gitClone(repository, branch) {
 	/* Clean workspace. */
-	cleanWs()
+	cleanWs(disableDeferredWipeout: true, deleteDirs: true, notFailBuild: true)
 
 	/* Perform git clone if stashed data isn't available yet, or if
 	   this is not debian.citadel where stash is faster than clone. */
@@ -143,7 +145,7 @@ def runBuild(args) {
 	if (isUnix())
 		return sh(returnStatus: true, script: "chmod u+x '$WORKSPACE/.ci/build.sh' && exec '$WORKSPACE/.ci/build.sh' $args")
 	else
-		return bat(returnStatus: true, script: "C:\\msys64\\msys2_shell.cmd -msys2 -defterm -here -no-start -c 'exec \"\$(cygpath -u \\'%WORKSPACE%\\')/.ci/build.sh\" $args'")
+		return bat(returnStatus: true, script: "C:\\msys64\\msys2_shell.cmd -ucrt64 -defterm -here -no-start -c 'exec \"\$(cygpath -u \\'%WORKSPACE%\\')/.ci/build.sh\" $args'")
 }
 
 def failStage() {
@@ -173,6 +175,38 @@ pipeline {
 
 			steps {
 				script {
+					/* Extract the polled commit from the polling log, so that git checkout
+					   can be used to avoid JENKINS-20518 race conditions caused by the
+					   webhook being triggered more than once in a short period of time.
+					   This is a backup strategy for FilterProxy's webhook queuing. */
+					node('master') { /* must run on master node to read polling log */
+						/* Ignore exceptions as this is not really critical. */
+						try {
+							/* Switch to this build's directory. */
+							dir("${env.JENKINS_HOME}/jobs/${env.JOB_NAME}/builds/${env.BUILD_NUMBER}") {
+								/* Parse polling log. */
+								def pollingLog = readFile file: 'polling.log'
+								def match = pollingLog =~ /Latest remote head revision on [^ ]+ is: ([a-zA-Z0-9]+)/
+								if (match && match[0]) {
+									env.GIT_COMMIT = match[0][1]
+									println "[-] Read git commit [${env.GIT_COMMIT}] from polling log"
+								}
+							}
+						} catch (e) {}
+					}
+
+					/* Adding to the above, run a git clone as soon as possible on any node
+					   to further avoid race conditions caused by busy node executor delays. */
+					retry(10) {
+						node('!Windows') {
+							/* Run git clone. */
+							gitClone(repository[buildBranch], branch[buildBranch])
+
+							/* Clean workspace, in case this is running in a non-build node. */
+							cleanWs(disableDeferredWipeout: true, deleteDirs: true, notFailBuild: true)
+						}
+					}
+
 					/* Determine build metadata. */
 					def buildFlags = "-D \"BUILD_TYPE=$BUILD_TYPE\" -D \"EMU_BUILD=build ${env.BUILD_NUMBER}\" -D \"EMU_BUILD_NUM=${env.BUILD_NUMBER}\""
 					def buildSuffix = "-b${env.BUILD_NUMBER}"
@@ -186,17 +220,16 @@ pipeline {
 					osArchs.each { os, thisOsArchs ->
 						def combinations = [:]
 						thisOsArchs.each { arch ->
-							def archSlug = arch.replace('+x86_64h', '') /* all instances of arch except the one passed to -b */
-							def thisArchDynarecs = dynarecArchs[archSlug.toLowerCase()]
+							def thisArchDynarecs = dynarecArchs[arch.toLowerCase()]
 							if (!thisArchDynarecs)
 								thisArchDynarecs = ['NoDR']
 							thisArchDynarecs.each { dynarec ->
 								presets.each { preset ->
-									def combination = "$os $archSlug $dynarec $preset"
+									def combination = "$os $arch $dynarec $preset"
 									combinations[combination] = {
 										catchError(buildResult: 'FAILURE', stageResult: 'SUCCESS') {
 											retry(10) {
-												node('built-in') {
+												node("$os && ($arch || all)") {
 													stage(combination) {
 														/* Run git clone. */
 														gitClone(repository[buildBranch], branch[buildBranch])
@@ -204,22 +237,27 @@ pipeline {
 														/* Switch to output directory. */
 														dir("${env.WORKSPACE_TMP}/output") {
 															/* Run build process. */
-															def packageName = "${env.JOB_BASE_NAME}${dynarecSlugs[dynarec]}${presetSlugs[preset]}-$os-$archSlug$buildSuffix"
+															def packageName = "${env.JOB_BASE_NAME}${dynarecSlugs[dynarec]}${presetSlugs[preset]}-$os-$arch$buildSuffix"
 															def ret = -1
-															def archName = archNames[archSlug]
+															def archName = archNames[arch.toLowerCase()]
+															if (os == 'macOS')
+																archName = archNamesMac[arch.toLowerCase()]
 															dir(dynarecNames[dynarec]) {
 																dir("$os - $archName") {
 																	ret = runBuild("-b \"$packageName\" \"$arch\" ${presetFlags[preset]} ${dynarecFlags[dynarec]} ${osFlags[os]} $buildFlags")
-																	if (presets.size() == 1)
-																		writeFile file: '.forcedir', text: ''
 																}
-																if ((osArchs.size() == 1) && (thisOsArchs.size() == 1))
-																	writeFile file: '.forcedir', text: ''
 															}
 
-															if (ret == 0) {
+															if (ret == 0 || ret == 50) {
 																/* Archive resulting artifacts. */
-																archiveArtifacts artifacts: "**/$packageName*, **/.forcedir", defaultExcludes: false
+																archiveArtifacts artifacts: "**/$packageName*", defaultExcludes: false
+
+																/* Notify about macOS notarization failures. */
+																if (ret == 50) {
+																	catchError(message: 'macOS notarization failed', buildResult: currentBuild.currentResult, stageResult: 'UNSTABLE') {
+																		def x = 1 / 0
+																	}
+																}
 															} else {
 																/* Fail this stage. */
 																failStage()

@@ -142,9 +142,10 @@ static const struct cdrom_drive_types_s {
     /* TODO: Find an IDENTIFY and/or INQUIRY dump. */
     { "GOLDSTAR", "GCD-R560B",        "1.00", "goldstar_r560b", BUS_TYPE_IDE,  0,  6, 36, 0, 0, {  4,  2,  2, -1 } },
     { "HITACHI",  "CDR-8130",         "0020", "hitachi_r8130",  BUS_TYPE_IDE,  0, 16, 36, 0, 0, {  4,  2,  2, -1 } },
-    { "HITACHI",  "GD-7500",          "A1  ", "hitachi_7500",   BUS_TYPE_IDE,  0, 40, 36, 0, 0, {  4,  2,  2,  2 } }, /* DVD. */
+    { "HITACHI",  "CDR-8435",         "0010", "hitachi_r8435",  BUS_TYPE_IDE,  0, 32, 36, 0, 0, {  4,  2,  2, -1 } },
+    { "HITACHI",  "GD-7500",          "A1  ", "hitachi_7500",   BUS_TYPE_IDE,  0, 40, 36, 0, 1, {  4,  2,  2,  2 } }, /* DVD. */
     { "HL-DT-ST", "CD-ROM GCR-8526B", "1.01", "hldtst_8526b",   BUS_TYPE_IDE,  0, 52, 36, 0, 0, {  4,  2,  2,  2 } },
-    { "HL-DT-ST", "DVDRAM GSA-4160",  "A302", "hldtst_4160",    BUS_TYPE_IDE,  0, 40, 36, 0, 0, {  4,  2,  2,  2 } },
+    { "HL-DT-ST", "DVDRAM GSA-4160",  "A302", "hldtst_4160",    BUS_TYPE_IDE,  0, 40, 36, 0, 1, {  4,  2,  2,  2 } },
     { "KENWOOD",  "CD-ROM UCR-421",   "208E", "kenwood_421",    BUS_TYPE_IDE,  0, 72, 36, 0, 0, {  4,  2,  2,  4 } },
     /*
        This is a laptop/notebook drive, as is also evident from the name:
@@ -156,6 +157,8 @@ static const struct cdrom_drive_types_s {
     { "LITE-ON",  "LTN48125S",        "1S07", "liteon_48125s",  BUS_TYPE_IDE,  0, 48, 36, 0, 0, {  4,  2,  2,  2 } },
     /* Confirmed to be 52x, was the basis for deducing the other one's speed. */
     { "LITE-ON",  "LTN526D",          "YSR5", "liteon_526d",    BUS_TYPE_IDE,  0, 52, 36, 0, 0, {  4,  2,  2,  2 } },
+    /* TODO: Version is from the CR-581-M, find an IDENTIFY and/or INQUIRY dup of te CR-581-M. */
+    { "MATSHITA", "CD-ROM CR-581-B",  "1.05", "matshita_581",   BUS_TYPE_IDE,  0,  4, 36, 0, 0, {  4,  2,  2, -1 } },
     { "MATSHITA", "CD-ROM CR-583",    "1.07", "matshita_583",   BUS_TYPE_IDE,  0,  8, 36, 0, 0, {  4,  2,  2, -1 } },
     { "MATSHITA", "CD-ROM CR-585",    "Z18P", "matshita_585",   BUS_TYPE_IDE,  0, 24, 36, 0, 0, {  4,  2,  2, -1 } },
     { "MATSHITA", "CD-ROM CR-587",    "7S13", "matshita_587",   BUS_TYPE_IDE,  0, 24, 36, 0, 0, {  4,  2,  2, -1 } },
@@ -164,7 +167,7 @@ static const struct cdrom_drive_types_s {
     { "MATSHITA", "CR-572",           "1.0j", "matshita_572",   BUS_TYPE_IDE,  0,  4, 36, 0, 0, {  0, -1, -1, -1 } },
     { "MITSUMI",  "CRMC-FX4820T",     "D02A", "mitsumi_4820t",  BUS_TYPE_IDE,  0, 48, 36, 0, 0, {  4,  2,  2,  2 } },
     /* TODO: Find an IDENTIFY and/or INQUIRY dump. */
-    { "MITSUMI",  "CRMC-FX810T4",     "????", "mitsumi_810t4",  BUS_TYPE_IDE,  0,  8, 36, 0, 0, {  4,  2,  2, -1 } },
+    { "MITSUMI",  "CRMC-FX810T4",     "a01 ", "mitsumi_810t4",  BUS_TYPE_IDE,  0,  8, 36, 0, 0, {  4,  2,  2, -1 } },
     { "NEC",      "CD-ROM DRIVE:260", "1.00", "nec_260_early",  BUS_TYPE_IDE,  1,  2, 36, 1, 0, {  0, -1, -1, -1 } },
     { "NEC",      "CD-ROM DRIVE:260", "1.01", "nec_260",        BUS_TYPE_IDE,  1,  4, 36, 1, 0, {  0, -1, -1, -1 } },
     { "NEC",      "CD-ROM DRIVE:273", "4.20", "nec_273",        BUS_TYPE_IDE,  0,  4, 36, 0, 0, {  0, -1, -1, -1 } },
@@ -173,6 +176,8 @@ static const struct cdrom_drive_types_s {
     { "NEC",      "CDR-1300A",        "1.05", "nec_1300a",      BUS_TYPE_IDE,  0,  6, 36, 0, 0, {  4,  2,  2, -1 } },
     { "NEC",      "CDR-1900A",        "1.00", "nec_1900a",      BUS_TYPE_IDE,  0, 32, 36, 0, 0, {  4,  2,  2, -1 } },
     { "PHILIPS",  "CD-ROM PCA403CD",  "U31P", "philips_403",    BUS_TYPE_IDE,  0, 40, 36, 0, 0, {  4,  2,  2, -1 } },
+    { "SANYO",    "CRD-254P",         "1.05", "sanyo_crd254p",  BUS_TYPE_IDE,  0,  4, 36, 0, 0, {  2, -1, -1, -1 } },
+    { "SANYO",    "CRD-820P",         "1.04", "sanyo_crd820p",  BUS_TYPE_IDE,  0, 20, 36, 0, 0, {  3,  2,  2, -1 } },
     { "SONY",     "CD-ROM CDU76",     "1.0i", "sony_76",        BUS_TYPE_IDE,  0,  4, 36, 0, 0, {  2, -1, -1, -1 } },
     { "SONY",     "CD-ROM CDU311",    "3.0h", "sony_311",       BUS_TYPE_IDE,  0,  8, 36, 0, 0, {  3,  2,  1, -1 } },
     { "SONY",     "CD-ROM CDU611",    "2.2c", "sony_611",       BUS_TYPE_IDE,  0, 24, 36, 0, 0, {  3,  2,  2, -1 } },
@@ -182,6 +187,7 @@ static const struct cdrom_drive_types_s {
     { "TEAC",     "CD-532E",          "2.0A", "teac_532e",      BUS_TYPE_IDE,  0, 32, 36, 0, 0, {  3,  2,  2, -1 } },
     { "TOSHIBA",  "CD-ROM XM-5302TA", "0305", "toshiba_5302ta", BUS_TYPE_IDE,  0,  4, 96, 0, 0, {  0, -1, -1, -1 } },
     { "TOSHIBA",  "CD-ROM XM-5702B",  "TA70", "toshiba_5702b",  BUS_TYPE_IDE,  0, 12, 96, 0, 0, {  3,  2,  1, -1 } },
+    { "TOSHIBA",  "CD-ROM XM-6102B",  "WA70", "toshiba_6102b",  BUS_TYPE_IDE,  0, 24, 96, 0, 0, {  4,  2,  2, -1 } },
     { "TOSHIBA",  "CD-ROM XM-6202B",  "1512", "toshiba_6202b",  BUS_TYPE_IDE,  0, 32, 96, 0, 0, {  4,  2,  2, -1 } },
     { "TOSHIBA",  "CD-ROM XM-6402B",  "1008", "toshiba_6402b",  BUS_TYPE_IDE,  0, 32, 96, 0, 0, {  4,  2,  2,  2 } },
     { "TOSHIBA",  "CD-ROM XM-6702B",  "1007", "toshiba_6720b",  BUS_TYPE_IDE,  0, 48, 96, 0, 0, {  4,  2,  2,  2 } },
@@ -189,6 +195,7 @@ static const struct cdrom_drive_types_s {
     { "TOSHIBA",  "DVD-ROM SD-M1802", "1051", "toshiba_m1802",  BUS_TYPE_IDE,  0, 48, 96, 0, 1, {  4,  2,  2,  2 } },
     { "CHINON",   "CD-ROM CDS-431",   "H42 ", "chinon_431",     BUS_TYPE_SCSI, 1,  1, 36, 1, 0, { -1, -1, -1, -1 } },
     { "CHINON",   "CD-ROM CDX-435",   "M62 ", "chinon_435",     BUS_TYPE_SCSI, 1,  2, 36, 1, 0, { -1, -1, -1, -1 } },
+    { "DEC",      "RRD42   (C) DEC",  "4.5d", "dec_42",         BUS_TYPE_SCSI, 1,  1, 36, 0, 0, { -1, -1, -1, -1 } },
     { "DEC",      "RRD45   (C) DEC",  "0436", "dec_45",         BUS_TYPE_SCSI, 1,  4, 36, 0, 0, { -1, -1, -1, -1 } },
     { "MATSHITA", "CD-ROM CR-501",    "1.0b", "matshita_501",   BUS_TYPE_SCSI, 1,  1, 36, 1, 0, { -1, -1, -1, -1 } },
     { "NEC",      "CD-ROM DRIVE:25",  "1.0a", "nec_25",         BUS_TYPE_SCSI, 1,  2, 36, 0, 0, { -1, -1, -1, -1 } },
@@ -199,15 +206,20 @@ static const struct cdrom_drive_types_s {
     { "NEC",      "CD-ROM DRIVE:211", "1.00", "nec_211",        BUS_TYPE_SCSI, 2,  3, 36, 0, 0, { -1, -1, -1, -1 } },
     /* The speed of the following two is guesswork based on the CDR-400. */
     { "NEC",      "CD-ROM DRIVE:464", "1.05", "nec_464",        BUS_TYPE_SCSI, 2,  3, 36, 0, 0, { -1, -1, -1, -1 } },
+    { "NEC",      "CD-ROM DRIVE:900", "2.5a", "nec_900",        BUS_TYPE_SCSI, 2,  4, 36, 0, 0, { -1, -1, -1, -1 } },
     /* The speed of the following two is guesswork based on the name. */
     { "ShinaKen", "CD-ROM DM-3x1S",   "1.04", "shinaken_3x1s",  BUS_TYPE_SCSI, 1,  3, 36, 0, 0, { -1, -1, -1, -1 } },
+    { "SANYO",    "CRD-254SH",        "1.05", "sanyo_crd254sh", BUS_TYPE_SCSI, 2,  4, 36, 0, 0, { -1, -1, -1, -1 } },
     { "SONY",     "CD-ROM CDU-541",   "1.0i", "sony_541",       BUS_TYPE_SCSI, 1,  1, 36, 1, 0, { -1, -1, -1, -1 } },
     { "SONY",     "CD-ROM CDU-561",   "1.8k", "sony_561",       BUS_TYPE_SCSI, 2,  2, 36, 1, 0, { -1, -1, -1, -1 } },
     { "SONY",     "CD-ROM CDU-76S",   "1.00", "sony_76s",       BUS_TYPE_SCSI, 2,  4, 36, 0, 0, { -1, -1, -1, -1 } },
     { "PHILIPS",  "CDD2600",          "1.07", "philips_2600",   BUS_TYPE_SCSI, 2,  6, 36, 0, 0, { -1, -1, -1, -1 } },
     /* NOTE: The real thing is a CD changer drive! */
     { "PIONEER",  "CD-ROM DRM-604X",  "2403", "pioneer_604x",   BUS_TYPE_SCSI, 2,  4, 47, 0, 0, { -1, -1, -1, -1 } },
+    { "PLEXTOR",  "CD-ROM PX-12CS",   "1.04", "plextor_12cs",   BUS_TYPE_SCSI, 2, 12, 36, 1, 0, { -1, -1, -1, -1 } },
+    { "PLEXTOR",  "CD-ROM PX-12TS",   "1.01", "plextor_12ts",   BUS_TYPE_SCSI, 2, 12, 36, 0, 0, { -1, -1, -1, -1 } },
     { "PLEXTOR",  "CD-ROM PX-32TS",   "1.03", "plextor_32ts",   BUS_TYPE_SCSI, 2, 32, 36, 0, 0, { -1, -1, -1, -1 } },
+    { "PLEXTOR",  "CD-ROM PX-83CS",   "1.01", "plextor_83cs",   BUS_TYPE_SCSI, 2,  8, 36, 1, 0, { -1, -1, -1, -1 } },
     /* The speed of the following two is guesswork based on the R55S. */
     { "TEAC",     "CD 50",            "1.00", "teac_50",        BUS_TYPE_SCSI, 2,  4, 36, 1, 0, { -1, -1, -1, -1 } },
     { "TEAC",     "CD-ROM R55S",      "1.0R", "teac_55s",       BUS_TYPE_SCSI, 2,  4, 36, 0, 0, { -1, -1, -1, -1 } },
@@ -227,12 +239,15 @@ static const struct cdrom_drive_types_s {
     { "TOSHIBA",  "CD-ROM DRIVE:XM",  "3433", "toshiba_xm",     BUS_TYPE_SCSI, 2,  2, 96, 0, 0, { -1, -1, -1, -1 } }, /* Tray.  */
     { "TOSHIBA",  "CD-ROM XM-3201B",  "3232", "toshiba_3201b",  BUS_TYPE_SCSI, 1,  1, 96, 1, 0, { -1, -1, -1, -1 } }, /* Caddy. */
     { "TOSHIBA",  "CD-ROM XM-3301TA", "0272", "toshiba_3301ta", BUS_TYPE_SCSI, 2,  2, 96, 0, 0, { -1, -1, -1, -1 } }, /* Tray.  */
+    { "TOSHIBA",  "CD-ROM XM-3701B",  "0236", "toshiba_3701b",  BUS_TYPE_SCSI, 2,  6, 96, 0, 0, { -1, -1, -1, -1 } }, /* Tray.  */
     { "TOSHIBA",  "CD-ROM XM-5701TA", "3136", "toshiba_5701a",  BUS_TYPE_SCSI, 2, 12, 96, 0, 0, { -1, -1, -1, -1 } }, /* Tray.  */
     { "TOSHIBA",  "DVD-ROM SD-M1401", "1008", "toshiba_m1401",  BUS_TYPE_SCSI, 2, 40, 96, 0, 1, { -1, -1, -1, -1 } }, /* Tray.  */
     { "MATSHITA", "CR-562",           "0.75", "cr562",          BUS_TYPE_MKE , 0,  2,  0, 0, 0, { -1, -1, -1, -1 } },
     { "MATSHITA", "CR-562",           "0.76", "cr562_076",      BUS_TYPE_MKE , 0,  2,  0, 0, 0, { -1, -1, -1, -1 } },
     { "MATSHITA", "CR-562",           "0.80", "cr562_080",      BUS_TYPE_MKE , 0,  2,  0, 0, 0, { -1, -1, -1, -1 } },
-    { "MATSHITA", "CR-563",           "0.75", "cr563",          BUS_TYPE_MKE , 0,  2,  0, 0, 0, { -1, -1, -1, -1 } },
+    { "MATSHITA", "CR-562",           "081k", "cr562_081k",     BUS_TYPE_MKE , 0,  2,  0, 0, 0, { -1, -1, -1, -1 } },
+    { "MATSHITA", "CR-563",           "0.74", "cr563",          BUS_TYPE_MKE , 0,  2,  0, 0, 0, { -1, -1, -1, -1 } },
+    { "MATSHITA", "CR-563",           "0.75", "cr563_075",      BUS_TYPE_MKE , 0,  2,  0, 0, 0, { -1, -1, -1, -1 } },
     { "MATSHITA", "CR-563",           "0.80", "cr563_080",      BUS_TYPE_MKE , 0,  2,  0, 0, 0, { -1, -1, -1, -1 } },
     { "",         "",                 "",     "",               BUS_TYPE_NONE, 0, -1,  0, 0, 0, { -1, -1, -1, -1 } }
 };
@@ -316,8 +331,8 @@ typedef struct cdrom {
 
     void              *priv;
 
-    char               image_path[1024];
-    char               prev_image_path[1280];
+    char               image_path[MAX_IMAGE_PATH_LEN];
+    char               prev_image_path[MAX_IMAGE_PATH_LEN + 256];
 
     uint32_t           sound_on;
     uint32_t           cdrom_capacity;
@@ -474,6 +489,8 @@ extern void            cdrom_close(void);
 extern void            cdrom_insert(const uint8_t id);
 extern void            cdrom_exit(const uint8_t id);
 extern int             cdrom_is_empty(const uint8_t id);
+extern int             cdrom_is_playing(const uint8_t id);
+extern int             cdrom_is_paused(const uint8_t id);
 extern void            cdrom_eject(const uint8_t id);
 extern void            cdrom_reload(const uint8_t id);
 

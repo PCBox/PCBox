@@ -16,6 +16,8 @@
 #
 
 add_library(utils OBJECT
+
+    # Core
     cJSON.c
     crc.c
     crc32.c
@@ -25,6 +27,13 @@ add_library(utils OBJECT
     log.c
     random.c
 
-    # VIDEO 
+    # VIDEO
     video/video_rop.c
+)
+
+add_library(mdsx_dll OBJECT
+
+    # MDSX DLL Core
+    mdsx_dll.c
+
 )

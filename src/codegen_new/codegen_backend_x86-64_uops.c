@@ -32,6 +32,7 @@
 #    define REG_IS_BH(size)   (size == IREG_SIZE_BH)
 #    define REG_IS_D(size)    (size == IREG_SIZE_D)
 #    define REG_IS_Q(size)    (size == IREG_SIZE_Q)
+#    define REG_IS_DQ(size)   (size == IREG_SIZE_DQ)
 
 static int
 codegen_ADD(codeblock_t *block, uop_t *uop)
@@ -1296,6 +1297,8 @@ codegen_MOV_REG_PTR(codeblock_t *block, uop_t *uop)
 
     if (REG_IS_L(dest_size)) {
         host_x86_MOV32_REG_ABS(block, dest_reg, uop->p);
+    } else if (REG_IS_D(dest_size) || REG_IS_Q(dest_size)) {
+        host_x86_MOVQ_XREG_ABS(block, dest_reg, uop->p);
     } else
         fatal("MOV_REG_PTR %02x\n", uop->dest_reg_a_real);
 

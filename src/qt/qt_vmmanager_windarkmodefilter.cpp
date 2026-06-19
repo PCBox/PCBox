@@ -25,7 +25,7 @@
 #include <windows.h>
 #include <dwmapi.h>
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
-#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#    define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
 #include <86box/86box.h>
@@ -46,9 +46,11 @@ WindowsDarkModeFilter::reselectDarkMode()
         if (!f.exists())
             printf("Unable to set stylesheet, file not found\n");
         else {
-            f.open(QFile::ReadOnly | QFile::Text);
-            QTextStream ts(&f);
-            qApp->setStyleSheet(ts.readAll());
+            if (f.open(QFile::ReadOnly | QFile::Text)) {
+                QTextStream ts(&f);
+                qApp->setStyleSheet(ts.readAll());
+            } else
+                printf("Unable to set stylesheet, unable to open file\n");
         }
         QPalette palette(qApp->palette());
         palette.setColor(QPalette::Link, Qt::white);
@@ -68,7 +70,8 @@ WindowsDarkModeFilter::reselectDarkMode()
     }
     window->updateDarkMode();
 
-    if (NewDarkMode != OldDarkMode)  QTimer::singleShot(1000, [this] () {
+    if (NewDarkMode != OldDarkMode)
+        QTimer::singleShot(1000, [this]() {
             BOOL DarkMode = NewDarkMode;
             DwmSetWindowAttribute((HWND) window->winId(),
                                   DWMWA_USE_IMMERSIVE_DARK_MODE,
@@ -90,11 +93,8 @@ WindowsDarkModeFilter::nativeEventFilter(const QByteArray &eventType, void *mess
         MSG *msg = static_cast<MSG *>(message);
 
         if ((msg != nullptr) && (msg->message == WM_SETTINGCHANGE)) {
-            if ((((void *) msg->lParam) != nullptr) &&
-                (wcscmp(L"ImmersiveColorSet", (wchar_t*)msg->lParam) == 0) &&
-                color_scheme == 0) {
+            if ((((void *) msg->lParam) != nullptr) && (wcscmp(L"ImmersiveColorSet", (wchar_t *) msg->lParam) == 0) && color_scheme == 0) 
                 reselectDarkMode();
-            }
         }
     }
 

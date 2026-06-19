@@ -16,8 +16,6 @@
 #include "qt_vmmanager_protocol.hpp"
 
 // NON-modal dialogs
-#include "qt_gpudebug_vram.hpp"
-#include "qt_gpudebug_visualnv.hpp"
 extern QTimer discordupdate;
 
 class MediaMenu;
@@ -36,16 +34,19 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
-    void  showMessage(int flags, const QString &header, const QString &message, bool richText);
-    void  getTitle(wchar_t *title);
-    void  blitToWidget(int x, int y, int w, int h, int monitor_index);
-    QSize getRenderWidgetSize();
-    void  setSendKeyboardInput(bool enabled);
-    void  reloadAllRenderers();
-	QShortcut	*windowedShortcut;
-	QKeySequence FindAcceleratorSeq(const char *name);
-	
-	
+    void         showMessage(int flags, const QString &header, const QString &message, bool richText);
+    QString      getTitle();
+    void         blitToWidget(int x, int y, int w, int h, int monitor_index);
+    QSize        getRenderWidgetSize();
+    void         setSendKeyboardInput(bool enabled);
+    void         reloadAllRenderers();
+    QShortcut   *windowedShortcut;
+    QKeySequence FindAcceleratorSeq(const char *name);
+
+    QString mouseStringUncaptured;
+    QString mouseStringCaptured;
+    void    updateMouseStrings();
+
     std::array<std::unique_ptr<RendererStack>, 8> renderers;
 signals:
     void paint(const QImage &image);
@@ -62,19 +63,20 @@ signals:
     void destroyRendererMonitor(int monitor_index);
     void initRendererMonitorForNonQtThread(int monitor_index);
     void destroyRendererMonitorForNonQtThread(int monitor_index);
+    void forceInterpretationCompleted();
     void hardResetCompleted();
 
     void setTitle(const QString &title);
     void setFullscreen(bool state);
     void setMouseCapture(bool state);
 
-    void showMessageForNonQtThread(int flags, const QString &header, const QString &message, bool richText, std::atomic_bool* done);
-    void getTitleForNonQtThread(wchar_t *title);
+    void showMessageForNonQtThread(int flags, const QString &header, const QString &message, bool richText, std::atomic_bool *done);
 
     void vmmRunningStateChanged(VMManagerProtocol::RunningState state);
     void vmmConfigurationChanged();
     void vmmGlobalConfigurationChanged();
 public slots:
+    void emitVmmSignal();
     void showSettings();
     void hardReset();
     void onHardResetCompleted();
@@ -85,19 +87,19 @@ public slots:
     void updateStatusEmptyIcons();
     void updateUiPauseState();
 private slots:
+    void on_actionForce_interpretation_triggered();
     void on_actionFullscreen_triggered();
     void on_actionSettings_triggered();
     void on_actionExit_triggered();
-    void on_actionAuto_pause_triggered();
     void on_actionUpdate_mouse_every_CPU_frame_triggered();
     void on_actionPause_triggered();
+    void on_actionToggle_OSD_triggered();
     void on_actionCtrl_Alt_Del_triggered();
     void on_actionCtrl_Alt_Esc_triggered();
     void on_actionHard_Reset_triggered();
     void on_actionRight_CTRL_is_left_ALT_triggered();
     void on_actionKeyboard_requires_capture_triggered();
     void on_actionResizable_window_triggered(bool checked);
-    void on_actionInverted_VGA_monitor_triggered();
     void on_action0_5x_triggered();
     void on_action1x_triggered();
     void on_action1_5x_triggered();
@@ -115,20 +117,10 @@ private slots:
     void on_actionFullScreen_keepRatio_triggered();
     void on_actionFullScreen_43_triggered();
     void on_actionFullScreen_stretch_triggered();
-    void on_actionWhite_monitor_triggered();
-    void on_actionGreen_monitor_triggered();
-    void on_actionAmber_monitor_triggered();
-    void on_actionRGB_Grayscale_triggered();
-    void on_actionRGB_Color_triggered();
-    void on_actionAverage_triggered();
-    void on_actionBT709_HDTV_triggered();
-    void on_actionBT601_NTSC_PAL_triggered();
     void on_actionDocumentation_triggered();
     void on_actionAbout_86Box_triggered();
     void on_actionAbout_Qt_triggered();
     void on_actionForce_4_3_display_ratio_triggered();
-    void on_actionChange_contrast_for_monochrome_display_triggered();
-    void on_actionCGA_PCjr_Tandy_EGA_S_VGA_overscan_triggered();
     void on_actionRemember_size_and_position_triggered();
     void on_actionSpecify_dimensions_triggered();
     void on_actionHiDPI_scaling_triggered();
@@ -136,17 +128,19 @@ private slots:
     void on_actionHide_tool_bar_triggered();
     void on_actionUpdate_status_bar_icons_triggered();
     void on_actionTake_screenshot_triggered();
+    void on_actionTake_raw_screenshot_triggered();
+    void on_actionCopy_screenshot_triggered();
+    void on_actionCopy_raw_screenshot_triggered();
+    void toggleFullscreenUI();
     void on_actionMute_Unmute_triggered();
     void on_actionSound_gain_triggered();
     void on_actionPreferences_triggered();
     void on_actionEnable_Discord_integration_triggered(bool checked);
     void on_actionRenderer_options_triggered();
-    void on_actionDebug_GPUDebug_VRAM_triggered();
-    void on_actionDebug_GPUDebug_VisualNv_triggered();
-    
+    void on_actionFast_forward_triggered();
+
     void refreshMediaMenu();
-    void showMessage_(int flags, const QString &header, const QString &message, bool richText, std::atomic_bool* done = nullptr);
-    void getTitle_(wchar_t *title);
+    void showMessage_(int flags, const QString &header, const QString &message, bool richText, std::atomic_bool *done = nullptr);
 
     void on_actionMCA_devices_triggered();
 
@@ -183,14 +177,12 @@ private slots:
 private:
     Ui::MainWindow                *ui;
 
-    // NON-modal dialogs - these use ::show() and therefore have to be maintained as objects
-    GPUDebugVRAMDialog            *debugVramDialog;
-    VisualNVDialog                *visualNvDialog;          
+    // NON-modal dialogs - these use ::show() and therefore have to be maintained as objects     
     std::unique_ptr<MachineStatus> status;
     std::shared_ptr<MediaMenu>     mm;
 
-	void updateShortcuts();
-    void     processKeyboardInput(bool down, uint32_t keycode);
+    void updateShortcuts();
+    void processKeyboardInput(bool down, uint32_t keycode);
 #ifdef Q_OS_MACOS
     uint32_t last_modifiers = 0;
     void     processMacKeyboardInput(bool down, const QKeyEvent *event);
@@ -203,24 +195,29 @@ private:
     bool vnc_enabled         = false;
 
     /* Full screen ON and OFF signals */
-    bool fs_on_signal        = false;
-    bool fs_off_signal       = false;
+    bool fs_on_signal  = false;
+    bool fs_off_signal = false;
 
     /* Reload the renderers after closing renderer options dialog. */
-    bool reload_renderers    = false;
+    bool reload_renderers = false;
+
+    /* Mouse capture state before showing fullscreen UI */
+    bool mouse_was_captured = false;
 
     friend class SpecifyDimensions;
-    friend class ProgSettings;
+    friend class Preferences;
+    friend class PreferencesEmulator;
     friend class RendererCommon;
-    friend class RendererStack; // For UI variable access by non-primary renderer windows.
+    friend class RendererStack;         // For UI variable access by non-primary renderer windows.
     friend class WindowsRawInputFilter; // Needed to reload renderers on style sheet changes.
 
-    QLabel *caps_label, *scroll_label, *num_label, *kana_label;
-    QIcon caps_icon, scroll_icon, num_icon, kana_icon;
-    QIcon caps_icon_off, scroll_icon_off, num_icon_off, kana_icon_off;
+    QString toolbar_text;
+    QLabel *toolbar_label, *caps_label, *scroll_label, *num_label, *kana_label;
+    QIcon   caps_icon, scroll_icon, num_icon, kana_icon;
+    QIcon   caps_icon_off, scroll_icon_off, num_icon_off, kana_icon_off;
 
-    bool isShowMessage = false;
-    bool isNonPause = false;
+    bool isShowMessage  = false;
+    bool isNonPause     = false;
     bool window_blocked = false;
 };
 

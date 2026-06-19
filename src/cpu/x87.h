@@ -224,6 +224,15 @@ FPU_save_regi_tag(extFloat80_t reg, int tag, int stnr)
     FPU_settagi(tag, stnr);
 }
 
+#ifdef FPU_8087
+#define FPU_check_pending_exceptions()        \
+    do {                                      \
+        if ((fpu_state.swd & FPU_SW_Summary) && !(fpu_state.cwd & FPU_SW_Summary)) { \
+            nmi = 1;                          \
+            return 1;                         \
+        }                                     \
+    } while (0)
+#else
 #define FPU_check_pending_exceptions()        \
     do {                                      \
         if (fpu_state.swd & FPU_SW_Summary) { \
@@ -234,3 +243,4 @@ FPU_save_regi_tag(extFloat80_t reg, int tag, int stnr)
             return 1;                         \
         }                                     \
     } while (0)
+#endif

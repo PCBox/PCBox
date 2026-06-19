@@ -37,8 +37,10 @@ extern void  ini_dump(ini_t ini);
 extern void  ini_close(ini_t ini);
 
 extern void     ini_section_delete_var(ini_section_t section, const char *name);
-extern int      ini_section_get_int(ini_section_t section, const char *name, int def);
+extern int      ini_section_get_int(ini_section_t section, const char *name, int32_t def);
 extern uint32_t ini_section_get_uint(ini_section_t section, const char *name, uint32_t def);
+extern int64_t  ini_section_get_int64(ini_section_t section, const char *name, int64_t def);
+extern uint64_t ini_section_get_uint64(ini_section_t section, const char *name, uint64_t def);
 #if 0
 extern float    ini_section_get_float(ini_section_t section, const char *name, float def);
 #endif
@@ -49,8 +51,10 @@ extern int      ini_section_get_hex20(ini_section_t section, const char *name, i
 extern int      ini_section_get_mac(ini_section_t section, const char *name, int def);
 extern char    *ini_section_get_string(ini_section_t section, const char *name, char *def);
 extern wchar_t *ini_section_get_wstring(ini_section_t section, const char *name, wchar_t *def);
-extern void     ini_section_set_int(ini_section_t section, const char *name, int val);
+extern void     ini_section_set_int(ini_section_t section, const char *name, int32_t val);
 extern void     ini_section_set_uint(ini_section_t section, const char *name, uint32_t val);
+extern void     ini_section_set_int64(ini_section_t section, const char *name, int64_t val);
+extern void     ini_section_set_uint64(ini_section_t section, const char *name, uint64_t val);
 #if 0
 extern void     ini_section_set_float(ini_section_t section, const char *name, float val);
 #endif

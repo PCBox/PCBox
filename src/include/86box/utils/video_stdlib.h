@@ -20,4 +20,4 @@
 
 #define VIDEO_ROP_SRC_COPY        0xCC
 
-int32_t video_rop_gdi_ternary(int32_t rop, int32_t src, int32_t dst, int32_t pattern);
+uint32_t video_rop_gdi_ternary(uint32_t rop, uint32_t src, uint32_t dst, uint32_t pattern);

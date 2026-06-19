@@ -487,6 +487,7 @@ void
 paradise_recalctimings(svga_t *svga)
 {
     paradise_t *paradise = (paradise_t *) svga->priv;
+    int clk_sel = 0;
 
     svga->lowres = !(svga->gdcreg[0x0e] & 0x01);
 
@@ -526,6 +527,11 @@ paradise_recalctimings(svga_t *svga)
                 break;
         }
     } else {
+        clk_sel = ((svga->miscout >> 2) & 0x03);
+        if (!(svga->gdcreg[0x0c] & 0x02))
+            clk_sel |= 0x04;
+
+        svga->clock = (cpuclock * (double) (1ULL << 32)) / svga->getclock(clk_sel, svga->clock_gen);
         if ((svga->gdcreg[6] & 1) || (svga->attrregs[0x10] & 1)) {
             if ((svga->bpp >= 8) && !svga->lowres) {
                 if (svga->bpp == 16) {
@@ -738,9 +744,8 @@ paradise_readw(uint32_t addr, void *priv)
 void *
 paradise_init(const device_t *info, uint32_t memory)
 {
-    paradise_t *paradise = malloc(sizeof(paradise_t));
+    paradise_t *paradise = calloc(1, sizeof(paradise_t));
     svga_t     *svga     = &paradise->svga;
-    memset(paradise, 0, sizeof(paradise_t));
 
     if (info->local == PVGA1A)
         video_inform(VIDEO_FLAG_TYPE_SPECIAL, &timing_paradise_pvga1a);
@@ -777,6 +782,8 @@ paradise_init(const device_t *info, uint32_t memory)
             paradise->vram_mask = (memory << 10) - 1;
             svga->decode_mask   = (memory << 10) - 1;
             svga->ramdac        = device_add(&sc11487_ramdac_device); /*Actually a Winbond W82c487-80, probably a clone.*/
+            svga->clock_gen     = device_add(&ics90c64a_903_device);
+            svga->getclock      = ics90c64a_vclk_getclock;
             break;
 
         default:
@@ -956,7 +963,7 @@ paradise_force_redraw(void *priv)
 }
 
 const device_t paradise_pvga1a_pc2086_device = {
-    .name          = "Paradise PVGA1A (Amstrad PC2086)",
+    .name          = "Paradise PVGA1A On-Board (Amstrad PC2086)",
     .internal_name = "pvga1a_pc2086",
     .flags         = 0,
     .local         = PVGA1A,
@@ -966,11 +973,12 @@ const device_t paradise_pvga1a_pc2086_device = {
     .available     = NULL,
     .speed_changed = paradise_speed_changed,
     .force_redraw  = paradise_force_redraw,
+    .machine       = "Amstrad PC2086",
     .config        = NULL
 };
 
 const device_t paradise_pvga1a_pc3086_device = {
-    .name          = "Paradise PVGA1A (Amstrad PC3086)",
+    .name          = "Paradise PVGA1A On-Board (Amstrad PC3086)",
     .internal_name = "pvga1a_pc3086",
     .flags         = 0,
     .local         = PVGA1A,
@@ -980,6 +988,7 @@ const device_t paradise_pvga1a_pc3086_device = {
     .available     = NULL,
     .speed_changed = paradise_speed_changed,
     .force_redraw  = paradise_force_redraw,
+    .machine       = "Amstrad PC3086",
     .config        = NULL
 };
 
@@ -1005,7 +1014,7 @@ static const device_config_t paradise_pvga1a_config[] = {
 };
 
 const device_t paradise_pvga1a_ncr3302_device = {
-    .name          = "Paradise PVGA1A (NCR 3302)",
+    .name          = "Paradise PVGA1A On-Board (NCR 3302)",
     .internal_name = "pvga1a_ncr3302",
     .flags         = 0,
     .local         = PVGA1A,
@@ -1015,6 +1024,7 @@ const device_t paradise_pvga1a_ncr3302_device = {
     .available     = NULL,
     .speed_changed = paradise_speed_changed,
     .force_redraw  = paradise_force_redraw,
+    .machine       = "NCR 3302",
     .config        = paradise_pvga1a_config
 };
 
@@ -1033,7 +1043,7 @@ const device_t paradise_pvga1a_device = {
 };
 
 const device_t paradise_wd90c11_megapc_device = {
-    .name          = "Paradise WD90C11 (Amstrad MegaPC)",
+    .name          = "Paradise WD90C11 On-Board (Amstrad MegaPC)",
     .internal_name = "wd90c11_megapc",
     .flags         = 0,
     .local         = WD90C11,
@@ -1043,6 +1053,7 @@ const device_t paradise_wd90c11_megapc_device = {
     .available     = NULL,
     .speed_changed = paradise_speed_changed,
     .force_redraw  = paradise_force_redraw,
+    .machine       = "Amstrad MegaPC",
     .config        = NULL
 };
 

@@ -11,7 +11,7 @@
 # Authors: David Hrdlička, <hrdlickadavid@outlook.com>
 #
 #          Copyright 2020-2021 David Hrdlička.
-#          Copyright 2021-2025 Jasmine Iwanek.
+#          Copyright 2021-2026 Jasmine Iwanek.
 #
 
 cmake_minimum_required(VERSION 3.16)
@@ -36,13 +36,14 @@ if(MUNT_EXTERNAL)
 endif()
 
 project(PCBox
-    VERSION 6.0
+    VERSION 6.1
     DESCRIPTION "Emulator of x86-based systems"
     HOMEPAGE_URL "https://pcbox-emu.xyz/"
     LANGUAGES C CXX)
 
 include(CPack)
 include(CMakeDependentOption)
+include(FetchContent)
 
 # Basic build options
 if(VCPKG_TOOLCHAIN)
@@ -118,7 +119,7 @@ if(NOT (WIN32 OR APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
 endif()
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_FIND_PACKAGE_PREFER_CONFIG ON)
 
 # Optional features
@@ -131,6 +132,7 @@ option(OPENAL       "OpenAL"                                                    
 option(RTMIDI       "RtMidi"                                                     ON)
 option(FLUIDSYNTH   "FluidSynth"                                                 ON)
 option(MUNT         "MUNT"                                                       ON)
+option(SOUNDCANVAS  "Sound Canvas (CLAP)"                                        ON)
 option(VNC          "VNC renderer"                                               OFF)
 option(MINITRACE    "Enable Chrome tracing using the modified minitrace library" OFF)
 option(GDBSTUB      "Enable GDB stub server for debugging"                       OFF)
@@ -138,17 +140,7 @@ option(DEV_BRANCH   "Development branch"                                        
 option(DISCORD      "Discord Rich Presence support"                              ON)
 option(DEBUGREGS486 "Enable debug register opeartion on 486+ CPUs"               OFF)
 option(LIBASAN      "Enable compilation with the addresss sanitizer"             OFF)
-# Remove when merged, should just be -D
-option(NV_LOG       "NVidia RIVA 128 debug logging"                              ON)
-option(NV_LOG_ULTRA "Even more NVidia RIVA 128 debug logging"                    OFF)
-
-if (NV_LOG)
-    add_compile_definitions(ENABLE_NV_LOG)
-endif()
-
-if (NV_LOG_ULTRA)
-    add_compile_definitions(ENABLE_NV_LOG_ULTRA)
-endif()
+option(QT           "Use the Qt-based user interface"                            ON)
 
 if((ARCH STREQUAL "arm64"))
     set(NEW_DYNAREC ON)
@@ -169,11 +161,17 @@ else()
 endif()
 
 if(WIN32)
-    set(QT ON)
     option(CPPTHREADS "C++11 threads" OFF)
 else()
-    option(QT "Qt GUI" ON)
     option(CPPTHREADS "C++11 threads" ON)
+endif()
+
+if(WIN32 AND NOT QT)
+    # Force console subsystem when building the SDL frontend
+    set(CMAKE_WIN32_EXECUTABLE OFF CACHE BOOL "Build a Windows GUI executable" FORCE)
+
+    # FluidSynth pulls in SDL3 - disable for now
+    set(FLUIDSYNTH OFF CACHE BOOL "FluidSynth" FORCE)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
@@ -191,19 +189,37 @@ cmake_dependent_option(ISAMEM_RAMPAGE "AST Rampage"                             
 cmake_dependent_option(ISAMEM_IAB     "Intel Above Board"                        ON    "DEV_BRANCH"  OFF)
 cmake_dependent_option(ISAMEM_BRAT    "BocaRAM/AT"                               ON    "DEV_BRANCH"  OFF)
 cmake_dependent_option(OPL4ML         "OPL4-ML daughterboard"                    ON    "DEV_BRANCH"  OFF)
-cmake_dependent_option(PCL            "Generic PCL5e Printer"                    ON    "DEV_BRANCH"  OFF)
 cmake_dependent_option(SIO_DETECT     "Super I/O Detection Helper"               ON    "DEV_BRANCH"  OFF)
 cmake_dependent_option(WACOM          "Wacom Input Devices"                      ON    "DEV_BRANCH"  OFF)
 cmake_dependent_option(XL24           "ATI VGA Wonder XL24 (ATI-28800-6)"        ON    "DEV_BRANCH"  OFF)
 cmake_dependent_option(NV3            "NVidia RIVA 128/128ZX (NV3/NV3T)"         ON    "DEV_BRANCH"  OFF)
-cmake_dependent_option(NETSWITCH      "Network Switch Support"                   ON    "DEV_BRANCH"  OFF)
 cmake_dependent_option(VFIO           "Virtual Function I/O"                     ON    "DEV_BRANCH"  OFF)
+cmake_dependent_option(SOFTMODEM      "AC'97 Softmodem"                          ON    "DEV_BRANCH"  OFF)
 
 # Ditto but for Qt
 if(QT)
     option(USE_QT6 "Use Qt6 instead of Qt5" OFF)
     if(APPLE)
         option(MOLTENVK "Use MoltenVK libraries for Vulkan support on macOS. Requires a Vulkan-enabled QT." OFF)
+    endif()
+
+    option(LIBRASHADER "Build with librashader support" ON)
+
+    if(LIBRASHADER)
+        option(LIBRASHADER_STATIC "Statically link with librashader" OFF)
+        if(LIBRASHADER_STATIC)
+            FetchContent_Declare(librashader
+                                 GIT_REPOSITORY https://github.com/SnowflakePowered/librashader.git
+                                 GIT_TAG 43bc09c0b449a8a82d056bb0483233de72bab552)
+                                 
+            FetchContent_Declare(corrosion
+                                 GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
+                                 GIT_TAG c4786e7ae2d5ade784aca29448df362c874ed04e)
+
+            FetchContent_MakeAvailable(librashader corrosion)            
+            FetchContent_GetProperties(librashader SOURCE_DIR LIBRASHADER_SOURCE_DIR)
+            corrosion_import_crate(MANIFEST_PATH ${LIBRASHADER_SOURCE_DIR}/librashader-capi/Cargo.toml NO_DEFAULT_FEATURES FEATURES runtime-vulkan CRATE_TYPES staticlib)
+        endif()
     endif()
 endif()
 
@@ -235,7 +251,7 @@ if(NOT EMU_BUILD_NUM)
     set(EMU_BUILD_NUM 0)
 endif()
 if(NOT EMU_COPYRIGHT_YEAR)
-    set(EMU_COPYRIGHT_YEAR 2025)
+    set(EMU_COPYRIGHT_YEAR 2026)
 endif()
 
 # Libasan

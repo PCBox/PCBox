@@ -16,49 +16,57 @@
 #include <QStyle>
 #include <cstring>
 
-#include "qt_progsettings.hpp"
+#include "qt_preferences.hpp"
 #include "qt_vmmanager_preferences.hpp"
 #include "qt_vmmanager_config.hpp"
 #include "ui_qt_vmmanager_preferences.h"
 
 #ifdef Q_OS_WINDOWS
-#include "qt_vmmanager_windarkmodefilter.hpp"
-extern WindowsDarkModeFilter* vmm_dark_mode_filter;
+#    include "qt_vmmanager_windarkmodefilter.hpp"
+extern WindowsDarkModeFilter *vmm_dark_mode_filter;
 #endif
 
 extern "C" {
 #include <86box/86box.h>
 #include <86box/config.h>
+#include <86box/plat.h>
 #include <86box/version.h>
 }
 
 VMManagerPreferences::
-VMManagerPreferences(QWidget *parent) : ui(new Ui::VMManagerPreferences)
+    VMManagerPreferences(QWidget *parent, bool machinesRunning)
+    : ui(new Ui::VMManagerPreferences)
 {
     ui->setupUi(this);
     ui->dirSelectButton->setIcon(QApplication::style()->standardIcon(QStyle::SP_DirIcon));
     connect(ui->dirSelectButton, &QPushButton::clicked, this, &VMManagerPreferences::chooseDirectoryLocation);
 
-    const auto config = new VMManagerConfig(VMManagerConfig::ConfigType::General);
+    const auto config          = new VMManagerConfig(VMManagerConfig::ConfigType::General);
     const auto configSystemDir = QString(vmm_path_cfg);
-    if(!configSystemDir.isEmpty()) {
+    if (!configSystemDir.isEmpty()) {
         // Prefer this one
         ui->systemDirectory->setText(QDir::toNativeSeparators(configSystemDir));
-    } else if(!QString(vmm_path).isEmpty()) {
+    } else if (!QString(vmm_path).isEmpty()) {
         // If specified on command line
         ui->systemDirectory->setText(QDir::toNativeSeparators(QDir(vmm_path).path()));
     }
 
+    if (machinesRunning) {
+        ui->systemDirectory->setEnabled(false);
+        ui->dirSelectButton->setEnabled(false);
+        ui->pushButtonDefaultSystemDir->setEnabled(false);
+        ui->dirSelectButton->setToolTip(tr("To change the system directory, stop all running machines."));
+    }
+
     ui->comboBoxLanguage->setItemData(0, 0);
-    for (int i = 1; i < ProgSettings::languages.length(); i++) {
-        ui->comboBoxLanguage->addItem(ProgSettings::languages[i].second, i);
+    for (int i = 1; i < Preferences::languages.length(); i++) {
+        ui->comboBoxLanguage->addItem(Preferences::languages[i].second, i);
         if (i == lang_id) {
             ui->comboBoxLanguage->setCurrentIndex(ui->comboBoxLanguage->findData(i));
         }
     }
     ui->comboBoxLanguage->model()->sort(Qt::AscendingOrder);
 
-    // TODO: Defaults
 #if EMU_BUILD_NUM != 0
     const auto configUpdateCheck = config->getStringValue("update_check").toInt();
     ui->updateCheckBox->setChecked(configUpdateCheck);
@@ -79,8 +87,7 @@ VMManagerPreferences(QWidget *parent) : ui(new Ui::VMManagerPreferences)
 #endif
 }
 
-VMManagerPreferences::~
-VMManagerPreferences()
+VMManagerPreferences::~VMManagerPreferences()
     = default;
 
 // Bad copy pasta from machine add
@@ -90,6 +97,14 @@ VMManagerPreferences::chooseDirectoryLocation()
     const auto directory = QFileDialog::getExistingDirectory(this, tr("Choose directory"), ui->systemDirectory->text());
     if (!directory.isEmpty())
         ui->systemDirectory->setText(QDir::toNativeSeparators(directory));
+}
+
+void
+VMManagerPreferences::on_pushButtonDefaultSystemDir_released()
+{
+    char temp[1024];
+    plat_get_vmm_dir(temp, sizeof(temp));
+    ui->systemDirectory->setText(QDir::toNativeSeparators(QDir(temp).path()));
 }
 
 void
@@ -104,7 +119,7 @@ VMManagerPreferences::accept()
     const auto config = new VMManagerConfig(VMManagerConfig::ConfigType::General);
 
     strncpy(vmm_path_cfg, QDir::cleanPath(ui->systemDirectory->text()).toUtf8().constData(), sizeof(vmm_path_cfg) - 1);
-    lang_id = ui->comboBoxLanguage->currentData().toInt();
+    lang_id      = ui->comboBoxLanguage->currentData().toInt();
     color_scheme = (ui->radioButtonSystem->isChecked()) ? 0 : (ui->radioButtonLight->isChecked() ? 1 : 2);
     config_save_global();
 

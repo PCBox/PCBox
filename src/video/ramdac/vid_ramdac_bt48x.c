@@ -56,9 +56,9 @@ bt48x_set_bpp(bt48x_ramdac_t *ramdac, svga_t *svga)
 {
     if ((!(ramdac->cmd_r2 & 0x20)) || ((ramdac->type >= BT485A) && ((ramdac->cmd_r3 & 0x60) == 0x60)))
         svga->bpp = 8;
-    else if ((ramdac->type >= BT485A) && ((ramdac->cmd_r3 & 0x60) == 0x40))
+    else if ((ramdac->type >= BT485A) && ((ramdac->cmd_r3 & 0x60) == 0x20))
         svga->bpp = 24;
-    else
+    else {
         switch (ramdac->cmd_r1 & 0x60) {
             case 0x00:
                 svga->bpp = 32;
@@ -71,14 +71,18 @@ bt48x_set_bpp(bt48x_ramdac_t *ramdac, svga_t *svga)
                 break;
             case 0x40:
                 svga->bpp = 8;
+                svga->gdcreg[5] &= ~0x60;
+                svga->gdcreg[5] |= 0x40;
                 break;
             case 0x60:
                 svga->bpp = 4;
+                svga->gdcreg[5] &= ~0x60;
                 break;
 
             default:
                 break;
         }
+    }
     svga_recalctimings(svga);
 }
 
@@ -373,7 +377,9 @@ bt48x_recalctimings(void *priv, svga_t *svga)
     if (svga->bpp >= 15)
         svga->true_color_bypass = !!(ramdac->cmd_r1 & 0x10);
 
+#if 0
     pclog("CR0=%02x, CR1=%02x, CR2=%02x.\n", ramdac->cmd_r0, ramdac->cmd_r1, ramdac->cmd_r2);
+#endif
 }
 
 void
@@ -494,8 +500,7 @@ bt48x_hwcursor_draw(svga_t *svga, int displine)
 void *
 bt48x_ramdac_init(const device_t *info)
 {
-    bt48x_ramdac_t *ramdac = (bt48x_ramdac_t *) malloc(sizeof(bt48x_ramdac_t));
-    memset(ramdac, 0, sizeof(bt48x_ramdac_t));
+    bt48x_ramdac_t *ramdac = (bt48x_ramdac_t *) calloc(1, sizeof(bt48x_ramdac_t));
 
     ramdac->type = info->local;
 

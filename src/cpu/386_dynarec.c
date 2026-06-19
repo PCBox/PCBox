@@ -54,10 +54,28 @@
 
 #define CPU_BLOCK_END() cpu_block_end = 1
 
+int cpu_force_interpreter   = 0;
 int cpu_override_dynarec    = 0;
 int inrecomp                = 0;
 int cpu_block_end           = 0;
 int cpu_end_block_after_ins = 0;
+
+#if defined(__aarch64__) || defined(_M_ARM64)
+/* ARM64-only epoch: monotonically advances on dirty-list transitions so
+   per-block retry state can distinguish dense bursts from stale retries. */
+static uint32_t dynarec_s03e_dirty_epoch             = 0;
+#endif
+
+#if defined(__aarch64__) || defined(_M_ARM64)
+/* ARM64-only policy: require repeated BYTE_MASK dirty-list hits before
+   NO_IMMEDIATES promotion to avoid premature slow-immediate escalation. */
+/* Tuning: raise threshold to 3 consecutive dirty-list retries so transient
+   churn is more likely to recover via retry-decay before forcing NO_IMMEDIATES. */
+#    define DYNAREC_S03B_NO_IMM_THRESHOLD 3
+/* Tuning: retry bursts must stay temporally dense; large gaps reset burst
+   accumulation instead of carrying stale debt into later promotions. */
+#    define DYNAREC_S03E_BURST_GAP_MAX 64
+#endif
 
 #ifdef ENABLE_386_DYNAREC_LOG
 int x386_dynarec_do_log = ENABLE_386_DYNAREC_LOG;
@@ -315,6 +333,36 @@ static uint64_t tsc_old     = 0;
 int32_t acycs = 0;
 #    endif
 
+int
+codegen_mmx_enter(void)
+{
+    MMX_ENTER();
+    return 0;
+}
+
+int
+codegen_femms(void)
+{
+    if (!cpu_has_feature(CPU_FEATURE_MMX)) {
+        x86illegal();
+        return 1;
+    }
+    if (cr0 & 0xc) {
+        x86_int(7);
+        return 1;
+    }
+
+    x87_emms();
+    return 0;
+}
+
+int
+codegen_fp_enter(void)
+{
+    FP_ENTER();
+    return 0;
+}
+
 void
 update_tsc(void)
 {
@@ -341,7 +389,7 @@ update_tsc(void)
     }
 
     if (cycdiff > 0) {
-        if (TIMER_VAL_LESS_THAN_VAL(timer_target, (uint32_t) tsc))
+        if (TIMER_VAL_LESS_THAN_VAL(timer_target, (uint64_t) tsc))
             timer_process();
     }
 }
@@ -380,7 +428,7 @@ exec386_dynarec_int(void)
             fetchdat >>= 8;
 
 #    ifdef USE_DEBUG_REGS_486
-            trap |= !!(cpu_state.flags & T_FLAG);
+            trap = (trap & ~1) | (!!(cpu_state.flags & T_FLAG));
 #    else
             trap = cpu_state.flags & T_FLAG;
 #    endif
@@ -436,7 +484,9 @@ exec386_dynarec_int(void)
 
 block_ended:
     if (!cpu_state.abrt && !new_ne && trap) {
-        dr[6] |= (trap == 2) ? 0x8000 : 0x4000;
+        if (trap & 2) dr[6] |= 0x8000;
+        if (trap & 1) dr[6] |= 0x4000;
+        if (trap & 16) dr[6] |= 0x2000;
 
         trap = 0;
 #    ifndef USE_NEW_DYNAREC
@@ -482,7 +532,7 @@ exec386_dynarec_dyn(void)
             uint64_t mask = (uint64_t) 1 << ((phys_addr >> PAGE_MASK_SHIFT) & PAGE_MASK_MASK);
 #    ifdef USE_NEW_DYNAREC
             int      byte_offset = (phys_addr >> PAGE_BYTE_MASK_SHIFT) & PAGE_BYTE_MASK_OFFSET_MASK;
-            uint64_t byte_mask   = 1ULL << (PAGE_BYTE_MASK_MASK & 0x3f);
+            uint64_t byte_mask   = 1ULL << (phys_addr & PAGE_BYTE_MASK_MASK);
 
             if ((page->code_present_mask & mask) ||
                 ((page->mem != page_ff) && (page->byte_code_present_mask[byte_offset] & byte_mask)))
@@ -507,16 +557,15 @@ exec386_dynarec_dyn(void)
         if (valid_block && (block->page_mask & *block->dirty_mask)) {
 #    ifdef USE_NEW_DYNAREC
             codegen_check_flush(page, page->dirty_mask, phys_addr);
-            if (block->pc == BLOCK_PC_INVALID)
-                valid_block = 0;
-            else if (block->flags & CODEBLOCK_IN_DIRTY_LIST)
+            if (block->valid && (block->flags & CODEBLOCK_IN_DIRTY_LIST))
                 block->flags &= ~CODEBLOCK_WAS_RECOMPILED;
+            else
 #    else
             codegen_check_flush(page, page->dirty_mask[(phys_addr >> 10) & 3], phys_addr);
             page->dirty_mask[(phys_addr >> 10) & 3] = 0;
+#    endif
             if (!block->valid)
                 valid_block = 0;
-#    endif
         }
         if (valid_block && block->page_mask2) {
             /* We don't want the second page to cause a page
@@ -538,25 +587,71 @@ exec386_dynarec_dyn(void)
             else if (block->page_mask2 & *block->dirty_mask2) {
 #    ifdef USE_NEW_DYNAREC
                 codegen_check_flush(page_2, page_2->dirty_mask, phys_addr_2);
-                if (block->pc == BLOCK_PC_INVALID)
-                    valid_block = 0;
-                else if (block->flags & CODEBLOCK_IN_DIRTY_LIST)
+                if (block->valid && (block->flags & CODEBLOCK_IN_DIRTY_LIST))
                     block->flags &= ~CODEBLOCK_WAS_RECOMPILED;
+                else
 #    else
                 codegen_check_flush(page_2, page_2->dirty_mask[(phys_addr_2 >> 10) & 3], phys_addr_2);
                 page_2->dirty_mask[(phys_addr_2 >> 10) & 3] = 0;
+#    endif
                 if (!block->valid)
                     valid_block = 0;
-#    endif
             }
         }
 #    ifdef USE_NEW_DYNAREC
+        /* ARM64-only: if a BYTE_MASK block executes stably outside the dirty
+           list, clear stale retry debt so a distant future dirty hit does not
+           trigger premature NO_IMMEDIATES promotion. */
+#        if defined(__aarch64__) || defined(_M_ARM64)
+        if (valid_block && !(block->flags & CODEBLOCK_IN_DIRTY_LIST) && (block->flags & CODEBLOCK_BYTE_MASK)
+            && !(block->flags & CODEBLOCK_NO_IMMEDIATES) && block->dirty_list_recompile_hits) {
+            block->dirty_list_recompile_hits = 0;
+            block->dirty_list_last_epoch     = 0;
+        }
+#        endif
+
         if (valid_block && (block->flags & CODEBLOCK_IN_DIRTY_LIST)) {
+            const int had_byte_mask     = !!(block->flags & CODEBLOCK_BYTE_MASK);
+            const int had_no_immediates = !!(block->flags & CODEBLOCK_NO_IMMEDIATES);
+#if defined(__aarch64__) || defined(_M_ARM64)
+            const uint16_t last_epoch_before = block->dirty_list_last_epoch;
+#endif
             block->flags &= ~CODEBLOCK_WAS_RECOMPILED;
-            if (block->flags & CODEBLOCK_BYTE_MASK)
-                block->flags |= CODEBLOCK_NO_IMMEDIATES;
-            else
+            if (had_byte_mask) {
+                if (!had_no_immediates) {
+#if defined(__aarch64__) || defined(_M_ARM64)
+                    /* ARM64-only: wait for repeated dirty-list BYTE_MASK
+                       hits before NO_IMMEDIATES promotion. */
+                    /* Require retries to occur in a dense burst window;
+                       stale widely-spaced retries are reset. */
+                    dynarec_s03e_dirty_epoch++;
+                    {
+                        const uint16_t cur_epoch = (uint16_t) dynarec_s03e_dirty_epoch;
+
+                        if (last_epoch_before != 0) {
+                            const uint16_t epoch_gap = (uint16_t) (cur_epoch - last_epoch_before);
+                            if (epoch_gap > DYNAREC_S03E_BURST_GAP_MAX) {
+                                block->dirty_list_recompile_hits = 0;
+                            }
+                        }
+                        block->dirty_list_last_epoch = cur_epoch;
+                    }
+                    block->dirty_list_recompile_hits++;
+                    if (block->dirty_list_recompile_hits >= DYNAREC_S03B_NO_IMM_THRESHOLD) {
+                        block->flags |= CODEBLOCK_NO_IMMEDIATES;
+                        block->dirty_list_last_epoch = 0;
+                    }
+#else
+                    block->flags |= CODEBLOCK_NO_IMMEDIATES;
+#endif
+                }
+            } else {
+#if defined(__aarch64__) || defined(_M_ARM64)
+                block->dirty_list_recompile_hits = 0;
+                block->dirty_list_last_epoch     = 0;
+#endif
                 block->flags |= CODEBLOCK_BYTE_MASK;
+            }
         }
         if (valid_block && (block->flags & CODEBLOCK_WAS_RECOMPILED) && (block->flags & CODEBLOCK_STATIC_TOP) && block->TOP != (cpu_state.TOP & 7))
 #    else
@@ -806,6 +901,7 @@ exec386_dynarec_dyn(void)
     else
         cpu_state.oldpc = cpu_state.pc;
 #    endif
+
 }
 
 void
@@ -844,7 +940,7 @@ exec386_dynarec(int32_t cycs)
             cycles_old       = cycles;
             oldtsc           = tsc;
             tsc_old          = tsc;
-            if ((!CACHE_ON()) || cpu_override_dynarec) /*Interpret block*/
+            if (cpu_force_interpreter || cpu_override_dynarec ||  (!CACHE_ON())) /*Interpret block*/
             {
                 exec386_dynarec_int();
             } else {
@@ -935,7 +1031,7 @@ exec386_dynarec(int32_t cycs)
             }
 
             if (cycdiff > 0) {
-                if (TIMER_VAL_LESS_THAN_VAL(timer_target, (uint32_t) tsc))
+                if (TIMER_VAL_LESS_THAN_VAL(timer_target, (uint64_t) tsc))
                     timer_process();
             }
 
@@ -964,7 +1060,7 @@ exec386(int32_t cycs)
     cycles += cycs;
 
     while (cycles > 0) {
-        cycle_period = (timer_target - (uint32_t) tsc) + 1;
+        cycle_period = (timer_target - (uint64_t) tsc) + 1;
 
         x86_was_reset = 0;
         cycdiff       = 0;
@@ -1012,7 +1108,7 @@ exec386(int32_t cycs)
                 opcode = fetchdat & 0xFF;
                 fetchdat >>= 8;
 #ifdef USE_DEBUG_REGS_486
-                trap |= !!(cpu_state.flags & T_FLAG);
+                trap = (trap & ~1) | (!!(cpu_state.flags & T_FLAG));
 #else
                 trap = cpu_state.flags & T_FLAG;
 #endif
@@ -1092,6 +1188,7 @@ block_ended:
 #ifdef USE_DEBUG_REGS_486
                 if (trap & 2) dr[6] |= 0x8000;
                 if (trap & 1) dr[6] |= 0x4000;
+                if (trap & 16) dr[6] |= 0x2000;
 #endif
                 trap = 0;
 #ifndef USE_NEW_DYNAREC
@@ -1151,7 +1248,7 @@ block_ended:
                     fatal("Life expired\n");
             }
 
-            if (TIMER_VAL_LESS_THAN_VAL(timer_target, (uint32_t) tsc))
+            if (TIMER_VAL_LESS_THAN_VAL(timer_target, (uint64_t) tsc))
                 timer_process();
 
 #ifdef USE_GDBSTUB

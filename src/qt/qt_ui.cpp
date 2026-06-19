@@ -22,6 +22,7 @@
 
 #include <QStatusBar>
 #include <QApplication>
+#include <QStringBuilder>
 
 #include "qt_mainwindow.hpp"
 #include "qt_machinestatus.hpp"
@@ -50,6 +51,7 @@ extern "C" {
 #include <86box/cdrom.h>
 #include <86box/rdisk.h>
 #include <86box/mo.h>
+#include <86box/scsi_tape.h>
 #include <86box/hdd.h>
 #include <86box/thread.h>
 #include <86box/network.h>
@@ -69,18 +71,18 @@ plat_delay_ms(uint32_t count)
 #endif
 }
 
-wchar_t *
-ui_window_title(wchar_t *str)
+void
+ui_emu_status(int speed_percent)
 {
-    if (str == nullptr) {
-        static wchar_t title[512] = { 0 };
+    QString str = QString::number(speed_percent);
+    if ((mouse_type == MOUSE_TYPE_NONE) || (mouse_input_mode >= 1))
+        str += QStringLiteral("%");
+    else if (mouse_capture == 1)
+        str += QStringLiteral("% - ") % main_window->mouseStringCaptured;
+    else
+        str += QStringLiteral("% - ") % main_window->mouseStringUncaptured;
 
-        main_window->getTitle(title);
-        str = title;
-    } else
-        emit main_window->setTitle(QString::fromWCharArray(str));
-
-    return str;
+    emit main_window->setTitle(str);
 }
 
 void
@@ -151,23 +153,31 @@ plat_mouse_capture(int on)
 }
 
 int
-ui_msgbox_header(int flags, void *header, void *message)
+ui_msgbox_header(int flags, char *header, char *message)
 {
-    const auto hdr = (flags & MBX_ANSI) ? QString(static_cast<char *>(header)) :
-                            QString::fromWCharArray(static_cast<const wchar_t *>(header));
-    const auto msg = (flags & MBX_ANSI) ? QString(static_cast<char *>(message)) :
-                            QString::fromWCharArray(static_cast<const wchar_t *>(message));
+    const auto hdr = QString::fromUtf8(header);
+    const auto msg = QString::fromUtf8(message);
 
     // any error in early init
     if (main_window == nullptr) {
-        auto msgicon = QMessageBox::Icon::Critical;
-        if (flags & MBX_INFO)
-            msgicon = QMessageBox::Icon::Information;
-        else if (flags & MBX_QUESTION)
-            msgicon = QMessageBox::Icon::Question;
+        auto defaultheader = QString();
+        if (hdr.isEmpty()) {
+            if (flags & MBX_FATAL)
+                defaultheader = QObject::tr("Fatal error");
+            else if (flags & MBX_ERROR)
+                defaultheader = QObject::tr("Error");
+            else
+                defaultheader = EMU_NAME;
+        }
+
+        auto msgicon = QMessageBox::Icon::Information;
+        if (flags & (MBX_ERROR | MBX_FATAL))
+            msgicon = QMessageBox::Icon::Critical;
         else if (flags & MBX_WARNING)
             msgicon = QMessageBox::Icon::Warning;
-        QMessageBox msgBox(msgicon, hdr, msg);
+//        else if (flags & MBX_QUESTION)
+//            msgicon = QMessageBox::Icon::Question;
+        QMessageBox msgBox(msgicon, (defaultheader.isEmpty() ? hdr : defaultheader), msg);
         msgBox.exec();
     } else {
         // else scope it to main_window
@@ -195,7 +205,7 @@ ui_deinit_monitor(int monitor_index)
 }
 
 int
-ui_msgbox(int flags, void *message)
+ui_msgbox(int flags, char *message)
 {
     return ui_msgbox_header(flags, nullptr, message);
 }
@@ -211,13 +221,6 @@ void
 ui_sb_mt32lcd(char *str)
 {
     sb_mt32lcdtext = QString(str);
-    ui_sb_update_text();
-}
-
-void
-ui_sb_set_text_w(wchar_t *wstr)
-{
-    sb_text = QString::fromWCharArray(wstr);
     ui_sb_update_text();
 }
 
@@ -259,9 +262,9 @@ ui_sb_set_ready(int ready)
 void
 ui_sb_update_icon_wp(int tag, int state)
 {
-    const auto temp    = static_cast<unsigned int>(tag);
-    const int category = static_cast<int>(temp & 0xfffffff0);
-    const int item     = tag & 0xf;
+    const auto temp     = static_cast<unsigned int>(tag);
+    const int  category = static_cast<int>(temp & 0xfffffff0);
+    const int  item     = tag & 0xf;
 
     switch (category) {
         default:
@@ -278,6 +281,9 @@ ui_sb_update_icon_wp(int tag, int state)
         case SB_MO:
             machine_status.mo[item].write_prot = state > 0 ? true : false;
             break;
+        case SB_TAPE:
+            machine_status.tape[item].write_prot = state > 0 ? true : false;
+            break;
     }
 
     if (main_window != nullptr)
@@ -287,9 +293,9 @@ ui_sb_update_icon_wp(int tag, int state)
 void
 ui_sb_update_icon_state(int tag, int state)
 {
-    const auto temp    = static_cast<unsigned int>(tag);
-    const int category = static_cast<int>(temp & 0xfffffff0);
-    const int item     = tag & 0xf;
+    const auto temp     = static_cast<unsigned int>(tag);
+    const int  category = static_cast<int>(temp & 0xfffffff0);
+    const int  item     = tag & 0xf;
 
     switch (category) {
         default:
@@ -312,6 +318,9 @@ ui_sb_update_icon_state(int tag, int state)
         case SB_MO:
             machine_status.mo[item].empty = state > 0 ? true : false;
             break;
+        case SB_TAPE:
+            machine_status.tape[item].empty = state > 0 ? true : false;
+            break;
         case SB_HDD:
             break;
         case SB_NETWORK:
@@ -329,9 +338,9 @@ ui_sb_update_icon_state(int tag, int state)
 void
 ui_sb_update_icon(int tag, int active)
 {
-    const auto temp    = static_cast<unsigned int>(tag);
-    const int category = static_cast<int>(temp & 0xfffffff0);
-    const int item     = tag & 0xf;
+    const auto temp     = static_cast<unsigned int>(tag);
+    const int  category = static_cast<int>(temp & 0xfffffff0);
+    const int  item     = tag & 0xf;
 
     switch (category) {
         default:
@@ -350,6 +359,9 @@ ui_sb_update_icon(int tag, int active)
         case SB_MO:
             machine_status.mo[item].active = active > 0 ? true : false;
             break;
+        case SB_TAPE:
+            machine_status.tape[item].active = active > 0 ? true : false;
+            break;
         case SB_HDD:
             machine_status.hdd[item].active = active > 0 ? true : false;
             break;
@@ -365,9 +377,9 @@ ui_sb_update_icon(int tag, int active)
 void
 ui_sb_update_icon_write(int tag, int write)
 {
-    const auto temp    = static_cast<unsigned int>(tag);
-    const int category = static_cast<int>(temp & 0xfffffff0);
-    const int item     = tag & 0xf;
+    const auto temp     = static_cast<unsigned int>(tag);
+    const int  category = static_cast<int>(temp & 0xfffffff0);
+    const int  item     = tag & 0xf;
 
     switch (category) {
         default:
@@ -386,6 +398,9 @@ ui_sb_update_icon_write(int tag, int write)
         case SB_MO:
             machine_status.mo[item].write_active = write > 0 ? true : false;
             break;
+        case SB_TAPE:
+            machine_status.tape[item].write_active = write > 0 ? true : false;
+            break;
         case SB_HDD:
             machine_status.hdd[item].write_active = write > 0 ? true : false;
             break;
@@ -397,5 +412,4 @@ ui_sb_update_icon_write(int tag, int write)
             break;
     }
 }
-
 }

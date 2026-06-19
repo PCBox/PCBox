@@ -39,9 +39,8 @@
 
 #include "qt_renderercommon.hpp"
 
-extern "C"
-{
-#include <86box/qt-glslp-parser.h>
+extern "C" {
+#include <86box/qt_glslp_parser.h>
 }
 
 struct render_data {
@@ -83,10 +82,11 @@ protected:
     bool event(QEvent *event) override;
 
 private:
-
     std::array<std::unique_ptr<uint8_t>, 2> imagebufs;
 
-    QTimer        *renderTimer;
+    QTimer *renderTimer;
+    QTimer *osdRenderTimer;
+    bool was_osd_visible = false;
 
     QString glslVersion = "";
 
@@ -98,7 +98,7 @@ private:
 
     QOpenGLExtraFunctions glw;
     struct shader_texture scene_texture;
-    glsl_t *active_shader;
+    glsl_t               *active_shader;
 
     void *unpackBuffer = nullptr;
 
@@ -108,20 +108,20 @@ private:
     void initializeExtensions();
     void initializeBuffers();
     void applyOptions();
-    
+
     void create_scene_shader();
     void create_texture(struct shader_texture *tex);
     void create_fbo(struct shader_fbo *fbo);
     void recreate_fbo(struct shader_fbo *fbo, int width, int height);
     void setup_fbo(struct shader *shader, struct shader_fbo *fbo);
 
-    bool notReady() const { return !isInitialized || isFinalized; }
-    glsl_t* load_glslp(glsl_t *glsl, int num_shader, const char *f);
-    glsl_t* load_shaders(int num, char shaders[MAX_USER_SHADERS][512]);
-    int compile_shader(GLenum shader_type, const char *prepend, const char *program, int *dst);
-    int create_default_shader_tex(struct shader_pass *pass);
-    int create_default_shader_color(struct shader_pass *pass);
-    int create_program(struct shader_program *program);
+    bool    notReady() const { return !isInitialized || isFinalized; }
+    glsl_t *load_glslp(glsl_t *glsl, int num_shader, const char *f);
+    glsl_t *load_shaders(int num, char shaders[MAX_USER_SHADERS][512]);
+    int     compile_shader(GLenum shader_type, const char *prepend, const char *program, int *dst);
+    int     create_default_shader_tex(struct shader_pass *pass);
+    int     create_default_shader_color(struct shader_pass *pass);
+    int     create_program(struct shader_program *program);
 
     GLuint get_uniform(GLuint program, const char *name);
     GLuint get_attrib(GLuint program, const char *name);
@@ -136,6 +136,7 @@ private:
     void delete_shader(struct glsl_shader *glsl);
     void delete_glsl(glsl_t *glsl);
     void read_shader_config();
+    QRect sceneRenderRect() const;
 
     void render_pass(struct render_data *data);
 

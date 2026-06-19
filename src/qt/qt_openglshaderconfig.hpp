@@ -9,9 +9,8 @@
 #include <map>
 #include <string>
 
-extern "C"
-{
-#include <86box/qt-glslp-parser.h>
+extern "C" {
+#include <86box/qt_glslp_parser.h>
 }
 
 namespace Ui {
@@ -22,7 +21,7 @@ class OpenGLShaderConfig : public QDialog {
     Q_OBJECT
 
 public:
-    explicit OpenGLShaderConfig(QWidget *parent = nullptr, glslp_t* shader = nullptr);
+    explicit OpenGLShaderConfig(QWidget *parent = nullptr, glslp_t *shader = nullptr);
     ~OpenGLShaderConfig();
 
 private slots:
@@ -32,7 +31,7 @@ private slots:
 
 private:
     Ui::OpenGLShaderConfig *ui;
-    glslp_t* currentShader;
+    glslp_t                *currentShader;
 
     std::map<std::string, double> defaultValues;
 };

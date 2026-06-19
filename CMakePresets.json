@@ -21,7 +21,8 @@
         {
             "name": "regular",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release"
+                "CMAKE_BUILD_TYPE": "Release",
+                "NEW_DYNAREC": "ON"
             },
             "inherits": "base"
         },

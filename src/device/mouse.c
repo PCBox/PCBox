@@ -34,6 +34,12 @@
 #include <86box/plat.h>
 #include <86box/plat_unused.h>
 
+#if defined(__APPLE__)
+#define WHEEL_DELTA 1
+#else
+#define WHEEL_DELTA 120
+#endif
+
 typedef struct mouse_t {
     const device_t *device;
 } mouse_t;
@@ -107,11 +113,11 @@ static mouse_t mouse_devices[] = {
     // clang-format on
 };
 
-static _Atomic double  mouse_x;
-static _Atomic double  mouse_y;
-static atomic_int      mouse_z;
-static atomic_int      mouse_w;
-static atomic_int      mouse_buttons;
+static ATOMIC_DOUBLE   mouse_x;
+static ATOMIC_DOUBLE   mouse_y;
+static ATOMIC_INT      mouse_z;
+static ATOMIC_INT      mouse_w;
+static ATOMIC_INT      mouse_buttons;
 
 static int             mouse_delta_b;
 static int             mouse_old_b;
@@ -208,7 +214,7 @@ mouse_scale_coord_y(double y, int mul)
 void
 mouse_subtract_x(int *delta_x, int *o_x, int min, int max, int abs)
 {
-    double real_x = atomic_load(&mouse_x);
+    double real_x = ATOMIC_LOAD(mouse_x);
     double smax_x;
     double rsmin_x;
     double smin_x;
@@ -266,7 +272,7 @@ mouse_subtract_x(int *delta_x, int *o_x, int min, int max, int abs)
     if (abs)
         real_x -= rsmin_x;
 
-    atomic_store(&mouse_x, real_x);
+    ATOMIC_STORE(mouse_x, real_x);
 }
 
 /* It appears all host platforms give us y in the Microsoft format
@@ -275,7 +281,7 @@ mouse_subtract_x(int *delta_x, int *o_x, int min, int max, int abs)
 void
 mouse_subtract_y(int *delta_y, int *o_y, int min, int max, int invert, int abs)
 {
-    double real_y = atomic_load(&mouse_y);
+    double real_y = ATOMIC_LOAD(mouse_y);
     double smax_y;
     double rsmin_y;
     double smin_y;
@@ -339,7 +345,7 @@ mouse_subtract_y(int *delta_y, int *o_y, int min, int max, int invert, int abs)
     if (invert)
         real_y = -real_y;
 
-    atomic_store(&mouse_y, real_y);
+    ATOMIC_STORE(mouse_y, real_y);
 }
 
 /* It appears all host platforms give us y in the Microsoft format
@@ -356,7 +362,7 @@ mouse_subtract_coords(int *delta_x, int *delta_y, int *o_x, int *o_y,
 int
 mouse_wheel_moved(void)
 {
-    int ret = !!(atomic_load(&mouse_z));
+    int ret = !!(ATOMIC_LOAD(mouse_z));
 
     return ret;
 }
@@ -364,7 +370,7 @@ mouse_wheel_moved(void)
 int
 mouse_hwheel_moved(void)
 {
-    int ret = !!(atomic_load(&mouse_w));
+    int ret = !!(ATOMIC_LOAD(mouse_w));
 
     return ret;
 }
@@ -372,8 +378,8 @@ mouse_hwheel_moved(void)
 int
 mouse_moved(void)
 {
-    int moved_x = !!((int) floor(ABSD(mouse_scale_coord_x(atomic_load(&mouse_x), 1))));
-    int moved_y = !!((int) floor(ABSD(mouse_scale_coord_y(atomic_load(&mouse_y), 1))));
+    int moved_x = !!((int) floor(ABSD(mouse_scale_coord_x(ATOMIC_LOAD(mouse_x), 1))));
+    int moved_y = !!((int) floor(ABSD(mouse_scale_coord_y(ATOMIC_LOAD(mouse_y), 1))));
 
     /* Convert them to integer so we treat < 1.0 and > -1.0 as 0. */
     int ret = (moved_x || moved_y);
@@ -390,11 +396,12 @@ mouse_state_changed(void)
     int hwheel    = (mouse_nbut >= 6);
     int ret;
 
-    b = atomic_load(&mouse_buttons);
+    b = ATOMIC_LOAD(mouse_buttons);
     mouse_delta_b = (b ^ mouse_old_b);
     mouse_old_b   = b;
 
-    ret = mouse_moved() || ((atomic_load(&mouse_z) != 0) && wheel) || ((atomic_load(&mouse_w) != 0) && hwheel) || (mouse_delta_b & b_mask);
+    ret = mouse_moved() || ((ATOMIC_LOAD(mouse_z) != 0) && wheel) || ((ATOMIC_LOAD(mouse_w) != 0) && hwheel) ||
+          (mouse_delta_b & b_mask);
 
     return ret;
 }
@@ -421,8 +428,9 @@ mouse_timer_poll(UNUSED(void *priv))
 #endif
 }
 
+#if !defined(__x86_64__) && !defined(_M_X64) && !defined(__i386__) && !defined(_M_IX86)
 static void
-atomic_double_add(_Atomic double *var, double val)
+atomic_double_add(ATOMIC_DOUBLE *var, double val)
 {
     double temp = atomic_load(var);
 
@@ -430,29 +438,30 @@ atomic_double_add(_Atomic double *var, double val)
 
     atomic_store(var, temp);
 }
+#endif
 
 void
 mouse_scale_fx(double x)
 {
-    atomic_double_add(&mouse_x, ((double) x) * mouse_sensitivity);
+    ATOMIC_DOUBLE_ADD(mouse_x, ((double) x) * mouse_sensitivity);
 }
 
 void
 mouse_scale_fy(double y)
 {
-    atomic_double_add(&mouse_y, ((double) y) * mouse_sensitivity);
+    ATOMIC_DOUBLE_ADD(mouse_y, ((double) y) * mouse_sensitivity);
 }
 
 void
 mouse_scale_x(int x)
 {
-    atomic_double_add(&mouse_x, ((double) x) * mouse_sensitivity);
+    ATOMIC_DOUBLE_ADD(mouse_x, ((double) x) * mouse_sensitivity);
 }
 
 void
 mouse_scale_y(int y)
 {
-    atomic_double_add(&mouse_y, ((double) y) * mouse_sensitivity);
+    ATOMIC_DOUBLE_ADD(mouse_y, ((double) y) * mouse_sensitivity);
 }
 
 void
@@ -481,77 +490,101 @@ mouse_scale_axis(int axis, int val)
 void
 mouse_set_z(int z)
 {
-    atomic_fetch_add(&mouse_z, z);
+    ATOMIC_ADD(mouse_z, z);
 }
 
 void
 mouse_clear_z(void)
 {
-    atomic_store(&mouse_z, 0);
+    ATOMIC_STORE(mouse_z, 0);
 }
 
 void
 mouse_set_w(int w)
 {
-    atomic_fetch_add(&mouse_w, w);
+    ATOMIC_ADD(mouse_w, w);
 }
 
 void
 mouse_clear_w(void)
 {
-    atomic_store(&mouse_w, 0);
+    ATOMIC_STORE(mouse_w, 0);
 }
 
 void
 mouse_subtract_z(int *delta_z, int min, int max, int invert)
 {
-    int z = atomic_load(&mouse_z);
+    int z = ATOMIC_LOAD(mouse_z);
     int real_z = invert ? -z : z;
+    min *= WHEEL_DELTA;
+    max *= WHEEL_DELTA;
 
+#if WHEEL_DELTA > 1
+    if ((real_z > -WHEEL_DELTA) && (real_z < WHEEL_DELTA)) {
+        *delta_z = 0;
+        return;
+    } else
+#endif
     if (real_z > max) {
-        *delta_z = max;
+        *delta_z = max / WHEEL_DELTA;
         real_z -= max;
     } else if (real_z < min) {
-        *delta_z = min;
+        *delta_z = min / WHEEL_DELTA;
         real_z += ABS(min);
     } else {
-        *delta_z = real_z;
+        *delta_z = real_z / WHEEL_DELTA;
+#if WHEEL_DELTA > 1
+        real_z -= ((real_z / WHEEL_DELTA) * WHEEL_DELTA);
+#else
         real_z = 0;
+#endif
     }
 
-    atomic_store(&mouse_z, invert ? -real_z : real_z);
+    ATOMIC_STORE(mouse_z, invert ? -real_z : real_z);
 }
 
 void
 mouse_subtract_w(int *delta_w, int min, int max, int invert)
 {
-    int w = atomic_load(&mouse_w);
+    int w = ATOMIC_LOAD(mouse_w);
     int real_w = invert ? -w : w;
+    min *= WHEEL_DELTA;
+    max *= WHEEL_DELTA;
 
+#if WHEEL_DELTA > 1
+    if ((real_w > -WHEEL_DELTA) && (real_w < WHEEL_DELTA)) {
+        *delta_w = 0;
+        return;
+    } else
+#endif
     if (real_w > max) {
-        *delta_w = max;
+        *delta_w = max / WHEEL_DELTA;
         real_w -= max;
     } else if (real_w < min) {
-        *delta_w = min;
+        *delta_w = min / WHEEL_DELTA;
         real_w += ABS(min);
     } else {
-        *delta_w = real_w;
+        *delta_w = real_w / WHEEL_DELTA;
+#if WHEEL_DELTA > 1
+        real_w -= ((real_w / WHEEL_DELTA) * WHEEL_DELTA);
+#else
         real_w = 0;
+#endif
     }
 
-    atomic_store(&mouse_w, invert ? -real_w : real_w);
+    ATOMIC_STORE(mouse_w, invert ? -real_w : real_w);
 }
 
 void
 mouse_set_buttons_ex(int b)
 {
-    atomic_store(&mouse_buttons, b);
+    ATOMIC_STORE(mouse_buttons, b);
 }
 
 int
 mouse_get_buttons_ex(void)
 {
-    return atomic_load(&mouse_buttons);
+    return ATOMIC_LOAD(mouse_buttons);
 }
 
 void

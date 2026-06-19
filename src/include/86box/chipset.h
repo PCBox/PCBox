@@ -106,6 +106,9 @@ extern const device_t i450kx_device;
 extern const device_t sio_device;
 extern const device_t sio_zb_device;
 
+#define PIIX4_NVR_AMI_1995  0x0000000100000000
+#define PIIX4_NVR_AMI_1995J 0x0000000200000000
+
 extern const device_t piix_device;
 extern const device_t piix_no_mirq_device;
 extern const device_t piix_old_device;
@@ -235,6 +238,7 @@ extern const device_t nec_mate_unk_device;
 extern const device_t phoenix_486_jumper_device;
 extern const device_t phoenix_486_jumper_pci_device;
 extern const device_t phoenix_486_jumper_pci_pb600_device;
+extern const device_t phoenix_486_jumper_monsoon_device;
 
 extern const device_t ast_readout_device;
 extern const device_t ast_nvr_device;

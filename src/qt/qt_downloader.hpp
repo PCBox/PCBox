@@ -20,7 +20,6 @@
 #include <QString>
 #include <QFile>
 
-
 class Downloader final : public QObject {
     Q_OBJECT
 public:
@@ -32,23 +31,22 @@ public:
     explicit Downloader(DownloadLocation downloadLocation = DownloadLocation::Data, QObject *parent = nullptr);
     ~Downloader() final;
 
-    void download(const QUrl &url, const QString &filepath, const QVariant &varData = QVariant::Invalid);
+    void download(const QUrl &url, const QString &filepath);
 
 signals:
     // Signal emitted when the download is successful
-    void downloadCompleted(QString filename, QVariant varData);
+    void downloadCompleted(QString filename);
     // Signal emitted when an error occurs
-    void errorOccurred(const QString&);
+    void errorOccurred(const QString &);
 
 private slots:
     void onResult();
 
 private:
-    QFile *file;
+    QFile                *file;
     QNetworkAccessManager nam;
-    QNetworkReply *reply;
-    QVariant variantData;
-    QDir downloadDirectory;
+    QNetworkReply        *reply;
+    QDir                  downloadDirectory;
 };
 
 #endif

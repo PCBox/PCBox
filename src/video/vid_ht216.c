@@ -103,6 +103,8 @@ uint8_t ht216_in(uint16_t addr, void *priv);
 #define BIOS_G2_GC205_PATH              "roms/video/video7/BIOS.BIN"
 #define BIOS_VIDEO7_VGA_1024I_219_PATH  "roms/video/video7/Video Seven VGA 1024i - BIOS - v2.19 - 435-0062-05 - U17 - 27C256.BIN"
 #define BIOS_VIDEO7_VGA_1024I_700_PATH  "roms/video/video7/Headland Video7 VGA 1024i v7.0 32x8 (IP) NMC27C256B@DIP28.BIN"
+#define BIOS_VIDEO7_VGA_1024I_704_HP_LO_PATH  "roms/video/video7/Headland Video 7 VGA 1024i even v7.04 27C256 LO.bin"
+#define BIOS_VIDEO7_VGA_1024I_704_HP_HI_PATH  "roms/video/video7/Headland Video 7 VGA 1024i odd v7.04 27C256 HI.bin"
 #define BIOS_RADIUS_SVGA_MULTIVIEW_PATH "roms/video/video7/U18.BIN"
 #define BIOS_HT216_32_PATH              "roms/video/video7/HT21632.BIN"
 
@@ -187,7 +189,7 @@ ht216_out(uint16_t addr, uint8_t val, void *priv)
             /*Bit 17 of the display memory address, only active on odd/even modes, has no effect on graphics modes.*/
             ht216->clk_sel = (ht216->clk_sel & ~0x03) | ((val & 0x0c) >> 2);
             ht216->misc   = val;
-            ht216_log("HT216 misc val = %02x, mode = 0, chain4 = %x\n", val, svga->chain4);
+            ht216_log("HT216 misc val=%02x, mode=0, chain4=%x\n", val, svga->chain4);
             ht216_recalc_bank_regs(ht216, 0);
             ht216_remap(ht216);
             svga_recalctimings(svga);
@@ -306,7 +308,9 @@ ht216_out(uint16_t addr, uint8_t val, void *priv)
                             }
                             ht216->clk_sel = (val >> 2) & 0x07;
                         }
-                        svga->miscout = (svga->miscout & ~0x0c) | ((ht216->clk_sel & 0x03) << 2);
+                        if (ht216->id >= 0x7152)
+                            svga->miscout = (svga->miscout & ~0x0c) | ((ht216->clk_sel & 0x03) << 2);
+
                         svga->fullchange = changeframecount;
                         svga_recalctimings(svga);
                         break;
@@ -485,7 +489,7 @@ ht216_out(uint16_t addr, uint8_t val, void *priv)
             io_removehandler(0x03c0, 0x0020, ht216_in, NULL, NULL, ht216_out, NULL, NULL, ht216);
             mem_mapping_disable(&svga->mapping);
             mem_mapping_disable(&ht216->linear_mapping);
-            if (val & 8) {
+            if (val & 0x08) {
                 io_sethandler(0x03c0, 0x0020, ht216_in, NULL, NULL, ht216_out, NULL, NULL, ht216);
                 mem_mapping_enable(&svga->mapping);
                 ht216_remap(ht216);
@@ -565,6 +569,12 @@ ht216_in(uint16_t addr, void *priv)
                             ht216->bg_plane_sel = 0;
                             break;
 
+                        case 0xff:
+                            ret = ht216->ht_regs[0xff];
+                            if (is286 && (ht216->id != 0x7861))
+                                ret |= 0x80;
+                            break;
+
                         default:
                             break;
                     }
@@ -589,11 +599,15 @@ ht216_in(uint16_t addr, void *priv)
                 return ht216->reg_3cb;
             break;
 
+        case 0x3cc:
+            return ht216->misc;
+
         case 0x3D4:
             return svga->crtcreg;
         case 0x3D5:
             if (svga->crtcreg == 0x1f)
                 return svga->crtc[0xc] ^ 0xea;
+
             return svga->crtc[svga->crtcreg];
 
         default:
@@ -653,6 +667,8 @@ ht216_recalctimings(svga_t *svga)
     ibm8514_t *dev        = (ibm8514_t *) svga->dev8514;
     mach_t    *mach       = (mach_t *) svga->ext8514;
     int        high_res_256 = 0;
+    int        clock0_override = 0;
+    int        clock_sel;
 
     if (ht216->id == 0x7861) {
         if (ht216->ht_regs[0xe0] & 0x20) {
@@ -663,9 +679,55 @@ ht216_recalctimings(svga_t *svga)
         }
     }
 
-    svga->clock = (cpuclock * (double) (1ULL << 32)) / svga->getclock(ht216->clk_sel, svga->clock_gen);
-    ht216_log("ClkSel V7=%02x, regf8=%02x, rega4=%02x, miscout=%x, vidclock=%02x.\n", ht216->clk_sel, ht216->ht_regs[0xf8], ht216->ht_regs[0xa4], (svga->miscout >> 2) & 0x03, svga->vidclock);
+    if (ht216->id <= 0x7140) {
+        clock_sel = (ht216->ht_regs[0xa4] >> 2) & 0x07;
 
+        if (ht216->ht_regs[0xf8] & 0x01) {
+            if (!(ht216->ht_regs[0xf8] & 0x10) && (((ht216->misc >> 2) & 0x03) == 0x03))
+                clock0_override = 1;
+            else if (!(ht216->ht_regs[0xf8] & 0x08) && (((ht216->misc >> 2) & 0x03) == 0x02))
+                clock0_override = 2;
+        }
+        if (!clock0_override) {
+            if (ht216->ht_regs[0xf8] & 0x02) {
+                if (ht216->ht_regs[0xf8] & 0x04)
+                    clock_sel = (ht216->ht_regs[0xf8] >> 5) & 0x07;
+            }
+            switch (clock_sel) {
+                case 1:
+                    if (!(ht216->ht_regs[0xf8] & 0x01))
+                        svga->clock = (cpuclock * (double) (1ULL << 32)) / 48540000.0;
+                    break;
+                case 2:
+                    svga->clock = (cpuclock * (double) (1ULL << 32)) / 38000000.0;
+                    break;
+                case 3:
+                    svga->clock = (cpuclock * (double) (1ULL << 32)) / 32500000.0;
+                    break;
+                case 4:
+                    svga->clock = (cpuclock * (double) (1ULL << 32)) / 50350000.0;
+                    break;
+                case 5:
+                    svga->clock = (cpuclock * (double) (1ULL << 32)) / 65000000.0;
+                    break;
+                case 6:
+                    svga->clock = (cpuclock * (double) (1ULL << 32)) / 38000000.0;
+                    break;
+                case 7:
+                    svga->clock = (cpuclock * (double) (1ULL << 32)) / 40000000.0;
+                    break;
+                default:
+                    break;
+            }
+        } else {
+            if (clock0_override == 2)
+                svga->clock = (cpuclock * (double) (1ULL << 32)) / 38000000.0;
+        }
+        ht216_log("HT208 Select=%d, clock0override=%d, CRTC17=%02x, MISC=%02x, A4=%02x, FC=%02x, F8=%02x, FF=%02x, reset=%02x.\n", clock_sel, clock0_override, svga->crtc[0x17], ht216->misc & 0x0c, ht216->ht_regs[0xa4], ht216->ht_regs[0xfc], ht216->ht_regs[0xf8], ht216->ht_regs[0xff], svga->seqregs[0] & 0x03);
+    } else {
+        svga->clock = (cpuclock * (double) (1ULL << 32)) / svga->getclock(ht216->clk_sel, svga->clock_gen);
+        ht216_log("ClkSel V7=%02x, regf8=%02x, rega4=%02x, miscout=%x, vidclock=%02x.\n", ht216->clk_sel, ht216->ht_regs[0xf8], ht216->ht_regs[0xa4], (svga->miscout >> 2) & 0x03, svga->vidclock);
+    }
     svga->memaddr_latch |= ((ht216->ht_regs[0xf6] & 0x30) << 12);
 
     if (ht216->ht_regs[0xf6] & 0x80)
@@ -681,7 +743,7 @@ ht216_recalctimings(svga_t *svga)
     ht216->adjust_cursor = 0;
 
     if (!svga->scrblank && svga->attr_palette_enable) {
-        if (!(svga->gdcreg[6] & 1) && !(svga->attrregs[0x10] & 1)) { /*Text mode*/
+        if (!(svga->gdcreg[6] & 0x01) && !(svga->attrregs[0x10] & 0x01)) { /*Text mode*/
             if (svga->seqregs[1] & 8) /*40 column*/
                 svga->render = svga_render_text_40;
             else
@@ -700,7 +762,7 @@ ht216_recalctimings(svga_t *svga)
             }
 
             if (svga->bpp == 8) {
-                ht216_log("regC8 = %02x, gdcreg5 bit 6 = %02x, no lowres = %02x, regf8 bit 7 = %02x, regfc = %02x\n", ht216->ht_regs[0xc8] & HT_REG_C8_E256, svga->gdcreg[5] & 0x40, !svga->lowres, ht216->ht_regs[0xf6] & 0x80, ht216->ht_regs[0xfc] & HT_REG_FC_ECOLRE);
+                ht216_log("regC8 = %02x, gdcreg5 bit 6 = %02x, no lowres = %02x, regf8 bit 7 = %02x, regfc = %02x, crtc17 = %02x.\n", ht216->ht_regs[0xc8] & HT_REG_C8_E256, svga->gdcreg[5] & 0x40, !svga->lowres, ht216->ht_regs[0xf6] & 0x80, ht216->ht_regs[0xfc] & HT_REG_FC_ECOLRE, svga->crtc[0x17]);
                 if (((ht216->ht_regs[0xc8] & HT_REG_C8_E256) || (svga->gdcreg[5] & 0x40)) && (!svga->lowres || (ht216->ht_regs[0xf6] & 0x80))) {
                     if (high_res_256) {
                         svga->hdisp >>= 1;
@@ -713,7 +775,7 @@ ht216_recalctimings(svga_t *svga)
                         svga->hdisp >>= 1;
                         svga->dots_per_clock >>= 1;
                         ht216->adjust_cursor = 1;
-                        svga->render         = svga_render_8bpp_highres;
+                        svga->render = svga_render_8bpp_highres;
                     } else {
                         ht216_log("8bpp low, packed = %02x, chain4 = %02x\n", svga->packed_chain4, svga->chain4);
                         svga->render = svga_render_8bpp_lowres;
@@ -723,6 +785,7 @@ ht216_recalctimings(svga_t *svga)
                         svga->hdisp = svga->crtc[1] - ((svga->crtc[5] & 0x60) >> 5);
                         if (!(svga->crtc[1] & 1))
                             svga->hdisp--;
+
                         svga->hdisp++;
                         svga->hdisp *= svga->dots_per_clock;
                         svga->rowoffset <<= 1;
@@ -737,6 +800,7 @@ ht216_recalctimings(svga_t *svga)
                 svga->dots_per_clock >>= 1;
                 if ((svga->crtc[0x17] & 0x60) == 0x20) /*Would result in a garbled screen with trailing cursor glitches*/
                     svga->crtc[0x17] |= 0x40;
+
                 svga->render = svga_render_15bpp_highres;
             }
         }
@@ -852,6 +916,15 @@ ht216_dm_write(ht216_t *ht216, uint32_t addr, uint8_t cpu_dat, uint8_t cpu_dat_u
     uint8_t wm = svga->writemask;
     uint8_t count = 4;
     uint8_t fg_data[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    uint8_t bit_mask = 0x00;
+    uint8_t full_mask = 0x0f;
+
+    if (ht216->ht_regs[0xf3] & 0x01) {
+        if (ht216->ht_regs[0xf3] & 0x02)
+            bit_mask = cpu_dat;
+        else
+            bit_mask = ht216->ht_regs[0xf4];
+    }
 
     if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP)
         writemask2 = svga->seqregs[2];
@@ -866,6 +939,7 @@ ht216_dm_write(ht216_t *ht216, uint32_t addr, uint8_t cpu_dat, uint8_t cpu_dat_u
         writemask2 &= ~0xa;
         if (addr & 1)
             writemask2 <<= 1;
+
         addr &= ~1;
         addr <<= 2;
     } else
@@ -876,8 +950,10 @@ ht216_dm_write(ht216_t *ht216, uint32_t addr, uint8_t cpu_dat, uint8_t cpu_dat_u
 
     svga->changedvram[addr >> 12] = changeframecount;
 
-    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP)
+    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
         count = 8;
+        full_mask = 0xff;
+    }
 
     switch (ht216->ht_regs[0xfe] & HT_REG_FE_FBMC) {
         case 0x00:
@@ -911,25 +987,55 @@ ht216_dm_write(ht216_t *ht216, uint32_t addr, uint8_t cpu_dat, uint8_t cpu_dat_u
             break;
     }
 
+    ht216_log("REGF3=%02x, GDCREG8=%02x, REGF4=%02x, writemode=%x, rop=%02x, count=%d, writemask2=%02x, REGF2=%02x.\n", ht216->ht_regs[0xf3], svga->gdcreg[8], ht216->ht_regs[0xf4], svga->writemode, svga->gdcreg[3] & 0x18, count, writemask2, ht216->ht_regs[0xf2]);
     switch (svga->writemode) {
         case 0:
-            if ((svga->gdcreg[8] == 0xff) && !(svga->gdcreg[3] & 0x18) && (!svga->gdcreg[1] || svga->set_reset_disabled)) {
-                for (i = 0; i < count; i++) {
-                    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
-                        if (writemask2 & (0x80 >> i))
-                            svga->vram[addr | i] = fg_data[i];
+            if (ht216->ht_regs[0xf3] & 0x01) {
+                if ((writemask2 == full_mask) && (svga->gdcreg[8] != 0xff)) {
+                    for (i = 0; i < count; i++)
+                        svga->vram[addr | i] = (svga->latch.b[i] & bit_mask) | (svga->vram[addr | i] & ~bit_mask);
+
+                    return;
+                } else {
+                    if ((bit_mask == 0xff) && !(svga->gdcreg[3] & 0x18) && (!svga->gdcreg[1] || svga->set_reset_disabled)) {
+                        for (i = 0; i < count; i++) {
+                            if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
+                                if (writemask2 & (0x80 >> i))
+                                    svga->vram[addr | i] = fg_data[i];
+                            } else {
+                                if (writemask2 & (1 << i))
+                                    svga->vram[addr | i] = fg_data[i];
+                            }
+                        }
+                        return;
                     } else {
-                        if (writemask2 & (1 << i))
-                            svga->vram[addr | i] = fg_data[i];
+                        for (i = 0; i < count; i++) {
+                            if (svga->gdcreg[1] & (1 << i))
+                                vall.b[i] = !!(svga->gdcreg[0] & (1 << i)) * 0xff;
+                            else
+                                vall.b[i] = fg_data[i];
+                        }
                     }
                 }
-                return;
             } else {
-                for (i = 0; i < count; i++) {
-                    if (svga->gdcreg[1] & (1 << i))
-                        vall.b[i] = !!(svga->gdcreg[0] & (1 << i)) * 0xff;
-                    else
-                        vall.b[i] = fg_data[i];
+                if ((svga->gdcreg[8] == 0xff) && !(svga->gdcreg[3] & 0x18) && (!svga->gdcreg[1] || svga->set_reset_disabled)) {
+                    for (i = 0; i < count; i++) {
+                        if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
+                            if (writemask2 & (0x80 >> i))
+                                svga->vram[addr | i] = fg_data[i];
+                        } else {
+                            if (writemask2 & (1 << i))
+                                svga->vram[addr | i] = fg_data[i];
+                        }
+                    }
+                    return;
+                } else {
+                    for (i = 0; i < count; i++) {
+                        if (svga->gdcreg[1] & (1 << i))
+                            vall.b[i] = !!(svga->gdcreg[0] & (1 << i)) * 0xff;
+                        else
+                            vall.b[i] = fg_data[i];
+                    }
                 }
             }
             break;
@@ -948,22 +1054,42 @@ ht216_dm_write(ht216_t *ht216, uint32_t addr, uint8_t cpu_dat, uint8_t cpu_dat_u
             for (i = 0; i < count; i++)
                 vall.b[i] = !!(cpu_dat & (1 << i)) * 0xff;
 
-            if (!(svga->gdcreg[3] & 0x18) && (!svga->gdcreg[1] || svga->set_reset_disabled)) {
-                for (i = 0; i < count; i++) {
-                    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
-                        if (writemask2 & (0x80 >> i))
-                            svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) | (svga->latch.b[i] & ~svga->gdcreg[8]);
-                    } else {
-                        if (writemask2 & (1 << i))
-                            svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) | (svga->latch.b[i] & ~svga->gdcreg[8]);
+            if (ht216->ht_regs[0xf3] & 0x01) {
+                if (!(svga->gdcreg[3] & 0x18) && (!svga->gdcreg[1] || svga->set_reset_disabled)) {
+                    for (i = 0; i < count; i++) {
+                        if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
+                            if (writemask2 & (0x80 >> i))
+                                svga->vram[addr | i] = (vall.b[i] & bit_mask) | (svga->vram[addr | i] & ~bit_mask);
+                        } else {
+                            if (writemask2 & (1 << i))
+                                svga->vram[addr | i] = (vall.b[i] & bit_mask) | (svga->vram[addr | i] & ~bit_mask);
+                        }
                     }
+                    return;
                 }
-                return;
+            } else {
+                if (!(svga->gdcreg[3] & 0x18) && (!svga->gdcreg[1] || svga->set_reset_disabled)) {
+                    for (i = 0; i < count; i++) {
+                        if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
+                            if (writemask2 & (0x80 >> i))
+                                svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) | (svga->latch.b[i] & ~svga->gdcreg[8]);
+                        } else {
+                            if (writemask2 & (1 << i))
+                                svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) | (svga->latch.b[i] & ~svga->gdcreg[8]);
+                        }
+                    }
+                    return;
+                }
             }
             break;
         case 3:
-            wm = svga->gdcreg[8];
-            svga->gdcreg[8] &= cpu_dat;
+            if (ht216->ht_regs[0xf3] & 0x01) {
+                wm = bit_mask;
+                bit_mask &= cpu_dat;
+            } else {
+                wm = svga->gdcreg[8];
+                svga->gdcreg[8] &= cpu_dat;
+            }
 
             for (i = 0; i < count; i++)
                 vall.b[i] = !!(svga->gdcreg[0] & (1 << i)) * 0xff;
@@ -977,46 +1103,94 @@ ht216_dm_write(ht216_t *ht216, uint32_t addr, uint8_t cpu_dat, uint8_t cpu_dat_u
 
     switch (svga->gdcreg[3] & 0x18) {
         case 0x00: /* Set */
-            for (i = 0; i < count; i++) {
-                if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
-                    if (writemask2 & (0x80 >> i))
-                        svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) | (svga->latch.b[i] & ~svga->gdcreg[8]);
-                } else {
-                    if (writemask2 & (1 << i))
-                        svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) | (svga->latch.b[i] & ~svga->gdcreg[8]);
+            if (ht216->ht_regs[0xf3] & 0x01) {
+                for (i = 0; i < count; i++) {
+                    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
+                        if (writemask2 & (0x80 >> i))
+                            svga->vram[addr | i] = (vall.b[i] & bit_mask) | (svga->vram[addr | i] & ~bit_mask);
+                    } else {
+                        if (writemask2 & (1 << i))
+                            svga->vram[addr | i] = (vall.b[i] & bit_mask) | (svga->vram[addr | i] & ~bit_mask);
+                    }
+                }
+            } else {
+                for (i = 0; i < count; i++) {
+                    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
+                        if (writemask2 & (0x80 >> i))
+                            svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) | (svga->latch.b[i] & ~svga->gdcreg[8]);
+                    } else {
+                        if (writemask2 & (1 << i))
+                            svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) | (svga->latch.b[i] & ~svga->gdcreg[8]);
+                    }
                 }
             }
             break;
         case 0x08: /* AND */
-            for (i = 0; i < count; i++) {
-                if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
-                    if (writemask2 & (0x80 >> i))
-                        svga->vram[addr | i] = (vall.b[i] | ~svga->gdcreg[8]) & svga->latch.b[i];
-                } else {
-                    if (writemask2 & (1 << i))
-                        svga->vram[addr | i] = (vall.b[i] | ~svga->gdcreg[8]) & svga->latch.b[i];
+            if (ht216->ht_regs[0xf3] & 0x01) {
+                for (i = 0; i < count; i++) {
+                    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
+                        if (writemask2 & (0x80 >> i))
+                            svga->vram[addr | i] = (vall.b[i] | ~bit_mask) & svga->vram[addr | i];
+                    } else {
+                        if (writemask2 & (1 << i))
+                            svga->vram[addr | i] = (vall.b[i] | ~bit_mask) & svga->vram[addr | i];
+                    }
+                }
+            } else {
+                for (i = 0; i < count; i++) {
+                    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
+                        if (writemask2 & (0x80 >> i))
+                            svga->vram[addr | i] = (vall.b[i] | ~svga->gdcreg[8]) & svga->latch.b[i];
+                    } else {
+                        if (writemask2 & (1 << i))
+                            svga->vram[addr | i] = (vall.b[i] | ~svga->gdcreg[8]) & svga->latch.b[i];
+                    }
                 }
             }
             break;
         case 0x10: /* OR */
-            for (i = 0; i < count; i++) {
-                if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
-                    if (writemask2 & (0x80 >> i))
-                        svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) | svga->latch.b[i];
-                } else {
-                    if (writemask2 & (1 << i))
-                        svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) | svga->latch.b[i];
+            if (ht216->ht_regs[0xf3] & 0x01) {
+                for (i = 0; i < count; i++) {
+                    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
+                        if (writemask2 & (0x80 >> i))
+                            svga->vram[addr | i] = (vall.b[i] & bit_mask) | svga->vram[addr | i];
+                    } else {
+                        if (writemask2 & (1 << i))
+                            svga->vram[addr | i] = (vall.b[i] & bit_mask) | svga->vram[addr | i];
+                    }
+                }
+            } else {
+                for (i = 0; i < count; i++) {
+                    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
+                        if (writemask2 & (0x80 >> i))
+                            svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) | svga->latch.b[i];
+                    } else {
+                        if (writemask2 & (1 << i))
+                            svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) | svga->latch.b[i];
+                    }
                 }
             }
             break;
         case 0x18: /* XOR */
-            for (i = 0; i < count; i++) {
-                if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
-                    if (writemask2 & (0x80 >> i))
-                        svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) ^ svga->latch.b[i];
-                } else {
-                    if (writemask2 & (1 << i))
-                        svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) ^ svga->latch.b[i];
+            if (ht216->ht_regs[0xf3] & 0x01) {
+                for (i = 0; i < count; i++) {
+                    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
+                        if (writemask2 & (0x80 >> i))
+                            svga->vram[addr | i] = (vall.b[i] & bit_mask) ^ svga->vram[addr | i];
+                    } else {
+                        if (writemask2 & (1 << i))
+                            svga->vram[addr | i] = (vall.b[i] & bit_mask) ^ svga->vram[addr | i];
+                    }
+                }
+            } else {
+                for (i = 0; i < count; i++) {
+                    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
+                        if (writemask2 & (0x80 >> i))
+                            svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) ^ svga->latch.b[i];
+                    } else {
+                        if (writemask2 & (1 << i))
+                            svga->vram[addr | i] = (vall.b[i] & svga->gdcreg[8]) ^ svga->latch.b[i];
+                    }
                 }
             }
             break;
@@ -1025,8 +1199,12 @@ ht216_dm_write(ht216_t *ht216, uint32_t addr, uint8_t cpu_dat, uint8_t cpu_dat_u
             break;
     }
 
-    if (reset_wm)
-        svga->gdcreg[8] = wm;
+    if (reset_wm) {
+        if (ht216->ht_regs[0xf3] & 0x01)
+            bit_mask = wm;
+        else
+            svga->gdcreg[8] = wm;
+    }
 }
 
 static void
@@ -1083,68 +1261,6 @@ ht216_dm_extalu_write(ht216_t *ht216, uint32_t addr, uint8_t cpu_dat, uint8_t bi
     output                                 = (fg & rop_select) | (bg & ~rop_select);
     svga->vram[addr]                       = (svga->vram[remapped_addr] & ~bit_mask) | (output & bit_mask);
     svga->changedvram[remapped_addr >> 12] = changeframecount;
-}
-
-static void
-ht216_dm_masked_write(ht216_t *ht216, uint32_t addr, uint8_t val, uint8_t bit_mask)
-{
-    svga_t *svga       = &ht216->svga;
-    int     writemask2 = svga->writemask;
-    uint8_t count      = 4;
-    uint8_t i;
-    uint8_t full_mask  = 0x0f;
-
-    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP)
-        writemask2 = svga->seqregs[2];
-
-    if (!(svga->gdcreg[6] & 1))
-        svga->fullchange = 2;
-
-    if (svga->chain4) {
-        writemask2 = 1 << (addr & 3);
-        addr       = dword_remap(svga, addr) & ~3;
-    } else if (svga->chain2_write) {
-        writemask2 &= ~0xa;
-        if (addr & 1)
-            writemask2 <<= 1;
-        addr &= ~1;
-        addr <<= 2;
-    } else
-        addr <<= 2;
-
-    if (addr >= svga->vram_max)
-        return;
-
-    addr &= svga->decode_mask;
-
-    if (addr >= svga->vram_max)
-        return;
-
-    addr &= svga->vram_mask;
-
-    svga->changedvram[addr >> 12] = changeframecount;
-
-    if (ht216->ht_regs[0xcd] & HT_REG_CD_P8PCEXP) {
-        count     = 8;
-        full_mask = 0xff;
-    }
-
-    if (bit_mask == 0xff) {
-        for (i = 0; i < count; i++) {
-            if (writemask2 & (1 << i))
-                svga->vram[addr | i] = val;
-        }
-    } else {
-        if (writemask2 == full_mask) {
-            for (i = 0; i < count; i++)
-                svga->vram[addr | i] = (svga->latch.b[i] & bit_mask) | (svga->vram[addr | i] & ~bit_mask);
-        } else {
-            for (i = 0; i < count; i++) {
-                if (writemask2 & (1 << i))
-                    svga->vram[addr | i] = (val & bit_mask) | (svga->vram[addr | i] & ~bit_mask);
-            }
-        }
-    }
 }
 
 static void
@@ -1214,19 +1330,13 @@ ht216_write_common(ht216_t *ht216, uint32_t addr, uint8_t val)
         } else {
             ht216_dm_extalu_write(ht216, addr, val, bit_mask, val, rop_select);
         }
-    } else if (ht216->ht_regs[0xf3]) {
-        if (ht216->ht_regs[0xf3] & 2) {
-            ht216_dm_masked_write(ht216, addr, val, val);
-        } else
-            ht216_dm_masked_write(ht216, addr, val, ht216->ht_regs[0xf4]);
     } else {
         if (ht216->ht_regs[0xcd] & HT_REG_CD_FP8PCEXP) { /*1->8 bit expansion*/
             addr = (addr << 3) & 0xfffff;
             for (i = 0; i < 8; i++)
                 ht216_dm_write(ht216, addr + i, (val & (0x80 >> i)) ? 0xff : 0, val);
-        } else {
+        } else
             ht216_dm_write(ht216, addr, val, val);
-        }
     }
 }
 
@@ -1247,7 +1357,7 @@ ht216_write(uint32_t addr, uint8_t val, void *priv)
     else if (svga->chain4 && ((ht216->ht_regs[0xfc] & 0x06) == 0x06))
         addr = (addr & 0xfffeffff) | (prev_addr & 0x10000);
 
-    if (!ht216->ht_regs[0xcd] && !ht216->ht_regs[0xfe] && !ht216->ht_regs[0xf3] && svga->crtc[0x17] != 0xeb) {
+    if (!ht216->ht_regs[0xcd] && !ht216->ht_regs[0xfe] && !(ht216->ht_regs[0xf3] & 0x01) && (svga->crtc[0x17] != 0xeb)) {
         svga_write_linear(addr, val, svga);
     } else
         ht216_write_common(ht216, addr, val);
@@ -1271,7 +1381,7 @@ ht216_writew(uint32_t addr, uint16_t val, void *priv)
     else if (svga->chain4 && ((ht216->ht_regs[0xfc] & 0x06) == 0x06))
         addr = (addr & 0xfffeffff) | (prev_addr & 0x10000);
 
-    if (!ht216->ht_regs[0xcd] && !ht216->ht_regs[0xfe] && !ht216->ht_regs[0xf3] && svga->crtc[0x17] != 0xeb)
+    if (!ht216->ht_regs[0xcd] && !ht216->ht_regs[0xfe] && !(ht216->ht_regs[0xf3] & 0x01) && (svga->crtc[0x17] != 0xeb))
         svga_writew_linear(addr, val, svga);
     else {
         ht216_write_common(ht216, addr, val);
@@ -1299,7 +1409,7 @@ ht216_writel(uint32_t addr, uint32_t val, void *priv)
     else if (svga->chain4 && ((ht216->ht_regs[0xfc] & 0x06) == 0x06))
         addr = (addr & 0xfffeffff) | (prev_addr & 0x10000);
 
-    if (!ht216->ht_regs[0xcd] && !ht216->ht_regs[0xfe] && !ht216->ht_regs[0xf3] && svga->crtc[0x17] != 0xeb)
+    if (!ht216->ht_regs[0xcd] && !ht216->ht_regs[0xfe] && !(ht216->ht_regs[0xf3] & 0x01) && (svga->crtc[0x17] != 0xeb))
         svga_writel_linear(addr, val, svga);
     else {
         ht216_write_common(ht216, addr, val);
@@ -1483,7 +1593,7 @@ ht216_read_linear(uint32_t addr, void *priv)
 }
 
 static uint8_t
-radius_mca_read(int port, void *priv)
+radius_mca_read(const uint16_t port, void *priv)
 {
     const ht216_t *ht216 = (ht216_t *) priv;
 
@@ -1493,7 +1603,7 @@ radius_mca_read(int port, void *priv)
 }
 
 static void
-radius_mca_write(int port, uint8_t val, void *priv)
+radius_mca_write(const uint16_t port, uint8_t val, void *priv)
 {
     ht216_t *ht216 = (ht216_t *) priv;
 
@@ -1516,12 +1626,12 @@ radius_mca_feedb(UNUSED(void *priv))
 void *
 ht216_init(const device_t *info, uint32_t mem_size, int has_rom)
 {
-    ht216_t *ht216 = malloc(sizeof(ht216_t));
+    ht216_t *ht216 = calloc(1, sizeof(ht216_t));
     svga_t  *svga;
     const char *bios_ver = NULL;
     const char *fn = NULL;
+    const char *fn2 = NULL;
 
-    memset(ht216, 0, sizeof(ht216_t));
     svga = &ht216->svga;
 
     ht216->id = info->local;
@@ -1543,12 +1653,18 @@ ht216_init(const device_t *info, uint32_t mem_size, int has_rom)
 
     switch (has_rom) {
         case 1:
-            rom_init(&ht216->bios_rom, BIOS_G2_GC205_PATH, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
+            fn = BIOS_G2_GC205_PATH;
+            rom_init(&ht216->bios_rom, fn, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
             break;
         case 2:
             bios_ver = (char *) device_get_config_bios("bios_ver");
             fn = (char *) device_get_bios_file(info, bios_ver, 0);
-            rom_init(&ht216->bios_rom, fn, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
+            if (!strcmp(bios_ver, "v7_04_hp")) {
+                fn2 = (char *) device_get_bios_file(info, bios_ver, 1);
+                rom_init_interleaved(&ht216->bios_rom, fn, fn2,
+                                        0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
+            } else
+                rom_init(&ht216->bios_rom, fn, 0xc0000, 0x8000, 0x7fff, 0, MEM_MAPPING_EXTERNAL);
             break;
         case 3:
             ht216->monitor_type = device_get_config_int("monitor_type");
@@ -1606,7 +1722,7 @@ ht216_init(const device_t *info, uint32_t mem_size, int has_rom)
         svga->ramdac = device_add(&sc11484_nors2_ramdac_device);
         svga->clock_gen = device_add(&ics1494m_540_radius_ht209_device);
         svga->getclock  = ics1494_getclock;
-    } else {
+    } else if (ht216->id == 0x7861) {
         svga->clock_gen = device_add(&icd2047_20_device);
         svga->getclock  = icd2047_getclock;
     }
@@ -1765,6 +1881,15 @@ static const device_config_t v7_vga_1024i_config[] = {
                 .size          = 32768,
                 .files         = { BIOS_VIDEO7_VGA_1024I_700_PATH, "" }
             },
+            {
+                .name          = "Version 7.04 (HP)",
+                .internal_name = "v7_04_hp",
+                .bios_type     = BIOS_NORMAL,
+                .files_no      = 2,
+                .local         = 0,
+                .size          = 32768,
+                .files         = { BIOS_VIDEO7_VGA_1024I_704_HP_LO_PATH, BIOS_VIDEO7_VGA_1024I_704_HP_HI_PATH,  "" }
+            },
             { .files_no = 0 }
         }
     },
@@ -1837,7 +1962,7 @@ const device_t v7_vga_1024i_device = {
 };
 
 const device_t ht216_32_pb410a_device = {
-    .name          = "Headland HT216-32 (Packard Bell PB410A)",
+    .name          = "Headland HT216-32 On-Board (Packard Bell PB410A)",
     .internal_name = "ht216_32_pb410a",
     .flags         = DEVICE_VLB,
     .local         = 0x7861, /*HT216-32*/
@@ -1847,6 +1972,7 @@ const device_t ht216_32_pb410a_device = {
     .available     = NULL,
     .speed_changed = ht216_speed_changed,
     .force_redraw  = ht216_force_redraw,
+    .machine       = "Packard Bell PB410A",
     .config        = NULL
 };
 

@@ -19,6 +19,7 @@
  *          Copyright 2022 dob205
  */
 #include "qt_about.hpp"
+#include "qt_defs.hpp"
 
 extern "C" {
 #include <86box/86box.h>
@@ -48,24 +49,16 @@ About::About(QWidget *parent)
 #    define DYNAREC_STR "no dynarec"
 #endif
     versioninfo.append(QString(" [%1, %2]").arg(QSysInfo::buildCpuArchitecture(), tr(DYNAREC_STR)));
-    setText(QString("<b>%3%1%2</b>").arg(EMU_VERSION_FULL, versioninfo, tr("PCBox v")));
+    setText(QString("<b>%1 v%2%3</b>").arg(EMU_NAME, EMU_VERSION_FULL, versioninfo));
     setInformativeText(tr("An emulator of old computers\n\nAuthors: Miran Grča (OBattler), RichardG867, Jasmine Iwanek, TC1995, coldbrewed, Teemu Korhonen (Manaatti), Joakim L. Gilje, Adrien Moulin (elyosh), Daniel Balsom (gloriouscow), Cacodemon345, Fred N. van Kempen (waltje), Tiseno100, reenigne, and others.\n\nWith previous core contributions from Sarah Walker, leilei, JohnElliott, greatpsycho, and others.\n\nReleased under the GNU General Public License version 2 or later. See LICENSE for more information.").replace("\n", "<br>"));
-    setWindowTitle(tr("About PCBox"));
+    setWindowTitle(tr("About %1").arg(EMU_NAME));
     const auto closeButton = addButton("OK", QMessageBox::ButtonRole::AcceptRole);
     setEscapeButton(closeButton);
     const auto webSiteButton = addButton(EMU_SITE, QMessageBox::ButtonRole::HelpRole);
     webSiteButton->connect(webSiteButton, &QPushButton::released, []() {
         QDesktopServices::openUrl(QUrl("https://" EMU_SITE));
     });
-#ifdef RELEASE_BUILD
-    setIconPixmap(QIcon(":/settings/qt/icons/86Box-green.ico").pixmap(32, 32));
-#elif defined ALPHA_BUILD
-    setIconPixmap(QIcon(":/settings/qt/icons/86Box-red.ico").pixmap(32, 32));
-#elif defined BETA_BUILD
-    setIconPixmap(QIcon(":/settings/qt/icons/86Box-yellow.ico").pixmap(32, 32));
-#else
-    setIconPixmap(QIcon(":/settings/qt/icons/86Box-gray.ico").pixmap(32, 32));
-#endif
+    setIconPixmap(QIcon(EMU_ICON_PATH).pixmap(32, 32));
     setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint | Qt::WindowCloseButtonHint);
 }
 

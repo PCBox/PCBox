@@ -24,6 +24,13 @@
 #define FDD_NUM              4
 #define FLOPPY_IMAGE_HISTORY 10
 #define SEEK_RECALIBRATE     -999
+#define DEFAULT_SEEK_TIME_MS 10.0
+
+/* BIOS boot status - used to detect POST vs normal operation */
+typedef enum {
+    BIOS_BOOT_POST = 0,     /* System is in POST (Power-On Self Test) */
+    BIOS_BOOT_NORMAL = 1    /* POST complete, normal operation */
+} bios_boot_status_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,6 +43,7 @@ extern void fdd_do_seek(int drive, int track);
 extern void fdd_forced_seek(int drive, int track_diff);
 extern void fdd_seek(int drive, int track_diff);
 extern int  fdd_track0(int drive);
+extern int  fdd_get_type_max_track(int type);
 extern int  fdd_getrpm(int drive);
 extern void fdd_set_densel(int densel);
 extern int  fdd_can_read_medium(int drive);
@@ -88,7 +96,7 @@ typedef struct DRIVE {
 } DRIVE;
 
 extern DRIVE      drives[FDD_NUM];
-extern char       floppyfns[FDD_NUM][512];
+extern char       floppyfns[FDD_NUM][MAX_IMAGE_PATH_LEN];
 extern char      *fdd_image_history[FDD_NUM][FLOPPY_IMAGE_HISTORY];
 extern pc_timer_t fdd_poll_time[FDD_NUM];
 extern int        ui_writeprot[FDD_NUM];
@@ -115,6 +123,12 @@ extern void fdd_format(int drive, int side, int density, uint8_t fill);
 extern int  fdd_hole(int drive);
 extern void fdd_stop(int drive);
 extern void fdd_do_writeback(int drive);
+
+/* BIOS boot status functions */
+extern bios_boot_status_t fdd_get_boot_status(void);
+extern void fdd_set_boot_status(bios_boot_status_t status);
+extern void fdd_boot_status_reset(void);
+extern int fdd_is_post_complete(void);
 
 extern int      motorspin;
 extern uint64_t motoron[FDD_NUM];
