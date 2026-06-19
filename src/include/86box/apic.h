@@ -124,7 +124,7 @@ typedef struct lapic_t
 #define IOAPIC_RIRR_MASK      0x4000
 #define IOAPIC_TRIGMODE_MASK  0x8000
 #define IOAPIC_INTERRUPT_MASK 0x10000
-#define IOAPIC_DEST_MASK      0xE000000000000000
+#define IOAPIC_DEST_MASK      0xE000000000000000ull
 
 extern const device_t i82093aa_ioapic_device;
 extern const device_t lapic_device;

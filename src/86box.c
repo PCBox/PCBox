@@ -1892,10 +1892,6 @@ pc_reset_hard_init(void)
     dma_reset();
     pci_pic_reset();
     cpu_cache_int_enabled = cpu_cache_ext_enabled = 0;
-    
-    if (cpu_features & CPU_FEATURE_LAPIC) {
-        device_add(&lapic_device);
-    }
 
     atfullspeed = 0;
     pc_full_speed();

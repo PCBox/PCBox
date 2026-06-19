@@ -2249,6 +2249,10 @@ cpu_set(void)
         cpu_exec = execx86;
     mmx_init();
     gdbstub_cpu_init();
+
+    if (cpu_features & CPU_FEATURE_LAPIC) {
+        device_add(&lapic_device);
+    }
 }
 
 void
@@ -2956,6 +2960,7 @@ cpu_CPUID(void)
                 EAX = CPUID;
                 EBX = ECX = 0;
                 EDX       = CPUID_FPU | CPUID_VME | CPUID_DE | CPUID_PSE | CPUID_TSC | CPUID_MSR | CPUID_PAE | CPUID_MCE | CPUID_CMPXCHG8B | CPUID_MMX | CPUID_MTRR | CPUID_PGE | CPUID_MCA | CPUID_SEP | CPUID_FXSR | CPUID_CMOV | CPUID_PSE36 | CPUID_LAPIC;
+                if (!(msr.apic_base & (1 << 11))) EDX &= ~CPUID_LAPIC;
                 /*
                    Return anything non-zero in bits 32-63 of the BIOS signature MSR
                    to indicate there has been an update.
@@ -2992,7 +2997,7 @@ cpu_CPUID(void)
                 EAX = CPUID;
                 EBX = ECX = 0;
                 EDX       = CPUID_FPU | CPUID_VME | CPUID_DE | CPUID_PSE | CPUID_TSC | CPUID_MSR | CPUID_PAE | CPUID_MCE | CPUID_CMPXCHG8B | CPUID_MMX | CPUID_MTRR | CPUID_PGE | CPUID_MCA | CPUID_SEP | CPUID_FXSR | CPUID_CMOV | CPUID_PSE36 | CPUID_SSE | CPUID_LAPIC;
-                if (msr.apic_base & (1 << 11)) EDX &= ~CPUID_LAPIC;
+                if (!(msr.apic_base & (1 << 11))) EDX &= ~CPUID_LAPIC;
             } else if (EAX == 2) {
                 EAX = 0x00000001;
                 EBX = ECX = 0;
@@ -3012,7 +3017,7 @@ cpu_CPUID(void)
                 EBX = (8 << 8) | (1 << 16);
                 ECX       = CPUID_SSE3;// | CPUID_MONITOR_MWAIT;// | CPUID_SSSE3;
                 EDX       = CPUID_FPU | CPUID_VME | CPUID_DE | CPUID_PSE | CPUID_TSC | CPUID_MSR | CPUID_PAE | CPUID_MCE | CPUID_CMPXCHG8B | CPUID_MMX | CPUID_MTRR | CPUID_PGE | CPUID_MCA | CPUID_SEP | CPUID_FXSR | CPUID_CMOV | CPUID_PSE36 | CPUID_SSE | CPUID_SSE2 | CPUID_CLFLUSH | CPUID_LAPIC;
-                if (msr.apic_base & (1 << 11)) EDX &= ~CPUID_LAPIC;
+                if (!(msr.apic_base & (1 << 11))) EDX &= ~CPUID_LAPIC;
             } else if (EAX == 2) {
                 EAX = 0x00000001;
                 EBX = ECX = 0;
@@ -3361,7 +3366,7 @@ cpu_ven_reset(void)
         case CPU_PENTIUM3:
         case CPU_GENERICINTEL:
             msr.mtrr_cap = 0x00000508ULL;
-            msr.apic_base = 0xFEE000000 | (1 << 11) | (1 << 8);
+            msr.apic_base = 0xFEE00000ULL | (1 << 11) | (1 << 8);
 
             /* 4 GB cacheable space on Deschutes 651h and later (including the 1632h
                Overdrive) according to the Pentium II Processor Specification Update.
@@ -4861,7 +4866,7 @@ cpu_WRMSR(void)
                         apic_lapic_set_base(msr.apic_base & 0xFFFFFFFF);
                     }
                     
-                    // msr.apic_base = EAX | ((uint64_t) EDX << 32);
+                    msr.apic_base = EAX | ((uint64_t) EDX << 32);
                     break;
                 case 0x8b:
                     break;
@@ -5359,10 +5364,17 @@ pentium_invalid_wrmsr:
                     break;
                 /* IA32_APIC_BASE - APIC Base Address */
                 case 0x1b:
-                    cpu_log("APIC_BASE write: %08X%08X\n", EDX, EAX);
-#if 0
-                    msr.apic_base = EAX | ((uint64_t) EDX << 32);
-#endif
+                    pclog("APIC_BASE write: %08X%08X\n", EDX, EAX);
+                    
+                    if (current_lapic) {
+                        uint8_t disabled = (!(msr.apic_base & (1 << 11)));
+                        
+                        msr.apic_base = EAX | ((uint64_t) EDX << 32);
+                        if (disabled) msr.apic_base &= ~(1 << 11);
+                        apic_lapic_set_base(msr.apic_base & 0xFFFFFFFFull);
+                    }
+                    
+                    // msr.apic_base = EAX | ((uint64_t) EDX << 32);
                     break;
                 /* Unknown (undocumented?) MSR used by the Hyper-V BIOS */
                 case 0x20:
