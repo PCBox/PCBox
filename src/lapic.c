@@ -111,10 +111,8 @@ static int lapic_get_ppr(lapic_t *lapic)
 
     tpr = (lapic->lapic_tpr >> 4);
     isrv = get_highest_priority_int(lapic->isr_l);
-    if (isrv < 0)
-        isrv = 0;
     isrv >>= 4;
-    if (tpr >= isrv)
+    if ((isrv < 0) || (tpr >= isrv))
         ppr = lapic->lapic_tpr;
     else
         ppr = isrv << 4;
@@ -145,22 +143,28 @@ static int lapic_get_apr(lapic_t *lapic)
 
 int lapic_irq_pending(lapic_t *lapic)
 {
-    int irrv, ppr;
+    int irrv, isrv, tpr;
 
     if (!(lapic->lapic_spurious_interrupt & 0x100)) {
-        //pclog("APIC disabled\n");
+        pclog("APIC disabled\n");
         return 0;
     }
 
     irrv = get_highest_priority_int(lapic->irr_l);
+    isrv = get_highest_priority_int(lapic->isr_l);
     if (irrv < 0) {
-        //pclog("APIC irrv < 0\n");
+        pclog("APIC irrv < 0\n");
         return -1;
     }
 
-    ppr = lapic_get_ppr(lapic);
-    if (ppr && (irrv & 0xf0) <= (ppr & 0xf0)) {
-        //pclog("APIC irrv < ppr\n");
+    if (isrv >= 0 && irrv <= isrv) {
+        pclog("APIC another irq is in service\n");
+        return -1;
+    }
+
+    tpr = lapic->lapic_tpr & 0xf0;
+    if ((irrv & 0xf0) <= tpr) {
+        pclog("APIC irrv < tpr\n");
         return -1;
     }
 
@@ -218,12 +222,14 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
             break;
 
         case 0x080:
+            pclog("LAPIC TPR write 0x%02x\n", val);
             dev->lapic_tpr = val & 0xFF;
             if (lapic_irq_pending(dev) > 0)
                 cpu_block_end = 1;
             break;
 
         case 0x0b0:
+            pclog("LAPIC EOI write\n");
             bit = get_highest_priority_int(dev->isr_l);
             if (bit != -1) {
                 lapic_set_bit_isr(dev, bit, 0);
@@ -261,6 +267,7 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
             break;
 
         case 0x300:
+            pclog("LAPIC ICR write: 0x%08X\n", val);
             dev->icr0 = val;
 
             deliverstruct.intvec = dev->icr & 0xFF;
@@ -333,7 +340,7 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
             dev->lapic_timer_initial_count = dev->lapic_timer_current_count = val;
             dev->lapic_timer_remainder = 0;
             cpu_block_end = 1;
-            //pclog("APIC: Timer count: %u\n", dev->lapic_timer_initial_count);
+            pclog("APIC: Timer count: %u\n", dev->lapic_timer_initial_count);
             break;
 
         case 0x3e0:
@@ -342,7 +349,7 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
                 update_tsc();
 #endif
             dev->lapic_timer_divider = val & 0xb;
-            //pclog("APIC: Timer divider: 0x%01X\n", dev->lapic_timer_divider);
+            pclog("APIC: Timer divider: 0x%01X\n", dev->lapic_timer_divider);
             break;
     }
 }
@@ -437,7 +444,7 @@ apic_lapic_readl(uint32_t addr, void *priv)
             break;
 
         case 0x390:
-            //pclog("APIC: Read current timer count %u\n", dev->lapic_timer_current_count);
+            pclog("APIC: Read current timer count %u\n", dev->lapic_timer_current_count);
 #ifdef USE_DYNAREC
             if (cpu_use_dynarec)
                 update_tsc();
@@ -499,7 +506,7 @@ static void
 lapic_service_local_interrupt(lapic_t *lapic, apic_ioredtable_t interrupt, bool lvt01)
 {
     if (interrupt.intr_mask) {
-        //pclog("Local interrupt vector 0x%08llX masked.\n", *((uint64_t*)&interrupt));
+        pclog("Local interrupt vector 0x%08llX masked.\n", *((uint64_t*)&interrupt));
         return;
     }
 
@@ -583,11 +590,11 @@ count:
                 lapic_service_local_interrupt(dev, dev->lapic_lvt_timer, false);
                 if (dev->lapic_lvt_timer.timer_mode == 1) {
                     dev->lapic_timer_current_count = (dev->lapic_timer_initial_count);
-                    //pclog("APIC: Timer restart\n");
+                    pclog("APIC: Timer restart\n");
                     if (ticks)
                         goto count;
                 } else {
-                    //pclog("APIC: Timer one-shot finish\n");
+                    pclog("APIC: Timer one-shot finish\n");
                 }
             } else {
                 dev->lapic_timer_current_count -= ticks;
@@ -622,7 +629,7 @@ apic_lapic_picinterrupt(void)
     lapic_set_bit_irr(lapic, intno, 0);
     lapic_set_bit_isr(lapic, intno, 1);
 
-    //pclog("LAPIC: Service INTVEC 0x%02X\n", intno);
+    pclog("LAPIC: Service INTVEC 0x%02X\n", intno);
     if (lapic_irq_pending(lapic) > 0)
         cpu_block_end = 1;
     return intno;
@@ -661,7 +668,7 @@ lapic_service_interrupt(lapic_t *lapic, apic_ioredtable_t interrupt)
     lapic_set_bit_tmr(lapic, interrupt.intvec, !!interrupt.trigmode);
     if (lapic_irq_pending(lapic) > 0)
         cpu_block_end = 1;
-    //pclog("LAPIC: Interrupt 0x%X serviced\n", interrupt.intvec);
+    pclog("LAPIC: Interrupt 0x%X serviced\n", interrupt.intvec);
 }
 
 void
