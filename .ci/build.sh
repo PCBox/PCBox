@@ -411,6 +411,14 @@ then
 	fi
 
 	cmake_flags_extra="$cmake_flags_extra -D LIBRASHADER_STATIC=ON"
+	if [ -d "$cache_dir/rust-cache/cargo/" ]
+	then
+		cp -rpf "$cache_dir/rust-cache/cargo" ./build/
+	fi
+	if [ -d "$cache_dir/rust-cache/corrosion/" ]
+	then
+		cp -rpf "$cache_dir/rust-cache/corrosion" ./build/
+	fi
 elif is_mac
 then
 	# macOS lacks nproc, but sysctl can do the same job.
@@ -959,6 +967,11 @@ mv "$prefix/src/mdsx."* archive_tmp/ || exit 99
 status=0
 if is_windows
 then
+	# Cache cargo directory
+	mkdir -p "$cache_dir/rust-cache/"
+	cp -rpf ./build/cargo  "$cache_dir/rust-cache/"
+	cp -rpf ./build/corrosion  "$cache_dir/rust-cache/"
+
 	# Determine Program Files directory for Ghostscript and 7-Zip.
 	# Manual checks because MSYS is bad at passing the ProgramFiles variables.
 	pf="/c/Program Files"
@@ -1009,7 +1022,7 @@ then
 		librashader_profile_dir=release
 		grep -qiE "^CMAKE_BUILD_TYPE:[^=]+=Debug" build/CMakeCache.txt && librashader_profile=dev && librashader_profile_dir=debug
   	[ -e "archive_tmp/librashader" ] && rm -rf archive_tmp/librashader
-		if [ ! -e "archive_tmp/librashader" ]
+		if [ ! -e "librashader" ]
 		then
 			mkdir librashader
 			cd librashader
@@ -1031,7 +1044,7 @@ then
 			ARM64 | arm64) cd target/aarch64-apple-darwin/$librashader_profile_dir/;;
 			*) cd target/$librashader_profile/;;
 		esac
-		cp liblibrashader_capi.dylib ../../../archive_tmp/librashader.dylib
+		cp liblibrashader_capi.dylib ../../../../archive_tmp/librashader.dylib
 		cd ../../../../
 
 	  	# Archive librashader library.
@@ -1204,7 +1217,7 @@ else
 	librashader_profile_dir=release
 	grep -qiE "^CMAKE_BUILD_TYPE:[^=]+=Debug" build/CMakeCache.txt && librashader_profile=dev && librashader_profile_dir=debug
 	[ -e "archive_tmp/librashader" ] && rm -rf archive_tmp/librashader
-	if [ ! -e "archive_tmp/librashader" ]
+	if [ ! -e "librashader" ]
 	then
 		mkdir librashader
 		cd librashader
