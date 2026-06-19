@@ -973,20 +973,25 @@ then
 	librashader_profile=release
   grep -qiE "^CMAKE_BUILD_TYPE:[^=]+=Debug" build/CMakeCache.txt && librashader_profile=dev
   cd archive_tmp
-  mkdir librashader
-  cd librashader
-  git init
-  git remote add origin https://github.com/SnowflakePowered/librashader/
-  git fetch origin --depth=1 43bc09c0b449a8a82d056bb0483233de72bab552
-  git checkout FETCH_HEAD
+  if [ ! -e "archive_tmp/librashader" ]
+    then
+      mkdir librashader
+      cd librashader
+      git init
+      git remote add origin https://github.com/SnowflakePowered/librashader/
+      git fetch origin --depth=1 43bc09c0b449a8a82d056bb0483233de72bab552
+      git checkout FETCH_HEAD
+    else
+      cd librashader
+      git pull
   cargo install cargo-update
   cargo build -p librashader-capi --profile $librashader_profile --no-default-features --features runtime-vulkan || exit 99
   cd target/$librashader_profile/
   cp librashader_capi.dll ../../../librashader.dll
   cd ../../../../
 
-	# Archive librashader library.
-	rm -rf archive_tmp/librashader/
+  [ ! -e "archive_tmp/librashader.dll" ] && echo [!] No Discord Game SDK for architecture [$arch_discord]
+  [ -e "archive_tmp/librashader.dll" ] && strip archive_tmp/librashader/librashader.dll
 
 		# Archive executable, while also stripping it if requested.
 	if [ $strip -ne 0 ]
@@ -1018,21 +1023,29 @@ then
   	librashader_profile=release
     grep -qiE "^CMAKE_BUILD_TYPE:[^=]+=Debug" build/CMakeCache.txt && librashader_profile=dev
     cd archive_tmp
-    mkdir librashader
-    cd librashader
-    git init
-    git remote add origin https://github.com/SnowflakePowered/librashader/
-    git fetch origin --depth=1 43bc09c0b449a8a82d056bb0483233de72bab552
-    git checkout FETCH_HEAD
+    if [ ! -e "archive_tmp/librashader" ]
+    then
+      mkdir librashader
+      cd librashader
+      git init
+      git remote add origin https://github.com/SnowflakePowered/librashader/
+      git fetch origin --depth=1 43bc09c0b449a8a82d056bb0483233de72bab552
+      git checkout FETCH_HEAD
+    else
+      cd librashader
+      git pull
     cargo install cargo-update
-    cargo build -p librashader-capi --profile $librashader_profile --no-default-features --features runtime-vulkan || exit 99
+    case $arch in
+    	64 | x86_64)	cargo build -p librashader-capi --target=x86_64-apple-darwin --profile $librashader_profile --no-default-features --features runtime-vulkan || exit 99
+	    ARM64 | arm64)	cargo build -p librashader-capi --target=aarch64-apple-darwin --profile $librashader_profile --no-default-features --features runtime-vulkan || exit 99
+    	*)		cargo build -p librashader-capi --profile $librashader_profile --no-default-features --features runtime-vulkan || exit 99
+    esac
     cd target/$librashader_profile/
     cp librashader_capi.dylib ../../../librashader.dylib
     cd ../../../../
 
 	  # Archive librashader library.
 		mv "archive_tmp/librashader.dylib" "archive_tmp/"*".app/Contents/Frameworks/"
-	  rm -rf archive_tmp/librashader/
 
 		# Archive assets.
 		if [ -d archive_tmp/assets ]
@@ -1200,12 +1213,17 @@ else
 	librashader_profile=release
   grep -qiE "^CMAKE_BUILD_TYPE:[^=]+=Debug" build/CMakeCache.txt && librashader_profile=dev
   cd archive_tmp
-  mkdir librashader
-  cd librashader
-  git init
-  git remote add origin https://github.com/SnowflakePowered/librashader/
-  git fetch origin --depth=1 43bc09c0b449a8a82d056bb0483233de72bab552
-  git checkout FETCH_HEAD
+  if [ ! -e "archive_tmp/librashader" ]
+    then
+      mkdir librashader
+      cd librashader
+      git init
+      git remote add origin https://github.com/SnowflakePowered/librashader/
+      git fetch origin --depth=1 43bc09c0b449a8a82d056bb0483233de72bab552
+      git checkout FETCH_HEAD
+    else
+      cd librashader
+      git pull
   cargo install cargo-update
   cargo build -p librashader-capi --profile $librashader_profile --no-default-features --features runtime-vulkan || exit 99
   cd target/$librashader_profile/
@@ -1214,7 +1232,6 @@ else
 
 	# Archive librashader library.
 	mv "archive_tmp/librashader.so" "archive_tmp/usr/lib/"
-	rm -rf archive_tmp/librashader/
 
 	# Archive executable, while also stripping it if requested.
 	mkdir -p archive_tmp/usr/local/bin
