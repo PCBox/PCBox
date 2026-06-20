@@ -1085,8 +1085,20 @@ intel_ich2_init(UNUSED(const device_t *info))
     }
 
     /* USB */
-    dev->usb_hub[0] = device_add_inst(&usb_device, 1);
-    dev->usb_hub[1] = device_add_inst(&usb_device, 2);
+
+    usb_params_t usb_params;
+    usb_params.pci_dev = &dev->pci_slot;
+    usb_params.pci_conf = &dev->pci_conf[2][0];
+    usb_params.priv = dev;
+    usb_params.do_pci_irq = 0;
+    usb_params.do_smi_raise = NULL; //TODO
+    usb_params.do_smi_ocr_raise = NULL;
+    dev->usb_hub[0] = device_add_inst_params(&usb_device, 1, &usb_params);
+    usb_params.pci_conf = &dev->pci_conf[4][0];
+    dev->usb_hub[1] = device_add_inst_params(&usb_device, 2, &usb_params);
+
+    uhci_register_usb(dev->usb_hub[0]);
+    uhci_register_usb(dev->usb_hub[1]);
 
     intel_ich2_reset(dev);
 
