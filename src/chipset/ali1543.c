@@ -59,6 +59,7 @@ typedef struct ali1543_t {
     uint8_t ide_dev_enable;
     uint8_t pmu_dev_enable;
     uint8_t type;
+    uint8_t usb_irq_state;
     int     offset;
 
     apm_t           *apm;
@@ -1089,7 +1090,7 @@ ali7101_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
             dev->pmu_conf[addr] = val & 0x9f;
             break;
         case 0x46:
-            dev->pmu_conf[addr] = val & 0x18;
+            dev->pmu_conf[addr] = (val & 0x18) | 0x20;
             break;
 
         /* TODO: Is the status R/W or R/WC? */
@@ -1595,10 +1596,32 @@ ali1543_close(void *priv)
     free(dev);
 }
 
+void
+ali5237_usb_raise_smi(void *priv)
+{
+    ali1543_t *dev = priv;
+
+    dev->pmu_conf[0x4A] |= 0x20;
+    dev->acpi->regs.gpsts |= 0x4;
+    smi_raise();
+}
+
+void
+ali5237_usb_pci_irq(void *priv, int level)
+{
+    ali1543_t *dev = priv;
+
+    if (level)
+        pci_set_mirq(PCI_MIRQ4, !(dev->pci_conf[0x77] & 0x10), &dev->usb_irq_state);
+    else
+        pci_clear_mirq(PCI_MIRQ4, !(dev->pci_conf[0x77] & 0x10), &dev->usb_irq_state);
+}
+
 static void *
 ali1543_init(const device_t *info)
 {
-    ali1543_t *dev = (ali1543_t *) calloc(1, sizeof(ali1543_t));
+    ali1543_t   *dev       = (ali1543_t *) calloc(1, sizeof(ali1543_t));
+    usb_params_t usb_param = { NULL, NULL };
 
     /* Device 02: M1533 Southbridge */
     pci_add_card(PCI_ADD_SOUTHBRIDGE, ali1533_read, ali1533_write, dev, &dev->pci_slot);
@@ -1638,7 +1661,14 @@ ali1543_init(const device_t *info)
     dev->smbus = device_add(&ali7101_smbus_device);
 
     /* USB */
-    dev->usb = device_add(&usb_device);
+    usb_param.pci_conf         = dev->usb_conf;
+    usb_param.pci_dev          = &dev->usb_slot;
+    usb_param.do_smi_raise     = ali5237_usb_raise_smi;
+    usb_param.do_smi_ocr_raise = NULL;
+    usb_param.do_pci_irq       = ali5237_usb_pci_irq;
+    usb_param.priv             = dev;
+    dev->usb                   = device_add_params(&usb_device, &usb_param);
+    ohci_register_usb(dev->usb);
 
     dev->type   = info->local & 0xff;
     dev->offset = (info->local >> 8) & 0x7f;

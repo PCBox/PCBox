@@ -277,6 +277,10 @@ sis_5571_host_to_pci_write(int addr, uint8_t val, void *priv)
             break;
 
         case 0x95: /* Test mode control */
+            dev->sis->test_mode_reg = val & 0xfb;
+            pclog("SiS: USB SMI# %sabled\n", (dev->sis->test_mode_reg & 0x10) ? "en" : "dis");
+            break;
+
         case 0x96: /* Time slot and Programmable 10-bit I/O port definition */
             dev->pci_conf[addr] = val & 0xfb;
             break;
@@ -310,7 +314,7 @@ sis_5571_host_to_pci_read(int addr, void *priv)
     const sis_5571_host_to_pci_t *dev = (sis_5571_host_to_pci_t *) priv;
     uint8_t ret = 0xff;
 
-    ret = dev->pci_conf[addr];
+    ret = (addr == 0x95) ? dev->sis->test_mode_reg : dev->pci_conf[addr];
 
     sis_5571_host_to_pci_log("SiS 5571 H2P: [R] dev->pci_conf[%02X] = %02X\n", addr, ret);
 
@@ -409,6 +413,8 @@ sis_5571_host_to_pci_reset(void *priv)
     dev->pci_conf[0xa1] = 0x00;
     dev->pci_conf[0xa2] = 0xff;
     dev->pci_conf[0xa3] = 0x00;
+
+    dev->sis->test_mode_reg = 0x10;
 
     cpu_cache_ext_enabled = 0;
     cpu_update_waitstates();

@@ -1548,10 +1548,24 @@ piix_speed_changed(void *priv)
         timer_on_auto(&dev->fast_off_timer, ((double) cpu_fast_off_val + 1) * dev->fast_off_period);
 }
 
+static void
+piix_smsc_usb_smi_raise(void* priv)
+{
+    piix_t *dev = (piix_t *) priv;
+    if (!dev)
+        return;
+
+    if ((dev->acpi->regs.glben & 1)) {
+        dev->acpi->regs.glbsts |= 2;
+        acpi_raise_smi(dev->acpi, 1);
+    }
+}
+
 static void *
 piix_init(const device_t *info)
 {
     piix_t *dev = (piix_t *) calloc(1, sizeof(piix_t));
+    usb_params_t params;
 
     dev->type = info->local & 0x0f;
     /* If (dev->type == 4) and (dev->rev & 0x08), then this is PIIX4E. */
@@ -1563,6 +1577,12 @@ piix_init(const device_t *info)
     pci_add_card(PCI_ADD_SOUTHBRIDGE, piix_read, piix_write, dev, &dev->pci_slot);
     piix_log("PIIX%i: Added to slot: %02X\n", dev->type, dev->pci_slot);
     piix_log("PIIX%i: Added to slot: %02X\n", dev->type, dev->pci_slot);
+    params.pci_dev          = &dev->pci_slot;
+    params.pci_conf         = &dev->regs[2][0];
+    params.do_smi_raise     = piix_smsc_usb_smi_raise;
+    params.priv             = dev;
+    params.do_pci_irq       = 0;
+    params.do_smi_ocr_raise = NULL;
 
     dev->bm[0] = device_add_inst(&sff8038i_device, 1);
     dev->bm[1] = device_add_inst(&sff8038i_device, 2);
@@ -1580,8 +1600,13 @@ piix_init(const device_t *info)
     else
         sff_set_irq_mode(dev->bm[1], IRQ_MODE_MIRQ_0);
 
-    if (dev->type >= 3)
-        dev->usb   = device_add(&usb_device);
+    if (dev->type >= 3) {
+        dev->usb   = device_add_params(&usb_device, &params);
+        if (dev->type > 4)
+            ohci_register_usb(dev->usb);
+        else
+            uhci_register_usb(dev->usb);
+    }
 
     if (dev->type > 3) {
         if (info->local & PIIX4_NVR_AMI_1995J)

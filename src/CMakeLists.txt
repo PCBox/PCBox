@@ -138,6 +138,7 @@ target_link_libraries(PCBox
     scsi
     sio
     snd
+    usb
     mdsx_dll
     utils
     vid
@@ -269,7 +270,6 @@ elseif(WIN32)
         OPTIONAL)
 endif()
 
-
 add_subdirectory(device)
 add_subdirectory(disk)
 add_subdirectory(floppy)
@@ -282,6 +282,7 @@ add_subdirectory(sio)
 add_subdirectory(scsi)
 add_subdirectory(sound)
 add_subdirectory(utils)
+add_subdirectory(usb)
 add_subdirectory(video)
 
 if (APPLE)

@@ -444,7 +444,9 @@ typedef struct scsi_device_t {
 
     uint16_t           type;
 
-    scsi_common_t *    sc;
+    uint8_t            removable_bus;
+
+    scsi_common_t     *sc;
 
     void               (*command)(scsi_common_t *sc, const uint8_t *cdb);
     void               (*request_sense)(scsi_common_t *sc, uint8_t *buffer,

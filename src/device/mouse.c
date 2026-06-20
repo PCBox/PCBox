@@ -104,6 +104,7 @@ static mouse_t mouse_devices[] = {
 #ifdef USE_STANDALONE_QUICKPORT
     { &mouse_upc_standalone_device     },
 #endif
+    { &mouse_usb_mouse_device          },
 #ifdef USE_WACOM
     { &mouse_wacom_device              },
     { &mouse_wacom_artpad_device       },

@@ -309,6 +309,8 @@ load_general(void)
     if (!strcmp(p, "default"))
         ini_section_delete_var(cat, "vid_api");
 
+    usb_keyboard_enabled = ini_section_get_int(cat, "usb_keyboard", 0);
+
     video_fullscreen_scale = ini_section_get_int(cat, "video_fullscreen_scale", 1);
 
     video_filter_method = ini_section_get_int(cat, "video_filter_method", 1);
@@ -2929,6 +2931,10 @@ save_general(void)
     ini_section_set_int(cat, "sound_muted", sound_muted);
     if (sound_muted == 0)
         ini_section_delete_var(cat, "sound_muted");
+
+    ini_section_set_int(cat, "usb_keyboard", !!usb_keyboard_enabled);
+    if (!usb_keyboard_enabled)
+        ini_section_delete_var(cat, "usb_keyboard");
 
     ini_section_set_int(cat, "vid_resize", vid_resize);
     if (vid_resize == 0)

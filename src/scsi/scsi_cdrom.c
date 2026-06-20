@@ -75,6 +75,7 @@ uint8_t scsi_cdrom_command_flags[0x100] = {
     [0x1b]          = IMPLEMENTED | CHECK_READY,
     [0x1e]          = IMPLEMENTED | CHECK_READY,
     [0x22]          = IMPLEMENTED | CHECK_READY | SCSI_ONLY,
+    [0x23]          = IMPLEMENTED,
     [0x25]          = IMPLEMENTED | CHECK_READY,
     [0x26]          = IMPLEMENTED | CHECK_READY | SCSI_ONLY,
     [0x28]          = IMPLEMENTED | CHECK_READY,
@@ -3584,6 +3585,62 @@ atapi_out:
                            dev->drv->cdrom_capacity - 1);
 
             scsi_cdrom_cache_toc(dev);
+            scsi_cdrom_set_buf_len(dev, BufLen, &len);
+
+            scsi_cdrom_data_command_finish(dev, len, len, len, 0);
+            break;
+
+        /* TODO: See if this is relevant for writable media. */
+        case GPCMD_READ_FORMAT_CAPACITIES:
+            len = (cdb[7] << 8) | cdb[8];
+
+            if ((!len) || (*BufLen == 0)) {
+                scsi_cdrom_set_phase(dev, SCSI_PHASE_STATUS);
+                dev->packet_status = PHASE_COMPLETE;
+                dev->callback      = 20.0 * SCSI_TIME;
+                break;
+            }
+
+            scsi_cdrom_buf_alloc(dev, len);
+            memset(dev->buffer, 0, len);
+
+            pos = 0;
+
+            /* List header */
+            dev->buffer[pos++] = 0;
+            dev->buffer[pos++] = 0;
+            dev->buffer[pos++] = 0;
+            if (dev->drv->image_path[0] != 0)
+                dev->buffer[pos++] = 16;
+            else
+                dev->buffer[pos++] = 8;
+
+            /* Current/Maximum capacity header */
+            dev->buffer[pos++] = (dev->drv->image_path[0] != 0) ? ((dev->drv->cdrom_capacity >> 24) & 0xff) : (0xFFFFFFFF >> 24) & 0xff;
+            dev->buffer[pos++] = (dev->drv->image_path[0] != 0) ? ((dev->drv->cdrom_capacity >> 16) & 0xff) : (0xFFFFFFFF >> 16) & 0xff;
+            dev->buffer[pos++] = (dev->drv->image_path[0] != 0) ? ((dev->drv->cdrom_capacity >> 8) & 0xff) : (0xFFFFFFFF >> 8) & 0xff;
+            dev->buffer[pos++] = (dev->drv->image_path[0] != 0) ? ((dev->drv->cdrom_capacity) & 0xff) : (0xFFFFFFFF) & 0xff;
+            if (dev->drv->image_path[0] != 0)
+                dev->buffer[pos++] = 2;
+            else
+                dev->buffer[pos++] = 3;
+
+            dev->buffer[pos++] = 2048 >> 16;
+            dev->buffer[pos++] = 2048 >> 8;
+            dev->buffer[pos++] = 2048 & 0xff;
+
+            if (dev->drv->image_path[0] != 0) {
+                /* Formattable capacity descriptor */
+                dev->buffer[pos++] = (dev->drv->cdrom_capacity >> 24) & 0xff;
+                dev->buffer[pos++] = (dev->drv->cdrom_capacity >> 16) & 0xff;
+                dev->buffer[pos++] = (dev->drv->cdrom_capacity >> 8) & 0xff;
+                dev->buffer[pos++] = dev->drv->cdrom_capacity & 0xff;
+                dev->buffer[pos++] = 0;
+                dev->buffer[pos++] = 2048 >> 16;
+                dev->buffer[pos++] = 2048 >> 8;
+                dev->buffer[pos++] = 2048 & 0xff;
+            }
+
             scsi_cdrom_set_buf_len(dev, BufLen, &len);
 
             scsi_cdrom_data_command_finish(dev, len, len, len, 0);

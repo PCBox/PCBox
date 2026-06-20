@@ -233,6 +233,8 @@ static const SOUND_CARD sound_cards[] = {
 #ifdef USE_SOFTMODEM
     { &si3036_device                },
 #endif
+    /* USB */
+    { &usb_audio_device             },
     { NULL                          }
     // clang-format on
 };

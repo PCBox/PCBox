@@ -28,6 +28,9 @@
 #include "cpu.h"
 #include <86box/plat_unused.h>
 
+usb_port_t registered_ports[16];
+uint8_t usb_ports_num = 0;
+
 #ifdef ENABLE_USB_LOG
 int usb_do_log = ENABLE_USB_LOG;
 
@@ -121,9 +124,16 @@ uhci_reg_writew(uint16_t addr, uint16_t val, void *priv)
     }
 }
 
+extern void uhci_update_io_mapping_new(void *priv, uint8_t base_l, uint8_t base_h, int enable);
+
 void
 uhci_update_io_mapping(usb_t *dev, uint8_t base_l, uint8_t base_h, int enable)
 {
+    // TODO
+    uhci_update_io_mapping_new(dev->usb_uhci_priv, base_l, base_h, enable);
+
+	return;
+
     if (dev->uhci_enable && (dev->uhci_io_base != 0x0000))
         io_removehandler(dev->uhci_io_base, 0x20, uhci_reg_read, NULL, NULL, uhci_reg_write, uhci_reg_writew, NULL, dev);
 
@@ -147,6 +157,7 @@ ohci_mmio_read(uint32_t addr, void *priv)
     if (addr == 0x101)
         ret = (ret & 0xfe) | (!!mem_a20_key);
 
+    pclog("addr 0x%X ret 0x%X\n", addr, ret);
     return ret;
 }
 
@@ -158,6 +169,7 @@ ohci_mmio_write(uint32_t addr, uint8_t val, void *priv)
 
     addr &= 0x00000fff;
 
+    pclog("addr 0x%X val 0x%X\n", addr, val);
     switch (addr) {
         case 0x04:
             if ((val & 0xc0) == 0x00) {
@@ -354,7 +366,7 @@ ohci_mmio_write(uint32_t addr, uint8_t val, void *priv)
 }
 
 void
-ohci_update_mem_mapping(usb_t *dev, uint8_t base1, uint8_t base2, uint8_t base3, int enable)
+ohci_update_mem_mapping_old(usb_t *dev, uint8_t base1, uint8_t base2, uint8_t base3, int enable)
 {
     if (dev->ohci_enable && (dev->ohci_mem_base != 0x00000000))
         mem_mapping_disable(&dev->ohci_mmio_mapping);
@@ -366,10 +378,56 @@ ohci_update_mem_mapping(usb_t *dev, uint8_t base1, uint8_t base2, uint8_t base3,
         mem_mapping_set_addr(&dev->ohci_mmio_mapping, dev->ohci_mem_base, 0x1000);
 }
 
+extern void
+ohci_update_mem_mapping_new(void* priv, uint8_t base1, uint8_t base2, uint8_t base3, int enable);
+
+void
+ohci_update_mem_mapping(usb_t *dev, uint8_t base1, uint8_t base2, uint8_t base3, int enable)
+{
+    ohci_update_mem_mapping_new(dev->usb_ohci_priv, base1, base2, base3, enable);
+}
+
+void usb_register_port(uint8_t number, void *priv, int (*is_free)(struct usb_port_t* port), int (*connect)(struct usb_port_t* port, usb_device_c* device))
+{
+    if (usb_ports_num >= 16)
+        return;
+
+    registered_ports[usb_ports_num].number = number;
+    registered_ports[usb_ports_num].priv = priv;
+    registered_ports[usb_ports_num].is_free = is_free;
+    registered_ports[usb_ports_num].connect = connect;
+    usb_ports_num++;
+    pclog("Register USB\n");
+}
+
+usb_port_t* usb_search_for_ports(void)
+{
+    for (int i = 0; i < usb_ports_num; i++) {
+        if (registered_ports[i].priv && registered_ports[i].is_free(&registered_ports[i])) {
+            return &registered_ports[i];
+        }
+    }
+    return NULL;
+}
+
+extern void *
+usb_uhci_init_ext(UNUSED(const device_t *info), void* params);
+
+extern void *
+usb_ohci_init_ext(UNUSED(const device_t *info), void* params);
+
+extern void
+usb_uhci_reset(void *priv);
+
+extern void
+usb_ohci_reset(void *priv);
+
 static void
 usb_reset(void *priv)
 {
     usb_t *dev = (usb_t *) priv;
+
+    usb_uhci_reset(dev->usb_uhci_priv);
 
     memset(dev->uhci_io, 0x00, 128);
     dev->uhci_io[0x0c] = 0x40;
@@ -392,9 +450,13 @@ usb_close(void *priv)
 {
     usb_t *dev = (usb_t *) priv;
 
+    free(dev->usb_uhci_priv);
     free(dev);
+
+    usb_ports_num = 0;
 }
 
+extern const device_t usb_ohci_device;
 static void *
 usb_init(UNUSED(const device_t *info))
 {
@@ -418,6 +480,8 @@ usb_init(UNUSED(const device_t *info))
                     ohci_mmio_read, NULL, NULL,
                     ohci_mmio_write, NULL, NULL,
                     NULL, MEM_MAPPING_EXTERNAL, dev);
+    dev->usb_uhci_priv = usb_uhci_init_ext(info, (void *) info->local);
+    dev->usb_ohci_priv = device_add_params(&usb_ohci_device, (void *) info->local);
     usb_reset(dev);
 
     return dev;

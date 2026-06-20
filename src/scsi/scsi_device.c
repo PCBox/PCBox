@@ -193,6 +193,7 @@ scsi_device_close_all(void)
             dev = &(scsi_devices[i][j]);
             if (dev->command_stop && dev->sc)
                 dev->command_stop(dev->sc);
+            dev->removable_bus = 0;
         }
     }
 }
@@ -208,6 +209,7 @@ scsi_device_init(void)
 
             memset(dev, 0, sizeof(scsi_device_t));
             dev->type = SCSI_NONE;
+            dev->removable_bus = 0;
         }
     }
 }

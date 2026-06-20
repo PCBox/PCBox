@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <86box/86box.h>
 #include <86box/timer.h>
 #include <86box/device.h>
@@ -61,6 +62,7 @@ const uint8_t scsi_disk_command_flags[0x100] = {
     [0x1a]          = IMPLEMENTED,
     [0x1d]          = IMPLEMENTED,
     [0x1e]          = IMPLEMENTED | CHECK_READY,
+    [0x23]          = IMPLEMENTED,
     [0x25]          = IMPLEMENTED | CHECK_READY,
     [0x28]          = IMPLEMENTED | CHECK_READY,
     [0x2a ... 0x2b] = IMPLEMENTED | CHECK_READY,
@@ -966,6 +968,7 @@ scsi_disk_command(scsi_common_t *sc, const uint8_t *cdb)
     const uint32_t last_sector            = hdd_image_get_last_sector(dev->id);
     const uint8_t  scsi_bus               = (dev->drv->scsi_id >> 4) & 0x0f;
     const uint8_t  scsi_id                = dev->drv->scsi_id & 0x0f;
+    bool           removable_bus          = false;
     int32_t        blen                   = 0;
     int            pos                    = 0;
     int            idx                    = 0;
@@ -980,6 +983,7 @@ scsi_disk_command(scsi_common_t *sc, const uint8_t *cdb)
     if (dev->drv->bus_type == HDD_BUS_SCSI) {
         BufLen = &scsi_devices[scsi_bus][scsi_id].buffer_length;
         dev->tf->status &= ~ERR_STAT;
+        removable_bus = !!scsi_devices[scsi_bus][scsi_id].removable_bus;
     } else {
         BufLen           = &blen;
         dev->tf->error   = 0;
@@ -1356,6 +1360,43 @@ scsi_disk_command(scsi_common_t *sc, const uint8_t *cdb)
             scsi_disk_data_command_finish(dev, len, len, len, 1);
             break;
 
+        case GPCMD_READ_FORMAT_CAPACITIES:
+            max_len = cdb[7];
+            max_len <<= 8;
+            max_len |= cdb[8];
+
+            if ((!max_len) || (*BufLen == 0)) {
+                scsi_disk_set_phase(dev, SCSI_PHASE_STATUS);
+                /* scsi_disk_log("SCSI HD %i: All done - callback set\n", dev->id); */
+                dev->packet_status = PHASE_COMPLETE;
+                dev->callback      = 20.0 * SCSI_TIME;
+                break;
+            }
+
+            scsi_disk_buf_alloc(dev, 256);
+
+            max_len = hdd_image_get_last_sector(dev->id) + 1;
+            memset(dev->temp_buffer, 0, 20);
+
+            dev->temp_buffer[3] = 8;
+
+            dev->temp_buffer[4] = (max_len >> 24) & 0xff;
+            dev->temp_buffer[5] = (max_len >> 16) & 0xff;
+            dev->temp_buffer[6] = (max_len >> 8) & 0xff;
+            dev->temp_buffer[7] = max_len & 0xff;
+            dev->temp_buffer[8] = 2;
+            dev->temp_buffer[9] = 0;
+            dev->temp_buffer[10] = 2;
+            dev->temp_buffer[11] = 0;
+
+            len                 = 12;
+
+            scsi_disk_set_buf_len(dev, BufLen, &len);
+
+            scsi_disk_set_phase(dev, SCSI_PHASE_DATA_IN);
+            scsi_disk_data_command_finish(dev, len, len, len, 0);
+            return;
+
         case GPCMD_INQUIRY:
             scsi_disk_set_phase(dev, SCSI_PHASE_DATA_IN);
 
@@ -1425,7 +1466,7 @@ scsi_disk_command(scsi_common_t *sc, const uint8_t *cdb)
                     dev->temp_buffer[0] = 0x7f;    /* No physical device on this LUN */
                 else
                     dev->temp_buffer[0] = 0x00;    /* Hard disk */
-                dev->temp_buffer[1] = 0x00;        /* Fixed */
+                dev->temp_buffer[1] = removable_bus ? 0x80 : 0x00; /*0x00 = Fixed, 0x80 = Removable (USB disks) */
                 /* SCSI-2 compliant */
                 dev->temp_buffer[2] = (dev->drv->bus_type == HDD_BUS_SCSI) ? 0x02 : 0x00;
                 dev->temp_buffer[3] = (dev->drv->bus_type == HDD_BUS_SCSI) ? 0x02 : 0x21;
@@ -1814,7 +1855,7 @@ scsi_disk_hard_reset(void)
             sd->reset          = scsi_disk_reset;
             sd->phase_data_out = scsi_disk_phase_data_out;
             sd->command_stop   = scsi_disk_command_stop;
-            sd->type           = SCSI_FIXED_DISK;
+            sd->type           = sd->removable_bus ? SCSI_REMOVABLE_DISK : SCSI_FIXED_DISK;
 
             scsi_disk_log(dev->log, "SCSI disk %i attached to SCSI ID %i\n", c, hdd[c].scsi_id);
         } else if (hdd[c].bus_type == HDD_BUS_ATAPI) {

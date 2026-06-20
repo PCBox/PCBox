@@ -73,6 +73,7 @@ const uint8_t mo_command_flags[0x100] = {
     [0x1b]          = IMPLEMENTED | CHECK_READY,
     [0x1d]          = IMPLEMENTED,
     [0x1e]          = IMPLEMENTED | CHECK_READY,
+    [0x23]          = IMPLEMENTED,
     [0x25]          = IMPLEMENTED | CHECK_READY,
     [0x28]          = IMPLEMENTED | CHECK_READY,
     [0x2a ... 0x2c] = IMPLEMENTED | CHECK_READY,
@@ -1747,6 +1748,61 @@ mo_command(scsi_common_t *sc, const uint8_t *cdb)
             }
             mo_seek(dev, pos);
             mo_command_complete(dev);
+            break;
+
+        case GPCMD_READ_FORMAT_CAPACITIES:
+            len = (cdb[7] << 8) | cdb[8];
+
+            if (!len) {
+                mo_set_phase(dev, SCSI_PHASE_STATUS);
+                dev->packet_status = PHASE_COMPLETE;
+                dev->callback      = 20.0 * SCSI_TIME;
+                break;
+            }
+
+            mo_buf_alloc(dev, len);
+            memset(dev->buffer, 0, len);
+
+            pos = 0;
+
+            /* List header */
+            dev->buffer[pos++] = 0;
+            dev->buffer[pos++] = 0;
+            dev->buffer[pos++] = 0;
+            if (dev->drv->fp != NULL)
+                dev->buffer[pos++] = 16;
+            else
+                dev->buffer[pos++] = 8;
+
+            /* Current/Maximum capacity header */
+            dev->buffer[pos++] = (dev->drv->fp != NULL) ? ((dev->drv->medium_size >> 24) & 0xff) : ((1063146 >> 24) & 0xff);
+            dev->buffer[pos++] = (dev->drv->fp != NULL) ? ((dev->drv->medium_size >> 16) & 0xff) : ((1063146 >> 16) & 0xff);
+            dev->buffer[pos++] = (dev->drv->fp != NULL) ? ((dev->drv->medium_size >> 8) & 0xff) : ((1063146 >> 8) & 0xff);
+            dev->buffer[pos++] = (dev->drv->fp != NULL) ? (dev->drv->medium_size & 0xff) : (1063146 & 0xff);
+            if (dev->drv->fp != NULL)
+                dev->buffer[pos++] = 2;
+            else
+                dev->buffer[pos++] = 3;
+
+            dev->buffer[pos++] = dev->drv->sector_size >> 16;
+            dev->buffer[pos++] = dev->drv->sector_size >> 8;
+            dev->buffer[pos++] = dev->drv->sector_size & 0xff;
+
+            if (dev->drv->fp != NULL) {
+                /* Formattable capacity descriptor */
+                dev->buffer[pos++] = (dev->drv->medium_size >> 24) & 0xff;
+                dev->buffer[pos++] = (dev->drv->medium_size >> 16) & 0xff;
+                dev->buffer[pos++] = (dev->drv->medium_size >> 8) & 0xff;
+                dev->buffer[pos++] = dev->drv->medium_size & 0xff;
+                dev->buffer[pos++] = 0;
+                dev->buffer[pos++] = dev->drv->sector_size >> 16;
+                dev->buffer[pos++] = dev->drv->sector_size >> 8;
+                dev->buffer[pos++] = dev->drv->sector_size & 0xff;
+            }
+
+            mo_set_buf_len(dev, BufLen, &len);
+
+            mo_data_command_finish(dev, len, len, len, 0);
             break;
 
         case GPCMD_READ_CDROM_CAPACITY:

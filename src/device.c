@@ -767,6 +767,8 @@ device_get_bus_name(const device_t *dev)
         sbus = "COM";
     else if (dev->flags & DEVICE_LPT)
         sbus = "LPT";
+        else if (dev->flags & DEVICE_USB)
+            sbus = "USB";
 
     return sbus;
 }

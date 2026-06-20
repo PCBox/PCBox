@@ -12,6 +12,12 @@
  *
  *          Copyright 2024 Miran Grca.
  */
+
+/* TODOs:
+    - SiS 5582 and 5572 OHCI handoff emulation.
+    - MSI MS-5172 BIOS SMI code is finicky as heck, so only OwnershipChange requests are honoured for now.
+      Deal with it later after everything settles down.
+*/
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -47,6 +53,8 @@
 #include <86box/chipset.h>
 #include <86box/usb.h>
 
+#include "cpu.h"
+
 #ifdef ENABLE_SIS_5572_USB_LOG
 int sis_5572_usb_do_log = ENABLE_SIS_5572_USB_LOG;
 
@@ -66,7 +74,7 @@ sis_5572_usb_log(const char *fmt, ...)
 #endif
 
 typedef struct sis_5572_usb_t {
-    uint8_t     rev;
+    uint8_t     rev, irq_state;
 
     uint8_t     usb_unk_regs[256];
     uint8_t     pci_conf[256];
@@ -77,6 +85,37 @@ typedef struct sis_5572_usb_t {
 
     sis_55xx_common_t *sis;
 } sis_5572_usb_t;
+
+void
+sis_5572_usb_smi_raise(void* priv)
+{
+    sis_5572_usb_t *dev = (sis_5572_usb_t *) priv;
+
+    if (dev->sis->usb_enabled && dev->rev == 0x11) {
+        dev->sis->acpi->regs.leg_sts |= 0x40;
+        if (dev->sis->acpi->regs.leg_en & 0x40) {
+            acpi_sis5595_smi_raise(dev->sis->acpi);
+        }
+    } else if (dev->sis->usb_enabled && dev->rev == 0xe0) {
+        if (dev->sis->test_mode_reg & 0x10) {
+            dev->sis->test_mode_reg |= 0x8;
+            smi_raise();
+        }
+    }
+}
+
+void
+sis_5572_usb_pci_irq(void *priv, int level)
+{
+    sis_5572_usb_t *dev = (sis_5572_usb_t *) priv;
+
+    if (dev->sis->usb_enabled) {
+        if (level)
+            pci_set_mirq(PCI_MIRQ3, 0, &dev->irq_state);
+        else
+            pci_clear_mirq(PCI_MIRQ3, 0, &dev->irq_state);
+    }
+}
 
 /* SiS 5572 unknown I/O port (second USB PCI BAR). */
 static void
@@ -266,14 +305,23 @@ sis_5572_usb_close(void *priv)
 static void *
 sis_5572_usb_init(UNUSED(const device_t *info))
 {
-    sis_5572_usb_t *dev = (sis_5572_usb_t *) calloc(1, sizeof(sis_5572_usb_t));
+    sis_5572_usb_t *dev       = (sis_5572_usb_t *) calloc(1, sizeof(sis_5572_usb_t));
+    usb_params_t    usb_param = { NULL, NULL };
 
     dev->rev = info->local;
 
     dev->sis = device_get_common_priv();
 
     /* USB */
-    dev->usb = device_add(&usb_device);
+    usb_param.pci_conf         = dev->pci_conf;
+    usb_param.pci_dev          = dev->sis->sb_southbridge_slot;
+    usb_param.priv             = dev;
+    usb_param.do_smi_raise     = NULL;
+    usb_param.do_smi_ocr_raise = sis_5572_usb_smi_raise;
+    usb_param.do_pci_irq       = sis_5572_usb_pci_irq;
+    usb_param.test_reg_enable  = &dev->sis->test_mode_reg;
+    dev->usb                   = device_add_params(&usb_device, &usb_param);
+    ohci_register_usb(dev->usb);
 
     sis_5572_usb_reset(dev);
 

@@ -154,6 +154,7 @@ int      auto_paused                            = 0;
 int      auto_dialog_paused                     = 0;
 
 /* Configuration values. */
+int      usb_keyboard_enabled                   = 0;              /* (C) enable USB keyboard. */ 
 int      window_remember;
 int      vid_resize;                                              /* (C) allow resizing */
 int      invert_display                         = 0;              /* (C) invert the display */
@@ -1808,6 +1809,11 @@ pc_reset_hard_init(void)
      * Reset the mouse, this will attach it to any port needed.
      */
     mouse_reset();
+
+    if (usb_keyboard_enabled) {
+        extern device_t usb_keyboard_device;
+        device_add(&usb_keyboard_device);
+    }
 
     /* Reset the Hard Disk Controller module. */
     hdc_reset();

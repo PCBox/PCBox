@@ -162,6 +162,9 @@ sis_5571_init(UNUSED(const device_t *info))
 
     dev->sis = device_add(&sis_55xx_common_device);
 
+    /* We need this for USB interrupts. */
+    dev->sis->sb_southbridge_slot = &dev->sb_slot;
+
     dev->h2p = device_add_linked(&sis_5571_h2p_device, dev->sis);
     dev->p2i = device_add_linked(&sis_5572_p2i_device, dev->sis);
     dev->ide = device_add_linked(&sis_5572_ide_device, dev->sis);
