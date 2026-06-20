@@ -1020,6 +1020,19 @@ intel_ich2_reset(void *priv)
 }
 
 static void
+intel_ich2_usb_smi_raise(void* priv)
+{
+    intel_ich2_t *dev = (intel_ich2_t *) priv;
+    if (!dev)
+        return;
+
+    if ((dev->acpi->regs.glben & 1)) {
+        dev->acpi->regs.glbsts |= 2;
+        acpi_raise_smi(dev->acpi, 1);
+    }
+}
+
+static void
 intel_ich2_close(void *priv)
 {
     intel_ich2_t *dev = (intel_ich2_t *) priv;
@@ -1091,7 +1104,7 @@ intel_ich2_init(UNUSED(const device_t *info))
     usb_params.pci_conf = &dev->pci_conf[2][0];
     usb_params.priv = dev;
     usb_params.do_pci_irq = 0;
-    usb_params.do_smi_raise = NULL; //TODO
+    usb_params.do_smi_raise = intel_ich2_usb_smi_raise;
     usb_params.do_smi_ocr_raise = NULL;
     dev->usb_hub[0] = device_add_inst_params(&usb_device, 1, &usb_params);
     usb_params.pci_conf = &dev->pci_conf[4][0];
