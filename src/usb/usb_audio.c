@@ -493,7 +493,7 @@ usb_audio_sof(void *priv)
 }
 
 static void
-usb_audio_get_buffer(int32_t *buffer, int len, void *priv)
+usb_audio_get_buffer(int32_t *buffer, uint16_t len, void *priv)
 {
     usb_device_audio* usb_audio = (usb_device_audio*)priv;
 

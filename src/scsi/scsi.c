@@ -99,12 +99,9 @@ static SCSI_CARD scsi_cards[] = {
     { &qla1240_device,           },
     { &qla1280_device,           },
     { &qla12160a_device,         },
-<<<<<<< HEAD
+    { &dc390_pci_device,         },
     /* USB */
     { &usb_msd_device,           },
-=======
-    { &dc390_pci_device,         },
->>>>>>> origin/master
     { NULL,                      },
   // clang-format on
 };
