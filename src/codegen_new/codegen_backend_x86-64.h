@@ -7,7 +7,7 @@
 #define HASH_SIZE   0x20000
 #define HASH_MASK   0x1ffff
 
-#define HASH(l)     ((l>>12) &0x1ffff)
+#define HASH(l)     (((l) ^ ((l)>>12)) &0x1ffff)
 
 #define BLOCK_MAX   0x3c0
 
