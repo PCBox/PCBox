@@ -176,6 +176,7 @@ VulkanWindowRenderer::VulkanWindowRenderer(QWidget *parent)
     setSurfaceType(QSurface::VulkanSurface);
     setVulkanInstance(&instance);
     buf_usage = std::vector<std::atomic_flag>(1);
+    source.setRect(0, 0, 640, 480);
     buf_usage[0].clear();
 }
 
@@ -239,8 +240,8 @@ VulkanWindowRenderer::recreateShaderSrcImages()
         VkImageCreateInfo img_info = { };
         img_info.sType             = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         img_info.imageType         = VK_IMAGE_TYPE_2D;
-        img_info.extent.width      = curExtent.width;
-        img_info.extent.height     = curExtent.height;
+        img_info.extent.width      = source.width();
+        img_info.extent.height     = source.height();
         img_info.extent.depth      = 1;
         img_info.mipLevels         = 1;
         img_info.arrayLayers       = 1;
@@ -265,6 +266,8 @@ VulkanWindowRenderer::recreateShaderSrcImages()
         }
 
         img_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        img_info.extent.width      = curExtent.width;
+        img_info.extent.height     = curExtent.height;
 
         for (std::vector<_filter_chain_vk*>::size_type j = 0;
              j < shaderLibraFilterChains.size(); j++) {
@@ -387,7 +390,7 @@ VulkanWindowRenderer::recreateSwapchain()
     swapchain_creation.imageColorSpace          = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 #endif
     swapchain_creation.imageArrayLayers         = 1;
-    swapchain_creation.imageUsage               = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    swapchain_creation.imageUsage               = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     swapchain_creation.minImageCount            = std::clamp(surfaceCaps.minImageCount + 1u, surfaceCaps.minImageCount, surfaceCaps.maxImageCount ? surfaceCaps.maxImageCount : std::numeric_limits<uint32_t>::max());
     swapchain_creation.imageExtent              = curExtent;
     swapchain_creation.preTransform             = surfaceCaps.currentTransform;
@@ -563,7 +566,9 @@ VulkanWindowRenderer::finalize()
     shaderLibraFilterChains.clear();
 #endif
 
+#ifndef LIBRASHADER_STATIC
 clean_up_rest:
+#endif
     m_devFuncs->vkDestroyImageView(logi_device, src_image_view, nullptr);
     vmaDestroyImage(allocator, src_image, img_allocation);
     vmaDestroyAllocator(allocator);
@@ -593,17 +598,17 @@ VulkanWindowRenderer::render()
     m_devFuncs->vkResetFences(logi_device, 1, &presentFences[current_frame]);
     auto         cmdBufs = this->cmdBuffers[current_frame];
 
-    if (prev_destination != destination) {
+    if (prev_source != source) {
 #ifdef LIBRA_RUNTIME_VULKAN
         try {
-            recreateSwapchain();
+            recreateShaderSrcImages();
         } catch (const vulkan_init_error &e) {
-            finalize();
             QMessageBox::critical(main_window, tr("Error"), tr(e.what()));
+            finalize();
             return;
         }
 #endif
-        prev_destination = destination;
+        prev_source = source;
     }
 
     VkCommandBufferBeginInfo beginInfo { };
@@ -619,13 +624,13 @@ VulkanWindowRenderer::render()
         return;
     }
     if (res == VK_ERROR_DEVICE_LOST) {
+        QMessageBox::critical(main_window, tr("Error"), tr("Device lost"));
         finalize();
-        QMessageBox::critical(main_window, tr("Error"), "vkAcquireNextImageKHR: " + tr("Device lost"));
         return;
     }
     if (res == VK_ERROR_SURFACE_LOST_KHR) {
+        QMessageBox::critical(main_window, tr("Error"), tr("Surface lost"));
         finalize();
-        QMessageBox::critical(main_window, tr("Error"), "vkAcquireNextImageKHR: " + tr("Surface lost"));
         return;
     }
     if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
@@ -710,13 +715,33 @@ VulkanWindowRenderer::render()
     }
     vmaFlushAllocation(allocator, img_allocation, 0, VK_WHOLE_SIZE);
 
+    if (shaderSrcImageTransitioned[swapchain_image_index] && !noshadersloaded) {
+        const VkImageMemoryBarrier image3_memory_barrier {
+            .sType            = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask    = VK_ACCESS_MEMORY_READ_BIT,
+            .dstAccessMask    = 0,
+            .oldLayout        = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            .newLayout        = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .image            = swapchainImages[swapchain_image_index],
+            .subresourceRange = {
+                                .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                .baseMipLevel   = 0,
+                                .levelCount     = 1,
+                                .baseArrayLayer = 0,
+                                .layerCount     = 1,
+                                }
+        };
+
+        m_devFuncs->vkCmdPipelineBarrier(cmdBufs, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, 0, 1, &image3_memory_barrier);
+    }
+
     VkClearColorValue clr_val = {};
     clr_val.float32[0] = 0;
     clr_val.float32[1] = 0;
     clr_val.float32[2] = 0;
     clr_val.float32[3] = 1;
 
-    VkImageBlit bregion;
+    VkImageBlit bregion{};
     bregion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     bregion.srcSubresource.mipLevel = 0;
     bregion.srcSubresource.baseArrayLayer = 0;
@@ -737,6 +762,25 @@ VulkanWindowRenderer::render()
     bregion.dstOffsets[1].x = std::clamp((uint32_t)destination.x() + destination.width(), 0u, (uint32_t)curExtent.width);
     bregion.dstOffsets[1].y = std::clamp((uint32_t)destination.y() + destination.height(), 0u, (uint32_t)curExtent.height);
     bregion.dstOffsets[1].z = 1;
+
+    VkImageCopy cregion{};
+    cregion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    cregion.srcSubresource.mipLevel = 0;
+    cregion.srcSubresource.baseArrayLayer = 0;
+    cregion.srcSubresource.layerCount = 1;
+    cregion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    cregion.dstSubresource.mipLevel = 0;
+    cregion.dstSubresource.baseArrayLayer = 0;
+    cregion.dstSubresource.layerCount = 1;
+    cregion.srcOffset.x = source.x();
+    cregion.srcOffset.y = source.y();
+    cregion.srcOffset.z = 0;
+    cregion.dstOffset.x = 0;
+    cregion.dstOffset.y = 0;
+    cregion.dstOffset.z = 0;
+    cregion.extent.width = source.width();
+    cregion.extent.height = source.height();
+    cregion.extent.depth = 1;
 
     VkImageSubresourceRange clr_range;
     clr_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -773,11 +817,13 @@ VulkanWindowRenderer::render()
 
     m_devFuncs->vkCmdPipelineBarrier(cmdBufs, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, 0, 1, &clear_memory_barrier);
 
-#ifndef LIBRA_RUNTIME_VULKAN
-    m_devFuncs->vkCmdBlitImage(cmdBufs, src_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchainImages[swapchain_image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bregion, cur_video_filter_method ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
-#else
-    m_devFuncs->vkCmdBlitImage(cmdBufs, src_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, noshadersloaded ? swapchainImages[swapchain_image_index] : shaderSrcImages[swapchain_image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bregion, cur_video_filter_method ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
+    if (noshadersloaded) {
+        m_devFuncs->vkCmdBlitImage(cmdBufs, src_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchainImages[swapchain_image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bregion, cur_video_filter_method ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
+    } else {
+#ifdef LIBRA_RUNTIME_VULKAN
+        m_devFuncs->vkCmdCopyImage(cmdBufs, src_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, shaderSrcImages[swapchain_image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cregion);
 #endif
+    }
 
 #   ifndef LIBRA_RUNTIME_VULKAN
     const VkImageMemoryBarrier image2_memory_barrier {
@@ -801,7 +847,7 @@ VulkanWindowRenderer::render()
         .sType            = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         .srcAccessMask    = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT,
         .dstAccessMask    = noshadersloaded ? (VkAccessFlags)(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT) : (VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
-        .oldLayout        = noshadersloaded ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : (shaderSrcImageTransitioned[swapchain_image_index] ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED),
+        .oldLayout        = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         .newLayout        = noshadersloaded ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         .image            = noshadersloaded ? swapchainImages[swapchain_image_index] : shaderSrcImages[swapchain_image_index],
         .subresourceRange = {
@@ -813,18 +859,36 @@ VulkanWindowRenderer::render()
                              }
     };
     m_devFuncs->vkCmdPipelineBarrier(cmdBufs, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT | (noshadersloaded ? VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT : 0) | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, 0, 1, &image2_memory_barrier);
-    shaderSrcImageTransitioned[swapchain_image_index] = 1;
-#endif
+    if (!shaderSrcImageTransitioned[swapchain_image_index] && !noshadersloaded) {
+        for (unsigned int i = 0; i < shaderFilterChains[swapchain_image_index].size(); i++) {
+            const VkImageMemoryBarrier image_shader_memory_barrier {
+                .sType            = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                .srcAccessMask    = 0,
+                .dstAccessMask    = VK_ACCESS_SHADER_READ_BIT,
+                .oldLayout        = VK_IMAGE_LAYOUT_UNDEFINED,
+                .newLayout        = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                .image            = shaderFilterChains[swapchain_image_index][i].next_image_chain,
+                .subresourceRange = {
+                                    .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                    .baseMipLevel   = 0,
+                                    .levelCount     = 1,
+                                    .baseArrayLayer = 0,
+                                    .layerCount     = 1,
+                                    }
+            };
+            m_devFuncs->vkCmdPipelineBarrier(cmdBufs, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &image_shader_memory_barrier);
+        }
+        shaderSrcImageTransitioned[swapchain_image_index] = 1;
+    }
 
-#   ifdef LIBRA_RUNTIME_VULKAN
     for (unsigned int i = 0; i < shaderFilterChains[swapchain_image_index].size(); i++) {
         const VkImageMemoryBarrier image_shader_memory_barrier {
             .sType            = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .srcAccessMask    = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT,
+            .srcAccessMask    = VK_ACCESS_SHADER_READ_BIT,
             .dstAccessMask    = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-            .oldLayout        = VK_IMAGE_LAYOUT_UNDEFINED,
+            .oldLayout        = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             .newLayout        = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            .image            = shaderFilterChains[swapchain_image_index][i].next_image_chain,
+            .image            = shaderFilterChains.at(swapchain_image_index).at(i).next_image_chain,
             .subresourceRange = {
                                 .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
                                 .baseMipLevel   = 0,
@@ -833,23 +897,8 @@ VulkanWindowRenderer::render()
                                 .layerCount     = 1,
                                 }
         };
-        const VkImageMemoryBarrier image_shader_memory_barrier_src {
-            .sType            = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .srcAccessMask    = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
-            .dstAccessMask    = VK_ACCESS_SHADER_READ_BIT,
-            .oldLayout        = (i == 0) ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            .newLayout        = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            .image            = (i == 0) ? shaderSrcImages[swapchain_image_index] : shaderFilterChains[swapchain_image_index][i - 1].next_image_chain,
-            .subresourceRange = {
-                                .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                                .baseMipLevel   = 0,
-                                .levelCount     = 1,
-                                .baseArrayLayer = 0,
-                                .layerCount     = 1,
-                                }
-        };
-        m_devFuncs->vkCmdPipelineBarrier(cmdBufs, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, 0, 1, &image_shader_memory_barrier);
-        m_devFuncs->vkCmdPipelineBarrier(cmdBufs, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, 0, 1, &image_shader_memory_barrier_src);
+        m_devFuncs->vkCmdPipelineBarrier(cmdBufs, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, 1, &image_shader_memory_barrier);
+
         auto shader_img_src = (i == 0) ? shaderSrcImages[swapchain_image_index] : shaderFilterChains[swapchain_image_index][i - 1].next_image_chain;
         auto shader_img_dst = shaderFilterChains[swapchain_image_index][i].next_image_chain;
 
@@ -857,18 +906,28 @@ VulkanWindowRenderer::render()
         vport.width = curExtent.width;
         vport.height = curExtent.height;
         libra_error_t error = nullptr;
-        if (i == shaderFilterChains[swapchain_image_index].size() - 1) {
+
+        if (i == 0) {
+            vport.x = destination.x();
+            vport.y = destination.y();
+            vport.width = destination.width();
+            vport.height= destination.height();
+#ifndef LIBRASHADER_STATIC
+            error = librashader_inst.vk_filter_chain_frame(&shaderFilterChains[swapchain_image_index][i].chain, cmdBufs, current_frame_shader, { shader_img_src, VK_FORMAT_B8G8R8A8_UNORM, (unsigned int)source.width(), (unsigned int)source.height()}, { shader_img_dst, VK_FORMAT_B8G8R8A8_UNORM, (unsigned int)curExtent.width, (unsigned int)curExtent.height }, &vport, nullptr, nullptr);
+#else
+            error = libra_vk_filter_chain_frame(&shaderFilterChains[swapchain_image_index][i].chain, cmdBufs, current_frame_shader, { shader_img_src, VK_FORMAT_B8G8R8A8_UNORM, (unsigned int)source.width(), (unsigned int)source.height()}, { shader_img_dst, VK_FORMAT_B8G8R8A8_UNORM, (unsigned int)curExtent.width, (unsigned int)curExtent.height }, &vport, nullptr, nullptr);
+#endif
+        } else {
+            vport.x = 0;
+            vport.y = 0;
+            vport.width = curExtent.width;
+            vport.height = curExtent.height;
 #ifndef LIBRASHADER_STATIC
             error = librashader_inst.vk_filter_chain_frame(&shaderFilterChains[swapchain_image_index][i].chain, cmdBufs, current_frame_shader, { shader_img_src, VK_FORMAT_B8G8R8A8_UNORM, (unsigned int)curExtent.width, (unsigned int)curExtent.height}, { shader_img_dst, VK_FORMAT_B8G8R8A8_UNORM, (unsigned int)curExtent.width, (unsigned int)curExtent.height }, &vport, nullptr, nullptr);
 #else
             error = libra_vk_filter_chain_frame(&shaderFilterChains[swapchain_image_index][i].chain, cmdBufs, current_frame_shader, { shader_img_src, VK_FORMAT_B8G8R8A8_UNORM, (unsigned int)curExtent.width, (unsigned int)curExtent.height}, { shader_img_dst, VK_FORMAT_B8G8R8A8_UNORM, (unsigned int)curExtent.width, (unsigned int)curExtent.height }, &vport, nullptr, nullptr);
 #endif
-        } else
-#ifndef LIBRASHADER_STATIC
-            error = librashader_inst.vk_filter_chain_frame(&shaderFilterChains[swapchain_image_index][i].chain, cmdBufs, current_frame_shader, { shader_img_src, VK_FORMAT_B8G8R8A8_UNORM, (unsigned int)curExtent.width, (unsigned int)curExtent.height}, { shader_img_dst, VK_FORMAT_B8G8R8A8_UNORM, (unsigned int)curExtent.width, (unsigned int)curExtent.height }, &vport, nullptr, nullptr);
-#else
-            error = libra_vk_filter_chain_frame(&shaderFilterChains[swapchain_image_index][i].chain, cmdBufs, current_frame_shader, { shader_img_src, VK_FORMAT_B8G8R8A8_UNORM, (unsigned int)curExtent.width, (unsigned int)curExtent.height}, { shader_img_dst, VK_FORMAT_B8G8R8A8_UNORM, (unsigned int)curExtent.width, (unsigned int)curExtent.height }, &vport, nullptr, nullptr);
-#endif
+        }
 
         if (error) {
 #ifndef LIBRASHADER_STATIC
@@ -877,16 +936,17 @@ VulkanWindowRenderer::render()
             libra_error_print(error);
 #endif
         }
-    }
 
-    if (!noshadersloaded) {
-        const VkImageMemoryBarrier clear_memory_barrier {
+        if (i == (shaderFilterChains[swapchain_image_index].size() - 1))
+            break;
+
+        const VkImageMemoryBarrier image_shader_memory_barrier_2 {
             .sType            = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .srcAccessMask    = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-            .dstAccessMask    = VK_ACCESS_TRANSFER_WRITE_BIT,
-            .oldLayout        = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            .newLayout        = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            .image            = shaderSrcImages[swapchain_image_index],
+            .srcAccessMask    = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask    = VK_ACCESS_SHADER_READ_BIT,
+            .oldLayout        = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .newLayout        = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .image            = shaderFilterChains.at(swapchain_image_index).at(i).next_image_chain,
             .subresourceRange = {
                                 .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
                                 .baseMipLevel   = 0,
@@ -895,7 +955,7 @@ VulkanWindowRenderer::render()
                                 .layerCount     = 1,
                                 }
         };
-        m_devFuncs->vkCmdPipelineBarrier(cmdBufs, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, 0, 1, &clear_memory_barrier);
+        m_devFuncs->vkCmdPipelineBarrier(cmdBufs, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &image_shader_memory_barrier_2);
     }
 #endif
 
@@ -917,7 +977,7 @@ VulkanWindowRenderer::render()
     info.layerCount = 1;
     fn_vkCmdBeginRendering(cmdBufs, &info);
     
-    if (qt_osd_is_visible()) {
+    {
         qt_osd_set_layout_scale_hint(osdLayoutScaleHint());
         qt_osd_render(width(), height(), devicePixelRatio(), (void*)cmdBufs);
     }
@@ -1055,8 +1115,8 @@ VulkanWindowRenderer::render()
     // Submit to the graphics queue passing a wait fence
     auto submit_res = m_devFuncs->vkQueueSubmit(gfx_queue_o, 1, &submitInfo, presentFences[current_frame]);
     if (submit_res != VK_SUCCESS) {
+        QMessageBox::critical(main_window, tr("Error"), Vulkan_GetResultString(submit_res));
         finalize();
-        QMessageBox::critical(main_window, tr("Error"), "vkQueueSubmit: " + Vulkan_GetResultString(submit_res));
         return;
     }
 
@@ -1119,13 +1179,13 @@ VulkanWindowRenderer::render()
     instance.presentAboutToBeQueued(this);
     auto result                    = fn_vkQueuePresentKHR(gfx_queue_o, &presentInfo);
     if (result == VK_ERROR_SURFACE_LOST_KHR) {
+        QMessageBox::critical(main_window, tr("Error"), tr("Surface lost"));
         finalize();
-        QMessageBox::critical(main_window, tr("Error"), tr("vkQueuePresentKHR: Surface lost"));
         return;
     }
     if (result == VK_ERROR_DEVICE_LOST) {
+        QMessageBox::critical(main_window, tr("Error"), tr("Device lost"));
         finalize();
-        QMessageBox::critical(main_window, tr("Error"), tr("vkQueuePresentKHR: Device lost"));
         return;
     }
     if ((result == VK_ERROR_OUT_OF_DATE_KHR) || (result == VK_SUBOPTIMAL_KHR)) {
@@ -1136,8 +1196,8 @@ VulkanWindowRenderer::render()
             main_window->reloadAllRenderers();
         }
     } else if (result != VK_SUCCESS) {
+        QMessageBox::critical(main_window, tr("Error"), Vulkan_GetResultString(res));
         finalize();
-        QMessageBox::critical(main_window, tr("Error"), "vkQueuePresentKHR:" + Vulkan_GetResultString(res));
         return;
     }
     instance.presentQueued(this);
@@ -1500,7 +1560,9 @@ VulkanWindowRenderer::initialize()
                     }
                 }
 #endif
+#ifndef LIBRASHADER_STATIC
 skip_shaders:
+#endif
                 init_info = {};
                 init_info.ApiVersion = VK_VERSION_1_0;
                 init_info.Instance = instance.vkInstance();

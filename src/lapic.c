@@ -36,7 +36,6 @@
 #define INITIAL_LAPIC_ADDRESS 0xFEE00000
 
 extern double cpuclock;
-extern int nmi;
 
 lapic_t* current_lapic;
 
@@ -523,7 +522,7 @@ lapic_service_local_interrupt(lapic_t *lapic, apic_ioredtable_t interrupt, bool 
             smi_raise();
             return;
         case 4:
-            nmi = 1;
+            nmi_raise();
             return;
         case 5: /*INIT*/
             {
@@ -649,7 +648,7 @@ lapic_service_interrupt(lapic_t *lapic, apic_ioredtable_t interrupt)
             smi_raise();
             return;
         case 4:
-            nmi = 1;
+            nmi_raise();
             return;
         case 5: /*INIT*/
             {
