@@ -1310,7 +1310,6 @@ codegen_MOVZX(codeblock_t *block, uop_t *uop)
     int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
 
     if (REG_IS_Q(dest_size) && REG_IS_L(src_size)) {
-        host_arm64_MOV_REG(block, src_reg, src_reg, 0); //Zero extends src_reg
         host_arm64_FMOV_D_Q(block, dest_reg, src_reg);
     } else if (REG_IS_L(dest_size) && REG_IS_Q(src_size)) {
         host_arm64_FMOV_W_S(block, dest_reg, src_reg);
@@ -1411,8 +1410,6 @@ codegen_MOV_REG_PTR(codeblock_t *block, uop_t *uop)
     host_arm64_MOVX_IMM(block, REG_TEMP, (uint64_t) uop->p);
     if (REG_IS_L(dest_size)) {
         host_arm64_LDR_IMM_W(block, dest_reg, REG_TEMP, 0);
-    } else if (REG_IS_D(dest_size) || REG_IS_Q(dest_size)) {
-        host_arm64_LDR_IMM_F64(block, dest_reg, REG_TEMP, 0);
     } else
         fatal("MOV_REG_PTR %02x\n", uop->dest_reg_a_real);
 
@@ -2167,7 +2164,7 @@ codegen_PMULHW(codeblock_t *block, uop_t *uop)
 
     if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b)) {
         host_arm64_SMULL_V4S_4H(block, dest_reg, src_reg_a, src_reg_b);
-        host_arm64_SQSHRN_V4H_4S(block, dest_reg, dest_reg, 16);
+        host_arm64_SHRN_V4H_4S(block, dest_reg, dest_reg, 16);
     } else
         fatal("PMULHW %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
 
