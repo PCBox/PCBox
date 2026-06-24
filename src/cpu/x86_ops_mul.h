@@ -5,6 +5,8 @@ opIMUL_w_iw_a16(uint32_t fetchdat)
     int16_t tempw;
     int16_t tempw2;
 
+    flags_rebuild();
+
     fetch_ea_16(fetchdat);
     if (cpu_mod != 3)
         SEG_CHECK_READ(cpu_state.ea_seg);
@@ -30,6 +32,8 @@ opIMUL_w_iw_a32(uint32_t fetchdat)
     int32_t templ;
     int16_t tempw;
     int16_t tempw2;
+
+    flags_rebuild();
 
     fetch_ea_32(fetchdat);
     if (cpu_mod != 3)
@@ -58,6 +62,8 @@ opIMUL_l_il_a16(uint32_t fetchdat)
     int32_t templ;
     int32_t templ2;
 
+    flags_rebuild();
+
     fetch_ea_16(fetchdat);
     if (cpu_mod != 3)
         SEG_CHECK_READ(cpu_state.ea_seg);
@@ -83,6 +89,8 @@ opIMUL_l_il_a32(uint32_t fetchdat)
     int64_t temp64;
     int32_t templ;
     int32_t templ2;
+
+    flags_rebuild();
 
     fetch_ea_32(fetchdat);
     if (cpu_mod != 3)
@@ -110,6 +118,8 @@ opIMUL_w_ib_a16(uint32_t fetchdat)
     int32_t templ;
     int16_t tempw;
     int16_t tempw2;
+
+    flags_rebuild();
 
     fetch_ea_16(fetchdat);
     if (cpu_mod != 3)
@@ -139,6 +149,8 @@ opIMUL_w_ib_a32(uint32_t fetchdat)
     int16_t tempw;
     int16_t tempw2;
 
+    flags_rebuild();
+    
     fetch_ea_32(fetchdat);
     if (cpu_mod != 3)
         SEG_CHECK_READ(cpu_state.ea_seg);
@@ -168,6 +180,8 @@ opIMUL_l_ib_a16(uint32_t fetchdat)
     int32_t templ;
     int32_t templ2;
 
+    flags_rebuild();
+
     fetch_ea_16(fetchdat);
     if (cpu_mod != 3)
         SEG_CHECK_READ(cpu_state.ea_seg);
@@ -196,6 +210,8 @@ opIMUL_l_ib_a32(uint32_t fetchdat)
     int32_t templ;
     int32_t templ2;
 
+    flags_rebuild();
+
     fetch_ea_32(fetchdat);
     if (cpu_mod != 3)
         SEG_CHECK_READ(cpu_state.ea_seg);
@@ -223,6 +239,8 @@ opIMUL_w_w_a16(uint32_t fetchdat)
 {
     int32_t templ;
 
+    flags_rebuild();
+
     fetch_ea_16(fetchdat);
     if (cpu_mod != 3)
         SEG_CHECK_READ(cpu_state.ea_seg);
@@ -243,6 +261,8 @@ static int
 opIMUL_w_w_a32(uint32_t fetchdat)
 {
     int32_t templ;
+
+    flags_rebuild();
 
     fetch_ea_32(fetchdat);
     if (cpu_mod != 3)
@@ -266,6 +286,8 @@ opIMUL_l_l_a16(uint32_t fetchdat)
 {
     int64_t temp64;
 
+    flags_rebuild();
+
     fetch_ea_16(fetchdat);
     if (cpu_mod != 3)
         SEG_CHECK_READ(cpu_state.ea_seg);
@@ -286,6 +308,8 @@ static int
 opIMUL_l_l_a32(uint32_t fetchdat)
 {
     int64_t temp64;
+    
+    flags_rebuild();
 
     fetch_ea_32(fetchdat);
     if (cpu_mod != 3)
