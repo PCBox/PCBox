@@ -169,7 +169,7 @@ ropRET_imm_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(
     ADD_SP(ir, 2 + offset);
     uop_MOVZX(ir, IREG_pc, IREG_temp0_W);
 
-    codegen_mark_code_present(block, cs + op_pc, 2);
+    codegen_mark_code_present(block, cs + op_pc, 3);
     return -1;
 }
 uint32_t
@@ -187,7 +187,7 @@ ropRET_imm_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(
     }
     ADD_SP(ir, 4 + offset);
 
-    codegen_mark_code_present(block, cs + op_pc, 2);
+    codegen_mark_code_present(block, cs + op_pc, 3);
     return -1;
 }
 
@@ -262,7 +262,7 @@ ropRETF_imm_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED
     uop_CALL_FUNC(ir, loadcs);
     ADD_SP(ir, 4 + offset);
 
-    codegen_mark_code_present(block, cs + op_pc, 2);
+    codegen_mark_code_present(block, cs + op_pc, 3);
     return -1;
 }
 uint32_t
@@ -289,6 +289,6 @@ ropRETF_imm_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED
     uop_CALL_FUNC(ir, loadcs);
     ADD_SP(ir, 8 + offset);
 
-    codegen_mark_code_present(block, cs + op_pc, 2);
+    codegen_mark_code_present(block, cs + op_pc, 3);
     return -1;
 }
