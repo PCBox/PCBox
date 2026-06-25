@@ -1,7 +1,7 @@
 #include "codegen_backend_arm64_defs.h"
 
-#define BLOCK_SIZE  0x8000
-#define BLOCK_MASK  0x7fff
+#define BLOCK_SIZE  0x20000
+#define BLOCK_MASK  0x3ffff
 #define BLOCK_START 0
 
 #define HASH_SIZE   0x20000
