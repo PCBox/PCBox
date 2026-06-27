@@ -1765,7 +1765,7 @@ emu8k_update(emu8k_t *emu8k)
     int32_t       *buf;
     emu8k_voice_t *emu_voice;
     int            pos;
-    int            any_active = 0;
+    int            num_active = 0;
 
     /* Clean the buffers since we will accumulate into them. */
     buf = &emu8k->buffer[emu8k->pos * 2];
@@ -1783,6 +1783,12 @@ emu8k_update(emu8k_t *emu8k)
 
         any_active = 1;
         buf        = &emu8k->buffer[emu8k->pos * 2];
+
+        /* Skip entirely idle voices — no sound output and no envelope to process. */
+        if (!emu_voice->env_engine_on && !emu_voice->cvcf_curr_volume)
+            continue;
+
+        num_active++;
 
         for (pos = emu8k->pos; pos < wavetable_pos_global; pos++) {
             int32_t dat;
@@ -2125,7 +2131,7 @@ emu8k_update(emu8k_t *emu8k)
     }
 
     /* Only run reverb/chorus/EQ when at least one voice was active. */
-    if (any_active) {
+    if (num_active > 0) {
         buf = &emu8k->buffer[emu8k->pos * 2];
         emu8k_work_reverb(&emu8k->reverb_in_buffer[emu8k->pos], buf, &emu8k->reverb_engine, num_samples);
         emu8k_work_chorus(&emu8k->chorus_in_buffer[emu8k->pos], buf, &emu8k->chorus_engine, num_samples);
@@ -2136,6 +2142,15 @@ emu8k_update(emu8k_t *emu8k)
     emu8k->wc += num_samples;
 
     emu8k->pos = wavetable_pos_global;
+}
+
+void
+emu8k_reset_buffer(emu8k_t *emu8k)
+{
+    emu8k->pos = 0;
+    memset(emu8k->buffer, 0, sizeof(emu8k->buffer));
+    memset(emu8k->chorus_in_buffer, 0, sizeof(emu8k->chorus_in_buffer));
+    memset(emu8k->reverb_in_buffer, 0, sizeof(emu8k->reverb_in_buffer));
 }
 
 void
@@ -2207,6 +2222,8 @@ emu8k_init(emu8k_t *emu8k, uint16_t emu_addr, int onboard_ram)
     for (; j < 0x100; j++) {
         emu8k->ram_pointers[j] = emu8k->empty;
     }
+
+    emu8k_reset_buffer(emu8k);
 
     emu8k_change_addr(emu8k, emu_addr);
 
