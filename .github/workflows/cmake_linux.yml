@@ -120,7 +120,7 @@ jobs:
           ${{ matrix.ui.packages }}
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
 
@@ -142,7 +142,7 @@ jobs:
           cmake --install build
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: 'PCBox${{ matrix.ui.slug }}${{ matrix.dynarec.slug }}${{ matrix.build.slug }}-UbuntuJammy${{ matrix.environment.slug }}-gha${{ github.run_number }}'
           path: build/artifacts/**
