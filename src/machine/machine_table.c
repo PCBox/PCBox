@@ -6891,8 +6891,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_M6117,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 33333333, /* assumed */
+            .max_bus     = 40000000,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -6901,8 +6901,8 @@ const machine_t machines[] = {
         .bus_flags = MACHINE_PS2,
         .flags     = MACHINE_IDE,
         .ram       = {
-            .min  = 1024,
-            .max  = 32768,
+            .min  = 1024,  /* assumed? */
+            .max  = 32768, /* assumed? */
             .step = 1024
         },
         .nvrmask                  = 127,
@@ -6939,8 +6939,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_M6117,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 40000000,
+            .max_bus     = 40000000,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -6987,8 +6987,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_M6117,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 40000000,
+            .max_bus     = 40000000,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7023,7 +7023,7 @@ const machine_t machines[] = {
     },
     /* Has IBM PS/2 Type 1 KBC firmware. */
     {
-        .name              = "[ALi M6117] Protech ProX-1332",
+        .name              = "[ALi M6117] Protech ProX-1330",
         .internal_name     = "prox1332",
         .type              = MACHINE_TYPE_M6117,
         .chipset           = MACHINE_CHIPSET_ALI_M6117,
@@ -7035,8 +7035,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_M6117,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 40000000,
+            .max_bus     = 40000000,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7046,7 +7046,7 @@ const machine_t machines[] = {
         .flags     = MACHINE_IDE,
         .ram       = {
             .min  = 1024,
-            .max  = 32768,
+            .max  = 65536,
             .step = 1024
         },
         .nvrmask                  = 127,
@@ -7067,7 +7067,7 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = NULL,
         .net_device               = NULL,
-        .aliases                  = { "" }
+        .aliases                  = { "Protech ProX-1331", "Protech ProX-1332", "" }
     },
 
     /* 486SLC machines */
@@ -7086,8 +7086,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_486SLC_IBM,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 25000000,
+            .max_bus     = 33333333,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7118,7 +7118,7 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = NULL,
         .net_device               = NULL,
-        .aliases                  = { "Alaris Leopard LX", "" }
+        .aliases                  = { "Alaris Leopard LX", "IBM OPAL LX", "" }
     },
 
     /* 386DX machines */
@@ -7220,7 +7220,7 @@ const machine_t machines[] = {
     },
     /* Has Phoenix MultiKey/42 KBC firmware. */
     {
-        .name              = "[ISA] Micronics 09-00021 (Tandon BIOS)",
+        .name              = "[ISA] Micronics 386 I-CACHE (Tandon BIOS)",
         .internal_name     = "micronics386",
         .type              = MACHINE_TYPE_386DX,
         .chipset           = MACHINE_CHIPSET_DISCRETE,
@@ -7232,8 +7232,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 20000000,
+            .max_bus     = 33333333,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7264,11 +7264,11 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = NULL,
         .net_device               = NULL,
-        .aliases                  = { "" }
+        .aliases                  = { "Micronics 09-00021 (Tandon BIOS)", "" }
     },
     /* Has IBM AT KBC firmware. */
     {
-        .name              = "[ISA] Micronics 09-00021 (Phoenix BIOS)",
+        .name              = "[ISA] Micronics 386 I-CACHE (Phoenix BIOS)",
         .internal_name     = "micronics386px",
         .type              = MACHINE_TYPE_386DX,
         .chipset           = MACHINE_CHIPSET_DISCRETE,
@@ -7280,8 +7280,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 20000000,
+            .max_bus     = 33333333,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7312,7 +7312,7 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = NULL,
         .net_device               = NULL,
-        .aliases                  = { "" }
+        .aliases                  = { "Micronics 09-00021 (Phoenix BIOS)", "" }
     },
     /* Has a Jetkey V3, which we currently lack a probe of, but an
        old test by Carlos showed it as being 'F'. */
@@ -7329,8 +7329,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 33333333, /* assumed */
+            .max_bus     = 33333333, /* assumed */
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7377,8 +7377,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 33333333,
+            .max_bus     = 40000000,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7388,7 +7388,10 @@ const machine_t machines[] = {
         .flags     = MACHINE_FLAGS_NONE,
         .ram       = {
             .min  = 1024,
-            .max  = 32768,
+            /* Theoretically, this should support up to 128 MB. In practice, its BIOS seems
+               to have trouble utilizing more than this amount. It does detect and test the
+               full 128 MB during POST, although setup and DOS only show 64 MB. */
+            .max  = 65536, 
             .step = 1024,
         },
         .nvrmask                  = 127,
@@ -7423,8 +7426,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 16000000,
+            .max_bus     = 20000000,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7471,8 +7474,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 20000000,
+            .max_bus     = 20000000,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7482,7 +7485,7 @@ const machine_t machines[] = {
         .flags     = MACHINE_FLAGS_NONE,
         .ram       = {
             .min  = 1024,
-            .max  = 32768,
+            .max  = 16384,
             .step = 1024
         },
         .nvrmask                  = 127,
@@ -7520,8 +7523,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 16000000,
+            .max_bus     = 16000000, /* assumed */
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7568,8 +7571,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX, /* Actual machine only supports 386DXes */
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 33333333,
+            .max_bus     = 40000000,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7606,7 +7609,7 @@ const machine_t machines[] = {
         but the BIOS sends commands C9 without a parameter and D5, both of which are
         Phoenix MultiKey commands. */
     {
-        .name              = "[OPTi 495SLC] U-Board OPTi 495SLC",
+        .name              = "[OPTi 495SLC] U-Board unknown",
         .internal_name     = "award495",
         .type              = MACHINE_TYPE_386DX,
         .chipset           = MACHINE_CHIPSET_OPTI_495SLC,
@@ -7618,8 +7621,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX, /* Actual machine only supports 386DXes */
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 33333333,
+            .max_bus     = 40000000,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7666,8 +7669,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 33333333,
+            .max_bus     = 33333333,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7677,6 +7680,9 @@ const machine_t machines[] = {
         .flags     = MACHINE_FLAGS_NONE,
         .ram       = {
             .min  = 1024,
+            /* Unlike on the ISA-386C, the BIOS on this does not recognize
+               more than this amount at all, despite having the same chipset
+               with the same memory expansion slot (at least seemingly). */
             .max  = 16384,
             .step = 1024
         },
@@ -7714,8 +7720,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 33333333,
+            .max_bus     = 40000000,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7764,8 +7770,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX | CPU_PKG_486BL,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 20000000,
+            .max_bus     = 20000000,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
@@ -7775,7 +7781,7 @@ const machine_t machines[] = {
         .flags     = MACHINE_VIDEO,
         .ram       = {
             .min  = 1024,
-            .max  = 65536,
+            .max  = 8192,
             .step = 1024
         },
         .nvrmask                  = 63,
@@ -7798,9 +7804,9 @@ const machine_t machines[] = {
         .net_device               = NULL,
         .aliases                  = { "" }
     },
-    /* Has IBM PS/55 5551-Sxx, Txx stage 2 firmware. */
+    /* Has IBM PS/55 5551-Txx stage 2 firmware. */
     {
-        .name              = "[MCA] IBM PS/55 model 5550-S/T Stage II",
+        .name              = "[MCA] IBM PS/55 model 5550-T Stage II",
         .internal_name     = "ibmps55_m50t",
         .type              = MACHINE_TYPE_386DX,
         .chipset           = MACHINE_CHIPSET_PROPRIETARY,
@@ -7812,8 +7818,8 @@ const machine_t machines[] = {
         .cpu               = {
             .package     = CPU_PKG_386DX | CPU_PKG_486BL,
             .block       = CPU_BLOCK_NONE,
-            .min_bus     = 0,
-            .max_bus     = 0,
+            .min_bus     = 20000000,
+            .max_bus     = 20000000,
             .min_voltage = 0,
             .max_voltage = 0,
             .min_multi   = 0,
