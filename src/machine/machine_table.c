@@ -7608,7 +7608,7 @@ const machine_t machines[] = {
         but the BIOS sends commands C9 without a parameter and D5, both of which are
         Phoenix MultiKey commands. */
     {
-        .name              = "[OPTi 495SLC] U-Board unknown",
+        .name              = "[OPTi 495SLC] U-Board Unknown",
         .internal_name     = "award495",
         .type              = MACHINE_TYPE_386DX,
         .chipset           = MACHINE_CHIPSET_OPTI_495SLC,
@@ -10746,7 +10746,7 @@ const machine_t machines[] = {
         .flags     = MACHINE_IDE_DUAL | MACHINE_VIDEO | MACHINE_APM,
         .ram       = {
             .min  = 1024,
-            .max  = 65536,
+            .max  = 131072,
             .step = 1024
         },
         .nvrmask                  = 255,
