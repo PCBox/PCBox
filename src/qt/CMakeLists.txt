@@ -323,7 +323,7 @@ if(WIN32)
     enable_language(RC)
     target_sources(PCBox PUBLIC 86Box-qt.rc)
     target_sources(plat PRIVATE win_dynld.c)
-    target_link_libraries(PCBox dwmapi)
+    target_link_libraries(PCBox dwmapi SetupAPI)
 
     # CMake 3.22 messed this up for clang/clang++
     # See https://gitlab.kitware.com/cmake/cmake/-/issues/22611
