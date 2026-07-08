@@ -394,7 +394,7 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
         if ((cpu_features & CPU_FEATURE_SSE) && (cr4 & CR4_OSFXSR)) {
             if (!(cpu_features & CPU_FEATURE_SSE2))
                 cpu_state.mxcsr = readmeml(easeg, old_eaaddr + 24) & 0xffbf;
-            elsecpu_state.ismmx
+            else
                 cpu_state.mxcsr = readmeml(easeg, old_eaaddr + 24) & 0xffff;
 
             for(int i = 0; i < 8; i++)
@@ -433,7 +433,13 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
                 mmx_tags++;
         }
 
-        cpu_state.ismmx = cpu_state.ismmx_old;
+        cpu_state.ismmx = 0;
+        /* Determine, whether or not the saved state is x87 or MMX based on a heuristic,
+           because we do not keep the internal state in 64-bit precision.
+
+           TODO: Is there no way to unify the whole lot? */
+        if ((mmx_tags == 8) && !cpu_state.TOP)
+            cpu_state.ismmx = 1;
 
         x87_settag(rec_ftw);
 
@@ -513,8 +519,6 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
                 }
             }
         }
-
-        cpu_state.ismmx_old = cpu_state.ismmx;
 
         if (cpu_state.ismmx) {
             for (i = 0; i <= 7; i++) {
