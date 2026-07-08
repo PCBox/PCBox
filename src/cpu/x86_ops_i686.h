@@ -394,7 +394,7 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
         if ((cpu_features & CPU_FEATURE_SSE) && (cr4 & CR4_OSFXSR)) {
             if (!(cpu_features & CPU_FEATURE_SSE2))
                 cpu_state.mxcsr = readmeml(easeg, old_eaaddr + 24) & 0xffbf;
-            elsecpu_state.ismmx
+            else
                 cpu_state.mxcsr = readmeml(easeg, old_eaaddr + 24) & 0xffff;
 
             for(int i = 0; i < 8; i++)
