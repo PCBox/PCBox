@@ -481,6 +481,8 @@ typedef struct {
     uint8_t rex_byte;
     int rex_present;
     int sse_xmm;
+
+    uint8_t ismmx_old;
 } cpu_state_t;
 
 
