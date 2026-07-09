@@ -224,7 +224,7 @@ fetch_ea_16_long(uint32_t rmdat)
 #include "386_ops.h"
 
 void
-exec386_2386(int64_t cycs)
+exec386_2386(int32_t cycs)
 {
     int      ol;
 

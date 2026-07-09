@@ -905,7 +905,7 @@ exec386_dynarec_dyn(void)
 }
 
 void
-exec386_dynarec(int64_t cycs)
+exec386_dynarec(int32_t cycs)
 {
     int      vector;
     int      tempi;
@@ -1047,7 +1047,7 @@ exec386_dynarec(int64_t cycs)
 #endif
 
 void
-exec386(int64_t cycs)
+exec386(int32_t cycs)
 {
     int      vector;
     int      tempi;
