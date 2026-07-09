@@ -2202,11 +2202,6 @@ cpu_set(void)
     if(x86_opcodes_REPE_0f == NULL) x86_opcodes_REPE_0f = x86_opcodes_0f;
     if(x86_opcodes_REPNE_0f == NULL) x86_opcodes_REPNE_0f = x86_opcodes_0f;
 
-#ifdef USE_DYNAREC
-    if (cpu_uncapped)
-        codegen_timing_set(&codegen_timing_uncapped);
-#endif
-
     switch (fpu_type) {
         case FPU_NONE:
             break;
