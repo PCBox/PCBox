@@ -790,7 +790,6 @@ extern int codegen_fp_enter(void);
             uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);            \
             uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_sse_enter); \
             uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_exit_rout); \
-        }                                                   \
     } while (0)
 #else
 #define uop_FP_ENTER(ir)                                    \
