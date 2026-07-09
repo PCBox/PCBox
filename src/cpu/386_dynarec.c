@@ -905,24 +905,24 @@ exec386_dynarec_dyn(void)
 }
 
 void
-exec386_dynarec(int32_t cycs)
+exec386_dynarec(int64_t cycs)
 {
     int      vector;
     int      tempi;
-    int32_t  cycdiff;
-    int32_t  oldcyc;
-    int32_t  oldcyc2;
+    int64_t  cycdiff;
+    int64_t  oldcyc;
+    int64_t  oldcyc2;
     uint64_t oldtsc;
     uint64_t delta;
 
-    int32_t cyc_period = cycs / (force_10ms ? 2000 : 200); /*5us*/
+    int64_t cyc_period = cycs / (force_10ms ? 2000 : 200); /*5us*/
 
 #    ifdef USE_ACYCS
     acycs = 0;
 #    endif
     cycles_main += cycs;
     while (cycles_main > 0) {
-        int32_t cycles_start;
+        int64_t cycles_start;
 
         cycles += cyc_period;
         cycles_start = cycles;
@@ -1047,14 +1047,14 @@ exec386_dynarec(int32_t cycs)
 #endif
 
 void
-exec386(int32_t cycs)
+exec386(int64_t cycs)
 {
     int      vector;
     int      tempi;
-    int32_t  cycdiff;
-    int32_t  oldcyc;
-    int32_t  cycle_period;
-    int32_t  ins_cycles;
+    int64_t  cycdiff;
+    int64_t  oldcyc;
+    int64_t  cycle_period;
+    int64_t  ins_cycles;
     uint32_t addr;
 
     cycles += cycs;

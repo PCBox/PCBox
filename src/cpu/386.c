@@ -224,16 +224,16 @@ fetch_ea_16_long(uint32_t rmdat)
 #include "386_ops.h"
 
 void
-exec386_2386(int32_t cycs)
+exec386_2386(int64_t cycs)
 {
     int      ol;
 
     int      vector;
     int      tempi;
-    int32_t  cycdiff;
-    int32_t  oldcyc;
-    int32_t  cycle_period;
-    int32_t  ins_cycles;
+    int64_t  cycdiff;
+    int64_t  oldcyc;
+    int64_t  cycle_period;
+    int64_t  ins_cycles;
     uint32_t addr;
 
     cycles += cycs;
