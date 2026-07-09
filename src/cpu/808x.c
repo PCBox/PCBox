@@ -3347,7 +3347,7 @@ execx86_instruction(void)
 
 /* Executes instructions up to the specified number of cycles. */
 void
-execx86(int cycs)
+execx86(int64_t cycs)
 {
     cycles += cycs;
 

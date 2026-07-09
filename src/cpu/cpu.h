@@ -419,10 +419,6 @@ typedef struct {
     uint8_t abrt;
     uint8_t _smi_line;
 
-    int _cycles;
-#ifdef FPU_CYCLES
-    int _fpu_cycles;
-#endif
     int _in_smm;
 
     uint16_t npxs;
@@ -481,6 +477,11 @@ typedef struct {
     uint8_t rex_byte;
     int rex_present;
     int sse_xmm;
+
+    int64_t _cycles;
+#ifdef FPU_CYCLES
+    int _fpu_cycles;
+#endif
 } cpu_state_t;
 
 
@@ -799,8 +800,8 @@ extern void codegen_block_end(void);
 extern void codegen_reset(void);
 extern void cpu_set_edx(void);
 extern int  divl(uint32_t val);
-extern void execx86(int32_t cycs);
-extern void execvx0(int32_t cycs);
+extern void execx86(int64_t cycs);
+extern void execvx0(int64_t cycs);
 extern void enter_smm(int in_hlt);
 extern void enter_smm_check(int in_hlt);
 extern void leave_smm(void);
@@ -884,7 +885,7 @@ extern int cpu_use_exec;
 extern uint8_t  use_custom_nmi_vector;
 extern uint32_t custom_nmi_vector;
 
-extern void (*cpu_exec)(int32_t cycs);
+extern void (*cpu_exec)(int64_t cycs);
 extern uint8_t do_translate;
 extern uint8_t do_translate2;
 
