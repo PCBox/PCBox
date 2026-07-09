@@ -169,6 +169,7 @@ void host_arm64_NOP(codeblock_t *block);
 void host_arm64_ORR_IMM(codeblock_t *block, int dst_reg, int src_n_reg, uint32_t imm_data);
 void host_arm64_ORR_REG(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg, int shift);
 void host_arm64_ORR_REG_V(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
+void host_arm64_ORR_REG_V16B(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 
 void host_arm64_RET(codeblock_t *block, int reg);
 
