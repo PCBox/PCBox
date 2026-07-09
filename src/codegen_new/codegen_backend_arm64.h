@@ -14,6 +14,11 @@
 /* Let generic uop emitters use backend-specific immediate store helpers. */
 #define CODEGEN_BACKEND_HAS_MOV_IMM
 
+/*The AArch64 procedure call standard only preserves the low 64 bits of
+  V8-V15 across calls, so 128-bit values cached in host vector registers do
+  not survive the memory slow paths and must be evicted at order barriers.*/
+#define CODEGEN_HOST_FP_REGS_PRESERVE_LOW_64_ONLY
+
 void host_arm64_BLR(codeblock_t *block, int addr_reg);
 void host_arm64_CBNZ(codeblock_t *block, int reg, uintptr_t dest);
 void host_arm64_MOVK_IMM(codeblock_t *block, int reg, uint32_t imm_data);

@@ -146,6 +146,8 @@ enum {
     IREG_temp0d,
     IREG_temp1d,
 
+    IREG_temp0dq,
+
     IREG_COUNT,
 
     IREG_INVALID = 255,
@@ -192,6 +194,8 @@ enum {
 
     IREG_temp0_Q = IREG_temp0d + IREG_SIZE_Q,
     IREG_temp1_Q = IREG_temp1d + IREG_SIZE_Q,
+
+    IREG_temp0_DQ = IREG_temp0dq + IREG_SIZE_DQ,
 
     IREG_eaaddr_W = IREG_eaaddr + IREG_SIZE_W,
 

@@ -18,6 +18,7 @@
 #include "codegen_ir.h"
 #include "codegen_ops.h"
 #include "codegen_ops_helpers.h"
+#include "codegen_backend.h"
 
 #define MAX_INSTRUCTION_COUNT 50
 static struct {
@@ -84,6 +85,7 @@ static int      last_op_ssegs;
 static x86seg  *last_op_ea_seg;
 static uint32_t last_op_32;
 static int      last_op_sse_xmm;
+int op_sse_xmm = 0;
 
 void
 codegen_generate_reset(void)
@@ -91,6 +93,8 @@ codegen_generate_reset(void)
     last_op_ssegs  = -1;
     last_op_ea_seg = NULL;
     last_op_32     = -1;
+    last_op_sse_xmm = 0;
+    op_sse_xmm = 0;
     has_ea         = 0;
 }
 
@@ -439,7 +443,6 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
     int          opcode_mask        = 0x3ff;
     uint32_t     recomp_opcode_mask = 0x1ff;
     uint32_t     op_32              = use32;
-    int          op_sse_xmm         = 0;
     int          over               = 0;
     int          test_modrm         = 1;
     int          pc_off             = 0;
@@ -452,6 +455,7 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
 #ifdef DEBUG_EXTRA
     uint8_t last_prefix = 0;
 #endif
+    op_sse_xmm = 0;
     op_ea_seg = &cpu_state.seg_ds;
     op_ssegs  = 0;
 
@@ -465,7 +469,11 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
 #endif
                 is_0f = 1;
                 op_table        = x86_dynarec_opcodes_0f;
+#ifndef CODEGEN_HAS_SSE
                 recomp_op_table = (fpu_softfloat || (cpu_features & CPU_FEATURE_SSE2)) ? recomp_opcodes_0f_no_mmx : recomp_opcodes_0f;
+#else
+                recomp_op_table = fpu_softfloat ? recomp_opcodes_0f_no_mmx : recomp_opcodes_0f;
+#endif
                 if(is_repe)
                 {
                     op_table        = x86_dynarec_opcodes_REPE_0f;

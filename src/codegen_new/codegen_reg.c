@@ -196,6 +196,8 @@ struct
 
     [IREG_temp0d] = { REG_DOUBLE,        (void *) 40,                        REG_FP,      REG_VOLATILE },
     [IREG_temp1d] = { REG_DOUBLE,        (void *) 48,                        REG_FP,      REG_VOLATILE },
+
+    [IREG_temp0dq] = { REG_DQWORD,        (void *) 64,                        REG_FP,      REG_VOLATILE },
 };
 
 static const uint8_t native_requested_sizes[10][8] = 
@@ -205,10 +207,10 @@ static const uint8_t native_requested_sizes[10][8] =
     [REG_WORD][IREG_SIZE_W >> IREG_SIZE_SHIFT]          = 1,
     [REG_DWORD][IREG_SIZE_L >> IREG_SIZE_SHIFT]         = 1,
     [REG_QWORD][IREG_SIZE_D >> IREG_SIZE_SHIFT]         = 1,
+    /*Only full 128-bit accesses are native for XMM registers. Partial
+      (B/W/L/Q) writes have an implicit dependency on the previous version
+      of the register, so the old value is loaded before being modified.*/
     [REG_DQWORD][IREG_SIZE_DQ >> IREG_SIZE_SHIFT]         = 1,
-    [REG_DQWORD][IREG_SIZE_B >> IREG_SIZE_SHIFT]         = 1,
-    [REG_DQWORD][IREG_SIZE_W >> IREG_SIZE_SHIFT]         = 1,
-    [REG_DQWORD][IREG_SIZE_L >> IREG_SIZE_SHIFT]         = 1,
     [REG_FPU_ST_QWORD][IREG_SIZE_D >> IREG_SIZE_SHIFT]  = 1,
     [REG_DOUBLE][IREG_SIZE_D >> IREG_SIZE_SHIFT]        = 1,
     [REG_FPU_ST_DOUBLE][IREG_SIZE_D >> IREG_SIZE_SHIFT] = 1,
@@ -351,18 +353,12 @@ codegen_reg_load(host_reg_set_t *reg_set, codeblock_t *block, int c, ir_reg_t ir
         case REG_DQWORD:
 #ifndef RELEASE_BUILD
             if (ireg_data[IREG_GET_REG(ir_reg.reg)].type != REG_FP)
-                fatal("codegen_reg_load - REG_QWORD !REG_FP\n");
+                fatal("codegen_reg_load - REG_DQWORD !REG_FP\n");
 #endif
             if ((uintptr_t) ireg_data[IREG_GET_REG(ir_reg.reg)].p < 256)
-            {
-                codegen_direct_read_64_stack(block, reg_set->reg_list[c].reg, (intptr_t) ireg_data[IREG_GET_REG(ir_reg.reg)].p);
-                codegen_direct_read_64_stack(block, reg_set->reg_list[c].reg, (intptr_t) (ireg_data[IREG_GET_REG(ir_reg.reg)].p + 8));
-            }
+                codegen_direct_read_128_stack(block, reg_set->reg_list[c].reg, (intptr_t) ireg_data[IREG_GET_REG(ir_reg.reg)].p);
             else
-            {
-                codegen_direct_read_64(block, reg_set->reg_list[c].reg, ireg_data[IREG_GET_REG(ir_reg.reg)].p);
-                codegen_direct_read_64(block, reg_set->reg_list[c].reg, ireg_data[IREG_GET_REG(ir_reg.reg)].p + 8);
-            }
+                codegen_direct_read_128(block, reg_set->reg_list[c].reg, ireg_data[IREG_GET_REG(ir_reg.reg)].p);
             break;
 
         case REG_POINTER:
@@ -482,18 +478,12 @@ codegen_reg_writeback(host_reg_set_t *reg_set, codeblock_t *block, int c, int in
         case REG_DQWORD:
 #ifndef RELEASE_BUILD
             if (ireg_data[ir_reg].type != REG_FP)
-                fatal("codegen_reg_writeback - REG_QWORD !REG_FP\n");
+                fatal("codegen_reg_writeback - REG_DQWORD !REG_FP\n");
 #endif
             if ((uintptr_t) p < 256)
-            {
-                codegen_direct_write_64_stack(block, (intptr_t) p, reg_set->reg_list[c].reg);
-                codegen_direct_write_64_stack(block, (intptr_t) (p + 8), reg_set->reg_list[c].reg);
-            }
+                codegen_direct_write_128_stack(block, (intptr_t) p, reg_set->reg_list[c].reg);
             else
-            {
-                codegen_direct_write_64(block, p, reg_set->reg_list[c].reg);
-                codegen_direct_write_64(block, p + 8, reg_set->reg_list[c].reg);
-            }
+                codegen_direct_write_128(block, p, reg_set->reg_list[c].reg);
             break;
 
         case REG_POINTER:
@@ -889,7 +879,11 @@ codegen_reg_flush(UNUSED(ir_data_t *ir), codeblock_t *block)
         if (!ir_reg_is_invalid(reg_set->regs[c]) && reg_set->dirty[c]) {
             codegen_reg_writeback(reg_set, block, c, 0);
         }
-        if (reg_set->reg_list[c].flags & HOST_REG_FLAG_VOLATILE) {
+        if ((reg_set->reg_list[c].flags & HOST_REG_FLAG_VOLATILE)
+#ifdef CODEGEN_HOST_FP_REGS_PRESERVE_LOW_64_ONLY
+            || (!ir_reg_is_invalid(reg_set->regs[c]) && ireg_data[IREG_GET_REG(reg_set->regs[c].reg)].native_size == REG_DQWORD)
+#endif
+        ) {
             reg_set->regs[c]  = invalid_ir_reg;
             reg_set->dirty[c] = 0;
         }

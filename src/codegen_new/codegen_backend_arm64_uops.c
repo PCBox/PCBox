@@ -28,6 +28,7 @@
 #    define REG_IS_BH(size)   (size == IREG_SIZE_BH)
 #    define REG_IS_D(size)    (size == IREG_SIZE_D)
 #    define REG_IS_Q(size)    (size == IREG_SIZE_Q)
+#    define REG_IS_DQ(size)   (size == IREG_SIZE_DQ)
 
 static int
 codegen_ADD(codeblock_t *block, uop_t *uop)
@@ -874,6 +875,37 @@ codegen_MMX_ENTER(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
+{
+    uint32_t *branch_ptr;
+
+    if (!in_range12_w((uintptr_t) &cr0 - (uintptr_t) &cpu_state))
+        fatal("codegen_SSE_ENTER - out of range\n");
+
+    host_arm64_LDR_IMM_W(block, REG_TEMP, REG_CPUSTATE, (uintptr_t) &cr0 - (uintptr_t) &cpu_state);
+    host_arm64_TST_IMM(block, REG_TEMP, 0x4);
+    branch_ptr = host_arm64_BEQ_(block);
+    host_arm64_call(block, x86illegal);
+    host_arm64_B(block, codegen_exit_rout);
+    host_arm64_branch_set_offset(branch_ptr, &block->data[block_pos]);
+
+    host_arm64_TST_IMM(block, REG_TEMP, 0x8);
+    branch_ptr = host_arm64_BEQ_(block);
+
+    host_arm64_mov_imm(block, REG_TEMP, uop->imm_data);
+    host_arm64_STR_IMM_W(block, REG_TEMP, REG_CPUSTATE, (uintptr_t) &cpu_state.oldpc - (uintptr_t) &cpu_state);
+    host_arm64_mov_imm(block, REG_ARG0, 7);
+    host_arm64_call(block, x86_int);
+    host_arm64_B(block, codegen_exit_rout);
+
+    /* Patch against the active write cursor; block->data can point at stale
+       bytes here when block emission is still in-flight. */
+    host_arm64_branch_set_offset(branch_ptr, &block_write_data[block_pos]);
+
+    return 0;
+}
+
+static int
 codegen_JMP(codeblock_t *block, uop_t *uop)
 {
     host_arm64_jump(block, (uintptr_t) uop->p);
@@ -1233,6 +1265,8 @@ codegen_MOV(codeblock_t *block, uop_t *uop)
         host_arm64_FMOV_D_D(block, dest_reg, src_reg);
     } else if (REG_IS_Q(dest_size) && REG_IS_Q(src_size)) {
         host_arm64_FMOV_D_D(block, dest_reg, src_reg);
+    } else if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size)) {
+        host_arm64_ORR_REG_V16B(block, dest_reg, src_reg, src_reg);
     } else if (REG_IS_W(dest_size) && REG_IS_L(src_size)) {
         /* Preserve upper destination bits; only replace the architected low 16 bits. */
         host_arm64_BFI(block, dest_reg, src_reg, 0, 16);
@@ -3685,6 +3719,21 @@ codegen_direct_read_64(codeblock_t *block, int host_reg, void *p)
         fatal("codegen_direct_read_double - not in range\n");
 }
 void
+codegen_direct_read_128(codeblock_t *block, int host_reg, void *p)
+{
+    int offset = (uintptr_t) p - (uintptr_t) &cpu_state;
+
+    if (in_range12_dq(offset))
+        host_arm64_LDR_IMM_F128(block, host_reg, REG_CPUSTATE, offset);
+    else if (offset >= 0) {
+        /*The scaled immediate form needs a 16 byte aligned offset, which
+          cpu_state does not guarantee, so form the address explicitly*/
+        host_arm64_ADDX_IMM(block, REG_TEMP, REG_CPUSTATE, offset);
+        host_arm64_LDR_IMM_F128(block, host_reg, REG_TEMP, 0);
+    } else
+        fatal("codegen_direct_read_128 - not in range\n");
+}
+void
 codegen_direct_read_pointer(codeblock_t *block, int host_reg, void *p)
 {
     if (in_range12_q((uintptr_t) p - (uintptr_t) &cpu_state))
@@ -3759,6 +3808,21 @@ codegen_direct_write_64(codeblock_t *block, void *p, int host_reg)
         host_arm64_STR_IMM_F64(block, host_reg, REG_CPUSTATE, (uintptr_t) p - (uintptr_t) &cpu_state);
     else
         fatal("codegen_direct_write_double - not in range\n");
+}
+void
+codegen_direct_write_128(codeblock_t *block, void *p, int host_reg)
+{
+    int offset = (uintptr_t) p - (uintptr_t) &cpu_state;
+
+    if (in_range12_dq(offset))
+        host_arm64_STR_IMM_F128(block, host_reg, REG_CPUSTATE, offset);
+    else if (offset >= 0) {
+        /*The scaled immediate form needs a 16 byte aligned offset, which
+          cpu_state does not guarantee, so form the address explicitly*/
+        host_arm64_ADDX_IMM(block, REG_TEMP, REG_CPUSTATE, offset);
+        host_arm64_STR_IMM_F128(block, host_reg, REG_TEMP, 0);
+    } else
+        fatal("codegen_direct_write_128 - not in range\n");
 }
 void
 codegen_direct_write_double(codeblock_t *block, void *p, int host_reg)
@@ -3839,6 +3903,11 @@ codegen_direct_read_double_stack(codeblock_t *block, int host_reg, int stack_off
 {
     host_arm64_LDR_IMM_F64(block, host_reg, REG_XSP, stack_offset);
 }
+void
+codegen_direct_read_128_stack(codeblock_t *block, int host_reg, int stack_offset)
+{
+    host_arm64_LDR_IMM_F128(block, host_reg, REG_XSP, stack_offset);
+}
 
 void
 codegen_direct_write_32_stack(codeblock_t *block, int stack_offset, int host_reg)
@@ -3857,6 +3926,11 @@ void
 codegen_direct_write_double_stack(codeblock_t *block, int stack_offset, int host_reg)
 {
     host_arm64_STR_IMM_F64(block, host_reg, REG_XSP, stack_offset);
+}
+void
+codegen_direct_write_128_stack(codeblock_t *block, int stack_offset, int host_reg)
+{
+    host_arm64_STR_IMM_F128(block, host_reg, REG_XSP, stack_offset);
 }
 
 void

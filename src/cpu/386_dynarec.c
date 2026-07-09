@@ -341,6 +341,21 @@ codegen_mmx_enter(void)
 }
 
 int
+codegen_sse_enter(void)
+{
+    SSE_ENTER();
+    return 0;
+}
+
+int
+codegen_sse_check_align(uint32_t eaddr)
+{
+    if (eaddr & 15)
+        return 1;
+    return 0;
+}
+
+int
 codegen_femms(void)
 {
     if (!cpu_has_feature(CPU_FEATURE_MMX)) {

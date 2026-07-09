@@ -344,7 +344,11 @@
 /*UOP_PAVGUSB - (packed byte) dest_reg = (src_reg_a + src_reg_b + 1) >> 1*/
 #define UOP_PAVGUSB (UOP_TYPE_PARAMS_REGS | 0xc8)
 
-#define UOP_MAX     0xce
+/*UOP_SSE_ENTER - must be called before any SSE registers accessed*/
+#define UOP_SSE_ENTER (UOP_TYPE_PARAMS_IMM | 0xce | UOP_TYPE_BARRIER)
+#define UOP_CHECK_ALIGN (UOP_TYPE_PARAMS_IMM | 0xcf | UOP_TYPE_BARRIER)
+
+#define UOP_MAX     0xd0
 
 #define UOP_INVALID 0xff
 
@@ -689,6 +693,8 @@ uop_gen_reg_src2_pointer(uint32_t uop_type, ir_data_t *ir, int src_reg_a, int sr
 }
 
 extern int codegen_mmx_enter(void);
+extern int codegen_sse_enter(void);
+extern int codegen_sse_check_align(uint32_t eaddr);
 extern int codegen_femms(void);
 extern int codegen_fp_enter(void);
 
@@ -779,6 +785,13 @@ extern int codegen_fp_enter(void);
         codegen_mmx_entered = 1;                             \
         codegen_fpu_entered = 0;                             \
     } while (0)
+#define uop_SSE_ENTER(ir)                                    \
+    do {                                                     \
+            uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);            \
+            uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_sse_enter); \
+            uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_exit_rout); \
+        }                                                   \
+    } while (0)
 #else
 #define uop_FP_ENTER(ir)                                    \
     do {                                                    \
@@ -794,7 +807,19 @@ extern int codegen_fp_enter(void);
         codegen_mmx_entered = 1;                             \
         codegen_fpu_entered = 0;                             \
     } while (0)
+#define uop_SSE_ENTER(ir)                                    \
+    do {                                                     \
+        uop_gen_imm(UOP_SSE_ENTER, ir, cpu_state.oldpc);     \
+    } while (0)
 #endif
+
+#define uop_CHECK_ALIGN(ir) \
+ do {                                                     \
+            uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);            \
+            uop_LOAD_FUNC_ARG_REG(ir, 0, IREG_eaaddr); \
+            uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_sse_check_align); \
+            uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_exit_rout); \
+    } while (0) \
 
 #define uop_JMP(ir, p)                                                   uop_gen_pointer(UOP_JMP, ir, p)
 #define uop_JMP_DEST(ir)                                                 uop_gen(UOP_JMP_DEST, ir)
@@ -913,6 +938,7 @@ void codegen_direct_read_8(codeblock_t *block, int host_reg, void *p);
 void codegen_direct_read_16(codeblock_t *block, int host_reg, void *p);
 void codegen_direct_read_32(codeblock_t *block, int host_reg, void *p);
 void codegen_direct_read_64(codeblock_t *block, int host_reg, void *p);
+void codegen_direct_read_128(codeblock_t *block, int host_reg, void *p);
 void codegen_direct_read_pointer(codeblock_t *block, int host_reg, void *p);
 void codegen_direct_read_double(codeblock_t *block, int host_reg, void *p);
 void codegen_direct_read_st_8(codeblock_t *block, int host_reg, void *base, int reg_idx);
@@ -923,6 +949,7 @@ void codegen_direct_write_8(codeblock_t *block, void *p, int host_reg);
 void codegen_direct_write_16(codeblock_t *block, void *p, int host_reg);
 void codegen_direct_write_32(codeblock_t *block, void *p, int host_reg);
 void codegen_direct_write_64(codeblock_t *block, void *p, int host_reg);
+void codegen_direct_write_128(codeblock_t *block, void *p, int host_reg);
 void codegen_direct_write_pointer(codeblock_t *block, void *p, int host_reg);
 void codegen_direct_write_ptr(codeblock_t *block, void *p, int host_reg);
 void codegen_direct_write_double(codeblock_t *block, void *p, int host_reg);
@@ -933,11 +960,13 @@ void codegen_direct_write_st_double(codeblock_t *block, void *base, int reg_idx,
 void codegen_direct_read_16_stack(codeblock_t *block, int host_reg, int stack_offset);
 void codegen_direct_read_32_stack(codeblock_t *block, int host_reg, int stack_offset);
 void codegen_direct_read_64_stack(codeblock_t *block, int host_reg, int stack_offset);
+void codegen_direct_read_128_stack(codeblock_t *block, int host_reg, int stack_offset);
 void codegen_direct_read_pointer_stack(codeblock_t *block, int host_reg, int stack_offset);
 void codegen_direct_read_double_stack(codeblock_t *block, int host_reg, int stack_offset);
 
 void codegen_direct_write_32_stack(codeblock_t *block, int stack_offset, int host_reg);
 void codegen_direct_write_64_stack(codeblock_t *block, int stack_offset, int host_reg);
+void codegen_direct_write_128_stack(codeblock_t *block, int stack_offset, int host_reg);
 void codegen_direct_write_pointer_stack(codeblock_t *block, int stack_offset, int host_reg);
 void codegen_direct_write_double_stack(codeblock_t *block, int stack_offset, int host_reg);
 

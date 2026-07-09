@@ -304,6 +304,90 @@ host_x86_MOVQ_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 }
 
 void
+host_x86_MOVDQA_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0x6f, 0xc0 | src_reg | (dst_reg << 3)); /*MOVDQA dst_reg, src_reg*/
+}
+
+/*cpu_state.XMM is not guaranteed to be 16 byte aligned, so use MOVDQU for
+  memory accesses*/
+void
+host_x86_MOVDQU_XREG_ABS(codeblock_t *block, int dst_reg, void *p)
+{
+    int offset = (uintptr_t) p - (((uintptr_t) &cpu_state) + 128);
+
+    if (dst_reg & 8)
+        fatal("host_x86_MOVDQU_XREG_ABS reg & 8\n");
+
+    if (offset >= -128 && offset < 127) {
+        codegen_alloc_bytes(block, 5);
+        codegen_addbyte4(block, 0xf3, 0x0f, 0x6f, 0x45 | (dst_reg << 3)); /*MOVDQU dst_reg, offset[RBP]*/
+        codegen_addbyte(block, offset);
+    } else {
+        if ((uintptr_t) p >> 32)
+            fatal("host_x86_MOVDQU_XREG_ABS - out of range %p\n", p);
+        codegen_alloc_bytes(block, 9);
+        codegen_addbyte4(block, 0xf3, 0x0f, 0x6f, 0x04 | (dst_reg << 3)); /*MOVDQU dst_reg, [p]*/
+        codegen_addbyte(block, 0x25);
+        codegen_addlong(block, (uint32_t) (uintptr_t) p);
+    }
+}
+void
+host_x86_MOVDQU_ABS_XREG(codeblock_t *block, void *p, int src_reg)
+{
+    int offset = (uintptr_t) p - (((uintptr_t) &cpu_state) + 128);
+
+    if (src_reg & 8)
+        fatal("host_x86_MOVDQU_ABS_XREG reg & 8\n");
+
+    if (offset >= -128 && offset < 127) {
+        codegen_alloc_bytes(block, 5);
+        codegen_addbyte4(block, 0xf3, 0x0f, 0x7f, 0x45 | (src_reg << 3)); /*MOVDQU offset[RBP], src_reg*/
+        codegen_addbyte(block, offset);
+    } else {
+        if ((uintptr_t) p >> 32)
+            fatal("host_x86_MOVDQU_ABS_XREG - out of range %p\n", p);
+        codegen_alloc_bytes(block, 9);
+        codegen_addbyte4(block, 0xf3, 0x0f, 0x7f, 0x04 | (src_reg << 3)); /*MOVDQU [p], src_reg*/
+        codegen_addbyte(block, 0x25);
+        codegen_addlong(block, (uint32_t) (uintptr_t) p);
+    }
+}
+void
+host_x86_MOVDQU_XREG_BASE_OFFSET(codeblock_t *block, int dst_reg, int base_reg, int offset)
+{
+    if (offset >= -128 && offset < 127) {
+        if (base_reg == REG_RSP) {
+            codegen_alloc_bytes(block, 6);
+            codegen_addbyte4(block, 0xf3, 0x0f, 0x6f, 0x44 | (dst_reg << 3)); /*MOVDQU dst_reg, [RSP + offset]*/
+            codegen_addbyte2(block, 0x24, offset);
+        } else {
+            codegen_alloc_bytes(block, 5);
+            codegen_addbyte4(block, 0xf3, 0x0f, 0x6f, 0x40 | base_reg | (dst_reg << 3)); /*MOVDQU dst_reg, [base_reg + offset]*/
+            codegen_addbyte(block, offset);
+        }
+    } else
+        fatal("MOVDQU_XREG_BASE_OFFSET - offset %i\n", offset);
+}
+void
+host_x86_MOVDQU_BASE_OFFSET_XREG(codeblock_t *block, int base_reg, int offset, int src_reg)
+{
+    if (offset >= -128 && offset < 127) {
+        if (base_reg == REG_RSP) {
+            codegen_alloc_bytes(block, 6);
+            codegen_addbyte4(block, 0xf3, 0x0f, 0x7f, 0x44 | (src_reg << 3)); /*MOVDQU [RSP + offset], src_reg*/
+            codegen_addbyte2(block, 0x24, offset);
+        } else {
+            codegen_alloc_bytes(block, 5);
+            codegen_addbyte4(block, 0xf3, 0x0f, 0x7f, 0x40 | base_reg | (src_reg << 3)); /*MOVDQU [base_reg + offset], src_reg*/
+            codegen_addbyte(block, offset);
+        }
+    } else
+        fatal("MOVDQU_BASE_OFFSET_XREG - offset %i\n", offset);
+}
+
+void
 host_x86_MOVQ_REG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_alloc_bytes(block, 5);

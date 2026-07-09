@@ -45,6 +45,12 @@ void host_x86_MOVQ_REG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_MOVQ_XREG_REG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_MOVQ_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
+void host_x86_MOVDQA_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_MOVDQU_ABS_XREG(codeblock_t *block, void *p, int src_reg);
+void host_x86_MOVDQU_XREG_ABS(codeblock_t *block, int dst_reg, void *p);
+void host_x86_MOVDQU_BASE_OFFSET_XREG(codeblock_t *block, int base_reg, int offset, int src_reg);
+void host_x86_MOVDQU_XREG_BASE_OFFSET(codeblock_t *block, int dst_reg, int base_reg, int offset);
+
 void host_x86_MAXPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_MINPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
