@@ -2772,25 +2772,6 @@ image_get_raw_track_info(const void *local, int *num, uint8_t *buffer)
 }
 
 static int
-image_is_track_pre(const void *local, const uint32_t sector)
-{
-    const cd_image_t *img   = (const cd_image_t *) local;
-    int               ret   = 0;
-
-    if (img->has_audio) {
-        const int track = image_get_track(img, sector);
-
-        if (track >= 0) {
-            const track_t *trk = &(img->tracks[track]);
-
-            ret = !!(trk->attr & 0x01);
-        }
-    }
-
-    return ret;
-}
-
-static int
 image_read_sector(const void *local, uint8_t *buffer,
                   const uint32_t sector)
 {
@@ -2840,7 +2821,7 @@ image_read_sector(const void *local, uint8_t *buffer,
                 /* Construct the header. */
                 memset(buffer + 1, 0xff, 10);
                 buffer += 12;
-                FRAMES_TO_MSF(sector + 150, &m, &s, &f);
+                FRAMES_TO_MSF(lba + 150, &m, &s, &f);
                 /* These have to be BCD. */
                 buffer[0] = bin2bcd(m & 0xff);
                 buffer[1] = bin2bcd(s & 0xff);
@@ -3045,7 +3026,6 @@ image_close(void *local)
 static const cdrom_ops_t image_ops = {
     image_get_track_info,
     image_get_raw_track_info,
-    image_is_track_pre,
     image_read_sector,
     image_get_track_type,
     image_get_last_block,
