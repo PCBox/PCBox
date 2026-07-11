@@ -40,7 +40,21 @@ ropPAND(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
         }
         else
         {
-            return 0;
+            uop_SSE_ENTER(ir);
+            codegen_mark_code_present(block, cs + op_pc, 1);
+            if ((fetchdat & 0xc0) == 0xc0) {
+                int src_reg = fetchdat & 7;
+                uop_AND(ir, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_XMM(src_reg));
+            } else {
+                x86seg *target_seg;
+
+                uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+                target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+                uop_CHECK_ALIGN(ir);
+                codegen_check_seg_read(block, ir, target_seg);
+                uop_MEM_LOAD_REG(ir, IREG_temp0_DQ, ireg_seg_base(target_seg), IREG_eaaddr);
+                uop_AND(ir, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_temp0_DQ);
+            }
         }
 
     return op_pc + 1;
@@ -69,7 +83,21 @@ ropPANDN(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
     }
     else
     {
-        return 0;
+        uop_SSE_ENTER(ir);
+        codegen_mark_code_present(block, cs + op_pc, 1);
+        if ((fetchdat & 0xc0) == 0xc0) {
+            int src_reg = fetchdat & 7;
+            uop_ANDN(ir, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_XMM(src_reg));
+        } else {
+            x86seg *target_seg;
+
+            uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+            target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+            uop_CHECK_ALIGN(ir);
+            codegen_check_seg_read(block, ir, target_seg);
+            uop_MEM_LOAD_REG(ir, IREG_temp0_DQ, ireg_seg_base(target_seg), IREG_eaaddr);
+            uop_ANDN(ir, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_temp0_DQ);
+        }
     }
 
     return op_pc + 1;
@@ -98,7 +126,21 @@ ropPOR(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetch
     }
     else
     {
-        return 0;
+        uop_SSE_ENTER(ir);
+        codegen_mark_code_present(block, cs + op_pc, 1);
+        if ((fetchdat & 0xc0) == 0xc0) {
+            int src_reg = fetchdat & 7;
+            uop_OR(ir, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_XMM(src_reg));
+        } else {
+            x86seg *target_seg;
+
+            uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+            target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+            uop_CHECK_ALIGN(ir);
+            codegen_check_seg_read(block, ir, target_seg);
+            uop_MEM_LOAD_REG(ir, IREG_temp0_DQ, ireg_seg_base(target_seg), IREG_eaaddr);
+            uop_OR(ir, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_temp0_DQ);
+        }
     }
 
     return op_pc + 1;
@@ -127,7 +169,21 @@ ropPXOR(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
     }
     else
     {
-        return 0;
+        uop_SSE_ENTER(ir);
+        codegen_mark_code_present(block, cs + op_pc, 1);
+        if ((fetchdat & 0xc0) == 0xc0) {
+            int src_reg = fetchdat & 7;
+            uop_XOR(ir, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_XMM(src_reg));
+        } else {
+            x86seg *target_seg;
+
+            uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+            target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+            uop_CHECK_ALIGN(ir);
+            codegen_check_seg_read(block, ir, target_seg);
+            uop_MEM_LOAD_REG(ir, IREG_temp0_DQ, ireg_seg_base(target_seg), IREG_eaaddr);
+            uop_XOR(ir, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_temp0_DQ);
+        }
     }
 
     return op_pc + 1;
