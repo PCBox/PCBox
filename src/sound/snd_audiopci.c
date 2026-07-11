@@ -2372,8 +2372,8 @@ es137x_update(es137x_t *dev)
         l += dev->dac[1].out_l * (((dev->akm_codec.registers[0x2] & 0x80) ? 0 : akm4531_gain_2dbstep_5bits[(dev->akm_codec.registers[0x2] & 0x1f)]) / 32767.0);
         r += dev->dac[1].out_r * (((dev->akm_codec.registers[0x3] & 0x80) ? 0 : akm4531_gain_2dbstep_5bits[(dev->akm_codec.registers[0x3] & 0x1f)]) / 32767.0);
 
-        l >>= 1;
-        r >>= 1;
+        //l >>= 1;
+        //r >>= 1;
 
         l *= (((dev->akm_codec.registers[0x0] & 0x80) ? 0 : akm4531_att_2dbstep_5bits[(dev->akm_codec.registers[0x0] & 0x1f) ^ 0x1f]) / 32767.0);
         r *= (((dev->akm_codec.registers[0x1] & 0x80) ? 0 : akm4531_att_2dbstep_5bits[(dev->akm_codec.registers[0x1] & 0x1f) ^ 0x1f]) / 32767.0);
@@ -2383,8 +2383,8 @@ es137x_update(es137x_t *dev)
         r = (dev->dac[0].out_r * dev->dac[0].vol_r) >> 12;
         r += ((dev->dac[1].out_r * dev->dac[1].vol_r) >> 12);
 
-        l >>= 1;
-        r >>= 1;
+        //l >>= 1;
+        //r >>= 1;
 
         l = (((l * dev->pcm_vol_l) >> 15) * dev->master_vol_l) >> 15;
         r = (((r * dev->pcm_vol_r) >> 15) * dev->master_vol_r) >> 15;
