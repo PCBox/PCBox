@@ -1771,12 +1771,6 @@ emu8k_update(emu8k_t *emu8k)
     memset(&emu8k->chorus_in_buffer[emu8k->pos], 0, (wavetable_pos_global - emu8k->pos) * sizeof(emu8k->chorus_in_buffer[0]));
     memset(&emu8k->reverb_in_buffer[emu8k->pos], 0, (wavetable_pos_global - emu8k->pos) * sizeof(emu8k->reverb_in_buffer[0]));
 
-    /* Clean the buffers since we will accumulate into them. */
-    buf = &emu8k->buffer[emu8k->pos * 2];
-    memset(buf, 0, 2 * num_samples * sizeof(emu8k->buffer[0]));
-    memset(&emu8k->chorus_in_buffer[emu8k->pos], 0, num_samples * sizeof(emu8k->chorus_in_buffer[0]));
-    memset(&emu8k->reverb_in_buffer[emu8k->pos], 0, num_samples * sizeof(emu8k->reverb_in_buffer[0]));
-
     /* Voices section  */
     for (uint8_t c = 0; c < 32; c++) {
         emu_voice = &emu8k->voice[c];
