@@ -18,6 +18,7 @@
 #include "codegen_ops_logic.h"
 #include "codegen_ops_misc.h"
 #include "codegen_ops_sse_loadstore.h"
+#include "codegen_ops_sse_logic.h"
 #include "codegen_ops_mmx_arith.h"
 #include "codegen_ops_mmx_cmp.h"
 #include "codegen_ops_mmx_loadstore.h"
