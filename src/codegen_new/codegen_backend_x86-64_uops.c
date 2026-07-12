@@ -175,7 +175,8 @@ codegen_AND(codeblock_t *block, uop_t *uop)
     int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b)) ||
+        (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_PAND_XREG_XREG(block, dest_reg, src_reg_b);
     } else if (REG_IS_L(dest_size) && REG_IS_L(src_size_a) && REG_IS_L(src_size_b)) {
         if (dest_reg != src_reg_a)
@@ -237,7 +238,8 @@ codegen_ANDN(codeblock_t *block, uop_t *uop)
     int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b)) ||
+        (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_PANDN_XREG_XREG(block, dest_reg, src_reg_b);
     }
 #    ifdef RECOMPILER_DEBUG
@@ -1567,7 +1569,8 @@ codegen_OR(codeblock_t *block, uop_t *uop)
     int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b)) ||
+        (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_POR_XREG_XREG(block, dest_reg, src_reg_b);
     } else if (REG_IS_L(dest_size) && REG_IS_L(src_size_a) && REG_IS_L(src_size_b)) {
         if (dest_reg != src_reg_a)
@@ -2930,7 +2933,8 @@ codegen_XOR(codeblock_t *block, uop_t *uop)
     int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b)) ||
+        (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_PXOR_XREG_XREG(block, dest_reg, src_reg_b);
     } else if (REG_IS_L(dest_size) && REG_IS_L(src_size_a) && REG_IS_L(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_XOR32_REG_REG(block, dest_reg, src_reg_b);

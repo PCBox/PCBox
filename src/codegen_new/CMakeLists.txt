@@ -34,6 +34,8 @@ if(DYNAREC)
         codegen_ops_jump.c
         codegen_ops_logic.c
         codegen_ops_misc.c
+        codegen_ops_sse_loadstore.c
+        codegen_ops_sse_logic.c
         codegen_ops_mmx_arith.c
         codegen_ops_mmx_cmp.c
         codegen_ops_mmx_loadstore.c

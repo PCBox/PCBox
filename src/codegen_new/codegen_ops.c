@@ -17,6 +17,8 @@
 #include "codegen_ops_jump.h"
 #include "codegen_ops_logic.h"
 #include "codegen_ops_misc.h"
+#include "codegen_ops_sse_loadstore.h"
+#include "codegen_ops_sse_logic.h"
 #include "codegen_ops_mmx_arith.h"
 #include "codegen_ops_mmx_cmp.h"
 #include "codegen_ops_mmx_loadstore.h"
@@ -88,12 +90,12 @@ RecompOpFn recomp_opcodes_0f[512] = {
         /*16-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
-/*10*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
-/*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*10*/  ropMOVUPS_r_d,  ropMOVUPS_d_r,  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVAPS_r_d,  ropMOVAPS_d_r,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
 /*40*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
-/*50*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*50*/  NULL,           NULL,           NULL,           NULL,           ropANDPS,       ropANDNPS,      ropORPS,        ropXORPS,       NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*60*/  ropPUNPCKLBW,   ropPUNPCKLWD,   ropPUNPCKLDQ,   ropPACKSSWB,    ropPCMPGTB,     ropPCMPGTW,     ropPCMPGTD,     ropPACKUSWB,    ropPUNPCKHBW,   ropPUNPCKHWD,   ropPUNPCKHDQ,   ropPACKSSDW,    NULL,           NULL,           ropMOVD_r_d,    ropMOVQ_r_q,
 /*70*/  NULL,           ropPSxxW_imm,   ropPSxxD_imm,   ropPSxxQ_imm,   ropPCMPEQB,     ropPCMPEQW,     ropPCMPEQD,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVD_d_r,    ropMOVQ_q_r,
 
@@ -290,7 +292,6 @@ RecompOpFn recomp_opcodes_d8[512] = {
 
 RecompOpFn recomp_opcodes_d9[512] = {
     // clang-format off
-    /* TODO: Fix the recompilation of D9 44 so Blood II's gameplay music no longer breaks! */
         /*16-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
@@ -298,7 +299,7 @@ RecompOpFn recomp_opcodes_d9[512] = {
 /*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,
 
-/*40*/  ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        NULL,           ropFLDs,        ropFLDs,        ropFLDs,        NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*40*/  ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*50*/  ropFSTs,        ropFSTs,        ropFSTs,        ropFSTs,        ropFSTs,        ropFSTs,        ropFSTs,        ropFSTs,        ropFSTPs,       ropFSTPs,       ropFSTPs,       ropFSTPs,       ropFSTPs,       ropFSTPs,       ropFSTPs,       ropFSTPs,
 /*60*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*70*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,
@@ -320,7 +321,7 @@ RecompOpFn recomp_opcodes_d9[512] = {
 /*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,
 
-/*40*/  ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        NULL,           ropFLDs,        ropFLDs,        ropFLDs,        NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*40*/  ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        ropFLDs,        NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*50*/  ropFSTs,        ropFSTs,        ropFSTs,        ropFSTs,        ropFSTs,        ropFSTs,        ropFSTs,        ropFSTs,        ropFSTPs,       ropFSTPs,       ropFSTPs,       ropFSTPs,       ropFSTPs,       ropFSTPs,       ropFSTPs,       ropFSTPs,
 /*60*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*70*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,       ropFSTCW,
