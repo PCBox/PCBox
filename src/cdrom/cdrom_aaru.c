@@ -62,7 +62,13 @@ ensure_libaaruformat(void)
     if (load_failed)
         return false;
     if (!libaaruformat_handle) {
+#ifdef _WIN32
         libaaruformat_handle = dynld_module("libaaruformat.dll", aaruf_imports);
+#elif defined(__APPLE__)
+        libaaruformat_handle = dynld_module("libaaruformat.dylib", aaruf_imports);
+#else
+        libaaruformat_handle = dynld_module("libaaruformat.so", aaruf_imports);
+#endif
         if (!libaaruformat_handle) {
             warning("Failed to load libaaruformat library.");
             load_failed = true;
@@ -255,7 +261,7 @@ aaru_image_read_sector(const void *local, UNUSED(uint8_t *buffer), UNUSED(uint32
         length = 2352;
         // Just read the audio sector. Errors can be ignored here.
         (void)f_aaruf_read_sector(ioctl->aaruf_context, lba, false, buffer, &length, &sector_status);
-    } else if (f_aaruf_read_sector_long(ioctl->aaruf_context, lba, false, buffer, &length, &sector_status)) {
+    } else if (ioctl->is_dvd || f_aaruf_read_sector_long(ioctl->aaruf_context, lba, false, buffer, &length, &sector_status)) {
         length = 2048;
         if (!f_aaruf_read_sector(ioctl->aaruf_context, lba, false, buffer, &length, &sector_status))
             goto generate_headers;
