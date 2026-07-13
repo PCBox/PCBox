@@ -3454,6 +3454,14 @@ const uOpFn uop_handlers[UOP_MAX] = {
         UOP_MASK]
     = codegen_PUNPCKLDQ,
 
+    [UOP_SSE_ENTER &
+        UOP_MASK]
+    = codegen_sse_enter,
+
+    [UOP_CHECK_ALIGN &
+        UOP_MASK]
+    = codegen_sse_check_align,
+
     [UOP_NOP_BARRIER &
         UOP_MASK]
     = codegen_NOP
