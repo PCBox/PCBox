@@ -1139,14 +1139,8 @@ ropSHLD_16_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 {
     int src_reg = (fetchdat >> 3) & 7;
 
-    if (!(CL & 0x1f) || (CL & 0x1f) > 16 || !block->ins)
-        return 0;
-
     uop_AND_IMM(ir, IREG_temp2, REG_ECX, 0x1f);
     uop_CMP_IMM_JZ(ir, IREG_temp2, 0, codegen_exit_rout);
-    /*Counts > 16 are undefined for 16-bit operands - leave those to the interpreter*/
-    uop_MOV_IMM(ir, IREG_temp3, 16);
-    uop_CMP_JNBE(ir, IREG_temp2, IREG_temp3, codegen_exit_rout);
 
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -1194,9 +1188,6 @@ ropSHLD_32_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 {
     int src_reg = (fetchdat >> 3) & 7;
 
-    if (!(CL & 0x1f) || !block->ins)
-        return 0;
-
     uop_AND_IMM(ir, IREG_temp2, REG_ECX, 0x1f);
     uop_CMP_IMM_JZ(ir, IREG_temp2, 0, codegen_exit_rout);
 
@@ -1241,9 +1232,6 @@ uint32_t
 ropSHRD_16_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int src_reg = (fetchdat >> 3) & 7;
-
-    if (!(CL & 0x1f) || !block->ins)
-        return 0;
 
     uop_AND_IMM(ir, IREG_temp2, REG_ECX, 0x1f);
     uop_CMP_IMM_JZ(ir, IREG_temp2, 0, codegen_exit_rout);
@@ -1290,9 +1278,6 @@ uint32_t
 ropSHRD_32_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int src_reg = (fetchdat >> 3) & 7;
-
-    if (!(CL & 0x1f) || !block->ins)
-        return 0;
 
     uop_AND_IMM(ir, IREG_temp2, REG_ECX, 0x1f);
     uop_CMP_IMM_JZ(ir, IREG_temp2, 0, codegen_exit_rout);
