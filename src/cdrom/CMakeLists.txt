@@ -31,7 +31,7 @@ add_library(cdrom OBJECT
     cdrom_image_viso.c
     cdrom_mke.c
 )
-target_link_libraries(86Box cdrom_aaru)
+target_link_libraries(PCBox cdrom_aaru)
 if(NOT WIN32)
 	target_include_directories(PCBox PRIVATE PkgConfig::SNDFILE)
 endif()
