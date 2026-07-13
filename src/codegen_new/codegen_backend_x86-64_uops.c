@@ -3456,11 +3456,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
 
     [UOP_SSE_ENTER &
         UOP_MASK]
-    = codegen_sse_enter,
-
-    [UOP_CHECK_ALIGN &
-        UOP_MASK]
-    = codegen_sse_check_align,
+    = codegen_SSE_ENTER,
 
     [UOP_NOP_BARRIER &
         UOP_MASK]
