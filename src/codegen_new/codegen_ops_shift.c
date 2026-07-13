@@ -1140,7 +1140,6 @@ ropSHLD_16_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
     int src_reg = (fetchdat >> 3) & 7;
 
     uop_AND_IMM(ir, IREG_temp2, REG_ECX, 0x1f);
-    uop_CMP_IMM_JZ(ir, IREG_temp2, 0, codegen_exit_rout);
 
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -1189,7 +1188,6 @@ ropSHLD_32_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
     int src_reg = (fetchdat >> 3) & 7;
 
     uop_AND_IMM(ir, IREG_temp2, REG_ECX, 0x1f);
-    uop_CMP_IMM_JZ(ir, IREG_temp2, 0, codegen_exit_rout);
 
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -1234,7 +1232,6 @@ ropSHRD_16_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
     int src_reg = (fetchdat >> 3) & 7;
 
     uop_AND_IMM(ir, IREG_temp2, REG_ECX, 0x1f);
-    uop_CMP_IMM_JZ(ir, IREG_temp2, 0, codegen_exit_rout);
 
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -1280,7 +1277,6 @@ ropSHRD_32_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
     int src_reg = (fetchdat >> 3) & 7;
 
     uop_AND_IMM(ir, IREG_temp2, REG_ECX, 0x1f);
-    uop_CMP_IMM_JZ(ir, IREG_temp2, 0, codegen_exit_rout);
 
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
