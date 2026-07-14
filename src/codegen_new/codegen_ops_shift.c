@@ -960,6 +960,8 @@ ropSHLD_16_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32
     int     src_reg    = (fetchdat >> 3) & 7;
     uint8_t imm;
 
+    uop_CALL_FUNC(ir, jit_flags_rebuild);
+
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) != 0xc0) {
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
@@ -1004,6 +1006,8 @@ ropSHLD_32_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32
     x86seg *target_seg = NULL;
     int     src_reg    = (fetchdat >> 3) & 7;
     uint8_t imm;
+
+    uop_CALL_FUNC(ir, jit_flags_rebuild);
 
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) != 0xc0) {
@@ -1050,6 +1054,8 @@ ropSHRD_16_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32
     int     src_reg    = (fetchdat >> 3) & 7;
     uint8_t imm;
 
+    uop_CALL_FUNC(ir, jit_flags_rebuild);
+
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) != 0xc0) {
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
@@ -1095,6 +1101,8 @@ ropSHRD_32_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32
     int     src_reg    = (fetchdat >> 3) & 7;
     uint8_t imm;
 
+    uop_CALL_FUNC(ir, jit_flags_rebuild);
+
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) != 0xc0) {
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
@@ -1139,7 +1147,9 @@ ropSHLD_16_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 {
     int src_reg = (fetchdat >> 3) & 7;
 
-    uop_AND_IMM(ir, IREG_temp2, REG_ECX, 0x1f);
+    uop_CALL_FUNC(ir, jit_flags_rebuild);
+
+    uop_AND_IMM(ir, IREG_temp2, IREG_ECX, 0x1f);
 
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -1187,7 +1197,9 @@ ropSHLD_32_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 {
     int src_reg = (fetchdat >> 3) & 7;
 
-    uop_AND_IMM(ir, IREG_temp2, REG_ECX, 0x1f);
+    uop_CALL_FUNC(ir, jit_flags_rebuild);
+
+    uop_AND_IMM(ir, IREG_temp2, IREG_ECX, 0x1f);
 
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -1231,7 +1243,9 @@ ropSHRD_16_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 {
     int src_reg = (fetchdat >> 3) & 7;
 
-    uop_AND_IMM(ir, IREG_temp2, REG_ECX, 0x1f);
+    uop_CALL_FUNC(ir, jit_flags_rebuild);
+
+    uop_AND_IMM(ir, IREG_temp2, IREG_ECX, 0x1f);
 
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -1276,7 +1290,7 @@ ropSHRD_32_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 {
     int src_reg = (fetchdat >> 3) & 7;
 
-    uop_AND_IMM(ir, IREG_temp2, REG_ECX, 0x1f);
+    uop_AND_IMM(ir, IREG_temp2, IREG_ECX, 0x1f);
 
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {

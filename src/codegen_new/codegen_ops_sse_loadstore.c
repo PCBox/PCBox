@@ -56,8 +56,7 @@ ropMOVUPS_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
         codegen_check_seg_write(block, ir, target_seg);
         CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 15);
-        uop_MOV(ir, IREG_temp0_DQ, IREG_XMM(src_reg));
-        uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0_DQ);
+        uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_XMM(src_reg));
     }
 
     return op_pc + 1;
@@ -105,8 +104,7 @@ ropMOVAPS_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_CHECK_ALIGN(ir);
         codegen_check_seg_write(block, ir, target_seg);
         CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 15);
-        uop_MOV(ir, IREG_temp0_DQ, IREG_XMM(src_reg));
-        uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0_DQ);
+        uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_XMM(src_reg));
     }
 
     return op_pc + 1;
