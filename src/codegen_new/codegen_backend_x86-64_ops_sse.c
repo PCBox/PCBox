@@ -324,6 +324,10 @@ host_x86_MOVDQU_XREG_ABS(codeblock_t *block, int dst_reg, void *p)
         codegen_alloc_bytes(block, 5);
         codegen_addbyte4(block, 0xf3, 0x0f, 0x6f, 0x45 | (dst_reg << 3)); /*MOVDQU dst_reg, offset[RBP]*/
         codegen_addbyte(block, offset);
+    } else if (offset < (1ULL << 32)) {
+        codegen_alloc_bytes(block, 8);
+        codegen_addbyte4(block, 0xf3, 0x0f, 0x6f, 0x85 | (dst_reg << 3)); /*MOVDQU dst_reg, offset[RBP]*/
+        codegen_addlong(block, offset);
     } else {
         if ((uintptr_t) p >> 32)
             fatal("host_x86_MOVDQU_XREG_ABS - out of range %p\n", p);
@@ -345,6 +349,10 @@ host_x86_MOVDQU_ABS_XREG(codeblock_t *block, void *p, int src_reg)
         codegen_alloc_bytes(block, 5);
         codegen_addbyte4(block, 0xf3, 0x0f, 0x7f, 0x45 | (src_reg << 3)); /*MOVDQU offset[RBP], src_reg*/
         codegen_addbyte(block, offset);
+    } else if (offset < (1ULL << 32)) {
+        codegen_alloc_bytes(block, 8);
+        codegen_addbyte4(block, 0xf3, 0x0f, 0x7f, 0x85 | (src_reg << 3)); /*MOVDQU offset[RBP], src_reg*/
+        codegen_addlong(block, offset);
     } else {
         if ((uintptr_t) p >> 32)
             fatal("host_x86_MOVDQU_ABS_XREG - out of range %p\n", p);

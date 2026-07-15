@@ -156,6 +156,7 @@ static const struct cdrom_drive_types_s {
     { "GOLDSTAR", "CRD-8160B",        "3.14", "",          "goldstar",       BUS_TYPE_IDE,  0, 16, 36, 0, 0, {  4,  2,  1, -1 } },
     { "GOLDSTAR", "CRD-8240B",        "1.11", "",          "goldstar_8240b", BUS_TYPE_IDE,  0, 24, 36, 0, 0, {  4,  2,  1, -1 } },
     { "GOLDSTAR", "CRD-8320B",        "1.10", "",          "goldstar_8320b", BUS_TYPE_IDE,  0, 32, 36, 0, 0, {  4,  2,  1, -1 } },
+    { "GOLDSTAR", "CRD-8400B",        "1.03", "",          "gs_8400b_103",   BUS_TYPE_IDE,  0, 40, 36, 0, 0, {  4,  2,  2, -1 } },
     { "GOLDSTAR", "CRD-8400B",        "1.12", "",          "goldstar_8400b", BUS_TYPE_IDE,  0, 40, 36, 0, 0, {  4,  2,  2, -1 } },
     { "GOLDSTAR", "CRD-8484B",        "1.03", "",          "goldstar_8484b", BUS_TYPE_IDE,  0, 48, 36, 0, 0, {  4,  2,  2,  2 } },
     { "GOLDSTAR", "GCD-R542B",        "1.20", "",          "goldstar_r542b", BUS_TYPE_IDE,  0,  4, 36, 0, 0, {  3,  2,  1, -1 } },
@@ -366,12 +367,13 @@ typedef struct subchannel_t {
     uint8_t attr;
     uint8_t track;
     uint8_t index;
-    uint8_t abs_m;
-    uint8_t abs_s;
-    uint8_t abs_f;
     uint8_t rel_m;
     uint8_t rel_s;
     uint8_t rel_f;
+    uint8_t reserved;
+    uint8_t abs_m;
+    uint8_t abs_s;
+    uint8_t abs_f;
 } subchannel_t;
 
 typedef struct track_info_t {
@@ -499,6 +501,12 @@ typedef struct cdrom {
 
     uint8_t            p_parity[172];
     uint8_t            q_parity[104];
+
+    subchannel_t      cached_subc;
+    int               subc_sector;
+
+    int               audio_read;
+    int               formed_mode2;
 } cdrom_t;
 
 extern cdrom_t cdrom[CDROM_NUM];
@@ -605,6 +613,8 @@ extern void            cdrom_compute_ecc_block(cdrom_t *dev, uint8_t *parity, co
                                                uint32_t major_mult, uint32_t minor_inc, int m2f1);
 extern unsigned long   cdrom_crc32(unsigned long crc, const unsigned char *buf,
                                    size_t len);
+
+extern int             cdrom_image_is_aaru(const char *fn);
 
 extern int             cdrom_assigned_letters;
 

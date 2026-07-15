@@ -112,6 +112,8 @@
 #define UOP_IMUL (UOP_TYPE_PARAMS_REGS | 0x3c)
 /*UOP_IMUL_IMM - dest_reg = src_reg_a * immediate*/
 #define UOP_IMUL_IMM (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x3d)
+/*UOP_IMUL_HI - dest_reg = ((int64_t)(int32_t)src_reg_a * (int64_t)(int32_t)src_reg_b) >> 32*/
+#define UOP_IMUL_HI (UOP_TYPE_PARAMS_REGS | 0x3e)
 /*UOP_MEM_LOAD_ABS - dest_reg = src_reg_a:[immediate]*/
 #define UOP_MEM_LOAD_ABS (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x40 | UOP_TYPE_ORDER_BARRIER)
 /*UOP_MEM_LOAD_REG - dest_reg = src_reg_a:[src_reg_b]*/
@@ -345,7 +347,7 @@
 #define UOP_PAVGUSB (UOP_TYPE_PARAMS_REGS | 0xc8)
 
 /*UOP_SSE_ENTER - must be called before any SSE registers accessed*/
-#define UOP_SSE_ENTER (UOP_TYPE_PARAMS_IMM | 0xce | UOP_TYPE_BARRIER)
+#define UOP_SSE_ENTER (0xce | UOP_TYPE_BARRIER)
 #define UOP_CHECK_ALIGN (UOP_TYPE_PARAMS_IMM | 0xcf | UOP_TYPE_BARRIER)
 
 #define UOP_MAX     0xd0
@@ -716,6 +718,7 @@ extern int codegen_fp_enter(void);
 #define uop_XOR_IMM(ir, dst_reg, src_reg, imm)                   uop_gen_reg_dst_src_imm(UOP_XOR_IMM, ir, dst_reg, src_reg, imm)
 #define uop_IMUL(ir, dst_reg, src_reg_a, src_reg_b)              uop_gen_reg_dst_src2(UOP_IMUL, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_IMUL_IMM(ir, dst_reg, src_reg, imm)                  uop_gen_reg_dst_src_imm(UOP_IMUL_IMM, ir, dst_reg, src_reg, imm)
+#define uop_IMUL_HI(ir, dst_reg, src_reg_a, src_reg_b)           uop_gen_reg_dst_src2(UOP_IMUL_HI, ir, dst_reg, src_reg_a, src_reg_b)
 
 #define uop_SAR(ir, dst_reg, src_reg, shift_reg)                 uop_gen_reg_dst_src2(UOP_SAR, ir, dst_reg, src_reg, shift_reg)
 #define uop_SAR_IMM(ir, dst_reg, src_reg, imm)                   uop_gen_reg_dst_src_imm(UOP_SAR_IMM, ir, dst_reg, src_reg, imm)
@@ -817,7 +820,7 @@ extern int codegen_fp_enter(void);
             uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);            \
             uop_LOAD_FUNC_ARG_REG(ir, 0, IREG_eaaddr); \
             uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_sse_check_align); \
-            uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_exit_rout); \
+            uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_gpf_rout); \
     } while (0) \
 
 #define uop_JMP(ir, p)                                                   uop_gen_pointer(UOP_JMP, ir, p)
