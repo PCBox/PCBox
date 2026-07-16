@@ -825,4 +825,18 @@ host_x86_UNPCKLPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
     codegen_addbyte4(block, 0x66, 0x0f, 0x14, 0xc0 | src_reg | (dst_reg << 3));
 }
 
+void
+host_x86_UNPCKHPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 3);
+    codegen_addbyte3(block, 0x0f, 0x15, 0xc0 | src_reg | (dst_reg << 3));
+}
+
+void
+host_x86_UNPCKHPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0x15, 0xc0 | src_reg | (dst_reg << 3));
+}
+
 #endif

@@ -367,16 +367,22 @@
 /*UOP_PAVGUSB - (packed byte) dest_reg = (src_reg_a + src_reg_b + 1) >> 1*/
 #define UOP_PAVGUSB (UOP_TYPE_PARAMS_REGS | 0xc8)
 
-/*UOP_UNPCKLPS - dest_reg = interleave low packed singles from src_reg_a/src_reg_b*/
-#define UOP_UNPCKLPS (UOP_TYPE_PARAMS_REGS | 0xd0)
-/*UOP_UNPCKLPD - dest_reg = interleave low packed doubles from src_reg_a/src_reg_b*/
-#define UOP_UNPCKLPD (UOP_TYPE_PARAMS_REGS | 0xd1)
 
 /*UOP_SSE_ENTER - must be called before any SSE registers accessed*/
 #define UOP_SSE_ENTER (0xce | UOP_TYPE_BARRIER)
 #define UOP_CHECK_ALIGN (0xcf | UOP_TYPE_BARRIER)
 
-#define UOP_MAX     0xd2
+/*UOP_UNPCKLPS - dest_reg = interleave low packed singles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKLPS (UOP_TYPE_PARAMS_REGS | 0xd0)
+/*UOP_UNPCKLPD - dest_reg = interleave low packed doubles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKLPD (UOP_TYPE_PARAMS_REGS | 0xd1)
+
+/*UOP_UNPCKHPS - dest_reg = interleave high packed singles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKHPS (UOP_TYPE_PARAMS_REGS | 0xd2)
+/*UOP_UNPCKHPD - dest_reg = interleave high packed doubles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKHPD (UOP_TYPE_PARAMS_REGS | 0xd3)
+
+#define UOP_MAX     0xd4
 
 #define UOP_INVALID 0xff
 
@@ -976,6 +982,9 @@ extern int codegen_fp_enter(void);
 
 #define uop_UNPCKLPS(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKLPS, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_UNPCKLPD(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKLPD, ir, dst_reg, src_reg_a, src_reg_b)
+
+#define uop_UNPCKHPS(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKHPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_UNPCKHPD(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKHPD, ir, dst_reg, src_reg_a, src_reg_b)
 
 #define uop_STORE_PTR_IMM(ir, p, imm)                                    uop_gen_pointer_imm(UOP_STORE_P_IMM, ir, p, imm)
 #define uop_STORE_PTR_IMM_8(ir, p, imm)                                  uop_gen_pointer_imm(UOP_STORE_P_IMM_8, ir, p, imm)
