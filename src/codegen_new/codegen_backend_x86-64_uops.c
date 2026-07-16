@@ -1822,6 +1822,32 @@ codegen_MOVSS(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_MOVSD(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b)) {
+        if (dest_reg != src_reg_a)
+            host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        host_x86_MOVSD_XREG_XREG(block, dest_reg, src_reg_b);
+    } else if (REG_IS_DQ(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b)) {
+        host_x86_MOVQ_XREG_XREG(block, dest_reg, src_reg_b);
+    } else if (REG_IS_Q(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b)) {
+        host_x86_MOVQ_XREG_XREG(block, dest_reg, src_reg_b);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("MOVSD %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+
+static int
 codegen_MOV_IMM(codeblock_t *block, uop_t *uop)
 {
     int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
@@ -2991,6 +3017,42 @@ codegen_PUNPCKLDQ(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_UNPCKLPS(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+        host_x86_UNPCKLPS_XREG_XREG(block, dest_reg, src_reg_b);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("UNPCKLPS %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_UNPCKLPD(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+        host_x86_UNPCKLPD_XREG_XREG(block, dest_reg, src_reg_b);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("UNPCKLPD %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+
+static int
 codegen_ROL(codeblock_t *block, uop_t *uop)
 {
     int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
@@ -3542,6 +3604,9 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_MOVSS &
         UOP_MASK]
     = codegen_MOVSS,
+    [UOP_MOVSD &
+        UOP_MASK]
+    = codegen_MOVSD,
     [UOP_MOV_DOUBLE_INT &
         UOP_MASK]
     = codegen_MOV_DOUBLE_INT,
@@ -3926,6 +3991,13 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_PUNPCKLDQ &
         UOP_MASK]
     = codegen_PUNPCKLDQ,
+
+    [UOP_UNPCKLPS &
+        UOP_MASK]
+    = codegen_UNPCKLPS,
+    [UOP_UNPCKLPD &
+        UOP_MASK]
+    = codegen_UNPCKLPD,
 
     [UOP_SSE_ENTER &
         UOP_MASK]

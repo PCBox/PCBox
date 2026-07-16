@@ -11,6 +11,7 @@ extern RecompOpFn recomp_opcodes[512];
 extern RecompOpFn recomp_opcodes_0f[512];
 extern RecompOpFn recomp_opcodes_0f_no_mmx[512];
 extern RecompOpFn recomp_opcodes_REPE_0f[512];
+extern RecompOpFn recomp_opcodes_REPNE_0f[512];
 extern RecompOpFn recomp_opcodes_3DNOW[256];
 extern RecompOpFn recomp_opcodes_d8[512];
 extern RecompOpFn recomp_opcodes_d9[512];

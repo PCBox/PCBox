@@ -71,6 +71,9 @@
 #define UOP_MOVZX (UOP_TYPE_PARAMS_REGS | 0x23)
 /*UOP_MOVSS - dest_reg[31:0] = src_reg_b[31:0], dest_reg[127:32] = src_reg_a[127:32]*/
 #define UOP_MOVSS (UOP_TYPE_PARAMS_REGS | 0x2b)
+/*UOP_MOVSD - dest_reg[63:0] = src_reg_b[63:0], dest_reg[127:64] = src_reg_a[127:64].
+  QWORD temp forms copy/extract the low 64 bits.*/
+#define UOP_MOVSD (UOP_TYPE_PARAMS_REGS | 0x2c)
 /*UOP_MOVSX - dest_reg = sign_extend(src_reg_a)*/
 #define UOP_MOVSX (UOP_TYPE_PARAMS_REGS | 0x24)
 /*UOP_MOV_DOUBLE_INT - dest_reg = (double)src_reg_a*/
@@ -364,11 +367,16 @@
 /*UOP_PAVGUSB - (packed byte) dest_reg = (src_reg_a + src_reg_b + 1) >> 1*/
 #define UOP_PAVGUSB (UOP_TYPE_PARAMS_REGS | 0xc8)
 
+/*UOP_UNPCKLPS - dest_reg = interleave low packed singles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKLPS (UOP_TYPE_PARAMS_REGS | 0xd0)
+/*UOP_UNPCKLPD - dest_reg = interleave low packed doubles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKLPD (UOP_TYPE_PARAMS_REGS | 0xd1)
+
 /*UOP_SSE_ENTER - must be called before any SSE registers accessed*/
 #define UOP_SSE_ENTER (0xce | UOP_TYPE_BARRIER)
 #define UOP_CHECK_ALIGN (0xcf | UOP_TYPE_BARRIER)
 
-#define UOP_MAX     0xd0
+#define UOP_MAX     0xd2
 
 #define UOP_INVALID 0xff
 
@@ -888,6 +896,7 @@ extern int codegen_fp_enter(void);
 #define uop_MOVZX_REG_PTR_8(ir, reg, p)                                  uop_gen_reg_dst_pointer(UOP_MOVZX_REG_PTR_8, ir, reg, p)
 #define uop_MOVZX_REG_PTR_16(ir, reg, p)                                 uop_gen_reg_dst_pointer(UOP_MOVZX_REG_PTR_16, ir, reg, p)
 #define uop_MOVSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MOVSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MOVSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MOVSD, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_MOVSX(ir, dst_reg, src_reg)                                  uop_gen_reg_dst_src1(UOP_MOVSX, ir, dst_reg, src_reg)
 #define uop_MOVZX(ir, dst_reg, src_reg)                                  uop_gen_reg_dst_src1(UOP_MOVZX, ir, dst_reg, src_reg)
 #define uop_MOV_DOUBLE_INT(ir, dst_reg, src_reg)                         uop_gen_reg_dst_src1(UOP_MOV_DOUBLE_INT, ir, dst_reg, src_reg)
@@ -964,6 +973,9 @@ extern int codegen_fp_enter(void);
 #define uop_PUNPCKLBW(ir, dst_reg, src_reg_a, src_reg_b)                 uop_gen_reg_dst_src2(UOP_PUNPCKLBW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PUNPCKLWD(ir, dst_reg, src_reg_a, src_reg_b)                 uop_gen_reg_dst_src2(UOP_PUNPCKLWD, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PUNPCKLDQ(ir, dst_reg, src_reg_a, src_reg_b)                 uop_gen_reg_dst_src2(UOP_PUNPCKLDQ, ir, dst_reg, src_reg_a, src_reg_b)
+
+#define uop_UNPCKLPS(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKLPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_UNPCKLPD(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKLPD, ir, dst_reg, src_reg_a, src_reg_b)
 
 #define uop_STORE_PTR_IMM(ir, p, imm)                                    uop_gen_pointer_imm(UOP_STORE_P_IMM, ir, p, imm)
 #define uop_STORE_PTR_IMM_8(ir, p, imm)                                  uop_gen_pointer_imm(UOP_STORE_P_IMM_8, ir, p, imm)
