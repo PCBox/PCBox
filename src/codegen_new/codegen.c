@@ -489,7 +489,11 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
                 if(is_repe)
                 {
                     op_table        = x86_dynarec_opcodes_REPE_0f;
+#ifdef CODEGEN_HAS_SSE
+                    recomp_op_table = fpu_softfloat ? NULL : recomp_opcodes_REPE_0f;
+#else
                     recomp_op_table = NULL;
+#endif
                 }
                 else if(is_repne)
                 {

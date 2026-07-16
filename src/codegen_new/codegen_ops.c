@@ -190,6 +190,17 @@ RecompOpFn recomp_opcodes_0f_no_mmx[512] = {
     // clang-format on
 };
 
+RecompOpFn recomp_opcodes_REPE_0f[512] = {
+// clang-format off
+#if defined __amd64__ || defined _M_X64
+    [0x010] = ropMOVSS_r_d,
+    [0x011] = ropMOVSS_d_r,
+    [0x110] = ropMOVSS_r_d,
+    [0x111] = ropMOVSS_d_r,
+#endif
+// clang-format on
+};
+
 RecompOpFn recomp_opcodes_3DNOW[256] = {
 // clang-format off
 #if defined __ARM_EABI__ || defined _ARM_ || defined _M_ARM || defined __aarch64__ || defined _M_ARM64

@@ -69,6 +69,8 @@
 #define UOP_MOV (UOP_TYPE_PARAMS_REGS | 0x22)
 /*UOP_MOVZX - dest_reg = zero_extend(src_reg_a)*/
 #define UOP_MOVZX (UOP_TYPE_PARAMS_REGS | 0x23)
+/*UOP_MOVSS - dest_reg[31:0] = src_reg_b[31:0], dest_reg[127:32] = src_reg_a[127:32]*/
+#define UOP_MOVSS (UOP_TYPE_PARAMS_REGS | 0x2b)
 /*UOP_MOVSX - dest_reg = sign_extend(src_reg_a)*/
 #define UOP_MOVSX (UOP_TYPE_PARAMS_REGS | 0x24)
 /*UOP_MOV_DOUBLE_INT - dest_reg = (double)src_reg_a*/
@@ -885,6 +887,7 @@ extern int codegen_fp_enter(void);
 #define uop_MOV_REG_PTR(ir, reg, p)                                      uop_gen_reg_dst_pointer(UOP_MOV_REG_PTR, ir, reg, p)
 #define uop_MOVZX_REG_PTR_8(ir, reg, p)                                  uop_gen_reg_dst_pointer(UOP_MOVZX_REG_PTR_8, ir, reg, p)
 #define uop_MOVZX_REG_PTR_16(ir, reg, p)                                 uop_gen_reg_dst_pointer(UOP_MOVZX_REG_PTR_16, ir, reg, p)
+#define uop_MOVSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MOVSS, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_MOVSX(ir, dst_reg, src_reg)                                  uop_gen_reg_dst_src1(UOP_MOVSX, ir, dst_reg, src_reg)
 #define uop_MOVZX(ir, dst_reg, src_reg)                                  uop_gen_reg_dst_src1(UOP_MOVZX, ir, dst_reg, src_reg)
 #define uop_MOV_DOUBLE_INT(ir, dst_reg, src_reg)                         uop_gen_reg_dst_src1(UOP_MOV_DOUBLE_INT, ir, dst_reg, src_reg)
