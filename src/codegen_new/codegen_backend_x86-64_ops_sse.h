@@ -121,3 +121,6 @@ void host_x86_SUBSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
 void host_x86_UNPCKLPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_UNPCKLPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+
+void host_x86_UNPCKHPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_UNPCKHPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
