@@ -1,3 +1,22 @@
+/*
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
+ *
+ *          This file is part of the 86Box distribution.
+ *
+ *          Support for Aaru format images via libaaruformat.
+ *
+ * Authors: TheCollector1995, <mariogplayer@gmail.com>,
+ *          Miran Grca, <mgrca8@gmail.com>
+ *          Cacodemon345
+ *
+ *          Copyright 2023 TheCollector1995.
+ *          Copyright 2023 Miran Grca.
+ *          Copyright 2026 Cacodemon345.
+ */
+
 #include <aaruformat.h>
 
 #define __STDC_FORMAT_MACROS
@@ -300,6 +319,9 @@ generate_headers:
             if ((mode == 2) && (form == 1)) {
                 crc = cdrom_crc32(0xffffffff, &(buffer[16]), 2056) ^ 0xffffffff;
                 memcpy(&(buffer[2072]), &crc, 4);
+            } else if ((mode == 2) && (form == 2)) {
+                crc = cdrom_crc32(0xffffffff, &(buffer[16]), 2332) ^ 0xffffffff;
+                memcpy(&(buffer[2348]), &crc, 4);
             } else {
                 crc = cdrom_crc32(0xffffffff, buffer, 2064) ^ 0xffffffff;
                 memcpy(&(buffer[2064]), &crc, 4);
@@ -307,11 +329,13 @@ generate_headers:
 
             int m2f1 = (mode == 2) && (form == 1);
 
-            /* Compute ECC P code. */
-            cdrom_compute_ecc_block(ioctl->dev, &(buffer[2076]), &(buffer[12]), 86, 24, 2, 86, m2f1);
+            if ((mode == 1) || m2f1) {
+                /* Compute ECC P code. */
+                cdrom_compute_ecc_block(ioctl->dev, &(buffer[2076]), &(buffer[12]), 86, 24, 2, 86, m2f1);
 
-            /* Compute ECC Q code. */
-            cdrom_compute_ecc_block(ioctl->dev, &(buffer[2248]), &(buffer[12]), 52, 43, 86, 88, m2f1);
+                /* Compute ECC Q code. */
+                cdrom_compute_ecc_block(ioctl->dev, &(buffer[2248]), &(buffer[12]), 52, 43, 86, 88, m2f1);
+            }
         }
 
 generate_subchannel:

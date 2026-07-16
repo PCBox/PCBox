@@ -177,6 +177,7 @@ extern "C" void qt_blit(int x, int y, int w, int h, int monitor_index);
 extern MainWindow *main_window;
 
 int                main_window_blocked = 0;
+int                exiting_manually    = 0;
 
 #ifdef Q_OS_WINDOWS
 static bool
@@ -953,10 +954,11 @@ void MainWindow::onHardResetCompleted()
 void
 MainWindow::closeEvent(QCloseEvent *event)
 {
-    if (mouse_capture) {
+    if (!exiting_manually && mouse_capture) {
         event->ignore();
         return;
     }
+    exiting_manually = 0;
 
     if (confirm_exit && confirm_exit_cmdl && cpu_thread_run) {
         QMessageBox questionbox(QMessageBox::Icon::Question, "PCBox", tr("Are you sure you want to exit PCBox?"), QMessageBox::Yes | QMessageBox::No, this);
@@ -1028,13 +1030,19 @@ MainWindow::updateShortcuts()
     // First we need to wipe all existing accelerators, otherwise Qt will
     // run into conflicts with old ones.
     ui->actionTake_screenshot->setShortcut(QKeySequence());
+    ui->actionTake_raw_screenshot->setShortcut(QKeySequence());
+    ui->actionCopy_screenshot->setShortcut(QKeySequence());
+    ui->actionCopy_raw_screenshot->setShortcut(QKeySequence());
     ui->actionCtrl_Alt_Del->setShortcut(QKeySequence());
     ui->actionCtrl_Alt_Esc->setShortcut(QKeySequence());
     ui->actionHard_Reset->setShortcut(QKeySequence());
+    ui->actionFast_forward->setShortcut(QKeySequence());
+    ui->actionFullscreen->setShortcut(QKeySequence());
     ui->actionPause->setShortcut(QKeySequence());
     ui->actionMute_Unmute->setShortcut(QKeySequence());
     ui->actionForce_interpretation->setShortcut(QKeySequence());
     ui->actionToggle_OSD->setShortcut(QKeySequence());
+    ui->actionExit->setShortcut(QKeySequence());
 
     int          accID;
     QKeySequence seq;
@@ -1090,6 +1098,10 @@ MainWindow::updateShortcuts()
     accID = FindAccelerator("toggle_osd");
     seq   = QKeySequence::fromString(acc_keys[accID].seq);
     ui->actionToggle_OSD->setShortcut(seq);
+
+    accID = FindAccelerator("exit");
+    seq   = QKeySequence::fromString(acc_keys[accID].seq);
+    ui->actionExit->setShortcut(seq);
 }
 
 void
@@ -1295,6 +1307,7 @@ MainWindow::on_actionToggle_OSD_triggered()
 void
 MainWindow::on_actionExit_triggered()
 {
+    exiting_manually = 1;
     close();
 }
 
@@ -1687,6 +1700,10 @@ MainWindow::eventFilter(QObject *receiver, QEvent *event)
                 || (QKeySequence) (ke->key() | ke->modifiers()) == FindAcceleratorSeq("mute")) {
                 ui->actionMute_Unmute->trigger();
             }
+            if ((QKeySequence) (ke->key() | (ke->modifiers() & ~Qt::KeypadModifier)) == FindAcceleratorSeq("exit")
+                || (QKeySequence) (ke->key() | ke->modifiers()) == FindAcceleratorSeq("exit")) {
+                ui->actionExit->trigger();
+            }
             if ((QKeySequence) (ke->key() | (ke->modifiers() & ~Qt::KeypadModifier)) == FindAcceleratorSeq("toggle_ui_fullscreen")
                 || (QKeySequence) (ke->key() | ke->modifiers()) == FindAcceleratorSeq("toggle_ui_fullscreen")) {
                 toggleFullscreenUI();
@@ -1697,6 +1714,7 @@ MainWindow::eventFilter(QObject *receiver, QEvent *event)
     }
 
     if (!main_window_blocked && !dopause && (!kbd_req_capture || mouse_capture)) {
+#if 0
         if (event->type() == QEvent::Shortcut) {
             auto shortcutEvent = (QShortcutEvent *) event;
             if (shortcutEvent->key() == ui->actionExit->shortcut()) {
@@ -1704,6 +1722,7 @@ MainWindow::eventFilter(QObject *receiver, QEvent *event)
                 return true;
             }
         }
+#endif
         if (event->type() == QEvent::KeyPress) {
             event->accept();
 
@@ -1728,7 +1747,7 @@ MainWindow::eventFilter(QObject *receiver, QEvent *event)
                 plat_pause(isNonPause ? dopause : (isShowMessage ? 2 : 1));
             }
             if (mouse_was_captured)
-                emit setMouseCapture(false);
+                plat_mouse_capture(0);
             releaseKeyboard();
             main_window_blocked = 1;
         } else if (event->type() == QEvent::WindowUnblocked) {
@@ -1736,7 +1755,7 @@ MainWindow::eventFilter(QObject *receiver, QEvent *event)
             if (do_auto_dialog_pause > 0)
                 plat_pause(curdopause);
             if (mouse_was_captured) {
-                emit setMouseCapture(true);
+                plat_mouse_capture(1);
             }
             main_window_blocked = 0;
         } else if (event->type() == QEvent::WindowStateChange) {
