@@ -1,3 +1,24 @@
+/*
+ * 86Box    A hypervisor and IBM PC system emulator that specializes in
+ *          running old operating systems and software designed for IBM
+ *          PC systems and compatibles from 1981 through fairly recent
+ *          system designs based on the PCI bus.
+ *
+ *          This file is part of the 86Box distribution.
+ *
+ *          Support for Aaru format images via libaaruformat.
+ *
+ * Authors: TheCollector1995, <mariogplayer@gmail.com>,
+ *          Miran Grca, <mgrca8@gmail.com>
+ *          Cacodemon345
+ *
+ *          Copyright 2023 TheCollector1995.
+ *          Copyright 2023 Miran Grca.
+ *          Copyright 2026 Cacodemon345.
+ */
+
+/* Format identification code (C) Natalia Portillo, licensed under LGPLv2.1+. */
+
 #include <aaruformat.h>
 
 #define __STDC_FORMAT_MACROS
@@ -13,6 +34,7 @@
 #include <string.h>
 #include <wchar.h>
 #include <zlib.h>
+#include <errno.h>
 #include <limits.h>
 #include <sys/stat.h>
 #ifndef _WIN32
@@ -362,7 +384,50 @@ static int
 aaru_image_read_dvd_structure(UNUSED(const void *local), UNUSED(const uint8_t layer), UNUSED(const uint8_t format),
                               UNUSED(uint8_t *buffer), UNUSED(uint32_t *info))
 {
-    // FIXME: How to do this?
+    aaru_image_t *img = (aaru_image_t *) local;
+    if (img->is_dvd) {
+        uint8_t res[2052] = { };
+        uint32_t length = 2052;
+        switch (format) {
+            case 0x00:  /* Physical Format Information (PFI). */
+            {
+                if (!f_aaruf_read_media_tag(img->aaruf_context, res, layer ? kMediaTagDvdPfi2ndLayer : kMediaTagDvdPfi, &length)) {
+                    if (length == 2048) {
+                        memcpy(buffer + 4, res, 2048);
+                        return 2048 + 2;
+                    } else if (length == 2052) {
+                        memcpy(buffer, res, 2052);
+                        return 2048 + 2;
+                    }
+                }
+                
+                break;
+            }
+            case 0x01: /* DVD copyright information (CMI). */
+            {
+                length = 8;
+                if (!f_aaruf_read_media_tag(img->aaruf_context, res, kMediaTagDvdCmi, &length)) {
+                    if (length == 8) {
+                        memcpy(buffer, res, 8);
+                        return 4 + 2;
+                    }
+                }
+
+                break;
+            }
+            case 0x04: /* DVD disc manufacturing information (DMI). */
+            {
+                if (!f_aaruf_read_media_tag(img->aaruf_context, res, kMediaTagDvdDmi, &length)) {
+                    if (length == 2052) {
+                        memcpy(buffer, res, 2052);
+                        return 2048 + 2;
+                    }
+                }
+
+                break;
+            }
+        }
+    }
     return 0;
 }
 
@@ -736,10 +801,37 @@ cleanup_error:
     return NULL;
 }
 
+static int aaruf_identify_local(const char *filename)
+{
+    if (filename == NULL)
+        return EINVAL;
+
+    FILE *stream = NULL;
+
+    stream = fopen(filename, "rb");
+
+    if (stream == NULL)
+        return errno;
+
+    AaruHeader header;
+
+    size_t ret = fread(&header, sizeof(AaruHeader), 1, stream);
+
+    if(ret != 1) {
+        fclose(stream);
+        return 0;
+    }
+
+    if((header.identifier == DIC_MAGIC || header.identifier == AARU_MAGIC) && header.imageMajorVersion <= AARUF_VERSION)
+        ret = 100;
+
+    fclose(stream);
+
+    return ret;
+}
+
 int
 cdrom_image_is_aaru(const char *fn)
 {
-    if (!ensure_libaaruformat())
-        return 0;
-    return (f_aaruf_identify(fn) == 100);
+    return (aaruf_identify_local(fn) == 100);
 }
