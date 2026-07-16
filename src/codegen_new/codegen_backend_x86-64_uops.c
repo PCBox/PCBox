@@ -2115,7 +2115,8 @@ codegen_PACKSSWB(codeblock_t *block, uop_t *uop)
     int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_b)) ||
+        (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_PACKSSWB_XREG_XREG(block, dest_reg, src_reg_b);
     }
 #    ifdef RECOMPILER_DEBUG
@@ -2132,7 +2133,8 @@ codegen_PACKSSDW(codeblock_t *block, uop_t *uop)
     int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_b)) ||
+        (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_PACKSSDW_XREG_XREG(block, dest_reg, src_reg_b);
     }
 #    ifdef RECOMPILER_DEBUG
@@ -2149,7 +2151,8 @@ codegen_PACKUSWB(codeblock_t *block, uop_t *uop)
     int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_b)) ||
+        (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_PACKUSWB_XREG_XREG(block, dest_reg, src_reg_b);
     }
 #    ifdef RECOMPILER_DEBUG
@@ -2921,7 +2924,8 @@ codegen_PUNPCKHBW(codeblock_t *block, uop_t *uop)
     int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_b)) ||
+        (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_PUNPCKHBW_XREG_XREG(block, dest_reg, src_reg_b);
     }
 #    ifdef RECOMPILER_DEBUG
@@ -2938,7 +2942,8 @@ codegen_PUNPCKHWD(codeblock_t *block, uop_t *uop)
     int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_b)) ||
+        (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_PUNPCKHWD_XREG_XREG(block, dest_reg, src_reg_b);
     }
 #    ifdef RECOMPILER_DEBUG
@@ -2955,7 +2960,8 @@ codegen_PUNPCKHDQ(codeblock_t *block, uop_t *uop)
     int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_b)) ||
+        (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_PUNPCKHDQ_XREG_XREG(block, dest_reg, src_reg_b);
     }
 #    ifdef RECOMPILER_DEBUG
@@ -2972,7 +2978,8 @@ codegen_PUNPCKLBW(codeblock_t *block, uop_t *uop)
     int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_b)) ||
+        (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_PUNPCKLBW_XREG_XREG(block, dest_reg, src_reg_b);
     }
 #    ifdef RECOMPILER_DEBUG
@@ -2989,7 +2996,8 @@ codegen_PUNPCKLWD(codeblock_t *block, uop_t *uop)
     int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_b)) ||
+        (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_PUNPCKLWD_XREG_XREG(block, dest_reg, src_reg_b);
     }
 #    ifdef RECOMPILER_DEBUG
@@ -3006,7 +3014,8 @@ codegen_PUNPCKLDQ(codeblock_t *block, uop_t *uop)
     int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_b) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+    if (((REG_IS_Q(dest_size) && REG_IS_Q(src_size_b)) ||
+         (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b))) && uop->dest_reg_a_real == uop->src_reg_a_real) {
         host_x86_PUNPCKLDQ_XREG_XREG(block, dest_reg, src_reg_b);
     }
 #    ifdef RECOMPILER_DEBUG
