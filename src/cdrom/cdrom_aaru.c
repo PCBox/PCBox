@@ -24,6 +24,7 @@
 #ifdef ENABLE_IMAGE_LOG
 #    include <stdarg.h>
 #endif
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
