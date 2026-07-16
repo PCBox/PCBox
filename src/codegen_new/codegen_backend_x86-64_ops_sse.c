@@ -346,6 +346,20 @@ host_x86_MOVDQA_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
     codegen_addbyte4(block, 0x66, 0x0f, 0x6f, 0xc0 | src_reg | (dst_reg << 3)); /*MOVDQA dst_reg, src_reg*/
 }
 
+void
+host_x86_MOVSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0xf3, 0x0f, 0x10, 0xc0 | src_reg | (dst_reg << 3)); /*MOVSS dst_reg, src_reg*/
+}
+
+void
+host_x86_MOVSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0xf2, 0x0f, 0x10, 0xc0 | src_reg | (dst_reg << 3)); /*MOVSD dst_reg, src_reg*/
+}
+
 /*cpu_state.XMM is not guaranteed to be 16 byte aligned, so use MOVDQU for
   memory accesses*/
 void
@@ -802,6 +816,13 @@ host_x86_UNPCKLPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_alloc_bytes(block, 3);
     codegen_addbyte3(block, 0x0f, 0x14, 0xc0 | src_reg | (dst_reg << 3));
+}
+
+void
+host_x86_UNPCKLPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0x14, 0xc0 | src_reg | (dst_reg << 3));
 }
 
 #endif

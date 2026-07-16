@@ -38,6 +38,12 @@
 #    define ARM64_ROP_FEMMS    NULL
 #endif
 
+#if defined __amd64__ || defined _M_X64
+#    define X86_UNPCKLPS ropUNPCKLPS
+#else
+#    define X86_UNPCKLPS NULL
+#endif
+
 RecompOpFn recomp_opcodes[512] = {
     // clang-format off
         /*16-bit data*/
@@ -91,7 +97,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
         /*16-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
-/*10*/  ropMOVUPS_r_d,  ropMOVUPS_d_r,  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*10*/  ropMOVUPS_r_d,  ropMOVUPS_d_r,  NULL,           NULL,           X86_UNPCKLPS,   NULL,      NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVAPS_r_d,  ropMOVAPS_d_r,  NULL,           NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
@@ -117,7 +123,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
         /*32-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
-/*10*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*10*/  NULL,           NULL,           NULL,           NULL,           X86_UNPCKLPS,   NULL,      NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
@@ -188,6 +194,28 @@ RecompOpFn recomp_opcodes_0f_no_mmx[512] = {
 /*e0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*f0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
     // clang-format on
+};
+
+RecompOpFn recomp_opcodes_REPE_0f[512] = {
+// clang-format off
+#if defined __amd64__ || defined _M_X64
+    [0x010] = ropMOVSS_r_d,
+    [0x011] = ropMOVSS_d_r,
+    [0x110] = ropMOVSS_r_d,
+    [0x111] = ropMOVSS_d_r,
+#endif
+// clang-format on
+};
+
+RecompOpFn recomp_opcodes_REPNE_0f[512] = {
+// clang-format off
+#if defined __amd64__ || defined _M_X64
+    [0x010] = ropMOVSD_r_d,
+    [0x011] = ropMOVSD_d_r,
+    [0x110] = ropMOVSD_r_d,
+    [0x111] = ropMOVSD_d_r,
+#endif
+// clang-format on
 };
 
 RecompOpFn recomp_opcodes_3DNOW[256] = {
