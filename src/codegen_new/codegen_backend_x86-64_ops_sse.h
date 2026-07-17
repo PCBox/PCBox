@@ -1,5 +1,7 @@
 void host_x86_ADDPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_ADDPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_ADDSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_ADDSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
 #define CMPPS_EQ  0
 #define CMPPS_NLT 5

@@ -46,10 +46,22 @@ host_x86_ADDPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
     codegen_addbyte3(block, 0x0f, 0x58, 0xc0 | src_reg | (dst_reg << 3)); /*ADDPS dst_reg, src_reg*/
 }
 void
+host_x86_ADDPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0x58, 0xc0 | src_reg | (dst_reg << 3)); /*ADDPD dst_reg, src_reg*/
+}
+void
 host_x86_ADDSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_alloc_bytes(block, 4);
     codegen_addbyte4(block, 0xf2, 0x0f, 0x58, 0xc0 | src_reg | (dst_reg << 3));
+}
+void
+host_x86_ADDSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0xf3, 0x0f, 0x58, 0xc0 | src_reg | (dst_reg << 3)); /*ADDSS dst_reg, src_reg*/
 }
 
 void

@@ -17,6 +17,7 @@
 #include "codegen_ops_jump.h"
 #include "codegen_ops_logic.h"
 #include "codegen_ops_misc.h"
+#include "codegen_ops_sse_arith.h"
 #include "codegen_ops_sse_loadstore.h"
 #include "codegen_ops_sse_logic.h"
 #include "codegen_ops_mmx_arith.h"
@@ -39,9 +40,11 @@
 #endif
 
 #if defined __amd64__ || defined _M_X64
+#    define X86_ADDPS ropADDPS
 #    define X86_UNPCKLPS ropUNPCKLPS
 #    define X86_UNPCKHPS ropUNPCKHPS
 #else
+#    define X86_ADDPS NULL
 #    define X86_UNPCKLPS NULL
 #    define X86_UNPCKHPS NULL
 #endif
@@ -104,7 +107,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
 /*40*/  ropCMOVO_w,     ropCMOVNO_w,    ropCMOVB_w,     ropCMOVNB_w,    ropCMOVE_w,     ropCMOVNE_w,    ropCMOVBE_w,    ropCMOVNBE_w,   ropCMOVS_w,     ropCMOVNS_w,    ropCMOVP_w,     ropCMOVNP_w,    ropCMOVL_w,     ropCMOVNL_w,    ropCMOVLE_w,    ropCMOVNLE_w,
-/*50*/  NULL,           NULL,           NULL,           NULL,           ropANDPS,       ropANDNPS,      ropORPS,        ropXORPS,       NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*50*/  NULL,           NULL,           NULL,           NULL,           ropANDPS,       ropANDNPS,      ropORPS,        ropXORPS,       X86_ADDPS,      NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*60*/  ropPUNPCKLBW,   ropPUNPCKLWD,   ropPUNPCKLDQ,   ropPACKSSWB,    ropPCMPGTB,     ropPCMPGTW,     ropPCMPGTD,     ropPACKUSWB,    ropPUNPCKHBW,   ropPUNPCKHWD,   ropPUNPCKHDQ,   ropPACKSSDW,    NULL,           NULL,           ropMOVD_r_d,    ropMOVQ_r_q,
 /*70*/  NULL,           ropPSxxW_imm,   ropPSxxD_imm,   ropPSxxQ_imm,   ropPCMPEQB,     ropPCMPEQW,     ropPCMPEQD,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVD_d_r,    ropMOVQ_q_r,
 
@@ -130,7 +133,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
 /*40*/  ropCMOVO_l,     ropCMOVNO_l,    ropCMOVB_l,     ropCMOVNB_l,    ropCMOVE_l,     ropCMOVNE_l,    ropCMOVBE_l,    ropCMOVNBE_l,   ropCMOVS_l,     ropCMOVNS_l,    ropCMOVP_l,     ropCMOVNP_l,    ropCMOVL_l,     ropCMOVNL_l,    ropCMOVLE_l,    ropCMOVNLE_l,
-/*50*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*50*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           X86_ADDPS,      NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*60*/  ropPUNPCKLBW,   ropPUNPCKLWD,   ropPUNPCKLDQ,   ropPACKSSWB,    ropPCMPGTB,     ropPCMPGTW,     ropPCMPGTD,     ropPACKUSWB,    ropPUNPCKHBW,   ropPUNPCKHWD,   ropPUNPCKHDQ,   ropPACKSSDW,    NULL,           NULL,           ropMOVD_r_d,    ropMOVQ_r_q,
 /*70*/  NULL,           ropPSxxW_imm,   ropPSxxD_imm,   ropPSxxQ_imm,   ropPCMPEQB,     ropPCMPEQW,     ropPCMPEQD,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVD_d_r,    ropMOVQ_q_r,
 
@@ -203,8 +206,10 @@ RecompOpFn recomp_opcodes_REPE_0f[512] = {
 #if defined __amd64__ || defined _M_X64
     [0x010] = ropMOVSS_r_d,
     [0x011] = ropMOVSS_d_r,
+    [0x058] = ropADDSS,
     [0x110] = ropMOVSS_r_d,
     [0x111] = ropMOVSS_d_r,
+    [0x158] = ropADDSS,
 #endif
 // clang-format on
 };
@@ -214,8 +219,10 @@ RecompOpFn recomp_opcodes_REPNE_0f[512] = {
 #if defined __amd64__ || defined _M_X64
     [0x010] = ropMOVSD_r_d,
     [0x011] = ropMOVSD_d_r,
+    [0x058] = ropADDSD,
     [0x110] = ropMOVSD_r_d,
     [0x111] = ropMOVSD_d_r,
+    [0x158] = ropADDSD,
 #endif
 // clang-format on
 };

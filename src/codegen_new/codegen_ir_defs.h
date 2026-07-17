@@ -382,7 +382,16 @@
 /*UOP_UNPCKHPD - dest_reg = interleave high packed doubles from src_reg_a/src_reg_b*/
 #define UOP_UNPCKHPD (UOP_TYPE_PARAMS_REGS | 0xd3)
 
-#define UOP_MAX     0xd4
+/*UOP_ADDPS - dest_reg = packed single src_reg_a + src_reg_b*/
+#define UOP_ADDPS (UOP_TYPE_PARAMS_REGS | 0xd4)
+/*UOP_ADDPD - dest_reg = packed double src_reg_a + src_reg_b*/
+#define UOP_ADDPD (UOP_TYPE_PARAMS_REGS | 0xd5)
+/*UOP_ADDSS - dest_reg[31:0] = src_reg_a[31:0] + src_reg_b[31:0], dest_reg[127:32] = src_reg_a[127:32]*/
+#define UOP_ADDSS (UOP_TYPE_PARAMS_REGS | 0xd6)
+/*UOP_ADDSD - dest_reg[63:0] = src_reg_a[63:0] + src_reg_b[63:0], dest_reg[127:64] = src_reg_a[127:64]*/
+#define UOP_ADDSD (UOP_TYPE_PARAMS_REGS | 0xd7)
+
+#define UOP_MAX     0xd8
 
 #define UOP_INVALID 0xff
 
@@ -985,6 +994,11 @@ extern int codegen_fp_enter(void);
 
 #define uop_UNPCKHPS(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKHPS, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_UNPCKHPD(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKHPD, ir, dst_reg, src_reg_a, src_reg_b)
+
+#define uop_ADDPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_ADDPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_ADDPD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_ADDPD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_ADDSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_ADDSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_ADDSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_ADDSD, ir, dst_reg, src_reg_a, src_reg_b)
 
 #define uop_STORE_PTR_IMM(ir, p, imm)                                    uop_gen_pointer_imm(UOP_STORE_P_IMM, ir, p, imm)
 #define uop_STORE_PTR_IMM_8(ir, p, imm)                                  uop_gen_pointer_imm(UOP_STORE_P_IMM_8, ir, p, imm)
