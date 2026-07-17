@@ -415,7 +415,12 @@
 /*UOP_DIVSD - dest_reg[63:0] = src_reg_a[63:0] / src_reg_b[63:0], dest_reg[127:64] = src_reg_a[127:64]*/
 #define UOP_DIVSD (UOP_TYPE_PARAMS_REGS | 0xe3)
 
-#define UOP_MAX     0xe4
+/*UOP_PADDQ - (packed quad) dest_reg = src_reg_a + src_reg_b*/
+#define UOP_PADDQ (UOP_TYPE_PARAMS_REGS | 0xe4)
+/*UOP_PSUBQ - (packed quad) dest_reg = src_reg_a - src_reg_b*/
+#define UOP_PSUBQ (UOP_TYPE_PARAMS_REGS | 0xe5)
+
+#define UOP_MAX     0xe6
 
 #define UOP_INVALID 0xff
 
@@ -951,6 +956,7 @@ extern int codegen_fp_enter(void);
 #define uop_PADDB(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PADDB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDW(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PADDW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PADDD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PADDQ(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PADDQ, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDSB(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PADDSB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDSW(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PADDSW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDUSB(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PADDUSB, ir, dst_reg, src_reg_a, src_reg_b)
@@ -1001,6 +1007,7 @@ extern int codegen_fp_enter(void);
 #define uop_PSUBB(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PSUBB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBW(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PSUBW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PSUBD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PSUBQ(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PSUBQ, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBSB(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PSUBSB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBSW(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PSUBSW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBUSB(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PSUBUSB, ir, dst_reg, src_reg_a, src_reg_b)
