@@ -26,6 +26,7 @@
 #    define STACK_ARG1        (4)
 #    define STACK_ARG2        (8)
 #    define STACK_ARG3        (12)
+#    define STACK_TEMP_DQ     (64)
 
 #    define HOST_REG_GET(reg) ((IREG_GET_SIZE(reg) == IREG_SIZE_BH) ? (IREG_GET_REG((reg) &3) | 4) : (IREG_GET_REG(reg) & 15))
 
@@ -36,6 +37,19 @@
 #    define REG_IS_D(size)    (size == IREG_SIZE_D)
 #    define REG_IS_Q(size)    (size == IREG_SIZE_Q)
 #    define REG_IS_DQ(size)   (size == IREG_SIZE_DQ)
+
+static void
+codegen_MEM_ADDR_REG_OFFSET(codeblock_t *block, uop_t *uop, int seg_reg, int addr_reg, uint32_t offset)
+{
+    uint32_t imm = uop->imm_data + offset;
+
+    host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
+    if (imm) {
+        host_x86_ADD32_REG_IMM(block, REG_ESI, imm);
+        if (uop->is_a16)
+            host_x86_AND32_REG_IMM(block, REG_ESI, 0x0000ffff);
+    }
+}
 
 static uint64_t
 codegen_div_u64(uint32_t low, uint32_t high)
@@ -1366,10 +1380,20 @@ codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
     host_x86_MOV32_REG_ABS(block, REG_ECX, &cr0);
     host_x86_TEST32_REG_IMM(block, REG_ECX, 0x4);
     branch_offset = host_x86_JZ_long(block);
+    host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
     host_x86_CALL(block, x86illegal);
     host_x86_JMP(block, codegen_exit_rout);
     *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
-    
+
+    host_x86_MOV32_REG_ABS(block, REG_ECX, &cr4);
+    host_x86_TEST32_REG_IMM(block, REG_ECX, CR4_OSFXSR);
+    branch_offset = host_x86_JNZ_long(block);
+    host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
+    host_x86_CALL(block, x86illegal);
+    host_x86_JMP(block, codegen_exit_rout);
+    *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
+
+    host_x86_MOV32_REG_ABS(block, REG_ECX, &cr0);
     host_x86_TEST32_REG_IMM(block, REG_ECX, 0x8);
     branch_offset = host_x86_JZ_long(block);
     host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
@@ -1381,11 +1405,6 @@ codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
     host_x86_CALL(block, x86_int);
     host_x86_JMP(block, codegen_exit_rout);
     *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
-
-    host_x86_MOV32_ABS_IMM(block, &cpu_state.tag[0], 0x01010101);
-    host_x86_MOV32_ABS_IMM(block, &cpu_state.tag[4], 0x01010101);
-    host_x86_MOV32_ABS_IMM(block, &cpu_state.TOP, 0);
-    host_x86_MOV8_ABS_IMM(block, &cpu_state.ismmx, 1);
 
     return 0;
 }
@@ -1549,6 +1568,21 @@ codegen_MEM_LOAD_REG(codeblock_t *block, uop_t *uop)
             host_x86_AND32_REG_IMM(block, REG_ESI, 0x0000ffff);
         }
     }
+    if (REG_IS_DQ(dest_size)) {
+        host_x86_CALL(block, codegen_mem_load_quad);
+        host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
+        host_x86_JNZ(block, codegen_exit_rout);
+        host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ, REG_XMM_TEMP);
+
+        codegen_MEM_ADDR_REG_OFFSET(block, uop, seg_reg, addr_reg, 8);
+        host_x86_CALL(block, codegen_mem_load_quad);
+        host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
+        host_x86_JNZ(block, codegen_exit_rout);
+        host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + 8, REG_XMM_TEMP);
+        host_x86_MOVDQU_XREG_BASE_OFFSET(block, dest_reg, REG_RSP, STACK_TEMP_DQ);
+
+        return 0;
+    }
     if (REG_IS_B(dest_size)) {
         host_x86_CALL(block, codegen_mem_load_byte);
     } else if (REG_IS_W(dest_size)) {
@@ -1703,6 +1737,21 @@ codegen_MEM_STORE_REG(codeblock_t *block, uop_t *uop)
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     if (uop->imm_data)
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
+    if (REG_IS_DQ(src_size)) {
+        host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ, src_reg);
+        host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ);
+        host_x86_CALL(block, codegen_mem_store_quad);
+        host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
+        host_x86_JNZ(block, codegen_exit_rout);
+
+        codegen_MEM_ADDR_REG_OFFSET(block, uop, seg_reg, addr_reg, 8);
+        host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ + 8);
+        host_x86_CALL(block, codegen_mem_store_quad);
+        host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
+        host_x86_JNZ(block, codegen_exit_rout);
+
+        return 0;
+    }
     if (REG_IS_B(src_size)) {
         host_x86_MOV8_REG_REG(block, REG_ECX, src_reg);
         host_x86_CALL(block, codegen_mem_store_byte);
