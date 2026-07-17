@@ -26,7 +26,7 @@
 #    define STACK_ARG1        (4)
 #    define STACK_ARG2        (8)
 #    define STACK_ARG3        (12)
-#    define STACK_TEMP_DQ     (80)
+#    define STACK_TEMP_DQ     (64)
 
 #    define HOST_REG_GET(reg) ((IREG_GET_SIZE(reg) == IREG_SIZE_BH) ? (IREG_GET_REG((reg) &3) | 4) : (IREG_GET_REG(reg) & 15))
 
