@@ -48,6 +48,7 @@ add_library(chipset OBJECT
     intel_i450kx.c
     intel_sio.c
     intel_815ep.c
+    intel_845.c
     intel_ich2.c
     intel_piix.c
     isa486c.c

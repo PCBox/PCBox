@@ -120,3 +120,9 @@ intel_815ep_spd_init(void)
             break;
     }
 }
+
+void
+intel_845_spd_init(void)
+{
+    spd_register(SPD_TYPE_SDRAM, 7, 1024);
+}

@@ -2451,6 +2451,23 @@ codegen_PADDD(codeblock_t *block, uop_t *uop)
     return 0;
 }
 static int
+codegen_PADDQ(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if ((REG_IS_Q(dest_size) && REG_IS_Q(src_size_b)) || (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b)) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+        host_x86_PADDQ_XREG_XREG(block, dest_reg, src_reg_b);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("PADDQ %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+static int
 codegen_PADDSB(codeblock_t *block, uop_t *uop)
 {
     int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
@@ -3081,6 +3098,23 @@ codegen_PSUBD(codeblock_t *block, uop_t *uop)
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("PSUBD %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+static int
+codegen_PSUBQ(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if ((REG_IS_Q(dest_size) && REG_IS_Q(src_size_b)) || (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_b)) && uop->dest_reg_a_real == uop->src_reg_a_real) {
+        host_x86_PSUBQ_XREG_XREG(block, dest_reg, src_reg_b);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("PSUBQ %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
 #    endif
     return 0;
 }
@@ -4132,6 +4166,9 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_PADDD &
         UOP_MASK]
     = codegen_PADDD,
+    [UOP_PADDQ &
+        UOP_MASK]
+    = codegen_PADDQ,
     [UOP_PADDSB &
         UOP_MASK]
     = codegen_PADDSB,
@@ -4248,6 +4285,9 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_PSUBD &
         UOP_MASK]
     = codegen_PSUBD,
+    [UOP_PSUBQ &
+        UOP_MASK]
+    = codegen_PSUBQ,
     [UOP_PSUBSB &
         UOP_MASK]
     = codegen_PSUBSB,
