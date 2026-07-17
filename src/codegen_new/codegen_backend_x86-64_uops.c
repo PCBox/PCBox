@@ -1985,6 +1985,100 @@ codegen_ADDSD(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_SSE_ARITH(codeblock_t *block, uop_t *uop, void (*host_func)(codeblock_t *, int, int), UNUSED(const char *name), int allow_q_src)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && (REG_IS_DQ(src_size_b) || (allow_q_src && REG_IS_Q(src_size_b)))) {
+        if (dest_reg != src_reg_a)
+            host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        host_func(block, dest_reg, src_reg_b);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("%s %02x %02x %02x\n", name, uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_MULPS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_MULPS_XREG_XREG, "MULPS", 0);
+}
+
+static int
+codegen_MULPD(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_MULPD_XREG_XREG, "MULPD", 0);
+}
+
+static int
+codegen_MULSS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_MULSS_XREG_XREG, "MULSS", 0);
+}
+
+static int
+codegen_MULSD(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_MULSD_XREG_XREG, "MULSD", 1);
+}
+
+static int
+codegen_SUBPS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_SUBPS_XREG_XREG, "SUBPS", 0);
+}
+
+static int
+codegen_SUBPD(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_SUBPD_XREG_XREG, "SUBPD", 0);
+}
+
+static int
+codegen_SUBSS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_SUBSS_XREG_XREG, "SUBSS", 0);
+}
+
+static int
+codegen_SUBSD(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_SUBSD_XREG_XREG, "SUBSD", 1);
+}
+
+static int
+codegen_DIVPS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_DIVPS_XREG_XREG, "DIVPS", 0);
+}
+
+static int
+codegen_DIVPD(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_DIVPD_XREG_XREG, "DIVPD", 0);
+}
+
+static int
+codegen_DIVSS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_DIVSS_XREG_XREG, "DIVSS", 0);
+}
+
+static int
+codegen_DIVSD(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_DIVSD_XREG_XREG, "DIVSD", 1);
+}
+
+static int
 codegen_MOV_IMM(codeblock_t *block, uop_t *uop)
 {
     int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
@@ -4212,6 +4306,42 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_ADDSD &
         UOP_MASK]
     = codegen_ADDSD,
+    [UOP_MULPS &
+        UOP_MASK]
+    = codegen_MULPS,
+    [UOP_MULPD &
+        UOP_MASK]
+    = codegen_MULPD,
+    [UOP_MULSS &
+        UOP_MASK]
+    = codegen_MULSS,
+    [UOP_MULSD &
+        UOP_MASK]
+    = codegen_MULSD,
+    [UOP_SUBPS &
+        UOP_MASK]
+    = codegen_SUBPS,
+    [UOP_SUBPD &
+        UOP_MASK]
+    = codegen_SUBPD,
+    [UOP_SUBSS &
+        UOP_MASK]
+    = codegen_SUBSS,
+    [UOP_SUBSD &
+        UOP_MASK]
+    = codegen_SUBSD,
+    [UOP_DIVPS &
+        UOP_MASK]
+    = codegen_DIVPS,
+    [UOP_DIVPD &
+        UOP_MASK]
+    = codegen_DIVPD,
+    [UOP_DIVSS &
+        UOP_MASK]
+    = codegen_DIVSS,
+    [UOP_DIVSD &
+        UOP_MASK]
+    = codegen_DIVSD,
 
     [UOP_SSE_ENTER &
         UOP_MASK]

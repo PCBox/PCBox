@@ -23,6 +23,8 @@ void host_x86_CVTSS2SD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_CVTSS2SD_XREG_BASE_INDEX(codeblock_t *block, int dst_reg, int base_reg, int idx_reg);
 
 void host_x86_DIVSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_DIVPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_DIVPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_DIVSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
 void host_x86_LDMXCSR(codeblock_t *block, void *p);
@@ -59,6 +61,7 @@ void host_x86_MAXPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_MINPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
 void host_x86_MULPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_MULPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_MULSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_MULSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
@@ -125,7 +128,9 @@ void host_x86_SQRTSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_SQRTSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
 void host_x86_SUBPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_SUBPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_SUBSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_SUBSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
 void host_x86_UNPCKLPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_UNPCKLPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);

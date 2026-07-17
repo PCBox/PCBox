@@ -158,6 +158,18 @@ host_x86_DIVSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
     codegen_addbyte4(block, 0xf2, 0x0f, 0x5e, 0xc0 | src_reg | (dst_reg << 3));
 }
 void
+host_x86_DIVPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0x5e, 0xc0 | src_reg | (dst_reg << 3)); /*DIVPD dst_reg, src_reg*/
+}
+void
+host_x86_DIVPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 3);
+    codegen_addbyte3(block, 0x0f, 0x5e, 0xc0 | src_reg | (dst_reg << 3)); /*DIVPS dst_reg, src_reg*/
+}
+void
 host_x86_DIVSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_alloc_bytes(block, 4);
@@ -492,10 +504,22 @@ host_x86_MULPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
     codegen_addbyte3(block, 0x0f, 0x59, 0xc0 | src_reg | (dst_reg << 3)); /*MULPS dst_reg, src_reg*/
 }
 void
+host_x86_MULPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0x59, 0xc0 | src_reg | (dst_reg << 3)); /*MULPD dst_reg, src_reg*/
+}
+void
 host_x86_MULSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_alloc_bytes(block, 4);
     codegen_addbyte4(block, 0xf2, 0x0f, 0x59, 0xc0 | src_reg | (dst_reg << 3));
+}
+void
+host_x86_MULSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0xf3, 0x0f, 0x59, 0xc0 | src_reg | (dst_reg << 3)); /*MULSS dst_reg, src_reg*/
 }
 
 void
@@ -859,10 +883,22 @@ host_x86_SUBPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
     codegen_addbyte3(block, 0x0f, 0x5c, 0xc0 | src_reg | (dst_reg << 3)); /*SUBPS dst_reg, src_reg*/
 }
 void
+host_x86_SUBPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0x5c, 0xc0 | src_reg | (dst_reg << 3)); /*SUBPD dst_reg, src_reg*/
+}
+void
 host_x86_SUBSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_alloc_bytes(block, 4);
     codegen_addbyte4(block, 0xf2, 0x0f, 0x5c, 0xc0 | src_reg | (dst_reg << 3));
+}
+void
+host_x86_SUBSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0xf3, 0x0f, 0x5c, 0xc0 | src_reg | (dst_reg << 3)); /*SUBSS dst_reg, src_reg*/
 }
 
 void
