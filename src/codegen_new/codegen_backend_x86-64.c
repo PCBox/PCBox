@@ -319,7 +319,7 @@ codegen_backend_init(void)
 #    endif
     host_x86_CALL(block, (void *) x86gpf);
     codegen_exit_rout = &codeblock[block_current].data[block_pos];
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x60);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x58);
     host_x86_POP(block, REG_R15);
     host_x86_POP(block, REG_R14);
     host_x86_POP(block, REG_R13);
@@ -362,7 +362,7 @@ codegen_backend_prologue(codeblock_t *block)
     host_x86_PUSH(block, REG_R15);
     /*Stack offsets 16-31 = integer temps, 32 = FPU TOP diff,
       40-55 = FP temps, 64-79 = 128-bit temp*/
-    host_x86_SUB64_REG_IMM(block, REG_RSP, 0x60);
+    host_x86_SUB64_REG_IMM(block, REG_RSP, 0x58);
     host_x86_MOV64_REG_IMM(block, REG_RBP, ((uintptr_t) &cpu_state) + 128);
     if (block->flags & CODEBLOCK_HAS_FPU) {
         host_x86_MOV32_REG_ABS(block, REG_EAX, &cpu_state.TOP);
@@ -376,7 +376,7 @@ codegen_backend_prologue(codeblock_t *block)
 void
 codegen_backend_epilogue(codeblock_t *block)
 {
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x60);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x58);
     host_x86_POP(block, REG_R15);
     host_x86_POP(block, REG_R14);
     host_x86_POP(block, REG_R13);
