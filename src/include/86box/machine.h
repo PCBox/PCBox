@@ -1428,6 +1428,9 @@ extern int             machine_at_cairo5_init(const machine_t *);
 /* m_at_socket423.c */
 extern int             machine_at_ms6529_init(const machine_t *);
 
+/* m_at_socket478.c */
+extern int             machine_at_platinix2_init(const machine_t *);
+
 /* m_at_slota.c */
 extern int machine_at_k7m_init(const machine_t *);
 
