@@ -23771,9 +23771,9 @@ const machine_t machines[] = {
         .bus_flags = MACHINE_PS2_NOISA,
         .flags = MACHINE_IDE_DUAL | MACHINE_SOUND,
         .ram = {
-            .min = 32768,
+            .min = 262144,
             .max = 3145728,
-            .step = 32768
+            .step = 262144
         },
         .nvrmask = 255,
         .jumpered_ecp_dma         = 0,
