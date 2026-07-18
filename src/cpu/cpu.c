@@ -4754,6 +4754,8 @@ i686_invalid_rdmsr:
                     EAX = 0xc4000000;
                     EDX = 0;
                     break;
+                case 0x2b:
+                    break;
                 /* BIOS_UPDT_TRIG - BIOS Update Trigger */
                 case 0x79:
                     EAX = msr.bios_updt & 0xffffffff;
@@ -6045,6 +6047,8 @@ i686_invalid_wrmsr:
                     break;
                 /* EBL_CR_POWERON - Processor Hard Power-On Configuration */
                 case 0x2a:
+                    break;
+                case 0x2b:
                     break;
                 /* TEST_CTL - Test Control Register */
                 case 0x33:
