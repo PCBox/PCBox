@@ -1068,8 +1068,8 @@ rivatnt_out(uint16_t addr, uint8_t val, void *p)
                     break;
             }
         }
-        if (svga->crtcreg > 0x18 && svga->crtcreg != 0x38 && svga->crtcreg != 0x19 && svga->crtcreg != 0x1a && svga->crtcreg != 0x25 && svga->crtcreg != 0x28)
-             pclog("RIVA TNT Extended CRTC write %02X %02x\n", svga->crtcreg, val);
+        //if (svga->crtcreg > 0x18 && svga->crtcreg != 0x38 && svga->crtcreg != 0x19 && svga->crtcreg != 0x1a && svga->crtcreg != 0x25 && svga->crtcreg != 0x28)
+        //     pclog("RIVA TNT Extended CRTC write %02X %02x\n", svga->crtcreg, val);
         if (old != val) {
             if ((svga->crtcreg < 0xe) || (svga->crtcreg > 0x10)) {
                 svga->fullchange = changeframecount;
