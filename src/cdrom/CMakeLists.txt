@@ -31,10 +31,7 @@ add_library(cdrom OBJECT
     cdrom_mke.c
     cdrom_chd.c
 )
-<<<<<<< HEAD
-=======
 target_link_libraries(cdrom chdr-static)
->>>>>>> b83106728c4925d9e7d40e95a262a3bea5d614d7
 if(NOT WIN32)
 	target_include_directories(PCBox PRIVATE PkgConfig::SNDFILE)
 endif()
