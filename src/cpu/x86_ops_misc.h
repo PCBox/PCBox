@@ -709,9 +709,9 @@ opHLT(UNUSED(uint32_t fetchdat))
     }
     if (smi_line)
         enter_smm_check(1);
-    else if (!((cpu_state.flags & I_FLAG) && pic.int_pending)) {
+    else if (!((cpu_state.flags & I_FLAG) && pic_pending_int())) {
         CLOCK_CYCLES_ALWAYS(100);
-        if (!((cpu_state.flags & I_FLAG) && pic.int_pending))
+        if (!((cpu_state.flags & I_FLAG) && pic_pending_int()))
             cpu_state.pc--;
     } else {
         CLOCK_CYCLES(5);

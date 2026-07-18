@@ -28,6 +28,7 @@
 #include "codegen.h"
 #include <86box/plat_unused.h>
 #include <86box/plat_fallthrough.h>
+#include <86box/apic.h>
 
 #define CPU_BLOCK_END() cpu_block_end = 1
 

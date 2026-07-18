@@ -127,8 +127,10 @@ typedef struct lapic_t
 #define IOAPIC_INTERRUPT_MASK 0x10000
 #define IOAPIC_DEST_MASK      0xE000000000000000ull
 
+#ifdef EMU_DEVICE_H
 extern const device_t i82093aa_ioapic_device;
 extern const device_t lapic_device;
+#endif
 
 /* Only one processor is emulated. */
 extern lapic_t* current_lapic;
