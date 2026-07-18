@@ -141,6 +141,7 @@ extern void apic_ioapic_set_base(uint8_t x_base, uint8_t y_base);
 extern void apic_lapic_set_base(uint32_t base);
 extern void apic_lapic_readd_mapping(void);
 extern uint8_t apic_lapic_is_irr_pending(void);
+extern void apic_ioapic_service_all(void *priv);
 extern void apic_ioapic_lapic_interrupt_check(ioapic_t* ioapic, uint8_t irq);
 extern void apic_ioapic_set_irq(ioapic_t* ioapic, uint8_t irq, int level);
 extern void apic_ioapic_clear_irq(ioapic_t* ioapic, uint8_t irq);

@@ -61,10 +61,32 @@ ioapic_i82093aa_reset(ioapic_t* ioapic)
     }
 }
 
+static int
+lapic_vector_active(lapic_t *lapic, uint8_t vector)
+{
+    const uint32_t mask = 1u << (vector & 31);
+    const uint8_t  idx  = vector >> 5;
+
+    if (lapic == NULL)
+        return 0;
+
+    return !!((lapic->irr_l[idx] | lapic->isr_l[idx]) & mask);
+}
+
+static void
+lapic_clear_tmr_vector(lapic_t *lapic, uint8_t vector)
+{
+    const uint32_t mask = 1u << (vector & 31);
+    const uint8_t  idx  = vector >> 5;
+
+    if (lapic != NULL)
+        lapic->tmr_l[idx] &= ~mask;
+}
+
 void
 apic_ioapic_lapic_interrupt_check(ioapic_t* ioapic, uint8_t irq)
 {
-    uint32_t mask = 1 << irq;
+    uint32_t mask = 1u << irq;
     apic_ioredtable_t service_parameters;
 
     if (irq >= 24)
@@ -80,14 +102,29 @@ apic_ioapic_lapic_interrupt_check(ioapic_t* ioapic, uint8_t irq)
     
     if (service_parameters.delmod == 2 || service_parameters.delmod == 4 || service_parameters.delmod == 5)
         service_parameters.trigmode = 0;
-    
-    if (service_parameters.trigmode == 0) {
+
+    if (!current_lapic)
+        return;
+
+    if (service_parameters.destmod == 0 && (service_parameters.dest_mask & 0xf) != ((current_lapic->lapic_id >> 24) & 0xf)) {
+        return;
+    }
+    if (service_parameters.destmod == 1 && !(((uint8_t)(service_parameters.dest_mask)) & (1 << ((current_lapic->lapic_id >> 24) & 0xff)))) {
+        return;
+    }
+
+    if (service_parameters.trigmode == 0)
         ioapic->irr &= ~mask;
-    } else {
-        ioapic->ioredtabl_s[irq].rirr = 1;
-        if (service_parameters.rirr == 1) {
-            return;
+    else {
+        if (ioapic->ioredtabl_s[irq].rirr) {
+            if (lapic_vector_active(current_lapic, service_parameters.intvec))
+                return;
+
+            ioapic->ioredtabl_s[irq].rirr = 0;
+            lapic_clear_tmr_vector(current_lapic, service_parameters.intvec);
         }
+
+        ioapic->ioredtabl_s[irq].rirr = 1;
     }
 
     if (service_parameters.delmod == 0b111) {
@@ -95,31 +132,24 @@ apic_ioapic_lapic_interrupt_check(ioapic_t* ioapic, uint8_t irq)
         return;
     }
 
-
-    if(current_lapic) {
-        if (service_parameters.destmod == 0 && (service_parameters.dest_mask & 0xf) != ((current_lapic->lapic_id >> 24) & 0xf)) {
-            return;
-        }
-        if (service_parameters.destmod == 1 && !(((uint8_t)(service_parameters.dest_mask)) & (1 << ((current_lapic->lapic_id >> 24) & 0xff)))) {
-            return;
-        }
-        lapic_service_interrupt(current_lapic, service_parameters);
-    }
+    lapic_service_interrupt(current_lapic, service_parameters);
 }
-
-void apic_ioapic_service_all(void* priv);
 
 void
 apic_ioapic_set_irq(ioapic_t* ioapic, uint8_t irq, int level)
 {
-    uint32_t mask = 1 << irq;
+    uint32_t mask = 1u << irq;
 
     if (irq >= 24)
         return;
 
-    if (level && (ioapic->irq_level & mask))
+    if (level && (ioapic->irq_level & mask)) {
+        if (ioapic->ioredtabl_s[irq].trigmode) {
+            ioapic->irr |= mask;
+            apic_ioapic_lapic_interrupt_check(ioapic, irq);
+        }
         return;
-    else if (level)
+    } else if (level)
         ioapic->irq_level |= mask;
 
     {

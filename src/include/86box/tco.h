@@ -20,6 +20,8 @@
 #ifndef EMU_TCO_H
 #define EMU_TCO_H
 
+#include <86box/timer.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -28,11 +30,14 @@ typedef struct
 {
     uint8_t  regs[17];
     uint16_t tco_irq;
+    uint8_t  smi_enabled;
+    pc_timer_t timer;
 } tco_t;
 
 extern const device_t tco_device;
 
 extern void    tco_irq_update(tco_t *dev, uint16_t new_irq);
+extern void    tco_set_smi_enable(tco_t *dev, int enable);
 extern void    tco_write(uint16_t addr, uint8_t val, tco_t *dev);
 extern uint8_t tco_read(uint16_t addr, tco_t *dev);
 

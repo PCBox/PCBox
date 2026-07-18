@@ -769,6 +769,9 @@ apic_only:
     if (!lapic_is_sw_enabled(current_lapic))
         return 0;
 
+    if (current_ioapic->irr)
+        apic_ioapic_service_all(current_ioapic);
+
     return lapic_irq_pending(current_lapic) > 0;
 }
 

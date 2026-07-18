@@ -118,7 +118,7 @@ intel_ich2_bioswe(intel_ich2_t *dev)
 static void
 intel_ich2_tco_interrupt(intel_ich2_t *dev)
 {
-    uint16_t tco_irq = ((dev->pci_conf[0][0x45] & 7) < 3) ? (9 + (dev->pci_conf[0][0x45] & 7)) : (20 + dev->pci_conf[0][0x44] & 3);
+    uint16_t tco_irq = ((dev->pci_conf[0][0x45] & 7) < 3) ? (9 + (dev->pci_conf[0][0x45] & 7)) : (20 + (dev->pci_conf[0][0x45] & 3));
     tco_irq_update(dev->tco, tco_irq);
 }
 
