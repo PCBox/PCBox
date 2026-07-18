@@ -80,4 +80,7 @@ ropParith(PSUBUSW)
 ropParith(PMADDWD)
 ropParith(PMULHW)
 ropParith(PMULLW)
+
+ropParith(PADDQ)
+ropParith(PSUBQ)
 // clang-format on

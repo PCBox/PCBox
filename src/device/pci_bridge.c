@@ -40,6 +40,7 @@
 #define AGP_BRIDGE_INTEL_440BX 0x80867191
 #define AGP_BRIDGE_INTEL_440GX 0x808671a1
 #define AGP_BRIDGE_INTEL_815EP 0x80861131
+#define AGP_BRIDGE_INTEL_845   0x80861a31
 #define AGP_BRIDGE_VIA_597     0x11068597
 #define AGP_BRIDGE_VIA_598     0x11068598
 #define AGP_BRIDGE_VIA_691     0x11068691
@@ -146,6 +147,8 @@ pci_bridge_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
                     val &= 0x1f;
                 else if (dev->local == AGP_BRIDGE_INTEL_815EP)
                     val &= 0x17;
+                else if (dev->local == AGP_BRIDGE_INTEL_845)
+                    val &= 0x07;
                 else if (dev->local == PCI_BRIDGE_INTEL_ICH2)
                     val &= 0x47;
             } else if (dev->local == AGP_BRIDGE_ALI_M5243)
@@ -174,7 +177,8 @@ pci_bridge_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
             break;
 
         case 0x07:
-            if ((dev->local == AGP_BRIDGE_INTEL_440LX) || (dev->local == AGP_BRIDGE_INTEL_815EP) || (dev->local == AGP_BRIDGE_AMD_751))
+            if ((dev->local == AGP_BRIDGE_INTEL_440LX) || (dev->local == AGP_BRIDGE_INTEL_815EP) ||
+                (dev->local == AGP_BRIDGE_INTEL_845) || (dev->local == AGP_BRIDGE_AMD_751))
                 dev->regs[addr] &= ~(val & 0x40);
             else if (dev->local == PCI_BRIDGE_INTEL_ICH2)
                 dev->regs[addr] &= ~(val & 0xf9);
@@ -212,7 +216,7 @@ pci_bridge_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
                     dev->regs[addr] &= ~(val & 0xf1);
                 else if ((dev->local == AGP_BRIDGE_INTEL_440BX) || (dev->local == AGP_BRIDGE_INTEL_440GX))
                     dev->regs[addr] &= ~(val & 0xf0);
-                else if (dev->local == AGP_BRIDGE_INTEL_815EP)
+                else if ((dev->local == AGP_BRIDGE_INTEL_815EP) || (dev->local == AGP_BRIDGE_INTEL_845))
                     dev->regs[addr] &= ~(val & 0xb2);
             } else if (AGP_BRIDGE_ALI(dev->local))
                 dev->regs[addr] &= ~(val & 0xf0);
@@ -221,7 +225,8 @@ pci_bridge_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
             return;
 
         case 0x1b:
-            if ((dev->local == AGP_BRIDGE_INTEL_815EP) || (dev->local == PCI_BRIDGE_INTEL_ICH2))
+            if ((dev->local == AGP_BRIDGE_INTEL_815EP) || (dev->local == AGP_BRIDGE_INTEL_845) ||
+                (dev->local == PCI_BRIDGE_INTEL_ICH2))
                 val &= 0xf8;
             break;
 
@@ -277,7 +282,8 @@ pci_bridge_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
         case 0x40:
             if (dev->local == PCI_BRIDGE_DEC_21150)
                 val &= 0x32;
-            else if ((dev->local == AGP_BRIDGE_INTEL_815EP) || (dev->local == PCI_BRIDGE_INTEL_ICH2))
+            else if ((dev->local == AGP_BRIDGE_INTEL_815EP) || (dev->local == AGP_BRIDGE_INTEL_845) ||
+                     (dev->local == PCI_BRIDGE_INTEL_ICH2))
                 val &= 0x01;
             else if (dev->local == PCI_BRIDGE_DEC_21152)
                 val &= 0x12;
@@ -537,6 +543,11 @@ pci_bridge_reset(void *priv)
             dev->regs[0x08] = 0x02;
             break;
 
+        case AGP_BRIDGE_INTEL_845:
+            dev->regs[0x06] = 0xa0;
+            dev->regs[0x08] = 0x04;
+            break;
+
         case AGP_BRIDGE_VIA_597:
         case AGP_BRIDGE_VIA_598:
         case AGP_BRIDGE_VIA_691:
@@ -790,6 +801,20 @@ const device_t intel_815ep_agp_device = {
     .close         = NULL,
     .reset         = pci_bridge_reset,
     .available = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t intel_845_agp_device = {
+    .name          = "Intel 845 MCH AGP Bridge",
+    .internal_name = "intel_845_agp",
+    .flags         = DEVICE_PCI,
+    .local         = AGP_BRIDGE_INTEL_845,
+    .init          = pci_bridge_init,
+    .close         = NULL,
+    .reset         = pci_bridge_reset,
+    .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = NULL

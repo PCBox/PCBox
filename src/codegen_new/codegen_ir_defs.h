@@ -367,16 +367,60 @@
 /*UOP_PAVGUSB - (packed byte) dest_reg = (src_reg_a + src_reg_b + 1) >> 1*/
 #define UOP_PAVGUSB (UOP_TYPE_PARAMS_REGS | 0xc8)
 
-/*UOP_UNPCKLPS - dest_reg = interleave low packed singles from src_reg_a/src_reg_b*/
-#define UOP_UNPCKLPS (UOP_TYPE_PARAMS_REGS | 0xd0)
-/*UOP_UNPCKLPD - dest_reg = interleave low packed doubles from src_reg_a/src_reg_b*/
-#define UOP_UNPCKLPD (UOP_TYPE_PARAMS_REGS | 0xd1)
 
 /*UOP_SSE_ENTER - must be called before any SSE registers accessed*/
 #define UOP_SSE_ENTER (0xce | UOP_TYPE_BARRIER)
 #define UOP_CHECK_ALIGN (0xcf | UOP_TYPE_BARRIER)
 
-#define UOP_MAX     0xd2
+/*UOP_UNPCKLPS - dest_reg = interleave low packed singles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKLPS (UOP_TYPE_PARAMS_REGS | 0xd0)
+/*UOP_UNPCKLPD - dest_reg = interleave low packed doubles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKLPD (UOP_TYPE_PARAMS_REGS | 0xd1)
+
+/*UOP_UNPCKHPS - dest_reg = interleave high packed singles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKHPS (UOP_TYPE_PARAMS_REGS | 0xd2)
+/*UOP_UNPCKHPD - dest_reg = interleave high packed doubles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKHPD (UOP_TYPE_PARAMS_REGS | 0xd3)
+
+/*UOP_ADDPS - dest_reg = packed single src_reg_a + src_reg_b*/
+#define UOP_ADDPS (UOP_TYPE_PARAMS_REGS | 0xd4)
+/*UOP_ADDPD - dest_reg = packed double src_reg_a + src_reg_b*/
+#define UOP_ADDPD (UOP_TYPE_PARAMS_REGS | 0xd5)
+/*UOP_ADDSS - dest_reg[31:0] = src_reg_a[31:0] + src_reg_b[31:0], dest_reg[127:32] = src_reg_a[127:32]*/
+#define UOP_ADDSS (UOP_TYPE_PARAMS_REGS | 0xd6)
+/*UOP_ADDSD - dest_reg[63:0] = src_reg_a[63:0] + src_reg_b[63:0], dest_reg[127:64] = src_reg_a[127:64]*/
+#define UOP_ADDSD (UOP_TYPE_PARAMS_REGS | 0xd7)
+/*UOP_MULPS - dest_reg = packed single src_reg_a * src_reg_b*/
+#define UOP_MULPS (UOP_TYPE_PARAMS_REGS | 0xd8)
+/*UOP_MULPD - dest_reg = packed double src_reg_a * src_reg_b*/
+#define UOP_MULPD (UOP_TYPE_PARAMS_REGS | 0xd9)
+/*UOP_MULSS - dest_reg[31:0] = src_reg_a[31:0] * src_reg_b[31:0], dest_reg[127:32] = src_reg_a[127:32]*/
+#define UOP_MULSS (UOP_TYPE_PARAMS_REGS | 0xda)
+/*UOP_MULSD - dest_reg[63:0] = src_reg_a[63:0] * src_reg_b[63:0], dest_reg[127:64] = src_reg_a[127:64]*/
+#define UOP_MULSD (UOP_TYPE_PARAMS_REGS | 0xdb)
+/*UOP_SUBPS - dest_reg = packed single src_reg_a - src_reg_b*/
+#define UOP_SUBPS (UOP_TYPE_PARAMS_REGS | 0xdc)
+/*UOP_SUBPD - dest_reg = packed double src_reg_a - src_reg_b*/
+#define UOP_SUBPD (UOP_TYPE_PARAMS_REGS | 0xdd)
+/*UOP_SUBSS - dest_reg[31:0] = src_reg_a[31:0] - src_reg_b[31:0], dest_reg[127:32] = src_reg_a[127:32]*/
+#define UOP_SUBSS (UOP_TYPE_PARAMS_REGS | 0xde)
+/*UOP_SUBSD - dest_reg[63:0] = src_reg_a[63:0] - src_reg_b[63:0], dest_reg[127:64] = src_reg_a[127:64]*/
+#define UOP_SUBSD (UOP_TYPE_PARAMS_REGS | 0xdf)
+/*UOP_DIVPS - dest_reg = packed single src_reg_a / src_reg_b*/
+#define UOP_DIVPS (UOP_TYPE_PARAMS_REGS | 0xe0)
+/*UOP_DIVPD - dest_reg = packed double src_reg_a / src_reg_b*/
+#define UOP_DIVPD (UOP_TYPE_PARAMS_REGS | 0xe1)
+/*UOP_DIVSS - dest_reg[31:0] = src_reg_a[31:0] / src_reg_b[31:0], dest_reg[127:32] = src_reg_a[127:32]*/
+#define UOP_DIVSS (UOP_TYPE_PARAMS_REGS | 0xe2)
+/*UOP_DIVSD - dest_reg[63:0] = src_reg_a[63:0] / src_reg_b[63:0], dest_reg[127:64] = src_reg_a[127:64]*/
+#define UOP_DIVSD (UOP_TYPE_PARAMS_REGS | 0xe3)
+
+/*UOP_PADDQ - (packed quad) dest_reg = src_reg_a + src_reg_b*/
+#define UOP_PADDQ (UOP_TYPE_PARAMS_REGS | 0xe4)
+/*UOP_PSUBQ - (packed quad) dest_reg = src_reg_a - src_reg_b*/
+#define UOP_PSUBQ (UOP_TYPE_PARAMS_REGS | 0xe5)
+
+#define UOP_MAX     0xe6
 
 #define UOP_INVALID 0xff
 
@@ -912,6 +956,7 @@ extern int codegen_fp_enter(void);
 #define uop_PADDB(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PADDB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDW(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PADDW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PADDD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PADDQ(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PADDQ, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDSB(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PADDSB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDSW(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PADDSW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDUSB(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PADDUSB, ir, dst_reg, src_reg_a, src_reg_b)
@@ -962,6 +1007,7 @@ extern int codegen_fp_enter(void);
 #define uop_PSUBB(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PSUBB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBW(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PSUBW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PSUBD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PSUBQ(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PSUBQ, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBSB(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PSUBSB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBSW(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PSUBSW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBUSB(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PSUBUSB, ir, dst_reg, src_reg_a, src_reg_b)
@@ -976,6 +1022,26 @@ extern int codegen_fp_enter(void);
 
 #define uop_UNPCKLPS(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKLPS, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_UNPCKLPD(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKLPD, ir, dst_reg, src_reg_a, src_reg_b)
+
+#define uop_UNPCKHPS(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKHPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_UNPCKHPD(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKHPD, ir, dst_reg, src_reg_a, src_reg_b)
+
+#define uop_ADDPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_ADDPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_ADDPD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_ADDPD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_ADDSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_ADDSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_ADDSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_ADDSD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MULPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MULPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MULPD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MULPD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MULSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MULSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MULSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MULSD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_SUBPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_SUBPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_SUBPD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_SUBPD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_SUBSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_SUBSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_SUBSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_SUBSD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_DIVPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_DIVPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_DIVPD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_DIVPD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_DIVSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_DIVSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_DIVSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_DIVSD, ir, dst_reg, src_reg_a, src_reg_b)
 
 #define uop_STORE_PTR_IMM(ir, p, imm)                                    uop_gen_pointer_imm(UOP_STORE_P_IMM, ir, p, imm)
 #define uop_STORE_PTR_IMM_8(ir, p, imm)                                  uop_gen_pointer_imm(UOP_STORE_P_IMM_8, ir, p, imm)

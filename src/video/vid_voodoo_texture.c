@@ -237,6 +237,19 @@ voodoo_recalc_tex3(voodoo_t *voodoo, int tmu)
 
 #define makergba(r, g, b, a) ((b) | ((g) << 8) | ((r) << 16) | ((a) << 24))
 
+static inline int
+voodoo_texture_entry_idle(const voodoo_t *voodoo, texture_t *texture)
+{
+    const int refcount = ATOMIC_LOAD(texture->refcount);
+
+    for (int thread = 0; thread < voodoo->render_threads; thread++) {
+        if (ATOMIC_LOAD(texture->refcount_r[thread]) != refcount)
+            return 0;
+    }
+
+    return 1;
+}
+
 void
 voodoo_use_texture(voodoo_t *voodoo, voodoo_params_t *params, int tmu)
 {
@@ -273,7 +286,7 @@ voodoo_use_texture(voodoo_t *voodoo, voodoo_params_t *params, int tmu)
     for (c = 0; c < TEX_CACHE_MAX; c++) {
         if (voodoo->texture_cache[tmu][c].base == addr && voodoo->texture_cache[tmu][c].tLOD == (params->tLOD[tmu] & 0xf00fff) && voodoo->texture_cache[tmu][c].palette_checksum == palette_checksum) {
             params->tex_entry[tmu] = c;
-            voodoo->texture_cache[tmu][c].refcount++;
+            ATOMIC_INC(voodoo->texture_cache[tmu][c].refcount);
             return;
         }
     }
@@ -283,7 +296,7 @@ voodoo_use_texture(voodoo_t *voodoo, voodoo_params_t *params, int tmu)
         for (c = 0; c < TEX_CACHE_MAX; c++) {
             voodoo->texture_last_removed++;
             voodoo->texture_last_removed &= (TEX_CACHE_MAX - 1);
-            if (voodoo->texture_cache[tmu][voodoo->texture_last_removed].refcount == voodoo->texture_cache[tmu][voodoo->texture_last_removed].refcount_r[0] && (voodoo->render_threads == 1 || voodoo->texture_cache[tmu][voodoo->texture_last_removed].refcount == voodoo->texture_cache[tmu][voodoo->texture_last_removed].refcount_r[1]))
+            if (voodoo_texture_entry_idle(voodoo, &voodoo->texture_cache[tmu][voodoo->texture_last_removed]))
                 break;
         }
         if (c == TEX_CACHE_MAX)
@@ -545,7 +558,7 @@ voodoo_use_texture(voodoo_t *voodoo, voodoo_params_t *params, int tmu)
     }
 
     params->tex_entry[tmu] = c;
-    voodoo->texture_cache[tmu][c].refcount++;
+    ATOMIC_INC(voodoo->texture_cache[tmu][c].refcount);
 }
 
 void
@@ -574,7 +587,7 @@ flush_texture_cache(voodoo_t *voodoo, uint32_t dirty_addr, int tmu)
                         voodoo_texture_log("  Evict texture %i %08x\n", c, voodoo->texture_cache[tmu][c].base);
 #endif
 
-                        if (voodoo->texture_cache[tmu][c].refcount != voodoo->texture_cache[tmu][c].refcount_r[0] || (voodoo->render_threads == 2 && voodoo->texture_cache[tmu][c].refcount != voodoo->texture_cache[tmu][c].refcount_r[1]))
+                        if (!voodoo_texture_entry_idle(voodoo, &voodoo->texture_cache[tmu][c]))
                             wait_for_idle = 1;
 
                         voodoo->texture_cache[tmu][c].base = -1;

@@ -1439,8 +1439,8 @@ next_line:
         state->xend += state->dx2;
     }
 
-    voodoo->texture_cache[0][params->tex_entry[0]].refcount_r[odd_even]++;
-    voodoo->texture_cache[1][params->tex_entry[1]].refcount_r[odd_even]++;
+    ATOMIC_INC(voodoo->texture_cache[0][params->tex_entry[0]].refcount_r[odd_even]);
+    ATOMIC_INC(voodoo->texture_cache[1][params->tex_entry[1]].refcount_r[odd_even]);
 }
 
 void

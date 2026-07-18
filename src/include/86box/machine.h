@@ -205,6 +205,8 @@ enum {
     MACHINE_TYPE_SLOT1_370,
     MACHINE_TYPE_SLOT2,
     MACHINE_TYPE_SOCKET370,
+    MACHINE_TYPE_SOCKET423,
+    MACHINE_TYPE_SOCKET478,
     MACHINE_TYPE_MISC,
     MACHINE_TYPE_MAX
 };
@@ -257,6 +259,7 @@ enum {
     MACHINE_CHIPSET_INTEL_440ZX,
     MACHINE_CHIPSET_INTEL_440GX,
     MACHINE_CHIPSET_INTEL_I815EP,
+    MACHINE_CHIPSET_INTEL_I845,
     MACHINE_CHIPSET_OPTI_283,
     MACHINE_CHIPSET_OPTI_291,
     MACHINE_CHIPSET_OPTI_381,
@@ -1421,6 +1424,9 @@ extern const device_t  ms6318_device;
 #endif
 extern int             machine_at_ms6318_init(const machine_t *);
 extern int             machine_at_cairo5_init(const machine_t *);
+
+/* m_at_socket423.c */
+extern int             machine_at_ms6529_init(const machine_t *);
 
 /* m_at_slota.c */
 extern int machine_at_k7m_init(const machine_t *);
