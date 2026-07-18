@@ -23697,6 +23697,54 @@ const machine_t machines[] = {
         .aliases                  = { "MSI MS-6309", "" }
     },
 
+    {
+        .name = "[Intel i845] MSI MS-6529",
+        .internal_name = "ms6529",
+        .type = MACHINE_TYPE_SOCKET423,
+        .chipset = MACHINE_CHIPSET_INTEL_I845,
+        .init = machine_at_ms6529_init,
+        .p1_handler = NULL,
+        .gpio_handler = NULL,
+        .available_flag = MACHINE_AVAILABLE,
+        .gpio_acpi_handler = NULL,
+        .cpu = {
+            .package = CPU_PKG_SOCKET423,
+            .block = CPU_BLOCK_NONE,
+            .min_bus = 200000000,
+            .max_bus = 200000000,
+            .min_voltage = 1300,
+            .max_voltage = 3500,
+            .min_multi = 1.0,
+            .max_multi = 8.0
+        },
+        .bus_flags = MACHINE_PS2_NOISA,
+        .flags = MACHINE_IDE_DUAL | MACHINE_SOUND,
+        .ram = {
+            .min = 262144,
+            .max = 3145728,
+            .step = 262144
+        },
+        .nvrmask = 255,
+        .jumpered_ecp_dma         = 0,
+        .default_jumpered_ecp_dma = -1,
+        .kbc_device               = NULL,
+        .kbc_params               = 0,
+        .nvr_device               = NULL,
+        .nvr_params               = 0x00000000,
+        .sio_device               = &w83627hf_device,
+        .sio_params               = 0x00000000,
+        .kbc_p1                   = 0x00000cf0,
+        .gpio                     = 0xffffffff,
+        .gpio_acpi                = 0xffffffff,
+        .device = NULL,
+        .kbd_device               = NULL,
+        .fdc_device = NULL,
+        .vid_device = NULL,
+        .snd_device = NULL,
+        .net_device = NULL,
+        .aliases                  = { "" }
+    },
+
     /* Miscellaneous/Fake/Hypervisor machines */
     /* Has a Winbond W83977F Super I/O chip with on-chip KBC with AMIKey-2 KBC
        firmware. */
@@ -23745,54 +23793,6 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = NULL,
         .net_device               = NULL,
-        .aliases                  = { "" }
-    },
-
-    {
-        .name = "[Intel i845] MSI MS-6529",
-        .internal_name = "ms6529",
-        .type = MACHINE_TYPE_SOCKET423,
-        .chipset = MACHINE_CHIPSET_INTEL_I845,
-        .init = machine_at_ms6529_init,
-        .p1_handler = NULL,
-        .gpio_handler = NULL,
-        .available_flag = MACHINE_AVAILABLE,
-        .gpio_acpi_handler = NULL,
-        .cpu = {
-            .package = CPU_PKG_SOCKET423,
-            .block = CPU_BLOCK_NONE,
-            .min_bus = 200000000,
-            .max_bus = 200000000,
-            .min_voltage = 1300,
-            .max_voltage = 3500,
-            .min_multi = 1.0,
-            .max_multi = 8.0
-        },
-        .bus_flags = MACHINE_PS2_NOISA,
-        .flags = MACHINE_IDE_DUAL | MACHINE_SOUND,
-        .ram = {
-            .min = 262144,
-            .max = 3145728,
-            .step = 262144
-        },
-        .nvrmask = 255,
-        .jumpered_ecp_dma         = 0,
-        .default_jumpered_ecp_dma = -1,
-        .kbc_device               = NULL,
-        .kbc_params               = 0,
-        .nvr_device               = NULL,
-        .nvr_params               = 0x00000000,
-        .sio_device               = &w83627hf_device,
-        .sio_params               = 0x00000000,
-        .kbc_p1                   = 0x00000cf0,
-        .gpio                     = 0xffffffff,
-        .gpio_acpi                = 0xffffffff,
-        .device = NULL,
-        .kbd_device               = NULL,
-        .fdc_device = NULL,
-        .vid_device = NULL,
-        .snd_device = NULL,
-        .net_device = NULL,
         .aliases                  = { "" }
     },
 
