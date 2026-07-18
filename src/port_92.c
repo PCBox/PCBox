@@ -100,20 +100,24 @@ port_92_writeb(uint16_t port, uint8_t val, void *priv)
 
     dev->reg = val & 0x03;
 
-    if (dev->flags & PORT_92_KEY) {
-        mem_a20_key = val & 2;
-        mem_a20_recalc();
-    } else if ((mem_a20_alt ^ val) & 2) {
-        mem_a20_alt = (mem_a20_alt & 0xfd) | (val & 2);
-        mem_a20_recalc();
+    if (dev->flags & PORT_92_A20) {
+        if (dev->flags & PORT_92_KEY) {
+            mem_a20_key = val & 2;
+            mem_a20_recalc();
+        } else if ((mem_a20_alt ^ val) & 2) {
+            mem_a20_alt = (mem_a20_alt & 0xfd) | (val & 2);
+            mem_a20_recalc();
+        }
     }
 
-    if ((~cpu_alt_reset & val) & 1)
-        timer_set_delay_u64(&dev->pulse_timer, dev->pulse_period);
-    else if (!(val & 1))
-        timer_disable(&dev->pulse_timer);
+    if (dev->flags & PORT_92_RESET) {
+        if ((~cpu_alt_reset & val) & 1)
+            timer_set_delay_u64(&dev->pulse_timer, dev->pulse_period);
+        else if (!(val & 1))
+            timer_disable(&dev->pulse_timer);
 
-    cpu_alt_reset = (val & 1);
+        cpu_alt_reset = val & 1;
+    }
 
     if (dev->flags & PORT_92_INV)
         dev->reg |= 0xfc;
@@ -145,6 +149,8 @@ port_92_set_features(void *priv, int reset, int a20)
 
     if (reset)
         dev->flags |= PORT_92_RESET;
+    else
+        cpu_alt_reset = 0;
 
     timer_disable(&dev->pulse_timer);
 

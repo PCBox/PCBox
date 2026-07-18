@@ -97,7 +97,7 @@ intel_ich2_trap_init(UNUSED(const device_t *info))
 
     intel_ich2_trap_log("Intel ICH2 Trap: Starting a new Trap handler.");
 
-    io_trap_add(intel_ich2_trap_kick, dev);
+    dev->trap = io_trap_add(intel_ich2_trap_kick, dev);
 
     return dev;
 }

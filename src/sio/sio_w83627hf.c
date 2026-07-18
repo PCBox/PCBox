@@ -487,6 +487,7 @@ w83627hf_kbc_write(uint16_t cur_reg, uint8_t val, w83627hf_t *dev)
     uint16_t kbc_base;
     uint16_t kbc_base_cmd;
     int      local_enable;
+    int      port_92_enable;
 
     switch (cur_reg) {
         case 0x30:
@@ -518,6 +519,7 @@ w83627hf_kbc_write(uint16_t cur_reg, uint8_t val, w83627hf_t *dev)
     }
 
     local_enable = !!(dev->dev_regs[5][0x30] & 1);
+    port_92_enable = local_enable && !!(dev->dev_regs[5][0xf0] & 0x04);
     kbc_base     = (dev->dev_regs[5][0x60] << 8) | dev->dev_regs[5][0x61];
     kbc_base_cmd = (dev->dev_regs[5][0x62] << 8) | dev->dev_regs[5][0x63];
 
@@ -532,9 +534,11 @@ w83627hf_kbc_write(uint16_t cur_reg, uint8_t val, w83627hf_t *dev)
                        dev->kbc);
     }
 
-    if (dev->dev_regs[5][0x30] & 1) {
-        /* We don't disable Port 92h as intended because the BIOSes never enable it back, causing issues. */
-        port_92_set_features(dev->port_92, !!(dev->dev_regs[5][0xf0] & 1), !!(dev->dev_regs[5][0xf0] & 2));
+    port_92_set_features(dev->port_92,
+                         port_92_enable && !!(dev->dev_regs[5][0xf0] & 0x01),
+                         port_92_enable && !!(dev->dev_regs[5][0xf0] & 0x02));
+
+    if (local_enable) {
         w83627hf_log("W83627HF-PORT92: FASTA20: %d FASTRESET: %d\n", !!(dev->dev_regs[5][0xf0] & 2), !!(dev->dev_regs[5][0xf0] & 1));
         w83627hf_log("W83627HF-KBC: BASE: %04x CMD: %04x IRQ: %d AUX IRQ: %d\n",
                      kbc_base, kbc_base_cmd, dev->dev_regs[5][0x70], dev->dev_regs[5][0x72]);

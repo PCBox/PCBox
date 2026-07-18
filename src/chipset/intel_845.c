@@ -77,6 +77,21 @@ intel_845_tom(const intel_845_t *dev)
     return (uint32_t) tom << 16;
 }
 
+static uint16_t
+intel_845_default_tom_reg(void)
+{
+    uint16_t tom = (mem_size >> 6) & 0xfff0;
+
+    return (tom < 0x0200) ? 0x0200 : tom;
+}
+
+static void
+intel_845_set_tom_reg(intel_845_t *dev, uint16_t tom)
+{
+    dev->pci_conf[0xc4] = tom & 0xff;
+    dev->pci_conf[0xc5] = tom >> 8;
+}
+
 static void
 intel_845_agp_aperture(intel_845_t *dev)
 {
@@ -561,9 +576,8 @@ intel_845_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
     }
 
     reg = dev->pci_conf[0xc4] | (dev->pci_conf[0xc5] << 8);
-    if ((addr == 0xc4 || addr == 0xc5) && (reg < 0x0100)) {
-        dev->pci_conf[0xc4] = 0x00;
-        dev->pci_conf[0xc5] = 0x01;
+    if ((addr == 0xc4 || addr == 0xc5) && (reg < 0x0200)) {
+        intel_845_set_tom_reg(dev, intel_845_default_tom_reg());
         intel_845_smram_recalc(dev);
     }
 }
@@ -618,8 +632,7 @@ intel_845_reset(void *priv)
     dev->pci_conf[0xa4] = 0x17; /* AGPSTAT */
     dev->pci_conf[0xa5] = 0x02;
     dev->pci_conf[0xa7] = 0x1f;
-    dev->pci_conf[0xc4] = 0x00; /* TOM - 16 MB */
-    dev->pci_conf[0xc5] = 0x01;
+    intel_845_set_tom_reg(dev, intel_845_default_tom_reg()); /* TOM */
     dev->pci_conf[0xe4] = 0x09; /* CAPID */
     dev->pci_conf[0xe5] = 0xa0;
     dev->pci_conf[0xe6] = 0x04;

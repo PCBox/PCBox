@@ -483,8 +483,7 @@ intel_ich2_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
                 break;
 
             case 0xa4:
-                dev->pci_conf[func][addr] = val & 1;
-                dev->pci_conf[func][addr] &= val & 6;
+                dev->pci_conf[func][addr] = val & 7;
                 break;
 
             case 0xb8 ... 0xbb:

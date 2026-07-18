@@ -56,7 +56,6 @@ machine_at_ms6529_init(const machine_t *model)
     pci_register_bus_slot(0, 0x01, PCI_CARD_AGPBRIDGE,   1, 2, 3, 4);
     pci_register_bus_slot(0, 0x1e, PCI_CARD_BRIDGE,      0, 0, 0, 0);
     pci_register_bus_slot(0, 0x1f, PCI_CARD_SOUTHBRIDGE, 1, 2, 8, 4);
-    pci_register_bus_slot(1, 0x01, PCI_CARD_AGP,         1, 2, 3, 4);
     pci_register_bus_slot(2, 0x03, PCI_CARD_NORMAL,      1, 2, 3, 4);
     pci_register_bus_slot(2, 0x04, PCI_CARD_NORMAL,      2, 3, 4, 1);
     pci_register_bus_slot(2, 0x05, PCI_CARD_NORMAL,      3, 4, 1, 2);
@@ -66,8 +65,8 @@ machine_at_ms6529_init(const machine_t *model)
     device_add(&intel_845_device);          /* Intel 845 MCH */
     device_add(&intel_ich2_device);         /* Intel ICH2 */
     device_add(&w83627hf_device);          /* Winbond W83627HF */
-    device_add(&intel_flash_bxt_device);  /* SST 4Mbit Firmware Hub */
-    device_add(ics9xxx_get(ICS9250_08));    /* ICS Clock Chip */
+    device_add(&sst_flash_49lf002_device);   /* SST 49LF002 2 Mbit Firmware Hub */
+    device_add(ics9xxx_get(ICS9502_08));    /* ICS950208 Clock Chip */
     intel_845_spd_init();                   /* SPD */
 #if 0
     spd_register(SPD_TYPE_SDRAM, 0x7, 512); /* SPD */

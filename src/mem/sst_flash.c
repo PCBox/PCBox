@@ -33,7 +33,7 @@ typedef struct sst_t {
     uint8_t manufacturer;
     uint8_t id;
     uint8_t has_bbp;
-    uint8_t is_39;
+    uint8_t is_39; /* SST39/SST49 byte-program command set. */
     uint8_t page_bytes;
     uint8_t sdp;
     uint8_t bbp_first_8k;
@@ -46,6 +46,7 @@ typedef struct sst_t {
     uint32_t size;
     uint32_t mask;
     uint32_t page_mask;
+    uint32_t block_erase_size;
     uint32_t page_base;
     uint32_t last_addr;
 
@@ -64,6 +65,7 @@ static char flash_path[1024];
 #define SST_CHIP_ERASE      0x10 /* Both 29 and 39, 6th cycle */
 #define SST_SDP_DISABLE     0x20 /* Only 29, Software data protect disable and write - treat as write */
 #define SST_SECTOR_ERASE    0x30 /* Only 39, 6th cycle */
+#define SST_BLOCK_ERASE     0x50 /* Only 49, 6th cycle */
 #define W_BOOT_BLOCK_PROT   0x40 /* Only W29C020 */
 #define SST_SET_ID_MODE_ALT 0x60 /* Only 29, 6th cycle */
 #define SST_ERASE           0x80 /* Both 29 and 39 */
@@ -143,6 +145,43 @@ static char flash_path[1024];
 #define SIZE_8M     0x100000
 #define SIZE_16M    0x200000
 
+static int
+sst_is_byte_program_device(uint16_t id)
+{
+    switch (id) {
+        case SST49LF002:
+        case SST49LF020:
+        case SST49LF020A:
+        case SST49LF003:
+        case SST49LF004:
+        case SST49LF004C:
+        case SST49LF040:
+        case SST49LF008:
+        case SST49LF008C:
+        case SST49LF080:
+        case SST49LF030:
+        case SST49LF160:
+        case SST49LF016:
+            return 1;
+
+        default:
+            return id >= SST39SF512;
+    }
+}
+
+static uint32_t
+sst_block_erase_size(uint16_t id)
+{
+    switch (id) {
+        case SST49LF020:
+        case SST49LF020A:
+            return 0x4000;
+
+        default:
+            return 0;
+    }
+}
+
 static void
 sst_sector_erase(sst_t *dev, uint32_t addr)
 {
@@ -197,6 +236,25 @@ sst_sector_erase(sst_t *dev, uint32_t addr)
 }
 
 static void
+sst_block_erase(sst_t *dev, uint32_t addr)
+{
+    uint32_t base;
+
+    if (!dev->block_erase_size)
+        return;
+
+    base = addr & (dev->mask & ~(dev->block_erase_size - 1));
+
+    if ((base < 0x2000) && (dev->bbp_first_8k & 0x01))
+        return;
+    else if (((base + dev->block_erase_size) > (dev->size - 0x2000)) && (dev->bbp_last_8k & 0x01))
+        return;
+
+    memset(&dev->array[base], 0xff, dev->block_erase_size);
+    dev->dirty = 1;
+}
+
+static void
 sst_new_command(sst_t *dev, uint32_t addr, uint8_t val)
 {
     uint32_t base = 0x00000;
@@ -226,6 +284,11 @@ sst_new_command(sst_t *dev, uint32_t addr, uint8_t val)
             case SST_SECTOR_ERASE:
                 if (dev->is_39)
                     sst_sector_erase(dev, addr);
+                dev->command_state = 0;
+                break;
+
+            case SST_BLOCK_ERASE:
+                sst_block_erase(dev, addr);
                 dev->command_state = 0;
                 break;
 
@@ -538,7 +601,8 @@ sst_init(const device_t *info)
     dev->manufacturer = info->local & 0xff;
     dev->id           = (info->local >> 8) & 0xff;
     dev->has_bbp      = (dev->manufacturer == WINBOND) && ((info->local & 0xff00) >= W29C020);
-    dev->is_39        = (dev->manufacturer == SST) && ((info->local & 0xff00) >= SST39SF512);
+    dev->is_39        = (dev->manufacturer == SST) && sst_is_byte_program_device(info->local & 0xff00);
+    dev->block_erase_size = (dev->manufacturer == SST) ? sst_block_erase_size(info->local & 0xff00) : 0;
     if (dev->manufacturer == AMD)
         dev->is_39    = 1;
 

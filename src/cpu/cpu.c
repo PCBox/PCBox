@@ -4749,6 +4749,11 @@ i686_invalid_rdmsr:
                     EAX = msr.ecx20 & 0xffffffff;
                     EDX = msr.ecx20 >> 32;
                     break;
+                /* EBL_CR_POWERON - Processor Hard Power-On Configuration */
+                case 0x2a:
+                    EAX = 0xc4000000;
+                    EDX = 0;
+                    break;
                 /* BIOS_UPDT_TRIG - BIOS Update Trigger */
                 case 0x79:
                     EAX = msr.bios_updt & 0xffffffff;
