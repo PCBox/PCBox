@@ -30,6 +30,7 @@ typedef struct ioapic_t
             uint32_t ioapicd;
             uint32_t ioapicver;
             uint32_t ioapicarb;
+            uint32_t bootcfg;
             union {
                 uint64_t ioredtabl[IOAPIC_RED_TABL_SIZE];
                 apic_ioredtable_t ioredtabl_s[IOAPIC_RED_TABL_SIZE];
@@ -136,6 +137,7 @@ extern ioapic_t* current_ioapic;
 
 extern void apic_ioapic_set_base(uint8_t x_base, uint8_t y_base);
 extern void apic_lapic_set_base(uint32_t base);
+extern void apic_lapic_readd_mapping(void);
 extern uint8_t apic_lapic_is_irr_pending(void);
 extern void apic_ioapic_lapic_interrupt_check(ioapic_t* ioapic, uint8_t irq);
 extern void apic_ioapic_set_irq(ioapic_t* ioapic, uint8_t irq, int level);

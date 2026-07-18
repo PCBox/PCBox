@@ -97,6 +97,7 @@ intel_845_agp_aperture(intel_845_t *dev)
 {
     uint32_t aperture_base;
     uint32_t aperture_size;
+    uint64_t aperture_end;
     int      aperture_enable;
 
     dev->pci_conf[0x10] = 0x08;
@@ -109,7 +110,13 @@ intel_845_agp_aperture(intel_845_t *dev)
     dev->pci_conf[0x13] = (aperture_base >> 24) & 0xff;
 
     aperture_size   = ((uint32_t) ((~dev->pci_conf[0xb4] & 0x3f) + 1)) << 22;
-    aperture_enable = !!(dev->pci_conf[0x51] & 0x02) && (aperture_base != 0);
+    aperture_end    = (uint64_t) aperture_base + aperture_size;
+    aperture_enable = !!(dev->pci_conf[0x51] & 0x02) &&
+                      (aperture_base != 0) &&
+                      (dev->agpgart->gart_base != 0) &&
+                      (aperture_base >= intel_845_tom(dev)) &&
+                      (aperture_end > aperture_base) &&
+                      (aperture_end <= 0x100000000ULL);
 
     if (aperture_enable)
         intel_845_log("Intel 845 MCH: AGP aperture enabled at %08x, size %u MB\n",
@@ -129,6 +136,7 @@ intel_845_gart_table(intel_845_t *dev)
     intel_845_log("Intel 845 MCH: AGP GART base updated to %08x\n", agp_gart_base);
 
     agpgart_set_gart(dev->agpgart, agp_gart_base);
+    intel_845_agp_aperture(dev);
 }
 
 static uint32_t
@@ -510,11 +518,13 @@ intel_845_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
         case 0xc4:
             dev->pci_conf[addr] = val & 0xf0;
             intel_845_smram_recalc(dev);
+            intel_845_agp_aperture(dev);
             break;
 
         case 0xc5:
             dev->pci_conf[addr] = val;
             intel_845_smram_recalc(dev);
+            intel_845_agp_aperture(dev);
             break;
 
         case 0xc6:
@@ -579,6 +589,7 @@ intel_845_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
     if ((addr == 0xc4 || addr == 0xc5) && (reg < 0x0200)) {
         intel_845_set_tom_reg(dev, intel_845_default_tom_reg());
         intel_845_smram_recalc(dev);
+        intel_845_agp_aperture(dev);
     }
 }
 
@@ -623,7 +634,7 @@ intel_845_reset(void *priv)
     dev->pci_conf[0x08] = 0x04; /* RID - B0 stepping */
     dev->pci_conf[0x0b] = 0x06; /* BCC - bridge */
     dev->pci_conf[0x10] = 0x08; /* APBASE */
-    dev->pci_conf[0x34] = 0xa0; /* CAPPTR */
+    dev->pci_conf[0x34] = 0xe4; /* CAPPTR */
     dev->pci_conf[0x78] = 0x10; /* DRT */
     dev->pci_conf[0x9d] = 0x02; /* SMRAM */
     dev->pci_conf[0x9e] = 0x38; /* ESMRAMC */

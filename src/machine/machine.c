@@ -29,6 +29,7 @@
 #include <86box/pic.h>
 #include <86box/pit.h>
 #include <86box/mem.h>
+#include <86box/apic.h>
 #include <86box/rom.h>
 #include <86box/lpt.h>
 #include <86box/serial.h>
@@ -98,6 +99,7 @@ machine_init_ex(int m)
         /* Reset the memory state. */
         if (!dump_missing)
             mem_reset();
+        apic_lapic_readd_mapping();
         smbase = is_am486dxl ? 0x00060000 : 0x00030000;
 
         if (cassette_enable)

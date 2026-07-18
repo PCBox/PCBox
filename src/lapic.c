@@ -39,6 +39,15 @@ extern double cpuclock;
 
 lapic_t* current_lapic;
 
+static uint32_t
+lapic_version(void)
+{
+    if (cpu_s && (cpu_s->cpu_type >= CPU_PENTIUM4W))
+        return 0x00050014;
+
+    return 0x00040012;
+}
+
 static __inline uint8_t
 lapic_get_bit_irr(lapic_t *lapic, uint8_t bit)
 {
@@ -78,10 +87,33 @@ lapic_set_bit_tmr(lapic_t *lapic, uint8_t bit, uint8_t val)
     lapic->tmr_ll[bit / 64] |= (((uint64_t)!!val) << (uint64_t)(bit & 63ull));
 }
 
+static __inline int
+lapic_is_sw_enabled(const lapic_t *lapic)
+{
+    return lapic && (lapic->lapic_spurious_interrupt & 0x100);
+}
+
+static int
+ioapic_has_unmasked_route(const ioapic_t *ioapic)
+{
+    for (uint8_t i = 0; i < IOAPIC_RED_TABL_SIZE; i++) {
+        if (!ioapic->ioredtabl_s[i].intr_mask)
+            return 1;
+    }
+
+    return 0;
+}
+
 int lapic_is_pic_enabled(void)
 {
     if (!current_ioapic || !current_lapic ||
-        !(current_lapic->lapic_spurious_interrupt & 0x100))
+        !lapic_is_sw_enabled(current_lapic))
+        return true;
+
+    if (current_ioapic->extended && !(current_ioapic->bootcfg & 1))
+        return true;
+
+    if (!ioapic_has_unmasked_route(current_ioapic))
         return true;
 
     return (current_lapic->lapic_mem_window.enable == 0 || current_lapic->lapic_lvt_lvt0.intr_mask == 0 || (current_ioapic->ioredtabl_s[0].delmod == 7 && current_ioapic->ioredtabl_s[0].intr_mask == 0));
@@ -145,26 +177,21 @@ int lapic_irq_pending(lapic_t *lapic)
 {
     int irrv, isrv, tpr;
 
-    if (!(lapic->lapic_spurious_interrupt & 0x100)) {
-        //pclog("APIC disabled\n");
-        return 0;
-    }
+    if (!lapic_is_sw_enabled(lapic))
+        return -1;
 
     irrv = get_highest_priority_int(lapic->irr_l);
     isrv = get_highest_priority_int(lapic->isr_l);
     if (irrv < 0) {
-        //pclog("APIC irrv < 0\n");
         return -1;
     }
 
     if (isrv >= 0 && irrv <= isrv) {
-        //pclog("APIC another irq is in service\n");
         return -1;
     }
 
     tpr = lapic->lapic_tpr & 0xf0;
     if ((irrv & 0xf0) <= tpr) {
-        //pclog("APIC irrv < tpr\n");
         return -1;
     }
 
@@ -198,7 +225,6 @@ lapic_reset(lapic_t *lapic)
     lapic->lapic_dest_format        = -1;
     lapic->lapic_local_dest         = 0;
 
-    //pclog("LAPIC: RESET!\n");
 }
 
 void
@@ -213,23 +239,20 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
     addr -= dev->lapic_mem_window.base;
 
     //if (addr != 0x80 && addr != 0x300)
-      //  //pclog("Local APIC: [W] %04X = %08X\n", addr, val);
+      //  pclog("Local APIC: [W] %04X = %08X\n", addr, val);
 
     if (addr < 0x400)  switch (addr & 0x3ff) {
         case 0x020:
             dev->lapic_id = val;
-            //pclog("LAPIC ID: 0x%02X\n", val);
             break;
 
         case 0x080:
-            //pclog("LAPIC TPR write 0x%02x\n", val);
             dev->lapic_tpr = val & 0xFF;
             if (lapic_irq_pending(dev) > 0)
                 cpu_block_end = 1;
             break;
 
         case 0x0b0:
-            //pclog("LAPIC EOI write\n");
             bit = get_highest_priority_int(dev->isr_l);
             if (bit != -1) {
                 lapic_set_bit_isr(dev, bit, 0);
@@ -259,6 +282,8 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
                 dev->lapic_lvt_lvt1_val    =
                 dev->lapic_lvt_thermal_val = 1 << 16;
             }
+            if (lapic_irq_pending(dev) > 0)
+                cpu_block_end = 1;
             break;
 
         case 0x280:
@@ -267,7 +292,6 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
             break;
 
         case 0x300:
-            //pclog("LAPIC ICR write: 0x%08X\n", val);
             dev->icr0 = val;
 
             deliverstruct.intvec = dev->icr & 0xFF;
@@ -295,7 +319,6 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
                         cpu_state.oldpc = cpu_state.pc;
                         cpu_state.pc = 0;
                         cpu_block_end = 1;
-                        //pclog("SIPI jump\n");
                     } else
                         lapic_service_interrupt(dev, deliverstruct);
                     break;
@@ -340,7 +363,6 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
             dev->lapic_timer_initial_count = dev->lapic_timer_current_count = val;
             dev->lapic_timer_remainder = 0;
             cpu_block_end = 1;
-            //pclog("APIC: Timer count: %u\n", dev->lapic_timer_initial_count);
             break;
 
         case 0x3e0:
@@ -349,7 +371,6 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
                 update_tsc();
 #endif
             dev->lapic_timer_divider = val & 0xb;
-            //pclog("APIC: Timer divider: 0x%01X\n", dev->lapic_timer_divider);
             break;
     }
 }
@@ -376,7 +397,7 @@ apic_lapic_readl(uint32_t addr, void *priv)
             break;
 
         case 0x030:
-            ret = 0x00040012;
+            ret = lapic_version();
             break;
 
         case 0x080:
@@ -444,7 +465,6 @@ apic_lapic_readl(uint32_t addr, void *priv)
             break;
 
         case 0x390:
-            //pclog("APIC: Read current timer count %u\n", dev->lapic_timer_current_count);
 #ifdef USE_DYNAREC
             if (cpu_use_dynarec)
                 update_tsc();
@@ -457,9 +477,6 @@ apic_lapic_readl(uint32_t addr, void *priv)
             break;
     }
     }
-    //if (addr != 0x80 && addr != 0x300)
-      //  //pclog("Local APIC: [R] %04X = %08X\n", addr, ret);
-
     return ret;
 }
 
@@ -502,28 +519,50 @@ apic_lapic_set_base(uint32_t base)
     }
 }
 
+void
+apic_lapic_readd_mapping(void)
+{
+    if (!current_lapic)
+        return;
+
+    mem_mapping_add(&current_lapic->lapic_mem_window,
+                    current_lapic->lapic_mem_window.base,
+                    current_lapic->lapic_mem_window.size,
+                    apic_lapic_read,
+                    apic_lapic_readw,
+                    apic_lapic_readl,
+                    NULL,
+                    NULL,
+                    apic_lapic_writel,
+                    NULL,
+                    MEM_MAPPING_EXTERNAL,
+                    current_lapic);
+}
+
 static void
 lapic_service_local_interrupt(lapic_t *lapic, apic_ioredtable_t interrupt, bool lvt01)
 {
     if (interrupt.intr_mask) {
-        //pclog("Local interrupt vector 0x%08llX masked.\n", *((uint64_t*)&interrupt));
         return;
     }
 
     switch (interrupt.delmod) {
         case 0:
         case 1:
-        case 7:
             lapic_set_bit_irr(lapic, interrupt.intvec, 1);
             lapic_set_bit_tmr(lapic, interrupt.intvec, !lvt01 ? 0 : !!interrupt.trigmode);
             if (lapic_irq_pending(lapic) > 0)
                 cpu_block_end = 1;
             break;
+        case 7:
+            if (lvt01)
+                apic_lapic_service_extint();
+            break;
         case 2:
             smi_raise();
             return;
         case 4:
-            nmi_raise();
+            nmi_raise_cpu();
             return;
         case 5: /*INIT*/
             {
@@ -590,11 +629,8 @@ count:
                 lapic_service_local_interrupt(dev, dev->lapic_lvt_timer, false);
                 if (dev->lapic_lvt_timer.timer_mode == 1) {
                     dev->lapic_timer_current_count = (dev->lapic_timer_initial_count);
-                    //pclog("APIC: Timer restart\n");
                     if (ticks)
                         goto count;
-                } else {
-                    //pclog("APIC: Timer one-shot finish\n");
                 }
             } else {
                 dev->lapic_timer_current_count -= ticks;
@@ -629,10 +665,26 @@ apic_lapic_picinterrupt(void)
     lapic_set_bit_irr(lapic, intno, 0);
     lapic_set_bit_isr(lapic, intno, 1);
 
-    //pclog("LAPIC: Service INTVEC 0x%02X\n", intno);
     if (lapic_irq_pending(lapic) > 0)
         cpu_block_end = 1;
     return intno;
+}
+
+void
+apic_lapic_service_extint(void)
+{
+    apic_ioredtable_t interrupt = { 0 };
+    int intno;
+
+    if (!current_lapic || !pic.int_pending)
+        return;
+
+    intno = picinterrupt_common();
+    if (intno < 0)
+        return;
+
+    interrupt.intvec = intno;
+    lapic_service_interrupt(current_lapic, interrupt);
 }
 
 void
@@ -649,7 +701,7 @@ lapic_service_interrupt(lapic_t *lapic, apic_ioredtable_t interrupt)
             smi_raise();
             return;
         case 4:
-            nmi_raise();
+            nmi_raise_cpu();
             return;
         case 5: /*INIT*/
             {
@@ -668,7 +720,6 @@ lapic_service_interrupt(lapic_t *lapic, apic_ioredtable_t interrupt)
     lapic_set_bit_tmr(lapic, interrupt.intvec, !!interrupt.trigmode);
     if (lapic_irq_pending(lapic) > 0)
         cpu_block_end = 1;
-    //pclog("LAPIC: Interrupt 0x%X serviced\n", interrupt.intvec);
 }
 
 void
@@ -704,6 +755,9 @@ pic_pending_int(void)
     if (!current_ioapic)
         return pic.int_pending;
 
+    if (!current_lapic)
+        return pic.int_pending;
+
     if (!lapic_is_pic_enabled()) {
         goto apic_only; /* PIC interrupts are completely disabled. */
     }
@@ -712,6 +766,9 @@ pic_pending_int(void)
         return 1;
 
 apic_only:
+    if (!lapic_is_sw_enabled(current_lapic))
+        return 0;
+
     return lapic_irq_pending(current_lapic) > 0;
 }
 

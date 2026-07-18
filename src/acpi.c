@@ -2595,6 +2595,18 @@ acpi_pwrbtn_timer(void *priv)
     }
 }
 
+static int
+acpi_is_enable_cmd(uint8_t val)
+{
+    return (val == ACPI_ENABLE) || (val == 0xe1);
+}
+
+static int
+acpi_is_disable_cmd(uint8_t val)
+{
+    return (val == ACPI_DISABLE) || (val == 0x1e);
+}
+
 static void
 acpi_apm_out(uint16_t port, uint8_t val, void *priv)
 {
@@ -2621,9 +2633,17 @@ acpi_apm_out(uint16_t port, uint8_t val, void *priv)
             dev->apm->cmd = val;
             if (dev->vendor == VEN_INTEL)
                 dev->regs.glbsts |= 0x20;
-            else if (dev->vendor == VEN_INTEL_ICH2)
+            else if (dev->vendor == VEN_INTEL_ICH2) {
+                if (acpi_is_enable_cmd(val)) {
+                    dev->regs.pmcntrl |= SCI_EN;
+                    acpi_update_irq(dev);
+                } else if (acpi_is_disable_cmd(val)) {
+                    dev->regs.pmcntrl &= ~SCI_EN;
+                    acpi_update_irq(dev);
+                }
                 if (dev->apm->do_smi)
                     dev->regs.smi_sts |= 0x00000020;
+            }
             acpi_raise_smi(dev, dev->apm->do_smi);
         } else
             dev->apm->stat = val;

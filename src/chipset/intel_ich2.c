@@ -95,7 +95,7 @@ static void
 intel_ich2_acpi_setup(intel_ich2_t *dev)
 {
     uint32_t base     = (dev->pci_conf[0][0x41] << 8) | (dev->pci_conf[0][0x40] & 0x80);
-    int      acpi_irq = ((dev->pci_conf[0][0x44] & 7) < 3) ? (9 + (dev->pci_conf[0][0x44] & 7)) : (20 + dev->pci_conf[0][0x44] & 3);
+    int      acpi_irq = ((dev->pci_conf[0][0x44] & 7) < 3) ? (9 + (dev->pci_conf[0][0x44] & 7)) : (20 + (dev->pci_conf[0][0x44] & 3));
     int      enable   = !!(dev->pci_conf[0][0x44] & 0x10);
 
     acpi_update_io_mapping(dev->acpi, base, enable);
@@ -891,6 +891,14 @@ intel_ich2_reset(void *priv)
 
     if (cpu_busspeed >= 100000000) /* Go UltraDMA 100 if CPU is up for it. Not that it actually matters */
         dev->pci_conf[1][0x55] = 0xf0;
+
+    sff_set_irq_pin(dev->ide_drive[0], PCI_INTA);
+    sff_set_irq_line(dev->ide_drive[0], 14);
+    sff_set_irq_mode(dev->ide_drive[0], IRQ_MODE_LEGACY);
+
+    sff_set_irq_pin(dev->ide_drive[1], PCI_INTA);
+    sff_set_irq_line(dev->ide_drive[1], 15);
+    sff_set_irq_mode(dev->ide_drive[1], IRQ_MODE_LEGACY);
 
     sff_bus_master_reset(dev->ide_drive[0]); /* Setup the IDE */
     sff_bus_master_reset(dev->ide_drive[1]);

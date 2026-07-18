@@ -707,23 +707,20 @@ picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
     if (update_pending == NULL)
         return;
     
-    if (set)
-    {
-            if (current_ioapic) {
-                uint8_t i = 0;
-                for (i = 0; i < 16; i++) {
-                    if ((num & (1 << i)) && i != 2) apic_ioapic_set_irq(current_ioapic, (i == 0) ? 2 : i, level);
-                }
+    if (set) {
+        if (current_ioapic) {
+            uint8_t i = 0;
+            for (i = 0; i < 16; i++) {
+                if ((num & (1 << i)) && i != 2) apic_ioapic_set_irq(current_ioapic, (i == 0) ? 2 : i, level);
             }
-    }
-    else
-    {
-            if (current_ioapic) {
-                uint8_t i = 0;
-                for (i = 0; i < 16; i++) {
-                    if ((num & (1 << i)) && i != 2) apic_ioapic_clear_irq(current_ioapic, (i == 0) ? 2 : i);
-                }
+        }
+    } else {
+        if (current_ioapic) {
+            uint8_t i = 0;
+            for (i = 0; i < 16; i++) {
+                if ((num & (1 << i)) && i != 2) apic_ioapic_clear_irq(current_ioapic, (i == 0) ? 2 : i);
             }
+        }
     }
 
     /* Make sure to ignore all slave IRQ's, and in case of AT+,

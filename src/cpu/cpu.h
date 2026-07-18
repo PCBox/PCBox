@@ -901,6 +901,7 @@ extern void cpu_fast_off_period_set(uint16_t vla, double period);
 extern void cpu_fast_off_reset(void);
 
 extern void smi_raise(void);
+extern void nmi_raise_cpu(void);
 extern void nmi_raise(void);
 
 extern MMX_REG  *MMP[8];
