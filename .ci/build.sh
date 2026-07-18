@@ -1018,12 +1018,20 @@ fi
 cwd_root="$(pwd)"
 cd $prefix/src
 echo Now in $prefix/src
-cmake -B build -S .. --preset release -DAARU_BUILD_PACKAGE=ON
-ninja -j12 -C build
+cmake -B build -S .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TOOL=1 -DAARU_BUILD_PACKAGE=ON || exit 99
+cmake --build build -j$(nproc) || exit 99
 status=0
-mv "build/libaaruformat.dll" $cwd_root/archive_tmp/ || status=1
+if is_windows
+then
+  mv "build/libaaruformat.dll" $cwd_root/archive_tmp/ || status=1
+elif is_mac
+then
+  mv "build/libaaruformat.dylib" $cwd_root/archive_tmp/ || status=1
+else
+  mv "build/libaaruformat.so" $cwd_root/archive_tmp/ || status=1
+fi
 rm -rf build
-if [ status == 1 ]
+if [ $status -eq 1 ]
 then
   exit 99
 fi
