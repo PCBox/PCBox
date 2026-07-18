@@ -38,8 +38,8 @@ typedef struct voodoo_x86_data_t {
 static voodoo_x86_data_t voodoo_x86_data[2][BLOCK_NUM];
 #endif
 
-static int last_block[4]          = { 0, 0 };
-static int next_block_to_write[4] = { 0, 0 };
+static int last_block[VOODOO_MAX_RENDER_THREADS]          = { 0 };
+static int next_block_to_write[VOODOO_MAX_RENDER_THREADS] = { 0 };
 
 #define addbyte(val)                   \
     do {                               \
@@ -3498,7 +3498,7 @@ voodoo_get_block(voodoo_t *voodoo, voodoo_params_t *params, voodoo_state_t *stat
     voodoo_x86_data_t *data;
 
     for (uint8_t c = 0; c < 8; c++) {
-        data = &voodoo_x86_data[odd_even + c * 4]; //&voodoo_x86_data[odd_even][b];
+        data = &voodoo_x86_data[odd_even + c * voodoo->render_threads];
 
         if (state->xdir == data->xdir && params->alphaMode == data->alphaMode && params->fbzMode == data->fbzMode && params->fogMode == data->fogMode && params->fbzColorPath == data->fbzColorPath && (voodoo->trexInit1[0] & (1 << 18)) == data->trexInit1 && params->textureMode[0] == data->textureMode[0] && params->textureMode[1] == data->textureMode[1] && (params->tLOD[0] & LOD_MASK) == data->tLOD[0] && (params->tLOD[1] & LOD_MASK) == data->tLOD[1] && ((params->col_tiled || params->aux_tiled) ? 1 : 0) == data->is_tiled) {
             last_block[odd_even] = b;
@@ -3508,7 +3508,7 @@ voodoo_get_block(voodoo_t *voodoo, voodoo_params_t *params, voodoo_state_t *stat
         b = (b + 1) & 7;
     }
     voodoo_recomp++;
-    data = &voodoo_x86_data[odd_even + next_block_to_write[odd_even] * 4];
+    data = &voodoo_x86_data[odd_even + next_block_to_write[odd_even] * voodoo->render_threads];
 #if 0
     code_block = data->code_block;
 #endif
@@ -3535,7 +3535,7 @@ voodoo_get_block(voodoo_t *voodoo, voodoo_params_t *params, voodoo_state_t *stat
 void
 voodoo_codegen_init(voodoo_t *voodoo)
 {
-    voodoo->codegen_data = plat_mmap(sizeof(voodoo_x86_data_t) * BLOCK_NUM * 4, 1);
+    voodoo->codegen_data = plat_mmap(sizeof(voodoo_x86_data_t) * BLOCK_NUM * voodoo->render_threads, 1);
 
     for (uint16_t c = 0; c < 256; c++) {
         int d[4];
@@ -3561,7 +3561,7 @@ voodoo_codegen_init(voodoo_t *voodoo)
 void
 voodoo_codegen_close(voodoo_t *voodoo)
 {
-    plat_munmap(voodoo->codegen_data, sizeof(voodoo_x86_data_t) * BLOCK_NUM * 4);
+    plat_munmap(voodoo->codegen_data, sizeof(voodoo_x86_data_t) * BLOCK_NUM * voodoo->render_threads);
 }
 
 #endif /*VIDEO_VOODOO_CODEGEN_X86_64_H*/

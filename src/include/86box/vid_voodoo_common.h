@@ -29,6 +29,8 @@
 
 #define TEX_CACHE_MAX   64
 
+#define VOODOO_MAX_RENDER_THREADS 64
+
 enum {
     VOODOO_1 = 0,
     VOODOO_SB50,
@@ -245,7 +247,7 @@ typedef struct texture_t {
     uint32_t   base;
     uint32_t   tLOD;
     ATOMIC_INT refcount;
-    ATOMIC_INT refcount_r[4];
+    ATOMIC_INT refcount_r[VOODOO_MAX_RENDER_THREADS];
     int        is16;
     uint32_t   palette_checksum;
     uint32_t   addr_start[4];
@@ -276,6 +278,11 @@ typedef struct clip_t {
     int y_min;
     int y_max;
 } clip_t;
+
+typedef struct render_thread_param_t {
+    struct voodoo_t *voodoo;
+    int              index;
+} render_thread_param_t;
 
 typedef struct voodoo_t {
     mem_mapping_t mapping;
@@ -373,14 +380,15 @@ typedef struct voodoo_t {
     int    ncc_dirty[2];
 
     thread_t *fifo_thread;
-    thread_t *render_thread[4];
+    thread_t **render_thread;
+    render_thread_param_t *render_thread_param;
     event_t  *wake_fifo_thread;
     event_t  *wake_main_thread;
     event_t  *fifo_not_full_event;
     event_t  *fifo_empty_event;
     ATOMIC_INT fifo_empty_signaled;
-    event_t  *render_not_full_event[4];
-    event_t  *wake_render_thread[4];
+    event_t  **render_not_full_event;
+    event_t  **wake_render_thread;
 
     int voodoo_busy;
 #if (defined __aarch64__ || defined _M_ARM64)
@@ -389,20 +397,20 @@ typedef struct voodoo_t {
     struct {
         int value;
         char pad[128 - sizeof(int)];
-    } render_voodoo_busy[4];
+    } *render_voodoo_busy;
 #else
-    int render_voodoo_busy[4];
+    int *render_voodoo_busy;
 #endif
 
     int render_threads;
     int odd_even_mask;
 
-    int pixel_count[4];
-    int texel_count[4];
+    int *pixel_count;
+    int *texel_count;
     int tri_count;
     int frame_count;
-    int pixel_count_old[4];
-    int texel_count_old[4];
+    int *pixel_count_old;
+    int *texel_count_old;
     int wr_count;
     int rd_count;
     int tex_count;
@@ -441,13 +449,13 @@ typedef struct voodoo_t {
     struct {
         ATOMIC_INT value;
         char       pad[128 - sizeof(ATOMIC_INT)];
-    } params_read_idx[4];
+    } *params_read_idx;
     struct {
         ATOMIC_INT value;
         char       pad[128 - sizeof(ATOMIC_INT)];
     } params_write_idx;
 #else
-    ATOMIC_INT      params_read_idx[4];
+    ATOMIC_INT     *params_read_idx;
     ATOMIC_INT      params_write_idx;
 #endif
 
@@ -709,7 +717,7 @@ typedef struct voodoo_t {
     int      palette_dirty[2];
 
     uint64_t time;
-    int      render_time[4];
+    int     *render_time;
     uint64_t fifo_full_waits;
     uint64_t fifo_full_wait_ticks;
     uint64_t fifo_full_spin_checks;
@@ -745,14 +753,14 @@ typedef struct voodoo_t {
     void *codegen_data;
 
     /* JIT cache state -- per-instance to avoid races between render threads */
-    int jit_last_block[4];
-    uint64_t jit_generation[4];
+    int      jit_last_block[VOODOO_MAX_RENDER_THREADS];
+    uint64_t jit_generation[VOODOO_MAX_RENDER_THREADS];
     struct voodoo_set_t *set;
 
     uint32_t launch_pending;
 
     uint8_t fifo_thread_run;
-    uint8_t render_thread_run[4];
+    uint8_t render_thread_run[VOODOO_MAX_RENDER_THREADS];
 
     uint32_t vram_max;
 
