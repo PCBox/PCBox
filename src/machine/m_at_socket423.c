@@ -31,6 +31,7 @@
 #include <86box/sio.h>
 #include <86box/hwm.h>
 #include <86box/spd.h>
+#include <86box/usb.h>
 #include <86box/video.h>
 #include "cpu.h"
 #include <86box/machine.h>

@@ -62,7 +62,7 @@ typedef struct usb_port_t {
 } usb_port_t;
 
 /* Global variables. */
-extern const device_t usb_device, usb_uhci_device;
+extern const device_t usb_device, usb_uhci_device, usb_keyboard_device, usb_mouse_device;
 
 /* Functions. */
 extern void uhci_update_io_mapping(usb_t *dev, uint8_t base_l, uint8_t base_h, int enable);

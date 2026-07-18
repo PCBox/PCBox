@@ -1105,10 +1105,9 @@ intel_ich2_init(UNUSED(const device_t *info))
     usb_params.do_smi_raise = intel_ich2_usb_smi_raise;
     usb_params.do_smi_ocr_raise = NULL;
     dev->usb_hub[0] = device_add_inst_params(&usb_device, 1, &usb_params);
+    uhci_register_usb(dev->usb_hub[0]);
     usb_params.pci_conf = &dev->pci_conf[4][0];
     dev->usb_hub[1] = device_add_inst_params(&usb_device, 2, &usb_params);
-
-    uhci_register_usb(dev->usb_hub[0]);
     uhci_register_usb(dev->usb_hub[1]);
 
     intel_ich2_reset(dev);

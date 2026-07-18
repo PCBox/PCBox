@@ -28,6 +28,8 @@
 #include <86box/device.h>
 #include <86box/keyboard.h>
 #include <86box/plat.h>
+#include <86box/mem.h>
+#include <86box/usb.h>
 
 #include "cpu.h"
 
@@ -66,6 +68,7 @@ static keyboard_t keyboard_devices[] = {
     { &keyboard_ax_device              },
     { &keyboard_ps2_device             },
     { &keyboard_ps55_device            },
+    { &usb_keyboard_device            },
     { NULL                             }
     // clang-format on
 };
