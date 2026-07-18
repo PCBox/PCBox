@@ -173,9 +173,22 @@ static uint32_t
 sst_block_erase_size(uint16_t id)
 {
     switch (id) {
+        case SST49LF002:
         case SST49LF020:
         case SST49LF020A:
             return 0x4000;
+
+        case SST49LF003:
+        case SST49LF004:
+        case SST49LF004C:
+        case SST49LF040:
+        case SST49LF008:
+        case SST49LF008C:
+        case SST49LF080:
+        case SST49LF030:
+        case SST49LF160:
+        case SST49LF016:
+            return 0x10000;
 
         default:
             return 0;

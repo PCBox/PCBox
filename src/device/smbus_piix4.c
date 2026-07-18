@@ -73,7 +73,7 @@ smbus_piix4_raise_smi(smbus_piix4_t *dev)
     if (dev->smi_en) { /* Raise SMI when needed if it's enabled by the Chipset */
         dev->acpi->regs.smi_sts |= 0x00010000;
         acpi_raise_smi(dev->acpi, 1);
-    } else
+    } else if (dev->irq < 16)
         picint(1 << dev->irq);
 }
 
@@ -471,6 +471,7 @@ smbus_piix4_reset(void *priv)
     dev->index           = 0;
     dev->block_data_byte = 0;
     dev->block_len       = 0;
+    dev->irq             = 0xff;
     memset(dev->data, 0, sizeof(dev->data));
 }
 

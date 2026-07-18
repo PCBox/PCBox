@@ -48,6 +48,7 @@
 #include <86box/mem.h>
 #include <86box/pci.h>
 #include <86box/pic.h>
+#include <86box/port_92.h>
 #include <86box/smbus.h>
 #include <86box/sound.h>
 #include <86box/tco.h>
@@ -688,8 +689,8 @@ intel_ich2_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 
             case 0x3c:
                 dev->pci_conf[func][addr] = val;                       /* 86Box doesn't give any capabilities to take the PCI IRQ pin, also */
-                smbus_piix4_get_irq(pci_get_int(0x1f, 2), dev->smbus); /* can't use pointers as whatever recieved from there is temporary.  */
-                intel_ich2_log("Intel ICH2 SMBus: Got IRQ %d\n", pci_get_int(0x1f, 2));
+                smbus_piix4_get_irq(val, dev->smbus);                  /* can't use pointers as whatever recieved from there is temporary.  */
+                intel_ich2_log("Intel ICH2 SMBus: Got IRQ %d\n", val);
                 break;
 
             case 0x40:
@@ -733,7 +734,7 @@ intel_ich2_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
             case 0x3c:
                 dev->pci_conf[func][addr] = val;          /* 86Box doesn't give any capabilities to take the PCI IRQ pin, also */
                 if (sound_card_current[0] == SOUND_INTERNAL) /* can't use pointers as whatever recieved from there is temporary.  */
-                    intel_ac97_set_irq(pci_get_int(0x1f, 2), dev->ac97);
+                    intel_ac97_set_irq(val, dev->ac97);
                 break;
 
             default:
@@ -1060,6 +1061,9 @@ intel_ich2_init(UNUSED(const device_t *info))
     /* NVR Handler */
     dev->nvr   = device_add_params(&nvr_at_device, (void *) (uintptr_t) NVR_PIIX4);
     acpi_set_nvr(dev->acpi, dev->nvr);
+
+    /* System Control Port A */
+    device_add(&port_92_pci_device);
 
     /* Intel ICH2 Hub */
     device_add(&intel_ich2_hub_device);

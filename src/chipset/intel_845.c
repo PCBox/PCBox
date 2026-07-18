@@ -262,7 +262,7 @@ intel_845_pam_recalc(int addr, uint8_t val)
                                ((val & 0x20) ? MEM_WRITE_INTERNAL : MEM_WRITE_EXTANY));
     }
 
-    flushmmucache_nopc();
+    flushmmucache();
 }
 
 static void
@@ -273,7 +273,7 @@ intel_845_fdhc_recalc(intel_845_t *dev)
                                (dev->pci_conf[0x97] & 0x80) ?
                                (MEM_READ_EXTANY | MEM_WRITE_EXTANY) :
                                (MEM_READ_INTERNAL | MEM_WRITE_INTERNAL));
-        flushmmucache_nopc();
+        flushmmucache();
     }
 }
 
@@ -331,7 +331,7 @@ intel_845_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     intel_845_t *dev = (intel_845_t *) priv;
     uint16_t     reg;
-
+    
     intel_845_log("Intel 845 MCH: dev->regs[%02x] = %02x\n", addr, val);
 
     if (func)
@@ -427,11 +427,6 @@ intel_845_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 
         case 0x7f:
             dev->pci_conf[addr] = val & 0x30;
-            break;
-
-        case 0x80 ... 0x85:
-        case 0x87 ... 0x8b:
-            dev->pci_conf[addr] = val;
             break;
 
         case 0x90:
