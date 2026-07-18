@@ -10763,7 +10763,7 @@ const cpu_family_t cpu_families[] = {
         .cpus          = (const CPU[]) {
             { "400",  CPU_PENTIUM4W, fpus_internal,  400000000,  1.0, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 36, 36, 12, 12, 48 },
             { "600",  CPU_PENTIUM4W, fpus_internal,  600000000,  1.5, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 54, 54, 18, 18, 72 },
-            { "800",  CPU_PENTIUM4W, fpus_internal,  800000000,  2.0, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 72, 72, 24, 24, 96 },,
+            { "800",  CPU_PENTIUM4W, fpus_internal,  800000000,  2.0, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 72, 72, 24, 24, 96 },
             { "1000", CPU_PENTIUM4W, fpus_internal, 1000000000,  2.5, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 90, 90, 30, 30, 120 },
             { "1200", CPU_PENTIUM4W, fpus_internal, 1200000000,  3.0, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 108, 108, 36, 36, 144 },
             { "1400", CPU_PENTIUM4W, fpus_internal, 1400000000,  3.5, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 126, 126, 42, 42, 168 },
@@ -10780,7 +10780,7 @@ const cpu_family_t cpu_families[] = {
         .cpus          = (const CPU[]) {
             { "400",  CPU_PENTIUM4W, fpus_internal,  400000000,  1.0, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 36, 36, 12, 12, 48 },
             { "600",  CPU_PENTIUM4W, fpus_internal,  600000000,  1.5, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 54, 54, 18, 18, 72 },
-            { "800",  CPU_PENTIUM4W, fpus_internal,  800000000,  2.0, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 72, 72, 24, 24, 96 },,
+            { "800",  CPU_PENTIUM4W, fpus_internal,  800000000,  2.0, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 72, 72, 24, 24, 96 },
             { "1000", CPU_PENTIUM4W, fpus_internal, 1000000000,  2.5, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 90, 90, 30, 30, 120 },
             { "1200", CPU_PENTIUM4W, fpus_internal, 1200000000,  3.0, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 108, 108, 36, 36, 144 },
             { "1400", CPU_PENTIUM4W, fpus_internal, 1400000000,  3.5, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 126, 126, 42, 42, 168 },
