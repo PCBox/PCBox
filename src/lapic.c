@@ -80,7 +80,8 @@ lapic_set_bit_tmr(lapic_t *lapic, uint8_t bit, uint8_t val)
 
 int lapic_is_pic_enabled(void)
 {
-    if (!current_ioapic)
+    if (!current_ioapic || !current_lapic ||
+        !(current_lapic->lapic_spurious_interrupt & 0x100))
         return true;
 
     return (current_lapic->lapic_mem_window.enable == 0 || current_lapic->lapic_lvt_lvt0.intr_mask == 0 || (current_ioapic->ioredtabl_s[0].delmod == 7 && current_ioapic->ioredtabl_s[0].intr_mask == 0));

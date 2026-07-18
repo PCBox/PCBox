@@ -137,6 +137,7 @@ typedef struct {
     int        has_hwm;
     fdc_t     *fdc_controller;
     port_92_t *port_92;
+    void      *kbc;
     serial_t  *uart[2];
     lpt_t     *lpt;
 } w83627hf_t;
@@ -483,6 +484,10 @@ w83627hf_uart_write(int uart, uint16_t cur_reg, uint8_t val, w83627hf_t *dev)
 static void
 w83627hf_kbc_write(uint16_t cur_reg, uint8_t val, w83627hf_t *dev)
 {
+    uint16_t kbc_base;
+    uint16_t kbc_base_cmd;
+    int      local_enable;
+
     switch (cur_reg) {
         case 0x30:
             dev->dev_regs[5][cur_reg] = val & 1;
@@ -512,10 +517,27 @@ w83627hf_kbc_write(uint16_t cur_reg, uint8_t val, w83627hf_t *dev)
             break;
     }
 
+    local_enable = !!(dev->dev_regs[5][0x30] & 1);
+    kbc_base     = (dev->dev_regs[5][0x60] << 8) | dev->dev_regs[5][0x61];
+    kbc_base_cmd = (dev->dev_regs[5][0x62] << 8) | dev->dev_regs[5][0x63];
+
+    if (dev->kbc != NULL) {
+        kbc_at_port_handler(0, local_enable, kbc_base, dev->kbc);
+        kbc_at_port_handler(1, local_enable, kbc_base_cmd, dev->kbc);
+        kbc_at_set_irq(0, (local_enable && dev->dev_regs[5][0x70]) ?
+                              dev->dev_regs[5][0x70] : 0xffff,
+                       dev->kbc);
+        kbc_at_set_irq(1, (local_enable && dev->dev_regs[5][0x72]) ?
+                              dev->dev_regs[5][0x72] : 0xffff,
+                       dev->kbc);
+    }
+
     if (dev->dev_regs[5][0x30] & 1) {
         /* We don't disable Port 92h as intended because the BIOSes never enable it back, causing issues. */
         port_92_set_features(dev->port_92, !!(dev->dev_regs[5][0xf0] & 1), !!(dev->dev_regs[5][0xf0] & 2));
         w83627hf_log("W83627HF-PORT92: FASTA20: %d FASTRESET: %d\n", !!(dev->dev_regs[5][0xf0] & 2), !!(dev->dev_regs[5][0xf0] & 1));
+        w83627hf_log("W83627HF-KBC: BASE: %04x CMD: %04x IRQ: %d AUX IRQ: %d\n",
+                     kbc_base, kbc_base_cmd, dev->dev_regs[5][0x70], dev->dev_regs[5][0x72]);
     }
 }
 
@@ -953,8 +975,7 @@ w83627hf_init(const device_t *info)
     fan1_rpm = fan2_rpm = fan3_rpm = vcorea_voltage = vcoreb_voltage = 0;
 
     /* Keyboard Controller (Based on AMIKEY-2) */
-    /* Note: The base addresses and IRQ's of the Keyboard & PS/2 Mouse are remappable. Due to 86Box limitations we can't do that just yet */
-    device_add_params(&kbc_at_device, (void *) (KBC_VEN_AMI | 0x00004800));
+    dev->kbc = device_add_params(&kbc_at_device, (void *) (KBC_VEN_AMI | 0x00004800));
 
     /* Port 92h */
     dev->port_92 = device_add(&port_92_device);
@@ -964,6 +985,8 @@ w83627hf_init(const device_t *info)
     /* UART */
     dev->uart[0] = device_add_inst(&ns16550_device, 1);
     dev->uart[1] = device_add_inst(&ns16550_device, 2);
+
+    w83627hf_reset(dev);
 
     return dev;
 }
