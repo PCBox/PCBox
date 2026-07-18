@@ -37,8 +37,6 @@
 #include <86box/smram.h>
 #include <86box/spd.h>
 
-#define ENABLE_INTEL_845_LOG 1
-
 #ifdef ENABLE_INTEL_845_LOG
 int intel_845_do_log = ENABLE_INTEL_845_LOG;
 static void
