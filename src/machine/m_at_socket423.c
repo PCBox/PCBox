@@ -65,7 +65,7 @@ machine_at_ms6529_init(const machine_t *model)
 
     device_add(&intel_845_device);          /* Intel 845 MCH */
     device_add(&intel_ich2_device);         /* Intel ICH2 */
-    device_add(&w83627hf_device);          /* Winbond W83627HF */
+    device_add(&w83627hf_no_port_92_device); /* Winbond W83627HF */
     device_add(&sst_flash_49lf002_device);   /* SST 49LF002 2 Mbit Firmware Hub */
     device_add(ics9xxx_get(ICS9502_08));    /* ICS950208 Clock Chip */
     intel_845_spd_init();                   /* SPD */

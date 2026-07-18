@@ -125,6 +125,9 @@ w83627hf_log(const char *fmt, ...)
 #    define w83627hf_log(fmt, ...)
 #endif
 
+#define W83627HF_HWM      0x01
+#define W83627HF_PORT_92  0x02
+
 typedef struct {
     uint8_t hwm_index;
     uint8_t hwm_regs[256];
@@ -135,6 +138,7 @@ typedef struct {
     uint8_t dev_regs[12][256];
 
     int        has_hwm;
+    int        has_port_92;
     fdc_t     *fdc_controller;
     port_92_t *port_92;
     void      *kbc;
@@ -534,9 +538,10 @@ w83627hf_kbc_write(uint16_t cur_reg, uint8_t val, w83627hf_t *dev)
                        dev->kbc);
     }
 
-    port_92_set_features(dev->port_92,
-                         port_92_enable && !!(dev->dev_regs[5][0xf0] & 0x01),
-                         port_92_enable && !!(dev->dev_regs[5][0xf0] & 0x02));
+    if (dev->port_92 != NULL)
+        port_92_set_features(dev->port_92,
+                             port_92_enable && !!(dev->dev_regs[5][0xf0] & 0x01),
+                             port_92_enable && !!(dev->dev_regs[5][0xf0] & 0x02));
 
     if (local_enable) {
         w83627hf_log("W83627HF-PORT92: FASTA20: %d FASTRESET: %d\n", !!(dev->dev_regs[5][0xf0] & 2), !!(dev->dev_regs[5][0xf0] & 1));
@@ -963,7 +968,8 @@ w83627hf_init(const device_t *info)
     memset(dev, 0, sizeof(w83627hf_t));
 
     /* Knock out the Hardware Monitor if needed(Mainly for ASUS TUSL2-C) */
-    dev->has_hwm = info->local;
+    dev->has_hwm     = !!(info->local & W83627HF_HWM);
+    dev->has_port_92 = !!(info->local & W83627HF_PORT_92);
 
     /* I/O Ports */
     io_sethandler(0x002e, 2, w83627hf_read, NULL, NULL, w83627hf_write, NULL, NULL, dev);
@@ -982,7 +988,8 @@ w83627hf_init(const device_t *info)
     dev->kbc = device_add_params(&kbc_at_device, (void *) (KBC_VEN_AMI | 0x00004800));
 
     /* Port 92h */
-    dev->port_92 = device_add(&port_92_device);
+    if (dev->has_port_92)
+        dev->port_92 = device_add(&port_92_device);
 
     dev->lpt = device_add_inst(&lpt_port_device, 1);
 
@@ -999,7 +1006,7 @@ const device_t w83627hf_device = {
     .name          = "Winbond W83627HF",
     .internal_name = "w83627hf",
     .flags         = 0,
-    .local         = 1,
+    .local         = W83627HF_HWM | W83627HF_PORT_92,
     .init          = w83627hf_init,
     .close         = w83627hf_close,
     .reset         = w83627hf_reset,
@@ -1013,7 +1020,21 @@ const device_t w83627hf_no_hwm_device = {
     .name          = "Winbond W83627HF with no Hardware Monitor",
     .internal_name = "w83627hf_nohwm",
     .flags         = 0,
-    .local         = 0,
+    .local         = W83627HF_PORT_92,
+    .init          = w83627hf_init,
+    .close         = w83627hf_close,
+    .reset         = w83627hf_reset,
+    .available = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t w83627hf_no_port_92_device = {
+    .name          = "Winbond W83627HF with no Port 92h",
+    .internal_name = "w83627hf_noport92",
+    .flags         = 0,
+    .local         = W83627HF_HWM,
     .init          = w83627hf_init,
     .close         = w83627hf_close,
     .reset         = w83627hf_reset,
