@@ -171,7 +171,10 @@ typedef struct _device_ {
     uint32_t    flags; /* system flags */
     uintptr_t   local; /* flags local to device */
 
-    void *(*init)(const struct _device_ *);
+    union {
+        void *(*init)(const struct _device_ *);
+        void *(*init_ext)(const struct _device_ *, void*);
+    };
     void (*close)(void *priv);
     void (*reset)(void *priv);
     int  (*available)(void);
