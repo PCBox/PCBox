@@ -30,7 +30,7 @@ if(WIN32)
         ../qt/win_dynld.c
         sdl_plat_win.c
     )
-    target_link_libraries(86Box ws2_32)
+    target_link_libraries(PCBox ws2_32)
 else()
     target_sources(plat PRIVATE
         sdl_plat_unix.c

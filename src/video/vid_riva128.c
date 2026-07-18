@@ -2404,7 +2404,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						uint32_t src_logical_addr = in_off + src_adjust;
 						uint32_t dst_logical_addr = out_off + dst_adjust;
 
-						uint32_t src_unpaged_addr = src_pte_frame + src_logical_addr;
+						uint32_t src_unpaged_addr = src_pte_frame + src_adjust;
 						uint32_t src_pte_index = src_logical_addr >> 12;
 						uint32_t src_pte_byte = src_logical_addr & 0xfff;
 						uint32_t src_pte_frame_new = riva128_ramin_read_l(src_obj_addr + (src_pte_index << 2) + 8, riva128);
@@ -2429,7 +2429,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						src_pte_frame_new &= 0xfffff000;
 						uint32_t src_paged_addr = src_pte_frame_new | src_pte_byte;
 
-						uint32_t dst_unpaged_addr = dst_pte_frame + dst_logical_addr;
+						uint32_t dst_unpaged_addr = dst_pte_frame + dst_adjust;
 						uint32_t dst_pte_index = dst_logical_addr >> 12;
 						uint32_t dst_pte_byte = dst_logical_addr & 0xfff;
 						uint32_t dst_pte_frame_new = riva128_ramin_read_l(dst_obj_addr + (dst_pte_index << 2) + 8, riva128);

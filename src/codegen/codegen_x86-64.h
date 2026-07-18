@@ -5,7 +5,7 @@
 #define HASH_SIZE         0x20000
 #define HASH_MASK         0x1ffff
 
-#define HASH(l)           ((l) &0x1ffff)
+#define HASH(l)           (((l) ^ ((l)>>12)) &0x1ffff)
 
 #define BLOCK_EXIT_OFFSET 0x7e0
 #ifdef OLD_GPF

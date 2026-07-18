@@ -85,7 +85,8 @@ enum {
     CPU_PENTIUM2D,
     CPU_ATHLON,
     CPU_PENTIUM3,
-    CPU_GENERICINTEL
+    CPU_PENTIUM4W,
+    CPU_GENERICINTEL,
 };
 
 enum {
@@ -117,7 +118,9 @@ enum {
     CPU_PKG_SLOT1            = (1 << 25),
     CPU_PKG_SLOT2            = (1 << 26),
     CPU_PKG_SOCKET370        = (1 << 27),
-    CPU_PKG_SLOTA            = (1 << 28)
+    CPU_PKG_SLOTA            = (1 << 28),
+    CPU_PKG_SOCKET423        = (1 << 29),
+    CPU_PKG_SOCKET478        = (1 << 30),
 };
 
 #define CPU_SUPPORTS_DYNAREC 1
@@ -165,7 +168,7 @@ typedef struct cpu_t {
 } CPU;
 
 typedef struct {
-    const uint32_t package;
+    const uint64_t package;
     const char    *manufacturer;
     const char    *name;
     const char    *internal_name;

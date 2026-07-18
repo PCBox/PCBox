@@ -4716,7 +4716,7 @@ execute_instruction(void)
 
 /* Executes instructions up to the specified number of cycles. */
 void
-execvx0(int cycs)
+execvx0(int32_t cycs)
 {
     cycles += cycs;
 

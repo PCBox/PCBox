@@ -341,6 +341,21 @@ codegen_mmx_enter(void)
 }
 
 int
+codegen_sse_enter(void)
+{
+    SSE_ENTER();
+    return 0;
+}
+
+int
+codegen_sse_check_align(uint32_t eaddr)
+{
+    if (eaddr & 15)
+        return 1;
+    return 0;
+}
+
+int
 codegen_femms(void)
 {
     if (!cpu_has_feature(CPU_FEATURE_MMX)) {
@@ -909,20 +924,20 @@ exec386_dynarec(int32_t cycs)
 {
     int      vector;
     int      tempi;
-    int32_t  cycdiff;
-    int32_t  oldcyc;
-    int32_t  oldcyc2;
+    int64_t  cycdiff;
+    int64_t  oldcyc;
+    int64_t  oldcyc2;
     uint64_t oldtsc;
     uint64_t delta;
 
-    int32_t cyc_period = cycs / (force_10ms ? 2000 : 200); /*5us*/
+    int64_t cyc_period = cycs / (force_10ms ? 2000 : 200); /*5us*/
 
 #    ifdef USE_ACYCS
     acycs = 0;
 #    endif
     cycles_main += cycs;
     while (cycles_main > 0) {
-        int32_t cycles_start;
+        int64_t cycles_start;
 
         cycles += cyc_period;
         cycles_start = cycles;
@@ -1051,10 +1066,10 @@ exec386(int32_t cycs)
 {
     int      vector;
     int      tempi;
-    int32_t  cycdiff;
-    int32_t  oldcyc;
-    int32_t  cycle_period;
-    int32_t  ins_cycles;
+    int64_t  cycdiff;
+    int64_t  oldcyc;
+    int64_t  cycle_period;
+    int64_t  ins_cycles;
     uint32_t addr;
 
     cycles += cycs;

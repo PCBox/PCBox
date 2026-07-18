@@ -18,6 +18,7 @@
 #include "codegen_ir.h"
 #include "codegen_ops.h"
 #include "codegen_ops_helpers.h"
+#include "codegen_backend.h"
 
 #define MAX_INSTRUCTION_COUNT 50
 static struct {
@@ -84,6 +85,7 @@ static int      last_op_ssegs;
 static x86seg  *last_op_ea_seg;
 static uint32_t last_op_32;
 static int      last_op_sse_xmm;
+int op_sse_xmm = 0;
 
 void
 codegen_generate_reset(void)
@@ -91,6 +93,8 @@ codegen_generate_reset(void)
     last_op_ssegs  = -1;
     last_op_ea_seg = NULL;
     last_op_32     = -1;
+    last_op_sse_xmm = 0;
+    op_sse_xmm = 0;
     has_ea         = 0;
 }
 
@@ -231,11 +235,17 @@ codegen_generate_ea_32_long(ir_data_t *ir, x86seg *op_ea_seg, uint32_t fetchdat,
                 }
                 break;
             case 1:
-                new_eaaddr = (uint32_t) (int8_t) ((fetchdat >> 16) & 0xff);
-                uop_MOV_IMM(ir, IREG_eaaddr, new_eaaddr);
+                if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
+                    LOAD_IMMEDIATE_FROM_RAM_8(block, ir, IREG_temp0_B, cs + (*op_pc) + 1);
+                    uop_MOVSX(ir, IREG_eaaddr, IREG_temp0_B);
+                    extra_bytes = 1;
+                } else {
+                    new_eaaddr = (uint32_t) (int8_t) ((fetchdat >> 16) & 0xff);
+                    uop_MOV_IMM(ir, IREG_eaaddr, new_eaaddr);
+                    extra_bytes = 2;
+                }
                 uop_ADD(ir, IREG_eaaddr, IREG_eaaddr, sib & 7);
                 (*op_pc)++;
-                extra_bytes = 2;
                 break;
             case 2:
                 if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
@@ -298,9 +308,15 @@ codegen_generate_ea_32_long(ir_data_t *ir, x86seg *op_ea_seg, uint32_t fetchdat,
                 if (cpu_rm == 5 && !op_ssegs)
                     op_ea_seg = &cpu_state.seg_ss;
                 if (cpu_mod == 1) {
-                    uop_ADD_IMM(ir, IREG_eaaddr, IREG_eaaddr, (uint32_t) (int8_t) (fetchdat >> 8));
+                    if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
+                        LOAD_IMMEDIATE_FROM_RAM_8(block, ir, IREG_temp0_B, cs + (*op_pc) + 1);
+                        uop_MOVSX(ir, IREG_temp1, IREG_temp0_B);
+                        uop_ADD(ir, IREG_eaaddr, IREG_eaaddr, IREG_temp1);
+                    } else {
+                        uop_ADD_IMM(ir, IREG_eaaddr, IREG_eaaddr, (uint32_t) (int8_t) (fetchdat >> 8));
+                        extra_bytes = 1;
+                    }
                     (*op_pc)++;
-                    extra_bytes = 1;
                 } else {
                     if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
                         LOAD_IMMEDIATE_FROM_RAM_32(block, ir, IREG_temp0, cs + (*op_pc) + 1);
@@ -439,7 +455,6 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
     int          opcode_mask        = 0x3ff;
     uint32_t     recomp_opcode_mask = 0x1ff;
     uint32_t     op_32              = use32;
-    int          op_sse_xmm         = 0;
     int          over               = 0;
     int          test_modrm         = 1;
     int          pc_off             = 0;
@@ -452,6 +467,7 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
 #ifdef DEBUG_EXTRA
     uint8_t last_prefix = 0;
 #endif
+    op_sse_xmm = 0;
     op_ea_seg = &cpu_state.seg_ds;
     op_ssegs  = 0;
 
@@ -465,16 +481,28 @@ codegen_generate_call(uint8_t opcode, OpFn op, uint32_t fetchdat, uint32_t new_p
 #endif
                 is_0f = 1;
                 op_table        = x86_dynarec_opcodes_0f;
+#ifndef CODEGEN_HAS_SSE
                 recomp_op_table = (fpu_softfloat || (cpu_features & CPU_FEATURE_SSE2)) ? recomp_opcodes_0f_no_mmx : recomp_opcodes_0f;
+#else
+                recomp_op_table = fpu_softfloat ? recomp_opcodes_0f_no_mmx : recomp_opcodes_0f;
+#endif
                 if(is_repe)
                 {
                     op_table        = x86_dynarec_opcodes_REPE_0f;
+#ifdef CODEGEN_HAS_SSE
+                    recomp_op_table = fpu_softfloat ? NULL : recomp_opcodes_REPE_0f;
+#else
                     recomp_op_table = NULL;
+#endif
                 }
                 else if(is_repne)
                 {
                     op_table        = x86_dynarec_opcodes_REPNE_0f;
+#ifdef CODEGEN_HAS_SSE
+                    recomp_op_table = (!fpu_softfloat && (cpu_features & CPU_FEATURE_SSE2)) ? recomp_opcodes_REPNE_0f : NULL;
+#else
                     recomp_op_table = NULL;
+#endif
                 }
                 if((fetchdat & 0xff) != 0x38 && (fetchdat & 0xff) != 0x3a) over = 1;
                 break;
@@ -695,7 +723,7 @@ generate_call:
         int jump_cycles = 0;
 
         if (codegen_timing_jump_cycles)
-            codegen_timing_jump_cycles();
+            jump_cycles = codegen_timing_jump_cycles();
 
         if (jump_cycles)
             codegen_accumulate(ir, ACCREG_cycles, -jump_cycles);

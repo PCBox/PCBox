@@ -366,6 +366,7 @@ extern int block_pos;
 /*Current physical page of block being recompiled. -1 if no recompilation taking place */
 extern uint32_t recomp_page;
 
+extern int      op_sse_xmm;
 extern x86seg  *op_ea_seg;
 extern int      op_ssegs;
 extern uint32_t op_old_pc;

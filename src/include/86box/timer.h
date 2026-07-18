@@ -28,12 +28,17 @@ extern uint64_t tsc;
   the timer period can only be at most 0x7fffffff CPU cycles. To allow room for
   (optimistic) CPU frequency growth, timer period must be at most 1 second.
 
+  Enabled timers are kept in a binary min-heap ordered by expiry timestamp;
+  heap_idx is the timer's position in it and is only valid while TIMER_ENABLED
+  is set.
+
   When a timer callback is called, the timer has been disabled. If the timer is
   to repeat, the callback must call timer_advance_u64(). This is a change from
   the old timer API.*/
 typedef struct pc_timer_t {
     uint64_t ts_integer;
     uint32_t ts_frac;
+    uint32_t heap_idx;
     int    flags;  /* The flags are defined above. */
     int    in_callback;
     double period; /* This is used for large period timers to count
@@ -41,9 +46,6 @@ typedef struct pc_timer_t {
 
     void (*callback)(void *priv);
     void *priv;
-
-    struct pc_timer_t *prev;
-    struct pc_timer_t *next;
 } pc_timer_t;
 
 #ifdef __cplusplus
@@ -89,16 +91,12 @@ extern uint64_t TIMER_USEC;
 static __inline void
 timer_advance_u64(pc_timer_t *timer, uint64_t delay)
 {
-    uint64_t int_delay = delay >> 32;
-    uint32_t frac_delay = delay & 0xffffffff;
+    /* Arithmetic shift sign-extends the 32-bit integer part of the delay. */
+    int64_t  int_delay = (int64_t) delay >> 32;
+    uint64_t frac_sum  = (uint64_t) timer->ts_frac + (uint32_t) delay;
 
-    if (int_delay & 0x0000000080000000ULL)
-        int_delay |= 0xffffffff00000000ULL;
-
-    if ((frac_delay + timer->ts_frac) < frac_delay)
-            timer->ts_integer++;
-    timer->ts_frac += frac_delay;
-    timer->ts_integer += int_delay;
+    timer->ts_frac     = (uint32_t) frac_sum;
+    timer->ts_integer += int_delay + (int64_t) (frac_sum >> 32);
 
     timer_enable(timer);
 }
@@ -108,14 +106,8 @@ timer_advance_u64(pc_timer_t *timer, uint64_t delay)
 static __inline void
 timer_set_delay_u64(pc_timer_t *timer, uint64_t delay)
 {
-    uint64_t int_delay = delay >> 32;
-    uint32_t frac_delay = delay & 0xffffffff;
-
-    if (int_delay & 0x0000000080000000ULL)
-        int_delay |= 0xffffffff00000000ULL;
-
-    timer->ts_frac = frac_delay;
-    timer->ts_integer = int_delay + (uint64_t)tsc;
+    timer->ts_frac    = (uint32_t) delay;
+    timer->ts_integer = ((int64_t) delay >> 32) + (uint64_t) tsc;
 
     timer_enable(timer);
 }

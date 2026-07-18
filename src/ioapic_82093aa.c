@@ -39,7 +39,7 @@ void apic_ioapic_set_base(uint8_t x_base, uint8_t y_base)
 
     mem_mapping_set_addr(&current_ioapic->ioapic_mem_window, 0xFEC00000 | ((y_base & 0x3) << 8) | ((x_base & 0xF) << 16), 0x20);
 
-    pclog("I/O APIC base: 0x%08X\n", current_ioapic->ioapic_mem_window.base);
+    //pclog("I/O APIC base: 0x%08X\n", current_ioapic->ioapic_mem_window.base);
 }
 
 void
@@ -55,7 +55,7 @@ ioapic_i82093aa_reset(ioapic_t* ioapic)
     for (i = 0; i < IOAPIC_RED_TABL_SIZE; i++) {
         ioapic->ioredtabl_s[i].intr_mask = 1;
     }
-    pclog("IOAPIC: RESET!\n");
+    //pclog("IOAPIC: RESET!\n");
 }
 
 void
@@ -94,11 +94,11 @@ apic_ioapic_lapic_interrupt_check(ioapic_t* ioapic, uint8_t irq)
 
     if(current_lapic) {
         if (service_parameters.destmod == 0 && (service_parameters.dest_mask & 0xf) != ((current_lapic->lapic_id >> 24) & 0xf)) {
-            pclog("LAPIC ID does not match\n");
+            //pclog("LAPIC ID does not match\n");
             return;
         }
         if (service_parameters.destmod == 1 && !(((uint8_t)(service_parameters.dest_mask)) & (1 << ((current_lapic->lapic_id >> 24) & 0xff)))) {
-            pclog("LAPIC ID is not in set\n");
+            //pclog("LAPIC ID is not in set\n");
             return;
         }
         lapic_service_interrupt(current_lapic, service_parameters);
@@ -204,7 +204,7 @@ ioapic_i82093aa_readl(uint32_t addr, void *priv)
                 ret = dev->ioredtabl_l[addr - 0x10];
             break;
     }
-    pclog("IOAPIC read reg 0x%08X (index 0x%X)\n", ret, dev->ioapic_index);
+    //pclog("IOAPIC read reg 0x%08X (index 0x%X)\n", ret, dev->ioapic_index);
     return ret;
 }
 
@@ -217,11 +217,11 @@ ioapic_i82093aa_writel(uint32_t addr, uint32_t val, void *priv)
     {
         case 0x00:
             dev->ioapic_index = val & 0xFF;
-            pclog("IOAPIC index: 0x%02X\n", val & 0xFF);
+            //pclog("IOAPIC index: 0x%02X\n", val & 0xFF);
             return;
         case 0x10:
             addr = dev->ioapic_index;
-            pclog("IOAPIC write data: 0x%08X\n", val);
+            //pclog("IOAPIC write data: 0x%08X\n", val);
             break;
         case 0x20:
             if (dev->extended)

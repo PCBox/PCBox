@@ -21,6 +21,7 @@ pkg_check_modules(SNDFILE REQUIRED IMPORTED_TARGET sndfile)
 
 add_library(cdrom OBJECT
     cdrom.c
+    cdrom_aaru.c
     cdrom_image.c
     cdrom_image_viso.c
     cdrom_mke.c

@@ -33,6 +33,7 @@ typedef struct host_reg_set_t {
 
 static host_reg_set_t host_reg_set;
 static host_reg_set_t host_fp_reg_set;
+static int            host_int_regs_low_only;
 
 uint64_t dirty_ir_regs[2] = { 0, 0 };
 
@@ -196,6 +197,8 @@ struct
 
     [IREG_temp0d] = { REG_DOUBLE,        (void *) 40,                        REG_FP,      REG_VOLATILE },
     [IREG_temp1d] = { REG_DOUBLE,        (void *) 48,                        REG_FP,      REG_VOLATILE },
+
+    [IREG_temp0dq] = { REG_DQWORD,        (void *) 64,                        REG_FP,      REG_VOLATILE },
 };
 
 static const uint8_t native_requested_sizes[10][8] = 
@@ -205,10 +208,10 @@ static const uint8_t native_requested_sizes[10][8] =
     [REG_WORD][IREG_SIZE_W >> IREG_SIZE_SHIFT]          = 1,
     [REG_DWORD][IREG_SIZE_L >> IREG_SIZE_SHIFT]         = 1,
     [REG_QWORD][IREG_SIZE_D >> IREG_SIZE_SHIFT]         = 1,
+    /*Only full 128-bit accesses are native for XMM registers. Partial
+      (B/W/L/Q) writes have an implicit dependency on the previous version
+      of the register, so the old value is loaded before being modified.*/
     [REG_DQWORD][IREG_SIZE_DQ >> IREG_SIZE_SHIFT]         = 1,
-    [REG_DQWORD][IREG_SIZE_B >> IREG_SIZE_SHIFT]         = 1,
-    [REG_DQWORD][IREG_SIZE_W >> IREG_SIZE_SHIFT]         = 1,
-    [REG_DQWORD][IREG_SIZE_L >> IREG_SIZE_SHIFT]         = 1,
     [REG_FPU_ST_QWORD][IREG_SIZE_D >> IREG_SIZE_SHIFT]  = 1,
     [REG_DOUBLE][IREG_SIZE_D >> IREG_SIZE_SHIFT]        = 1,
     [REG_FPU_ST_DOUBLE][IREG_SIZE_D >> IREG_SIZE_SHIFT] = 1,
@@ -294,6 +297,7 @@ codegen_reg_reset(void)
 
     reg_dead_list        = 0;
     max_version_refcount = 0;
+    host_int_regs_low_only = 0;
 }
 
 static inline int
@@ -309,6 +313,42 @@ get_reg_set(ir_reg_t ir_reg)
         return &host_reg_set;
     else
         return &host_fp_reg_set;
+}
+
+static inline int
+ir_reg_uses_byte_encoding(ir_reg_t ir_reg)
+{
+    int size;
+
+    if (ir_reg_is_invalid(ir_reg))
+        return 0;
+
+    size = IREG_GET_SIZE(ir_reg.reg);
+    return size == IREG_SIZE_B || size == IREG_SIZE_BH;
+}
+
+static inline int
+ir_reg_is_native_byte(ir_reg_t ir_reg)
+{
+    int native_size;
+
+    if (ir_reg_is_invalid(ir_reg))
+        return 0;
+
+    native_size = ireg_data[IREG_GET_REG(ir_reg.reg)].native_size;
+    return native_size == REG_BYTE || native_size == REG_FPU_ST_BYTE;
+}
+
+static inline int
+host_reg_supports_ir_reg(const host_reg_set_t *reg_set, int c, ir_reg_t ir_reg)
+{
+    if (reg_set != &host_reg_set)
+        return 1;
+
+    if (!(reg_set->reg_list[c].reg & 8))
+        return 1;
+
+    return !host_int_regs_low_only && !ir_reg_uses_byte_encoding(ir_reg) && !ir_reg_is_native_byte(ir_reg);
 }
 
 static void
@@ -351,18 +391,12 @@ codegen_reg_load(host_reg_set_t *reg_set, codeblock_t *block, int c, ir_reg_t ir
         case REG_DQWORD:
 #ifndef RELEASE_BUILD
             if (ireg_data[IREG_GET_REG(ir_reg.reg)].type != REG_FP)
-                fatal("codegen_reg_load - REG_QWORD !REG_FP\n");
+                fatal("codegen_reg_load - REG_DQWORD !REG_FP\n");
 #endif
             if ((uintptr_t) ireg_data[IREG_GET_REG(ir_reg.reg)].p < 256)
-            {
-                codegen_direct_read_64_stack(block, reg_set->reg_list[c].reg, (intptr_t) ireg_data[IREG_GET_REG(ir_reg.reg)].p);
-                codegen_direct_read_64_stack(block, reg_set->reg_list[c].reg, (intptr_t) (ireg_data[IREG_GET_REG(ir_reg.reg)].p + 8));
-            }
+                codegen_direct_read_128_stack(block, reg_set->reg_list[c].reg, (intptr_t) ireg_data[IREG_GET_REG(ir_reg.reg)].p);
             else
-            {
-                codegen_direct_read_64(block, reg_set->reg_list[c].reg, ireg_data[IREG_GET_REG(ir_reg.reg)].p);
-                codegen_direct_read_64(block, reg_set->reg_list[c].reg, ireg_data[IREG_GET_REG(ir_reg.reg)].p + 8);
-            }
+                codegen_direct_read_128(block, reg_set->reg_list[c].reg, ireg_data[IREG_GET_REG(ir_reg.reg)].p);
             break;
 
         case REG_POINTER:
@@ -482,18 +516,12 @@ codegen_reg_writeback(host_reg_set_t *reg_set, codeblock_t *block, int c, int in
         case REG_DQWORD:
 #ifndef RELEASE_BUILD
             if (ireg_data[ir_reg].type != REG_FP)
-                fatal("codegen_reg_writeback - REG_QWORD !REG_FP\n");
+                fatal("codegen_reg_writeback - REG_DQWORD !REG_FP\n");
 #endif
             if ((uintptr_t) p < 256)
-            {
-                codegen_direct_write_64_stack(block, (intptr_t) p, reg_set->reg_list[c].reg);
-                codegen_direct_write_64_stack(block, (intptr_t) (p + 8), reg_set->reg_list[c].reg);
-            }
+                codegen_direct_write_128_stack(block, (intptr_t) p, reg_set->reg_list[c].reg);
             else
-            {
-                codegen_direct_write_64(block, p, reg_set->reg_list[c].reg);
-                codegen_direct_write_64(block, p + 8, reg_set->reg_list[c].reg);
-            }
+                codegen_direct_write_128(block, p, reg_set->reg_list[c].reg);
             break;
 
         case REG_POINTER:
@@ -610,7 +638,7 @@ alloc_reg(ir_reg_t ir_reg)
     int             nr_regs = (reg_set == &host_reg_set) ? CODEGEN_HOST_REGS : CODEGEN_HOST_FP_REGS;
 
     for (int c = 0; c < nr_regs; c++) {
-        if (IREG_GET_REG(reg_set->regs[c].reg) == IREG_GET_REG(ir_reg.reg)) {
+        if (IREG_GET_REG(reg_set->regs[c].reg) == IREG_GET_REG(ir_reg.reg) && host_reg_supports_ir_reg(reg_set, c, ir_reg)) {
 #ifndef RELEASE_BUILD
             if (reg_set->regs[c].version != ir_reg.version)
                 fatal("alloc_reg - host_regs[c].version != ir_reg.version  %i %p %p  %i %i\n", c, reg_set, &host_reg_set, reg_set->regs[c].reg, ir_reg.reg);
@@ -628,7 +656,7 @@ alloc_dest_reg(ir_reg_t ir_reg, int dest_reference)
     int             nr_regs = (reg_set == &host_reg_set) ? CODEGEN_HOST_REGS : CODEGEN_HOST_FP_REGS;
 
     for (int c = 0; c < nr_regs; c++) {
-        if (IREG_GET_REG(reg_set->regs[c].reg) == IREG_GET_REG(ir_reg.reg)) {
+        if (IREG_GET_REG(reg_set->regs[c].reg) == IREG_GET_REG(ir_reg.reg) && host_reg_supports_ir_reg(reg_set, c, ir_reg)) {
             if (reg_set->regs[c].version == ir_reg.version) {
                 reg_set->locked |= (1 << c);
             } else {
@@ -659,6 +687,10 @@ codegen_reg_alloc_register(ir_reg_t dest_reg_a, ir_reg_t src_reg_a, ir_reg_t src
 
     host_reg_set.locked    = 0;
     host_fp_reg_set.locked = 0;
+    host_int_regs_low_only = ir_reg_uses_byte_encoding(dest_reg_a) ||
+                             ir_reg_uses_byte_encoding(src_reg_a) ||
+                             ir_reg_uses_byte_encoding(src_reg_b) ||
+                             ir_reg_uses_byte_encoding(src_reg_c);
 
     if (!ir_reg_is_invalid(dest_reg_a)) {
         if (!ir_reg_is_invalid(src_reg_a) && IREG_GET_REG(src_reg_a.reg) == IREG_GET_REG(dest_reg_a.reg) && src_reg_a.version == dest_reg_a.version - 1)
@@ -686,6 +718,16 @@ codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_id
 
     /*Search for required register*/
     for (c = 0; c < reg_set->nr_regs; c++) {
+        if (!ir_reg_is_invalid(reg_set->regs[c]) && IREG_GET_REG(reg_set->regs[c].reg) == IREG_GET_REG(ir_reg.reg) && !host_reg_supports_ir_reg(reg_set, c, ir_reg)) {
+            if (reg_set->dirty[c]) {
+                codegen_reg_writeback(reg_set, block, c, 1);
+                reg_set->dirty[c] = 0;
+            }
+            if (!ir_reg_is_invalid(reg_set->regs[c]))
+                reg_set->regs[c] = invalid_ir_reg;
+            continue;
+        }
+
         if (!ir_reg_is_invalid(reg_set->regs[c]) && IREG_GET_REG(reg_set->regs[c].reg) == IREG_GET_REG(ir_reg.reg) && reg_set->regs[c].version == ir_reg.version)
             break;
 
@@ -703,13 +745,13 @@ codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_id
     if (c == reg_set->nr_regs) {
         /*No unused registers. Search for an unlocked register with no pending reads*/
         for (c = 0; c < reg_set->nr_regs; c++) {
-            if (!(reg_set->locked & (1 << c)) && IREG_GET_REG(reg_set->regs[c].reg) != IREG_INVALID && !ir_get_refcount(reg_set->regs[c]))
+            if (host_reg_supports_ir_reg(reg_set, c, ir_reg) && !(reg_set->locked & (1 << c)) && IREG_GET_REG(reg_set->regs[c].reg) != IREG_INVALID && !ir_get_refcount(reg_set->regs[c]))
                 break;
         }
         if (c == reg_set->nr_regs) {
             /*Search for any unlocked register*/
             for (c = 0; c < reg_set->nr_regs; c++) {
-                if (!(reg_set->locked & (1 << c)))
+                if (host_reg_supports_ir_reg(reg_set, c, ir_reg) && !(reg_set->locked & (1 << c)))
                     break;
             }
 #ifndef RELEASE_BUILD
@@ -766,6 +808,16 @@ codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t ir_reg)
 
     /*Search for previous version in host register*/
     for (c = 0; c < reg_set->nr_regs; c++) {
+        if (!ir_reg_is_invalid(reg_set->regs[c]) && IREG_GET_REG(reg_set->regs[c].reg) == IREG_GET_REG(ir_reg.reg) && !host_reg_supports_ir_reg(reg_set, c, ir_reg)) {
+            if (reg_set->dirty[c]) {
+                codegen_reg_writeback(reg_set, block, c, 1);
+                reg_set->dirty[c] = 0;
+            }
+            if (!ir_reg_is_invalid(reg_set->regs[c]))
+                reg_set->regs[c] = invalid_ir_reg;
+            continue;
+        }
+
         if (!ir_reg_is_invalid(reg_set->regs[c]) && IREG_GET_REG(reg_set->regs[c].reg) == IREG_GET_REG(ir_reg.reg)) {
             if (reg_set->regs[c].version <= ir_reg.version - 1) {
 #ifndef RELEASE_BUILD
@@ -780,14 +832,14 @@ codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t ir_reg)
     if (c == reg_set->nr_regs) {
         /*Search for unused registers*/
         for (c = 0; c < reg_set->nr_regs; c++) {
-            if (ir_reg_is_invalid(reg_set->regs[c]))
+            if (host_reg_supports_ir_reg(reg_set, c, ir_reg) && ir_reg_is_invalid(reg_set->regs[c]))
                 break;
         }
 
         if (c == reg_set->nr_regs) {
             /*No unused registers. Search for an unlocked register*/
             for (c = 0; c < reg_set->nr_regs; c++) {
-                if (!(reg_set->locked & (1 << c)))
+                if (host_reg_supports_ir_reg(reg_set, c, ir_reg) && !(reg_set->locked & (1 << c)))
                     break;
             }
 #ifndef RELEASE_BUILD
@@ -889,7 +941,11 @@ codegen_reg_flush(UNUSED(ir_data_t *ir), codeblock_t *block)
         if (!ir_reg_is_invalid(reg_set->regs[c]) && reg_set->dirty[c]) {
             codegen_reg_writeback(reg_set, block, c, 0);
         }
-        if (reg_set->reg_list[c].flags & HOST_REG_FLAG_VOLATILE) {
+        if ((reg_set->reg_list[c].flags & HOST_REG_FLAG_VOLATILE)
+#ifdef CODEGEN_HOST_FP_REGS_PRESERVE_LOW_64_ONLY
+            || (!ir_reg_is_invalid(reg_set->regs[c]) && ireg_data[IREG_GET_REG(reg_set->regs[c].reg)].native_size == REG_DQWORD)
+#endif
+        ) {
             reg_set->regs[c]  = invalid_ir_reg;
             reg_set->dirty[c] = 0;
         }

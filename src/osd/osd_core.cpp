@@ -28,6 +28,11 @@
 #include <86box/ui.h>
 #include <86box/version.h>
 #include <86box/cdrom.h>
+#include <86box/mem.h>
+extern "C"
+{
+#include <86box/rom.h>
+}
 
 #include "osd_core.hpp"
 #include "osd_explorer.hpp"
@@ -151,6 +156,7 @@ osd_core_rebuild_default_font(int pixel_size)
 {
     ImGuiIO &io = ImGui::GetIO();
     ImFontConfig cfg;
+    char font_cfg_fn[4096] = { 0 };
 
     if (pixel_size < OSD_FONT_SIZE)
         pixel_size = OSD_FONT_SIZE;
@@ -160,7 +166,13 @@ osd_core_rebuild_default_font(int pixel_size)
     cfg.OversampleH = 1;
     cfg.OversampleV = 1;
     cfg.SizePixels  = (float) pixel_size;
-    io.Fonts->AddFontDefaultBitmap(&cfg);
+
+    static const ImWchar glyph_ranges[] = { 0x0020, 0xffff, 0 }; // Will not be copied by AddFont* so keep in scope.
+    int ret = asset_getfile("assets/fonts/unifont-17.0.05.otf", font_cfg_fn, 4096);
+    if (ret)
+        io.Fonts->AddFontFromFileTTF(font_cfg_fn, (float)pixel_size, &cfg, glyph_ranges);
+    else
+        io.Fonts->AddFontDefaultBitmap(&cfg);
 
     osd_font_raster_scale = (float) pixel_size / (float) OSD_FONT_SIZE;
     apply_layout_scale();
@@ -242,6 +254,7 @@ static void mount_path(const char *path)
             floppy_mount(0, (char *) path, 0);
             break;
         case VIEW_FILE_CD:
+        case VIEW_CD_FOLDER:
             cdrom_mount(0, (char *) path);
             break;
         case VIEW_FILE_RDISK:
@@ -662,6 +675,24 @@ bool osd_core_build_ui(void)
         case VIEW_LOG:       return draw_log();
         default:             return draw_browser();
     }
+}
+
+int osd_percentage = 0;
+
+void osd_core_draw_indicators(void)
+{
+#if 0
+    ImGuiWindowFlags window_flags = 0;
+    window_flags |= ImGuiWindowFlags_NoBackground;
+    window_flags |= ImGuiWindowFlags_NoTitleBar;
+    bool open_ptr = true;
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+    if (ImGui::Begin("DrawWin", &open_ptr, window_flags)) {
+        ImGui::TextColored(ImVec4(0, 1, 0, 1.0), "%d%%", osd_percentage);
+        ImGui::End();
+    }
+#endif
 }
 
 void osd_core_install_log_hook(void)

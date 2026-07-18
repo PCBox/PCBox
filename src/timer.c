@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
 #include <86box/86box.h>
@@ -10,115 +11,161 @@
 uint64_t TIMER_USEC;
 uint64_t timer_target;
 
-/*Enabled timers are stored in a linked list, with the first timer to expire at
-  the head.*/
-pc_timer_t *timer_head = NULL;
+/*Enabled timers are stored in a binary min-heap of pointers, ordered by
+  expiry timestamp with the first timer to expire at the root. Each timer
+  stores its own heap position in heap_idx so it can be removed or moved
+  in O(log n) without searching.*/
+static pc_timer_t **timer_heap  = NULL;
+static uint32_t     timer_count = 0;
+static uint32_t     timer_cap   = 0;
 
 /* Are we initialized? */
 int timer_inited = 0;
 
 static void timer_advance_ex(pc_timer_t *timer, int start);
 
+/*True if timer a expires strictly before timer b*/
+#define TIMER_BEFORE(a, b) ((int64_t) ((a)->ts_integer - (b)->ts_integer) < 0)
+
+static __inline void
+timer_heap_set(uint32_t idx, pc_timer_t *timer)
+{
+    timer_heap[idx]  = timer;
+    timer->heap_idx = idx;
+}
+
+static void
+timer_sift_up(uint32_t idx, pc_timer_t *timer)
+{
+    while (idx > 0) {
+        uint32_t    parent_idx = (idx - 1) >> 1;
+        pc_timer_t *parent     = timer_heap[parent_idx];
+
+        if (!TIMER_BEFORE(timer, parent))
+            break;
+
+        timer_heap_set(idx, parent);
+        idx = parent_idx;
+    }
+
+    timer_heap_set(idx, timer);
+}
+
+static void
+timer_sift_down(uint32_t idx, pc_timer_t *timer)
+{
+    while (1) {
+        uint32_t child = (idx << 1) + 1;
+
+        if (child >= timer_count)
+            break;
+
+        if (((child + 1) < timer_count) && TIMER_BEFORE(timer_heap[child + 1], timer_heap[child]))
+            child++;
+
+        if (!TIMER_BEFORE(timer_heap[child], timer))
+            break;
+
+        timer_heap_set(idx, timer_heap[child]);
+        idx = child;
+    }
+
+    timer_heap_set(idx, timer);
+}
+
+static __inline void
+timer_update_target(void)
+{
+    if (timer_count > 0)
+        timer_target = timer_heap[0]->ts_integer;
+    else
+        /* No enabled timers - push the target out to the maximum period. */
+        timer_target = (uint64_t) tsc + 0x7fffffffULL;
+}
+
+static void
+timer_heap_grow(void)
+{
+    uint32_t     new_cap  = timer_cap ? (timer_cap << 1) : 256;
+    pc_timer_t **new_heap = realloc(timer_heap, new_cap * sizeof(pc_timer_t *));
+
+    if (new_heap == NULL)
+        fatal("timer_heap_grow - out of memory\n");
+
+    timer_heap = new_heap;
+    timer_cap  = new_cap;
+}
+
 void
 timer_enable(pc_timer_t *timer)
 {
-    pc_timer_t *timer_node = timer_head;
+    uint32_t idx;
 
-    if (timer->flags & TIMER_ENABLED)
-        timer_disable(timer);
+    if (timer->flags & TIMER_ENABLED) {
+        /* Already in the heap - move it to its new position in place. */
+        idx = timer->heap_idx;
+        if ((idx >= timer_count) || (timer_heap[idx] != timer))
+            fatal("timer_enable - enabled timer not in heap\n");
 
-    if (timer->next || timer->prev)
-        fatal("timer_enable - timer->next\n");
+        timer_sift_up(idx, timer);
+        if (timer->heap_idx == idx)
+            timer_sift_down(idx, timer);
+    } else {
+        if (timer_count == timer_cap)
+            timer_heap_grow();
 
-    timer->flags |= TIMER_ENABLED;
-
-    /*List currently empty - add to head*/
-    if (!timer_head) {
-        timer_head = timer;
-        timer->next = timer->prev = NULL;
-        timer_target = timer_head->ts_integer;
-        return;
+        timer->flags |= TIMER_ENABLED;
+        timer_sift_up(timer_count++, timer);
     }
 
-    timer_node = timer_head;
-
-    while (1) {
-        /*
-           Timer expires before timer_node.
-           Add to list in front of timer_node
-         */
-        if (TIMER_LESS_THAN(timer, timer_node)) {
-            timer->next = timer_node;
-            timer->prev = timer_node->prev;
-            timer_node->prev = timer;
-            if (timer->prev)
-                timer->prev->next = timer;
-            else {
-                timer_head = timer;
-                timer_target = timer_head->ts_integer;
-            }
-            return;
-        }
-
-        /*
-           timer_node is last in the list.
-           Add timer to end of list
-         */
-        if (!timer_node->next) {
-            timer_node->next = timer;
-            timer->prev = timer_node;
-            return;
-        }
-
-        timer_node = timer_node->next;
-    }
+    timer_update_target();
 }
 
 void
 timer_disable(pc_timer_t *timer)
 {
+    pc_timer_t *last;
+    uint32_t    idx;
+
     if (!timer_inited || (timer == NULL) || !(timer->flags & TIMER_ENABLED))
         return;
 
-    if (!timer->next && !timer->prev && timer != timer_head) {
-        uint32_t *p = NULL;
-        *p = 5;    /* Crash deliberately. */
-        fatal("timer_disable(): Attempting to disable an isolated "
-              "non-head timer incorrectly marked as enabled\n");
-    }
+    idx = timer->heap_idx;
+    if ((idx >= timer_count) || (timer_heap[idx] != timer))
+        fatal("timer_disable - enabled timer not in heap\n");
 
     timer->flags &= ~TIMER_ENABLED;
     timer->in_callback = 0;
 
-    if (timer->prev)
-        timer->prev->next = timer->next;
-    else
-        timer_head = timer->next;
-    if (timer->next)
-        timer->next->prev = timer->prev;
-    timer->prev = timer->next = NULL;
+    timer_count--;
+    if (idx < timer_count) {
+        /* Fill the hole with the last heap entry. */
+        last = timer_heap[timer_count];
+        timer_sift_up(idx, last);
+        if (last->heap_idx == idx)
+            timer_sift_down(idx, last);
+    }
+
+    timer_update_target();
 }
 
-static void
+static __inline void
 timer_remove_head(void)
 {
-    if (timer_head) {
-        pc_timer_t *timer = timer_head;
-        timer_head = timer->next;
-        timer_head->prev = NULL;
-        timer->next = timer->prev = NULL;
-        timer->flags &= ~TIMER_ENABLED;
-    }
+    pc_timer_t *head = timer_heap[0];
+
+    head->flags &= ~TIMER_ENABLED;
+
+    timer_count--;
+    if (timer_count > 0)
+        timer_sift_down(0, timer_heap[timer_count]);
 }
 
 void
 timer_process(void)
 {
-    if (!timer_head)
-        return;
-
-    while (1) {
-        pc_timer_t *timer = timer_head;
+    while (timer_count > 0) {
+        pc_timer_t *timer = timer_heap[0];
 
         if (!TIMER_LESS_THAN_VAL(timer, (uint64_t) tsc))
             break;
@@ -140,25 +187,20 @@ timer_process(void)
         }
     }
 
-    timer_target = timer_head->ts_integer;
+    timer_update_target();
 }
 
 void
 timer_close(void)
 {
-    pc_timer_t *t = timer_head;
-    pc_timer_t *r;
+    uint32_t c;
 
-    /* Set all timers' prev and next to NULL so it is assured that
-       timers that are not in calloc'd structs don't keep pointing
-       to timers that may be in calloc'd structs. */
-    while (t != NULL) {
-        r       = t;
-        r->prev = r->next = NULL;
-        t                 = r->next;
-    }
+    /* Clear the enabled flag of all timers still in the heap, so that
+       stale heap indices can't corrupt the next machine's timer heap. */
+    for (c = 0; c < timer_count; c++)
+        timer_heap[c]->flags &= ~TIMER_ENABLED;
 
-    timer_head = NULL;
+    timer_count = 0;
 
     timer_inited = 0;
 }
@@ -184,7 +226,6 @@ timer_add(pc_timer_t *timer, void (*callback)(void *priv), void *priv, int start
     timer->in_callback = 0;
     timer->priv        = priv;
     timer->flags       = 0;
-    timer->prev        = timer->next = NULL;
     if (start_timer)
         timer_set_delay_u64(timer, 0);
 }
@@ -262,27 +303,19 @@ timer_on_auto(pc_timer_t *timer, double period)
 void
 timer_set_new_tsc(uint64_t new_tsc)
 {
-    pc_timer_t *timer = NULL;
+    uint32_t c;
+
     /* Run timers already expired. */
 #ifdef USE_DYNAREC
     if (cpu_use_dynarec)
         update_tsc();
 #endif
 
-    if (!timer_head) {
-        tsc = new_tsc;
-        return;
-    }
-
-    timer = timer_head;
-    timer_target = new_tsc + (int64_t)(timer_get_ts_int(timer_head) - (uint64_t)tsc);
-
-    while (timer) {
-        int64_t offset_from_current_tsc = (int64_t)(timer_get_ts_int(timer) - (uint64_t)tsc);
-        timer->ts_integer = new_tsc + offset_from_current_tsc;
-
-        timer = timer->next;
-    }
+    /* Shifting every timestamp by the same delta preserves the heap order. */
+    for (c = 0; c < timer_count; c++)
+        timer_heap[c]->ts_integer = new_tsc + (int64_t) (timer_heap[c]->ts_integer - (uint64_t) tsc);
 
     tsc = new_tsc;
+
+    timer_update_target();
 }

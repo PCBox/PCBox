@@ -20,6 +20,7 @@ add_library(mch OBJECT
     machine_table.c
     m_xt.c
     m_xt_t1000.c
+    m_xt_jukost.c
     m_xt_xi8088.c
     m_pcjr.c
     m_amstrad.c
@@ -57,6 +58,7 @@ add_library(mch OBJECT
     m_at_slot1_socket370.c
     m_at_slot2.c
     m_at_socket370.c
+    m_at_socket423.c
     m_at_slota.c
     m_at_misc.c
 )

@@ -728,6 +728,15 @@ spd_write_drbs_intel_815ep(uint8_t *regs)
     }
 }
 
+void
+spd_write_drbs_intel_845(uint8_t *regs)
+{
+    spd_write_drbs(regs, 0x60, 0x65, 32);
+
+    regs[0x66] = regs[0x65];
+    regs[0x67] = regs[0x65];
+}
+
 static const device_t spd_device = {
     .name          = "Serial Presence Detect ROMs",
     .internal_name = "spd",

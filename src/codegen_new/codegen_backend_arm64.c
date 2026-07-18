@@ -312,7 +312,7 @@ codegen_backend_init(void)
     host_arm64_call(block, (void *) x86gpf);
 
     codegen_exit_rout = &block_write_data[block_pos];
-    host_arm64_LDP_POSTIDX_X(block, REG_X19, REG_X20, REG_XSP, 64);
+    host_arm64_LDP_POSTIDX_X(block, REG_X19, REG_X20, REG_XSP, 80);
     host_arm64_LDP_POSTIDX_X(block, REG_X21, REG_X22, REG_XSP, 16);
     host_arm64_LDP_POSTIDX_X(block, REG_X23, REG_X24, REG_XSP, 16);
     host_arm64_LDP_POSTIDX_X(block, REG_X25, REG_X26, REG_XSP, 16);
@@ -349,7 +349,9 @@ codegen_backend_prologue(codeblock_t *block)
     host_arm64_STP_PREIDX_X(block, REG_X25, REG_X26, REG_XSP, -16);
     host_arm64_STP_PREIDX_X(block, REG_X23, REG_X24, REG_XSP, -16);
     host_arm64_STP_PREIDX_X(block, REG_X21, REG_X22, REG_XSP, -16);
-    host_arm64_STP_PREIDX_X(block, REG_X19, REG_X20, REG_XSP, -64);
+    /*Stack offsets 16-31 = integer temps, 32 = FPU TOP diff,
+      40-55 = FP temps, 64-79 = 128-bit temp*/
+    host_arm64_STP_PREIDX_X(block, REG_X19, REG_X20, REG_XSP, -80);
 
     host_arm64_MOVX_IMM(block, REG_CPUSTATE, (uint64_t) &cpu_state);
 
@@ -363,7 +365,7 @@ codegen_backend_prologue(codeblock_t *block)
 void
 codegen_backend_epilogue(codeblock_t *block)
 {
-    host_arm64_LDP_POSTIDX_X(block, REG_X19, REG_X20, REG_XSP, 64);
+    host_arm64_LDP_POSTIDX_X(block, REG_X19, REG_X20, REG_XSP, 80);
     host_arm64_LDP_POSTIDX_X(block, REG_X21, REG_X22, REG_XSP, 16);
     host_arm64_LDP_POSTIDX_X(block, REG_X23, REG_X24, REG_XSP, 16);
     host_arm64_LDP_POSTIDX_X(block, REG_X25, REG_X26, REG_XSP, 16);

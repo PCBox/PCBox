@@ -32,6 +32,96 @@
 
 #define MEM_SIZE_MB (mem_size >> 10)
 
+extern spd_t *spd_modules[SPD_MAX_SLOTS];
+
+static int
+intel_845_sdram_geometry(uint16_t row_size, uint8_t *row_bits, uint8_t *col_bits)
+{
+    switch (row_size) {
+        case 32:
+            *row_bits = 12;
+            *col_bits = 8;
+            return 1;
+
+        case 64:
+            *row_bits = 12;
+            *col_bits = 9;
+            return 1;
+
+        case 128:
+            *row_bits = 13;
+            *col_bits = 9;
+            return 1;
+
+        case 256:
+            *row_bits = 13;
+            *col_bits = 10;
+            return 1;
+
+        case 512:
+            *row_bits = 13;
+            *col_bits = 11;
+            return 1;
+
+        default:
+            return 0;
+    }
+}
+
+static void
+intel_845_spd_rechecksum(spd_t *spd)
+{
+    spd_sdram_t *sdram_data = &spd->sdram_data;
+
+    sdram_data->checksum  = 0;
+    sdram_data->checksum2 = 0;
+
+    for (uint8_t i = 0; i < 63; i++)
+        sdram_data->checksum += spd->data[i];
+
+    for (uint8_t i = 0; i < 129; i++)
+        sdram_data->checksum2 += spd->data[i];
+}
+
+static void
+intel_845_spd_fix_geometry(void)
+{
+    uint8_t row_bits;
+    uint8_t col_bits;
+
+    for (uint8_t slot = 0; slot < SPD_MAX_SLOTS; slot++) {
+        spd_t        *spd;
+        spd_sdram_t  *sdram_data;
+        uint8_t       row1_bits;
+        uint8_t       col1_bits;
+        uint8_t       row2_bits = 0;
+        uint8_t       col2_bits = 0;
+
+        spd = spd_modules[slot];
+        if ((spd == NULL) || (spd->sdram_data.mem_type != SPD_TYPE_SDRAM))
+            continue;
+
+        if (!intel_845_sdram_geometry(spd->row1, &row_bits, &col_bits))
+            continue;
+        row1_bits = row_bits;
+        col1_bits = col_bits;
+
+        if ((spd->row2 != 0) && (spd->row1 != spd->row2)) {
+            if (!intel_845_sdram_geometry(spd->row2, &row_bits, &col_bits))
+                continue;
+            row2_bits = row_bits;
+            col2_bits = col_bits;
+        }
+
+        sdram_data           = &spd->sdram_data;
+        sdram_data->row_bits = row1_bits | (row2_bits << 4);
+        sdram_data->col_bits = col1_bits | (col2_bits << 4);
+        sdram_data->banks    = 4;
+
+        intel_845_spd_rechecksum(spd);
+    }
+}
+
 uint8_t
 intel_815ep_get_banking(void)
 {
@@ -119,4 +209,11 @@ intel_815ep_spd_init(void)
             pclog("Intel 815EP SPD Hack: Illegal Size %dMB\n", MEM_SIZE_MB);
             break;
     }
+}
+
+void
+intel_845_spd_init(void)
+{
+    spd_register(SPD_TYPE_SDRAM, 7, 1024);
+    intel_845_spd_fix_geometry();
 }

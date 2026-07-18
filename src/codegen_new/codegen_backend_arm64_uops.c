@@ -1,6 +1,7 @@
 #if defined __aarch64__ || defined _M_ARM64
 
 #    include <stdint.h>
+#    include <limits.h>
 #    include <86box/86box.h>
 #    include "cpu.h"
 #    include <86box/mem.h>
@@ -28,6 +29,198 @@
 #    define REG_IS_BH(size)   (size == IREG_SIZE_BH)
 #    define REG_IS_D(size)    (size == IREG_SIZE_D)
 #    define REG_IS_Q(size)    (size == IREG_SIZE_Q)
+#    define REG_IS_DQ(size)   (size == IREG_SIZE_DQ)
+
+static uint64_t
+codegen_div_u64(uint32_t low, uint32_t high)
+{
+    return ((uint64_t) high << 32) | low;
+}
+
+static int64_t
+codegen_div_s64(uint32_t low, uint32_t high)
+{
+    return (int64_t) codegen_div_u64(low, high);
+}
+
+static uint32_t
+codegen_udiv_check_bits(uint32_t low, uint32_t high, uint32_t divisor, uint32_t bits)
+{
+    uint64_t max_quotient = (bits == 32) ? UINT32_MAX : ((UINT64_C(1) << bits) - 1);
+
+    if (!divisor)
+        return 1;
+
+    return (codegen_div_u64(low, high) / divisor) > max_quotient;
+}
+
+static uint32_t
+codegen_idiv_check_bits(uint32_t low, uint32_t high, uint32_t divisor, uint32_t bits)
+{
+    int64_t dividend = codegen_div_s64(low, high);
+    int32_t divs     = (int32_t) divisor;
+    int64_t min_quotient;
+    int64_t max_quotient;
+    int64_t quotient;
+
+    if (!divs)
+        return 1;
+
+    switch (bits) {
+        case 8:
+            min_quotient = -128;
+            max_quotient = 127;
+            break;
+        case 16:
+            min_quotient = -32768;
+            max_quotient = 32767;
+            break;
+        default:
+            min_quotient = INT32_MIN;
+            max_quotient = INT32_MAX;
+            break;
+    }
+
+    if (dividend == INT64_MIN && divs == -1)
+        return 1;
+
+    quotient = dividend / divs;
+    return quotient < min_quotient || quotient > max_quotient;
+}
+
+static uint32_t
+codegen_udiv_check8(uint32_t low, uint32_t high, uint32_t divisor)
+{
+    return codegen_udiv_check_bits(low, high, divisor, 8);
+}
+
+static uint32_t
+codegen_udiv_check16(uint32_t low, uint32_t high, uint32_t divisor)
+{
+    return codegen_udiv_check_bits(low, high, divisor, 16);
+}
+
+static uint32_t
+codegen_udiv_check32(uint32_t low, uint32_t high, uint32_t divisor)
+{
+    return codegen_udiv_check_bits(low, high, divisor, 32);
+}
+
+static uint32_t
+codegen_idiv_check8(uint32_t low, uint32_t high, uint32_t divisor)
+{
+    return codegen_idiv_check_bits(low, high, divisor, 8);
+}
+
+static uint32_t
+codegen_idiv_check16(uint32_t low, uint32_t high, uint32_t divisor)
+{
+    return codegen_idiv_check_bits(low, high, divisor, 16);
+}
+
+static uint32_t
+codegen_idiv_check32(uint32_t low, uint32_t high, uint32_t divisor)
+{
+    return codegen_idiv_check_bits(low, high, divisor, 32);
+}
+
+static uint32_t
+codegen_udiv_quot(uint32_t low, uint32_t high, uint32_t divisor)
+{
+    if (!divisor)
+        return 0;
+    return (uint32_t) (codegen_div_u64(low, high) / divisor);
+}
+
+static uint32_t
+codegen_umod_rem(uint32_t low, uint32_t high, uint32_t divisor)
+{
+    if (!divisor)
+        return 0;
+    return (uint32_t) (codegen_div_u64(low, high) % divisor);
+}
+
+static uint32_t
+codegen_idiv_quot(uint32_t low, uint32_t high, uint32_t divisor)
+{
+    int64_t dividend = codegen_div_s64(low, high);
+    int32_t divs     = (int32_t) divisor;
+
+    if (!divs || (dividend == INT64_MIN && divs == -1))
+        return 0;
+    return (uint32_t) (dividend / divs);
+}
+
+static uint32_t
+codegen_imod_rem(uint32_t low, uint32_t high, uint32_t divisor)
+{
+    int64_t dividend = codegen_div_s64(low, high);
+    int32_t divs     = (int32_t) divisor;
+
+    if (!divs || (dividend == INT64_MIN && divs == -1))
+        return 0;
+    return (uint32_t) (dividend % divs);
+}
+
+static void *
+codegen_udiv_check_helper(uint32_t bits)
+{
+    switch (bits) {
+        case 8:
+            return codegen_udiv_check8;
+        case 16:
+            return codegen_udiv_check16;
+        case 32:
+            return codegen_udiv_check32;
+        default:
+            fatal("codegen_udiv_check_helper - bits=%u\n", bits);
+    }
+
+    return NULL;
+}
+
+static void *
+codegen_idiv_check_helper(uint32_t bits)
+{
+    switch (bits) {
+        case 8:
+            return codegen_idiv_check8;
+        case 16:
+            return codegen_idiv_check16;
+        case 32:
+            return codegen_idiv_check32;
+        default:
+            fatal("codegen_idiv_check_helper - bits=%u\n", bits);
+    }
+
+    return NULL;
+}
+
+static int
+codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int src_reg_c  = HOST_REG_GET(uop->src_reg_c_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+    int src_size_c = IREG_GET_SIZE(uop->src_reg_c_real);
+
+    if (REG_IS_L(dest_size) && REG_IS_L(src_size_a) && REG_IS_L(src_size_b) && REG_IS_L(src_size_c)) {
+        host_arm64_MOV_REG(block, REG_ARG0, src_reg_a, 0);
+        host_arm64_MOV_REG(block, REG_ARG1, src_reg_b, 0);
+        host_arm64_MOV_REG(block, REG_ARG2, src_reg_c, 0);
+        host_arm64_call(block, helper);
+        host_arm64_MOV_REG(block, dest_reg, REG_W0, 0);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("DIV helper size mismatch: dest_size=%x, src_size_a=%x, src_size_b=%x, src_size_c=%x\n", dest_size, src_size_a, src_size_b, src_size_c);
+#    endif
+    return 0;
+}
 
 static int
 codegen_ADD(codeblock_t *block, uop_t *uop)
@@ -95,6 +288,165 @@ codegen_ADD_LSHIFT(codeblock_t *block, uop_t *uop)
 {
     host_arm64_ADD_REG(block, uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real, uop->imm_data);
     return 0;
+}
+
+static int
+codegen_IMUL(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_L(dest_size) && REG_IS_L(src_size_a) && REG_IS_L(src_size_b)) {
+        host_arm64_MUL(block, dest_reg, src_reg_a, src_reg_b);
+    } else if (REG_IS_W(dest_size) && REG_IS_W(src_size_a) && REG_IS_W(src_size_b)) {
+        host_arm64_MUL(block, REG_TEMP, src_reg_a, src_reg_b);
+        host_arm64_BFI(block, dest_reg, REG_TEMP, 0, 16);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("IMUL size mismatch: dest_size=%x, src_size_a=%x, src_size_b=%x\n", dest_size, src_size_a, src_size_b);
+#    endif
+    return 0;
+}
+
+static int
+codegen_IMUL_IMM(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg   = HOST_REG_GET(uop->src_reg_a_real);
+    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
+
+    if (REG_IS_L(dest_size) && REG_IS_L(src_size)) {
+        uint32_t imm = uop->imm_data;
+        if (imm <= 0xffff) {
+            host_arm64_MOVZ_IMM(block, REG_W16, imm);
+        } else {
+            host_arm64_MOVZ_IMM(block, REG_W16, imm & 0xffff);
+            host_arm64_MOVK_IMM(block, REG_W16, imm & 0xffff0000);
+        }
+        host_arm64_MUL(block, dest_reg, src_reg, REG_W16);
+    } else if (REG_IS_W(dest_size) && REG_IS_W(src_size)) {
+        uint32_t imm = uop->imm_data;
+        if (imm <= 0xffff) {
+            host_arm64_MOVZ_IMM(block, REG_W16, imm);
+        } else {
+            host_arm64_MOVZ_IMM(block, REG_W16, imm & 0xffff);
+            host_arm64_MOVK_IMM(block, REG_W16, imm & 0xffff0000);
+        }
+        host_arm64_MUL(block, REG_TEMP, src_reg, REG_W16);
+        host_arm64_BFI(block, dest_reg, REG_TEMP, 0, 16);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("IMUL_IMM size mismatch: dest_size=%x, src_size=%x\n", dest_size, src_size);
+#    endif
+    return 0;
+}
+
+static int
+codegen_UMUL(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_L(dest_size) && REG_IS_L(src_size_a) && REG_IS_L(src_size_b)) {
+        host_arm64_MUL(block, dest_reg, src_reg_a, src_reg_b);
+    } else if (REG_IS_W(dest_size) && REG_IS_W(src_size_a) && REG_IS_W(src_size_b)) {
+        host_arm64_MUL(block, REG_TEMP, src_reg_a, src_reg_b);
+        host_arm64_BFI(block, dest_reg, REG_TEMP, 0, 16);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("UMUL size mismatch: dest_size=%x, src_size_a=%x, src_size_b=%x\n", dest_size, src_size_a, src_size_b);
+#    endif
+    return 0;
+}
+
+static int
+codegen_IMUL_HI(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_L(dest_size) && REG_IS_L(src_size_a) && REG_IS_L(src_size_b)) {
+        host_arm64_SMULL(block, dest_reg, src_reg_a, src_reg_b);
+        host_arm64_MOVX_REG_ASR(block, dest_reg, dest_reg, 32);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("IMUL_HI size mismatch: dest_size=%x, src_size_a=%x, src_size_b=%x\n", dest_size, src_size_a, src_size_b);
+#    endif
+    return 0;
+}
+
+static int
+codegen_UMUL_HI(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_L(dest_size) && REG_IS_L(src_size_a) && REG_IS_L(src_size_b)) {
+        host_arm64_UMULL(block, dest_reg, src_reg_a, src_reg_b);
+        host_arm64_MOVX_REG_LSR(block, dest_reg, dest_reg, 32);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("UMUL_HI size mismatch: dest_size=%x, src_size_a=%x, src_size_b=%x\n", dest_size, src_size_a, src_size_b);
+#    endif
+    return 0;
+}
+
+static int
+codegen_UDIV_CHECK(codeblock_t *block, uop_t *uop)
+{
+    return codegen_DIV_HELPER(block, uop, codegen_udiv_check_helper(uop->imm_data));
+}
+
+static int
+codegen_IDIV_CHECK(codeblock_t *block, uop_t *uop)
+{
+    return codegen_DIV_HELPER(block, uop, codegen_idiv_check_helper(uop->imm_data));
+}
+
+static int
+codegen_UDIV(codeblock_t *block, uop_t *uop)
+{
+    return codegen_DIV_HELPER(block, uop, codegen_udiv_quot);
+}
+
+static int
+codegen_UMOD(codeblock_t *block, uop_t *uop)
+{
+    return codegen_DIV_HELPER(block, uop, codegen_umod_rem);
+}
+
+static int
+codegen_IDIV(codeblock_t *block, uop_t *uop)
+{
+    return codegen_DIV_HELPER(block, uop, codegen_idiv_quot);
+}
+
+static int
+codegen_IMOD(codeblock_t *block, uop_t *uop)
+{
+    return codegen_DIV_HELPER(block, uop, codegen_imod_rem);
 }
 
 static int
@@ -816,6 +1168,37 @@ codegen_MMX_ENTER(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
+{
+    uint32_t *branch_ptr;
+
+    if (!in_range12_w((uintptr_t) &cr0 - (uintptr_t) &cpu_state))
+        fatal("codegen_SSE_ENTER - out of range\n");
+
+    host_arm64_LDR_IMM_W(block, REG_TEMP, REG_CPUSTATE, (uintptr_t) &cr0 - (uintptr_t) &cpu_state);
+    host_arm64_TST_IMM(block, REG_TEMP, 0x4);
+    branch_ptr = host_arm64_BEQ_(block);
+    host_arm64_call(block, x86illegal);
+    host_arm64_B(block, codegen_exit_rout);
+    host_arm64_branch_set_offset(branch_ptr, &block->data[block_pos]);
+
+    host_arm64_TST_IMM(block, REG_TEMP, 0x8);
+    branch_ptr = host_arm64_BEQ_(block);
+
+    host_arm64_mov_imm(block, REG_TEMP, uop->imm_data);
+    host_arm64_STR_IMM_W(block, REG_TEMP, REG_CPUSTATE, (uintptr_t) &cpu_state.oldpc - (uintptr_t) &cpu_state);
+    host_arm64_mov_imm(block, REG_ARG0, 7);
+    host_arm64_call(block, x86_int);
+    host_arm64_B(block, codegen_exit_rout);
+
+    /* Patch against the active write cursor; block->data can point at stale
+       bytes here when block emission is still in-flight. */
+    host_arm64_branch_set_offset(branch_ptr, &block_write_data[block_pos]);
+
+    return 0;
+}
+
+static int
 codegen_JMP(codeblock_t *block, uop_t *uop)
 {
     host_arm64_jump(block, (uintptr_t) uop->p);
@@ -1175,6 +1558,8 @@ codegen_MOV(codeblock_t *block, uop_t *uop)
         host_arm64_FMOV_D_D(block, dest_reg, src_reg);
     } else if (REG_IS_Q(dest_size) && REG_IS_Q(src_size)) {
         host_arm64_FMOV_D_D(block, dest_reg, src_reg);
+    } else if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size)) {
+        host_arm64_ORR_REG_V16B(block, dest_reg, src_reg, src_reg);
     } else if (REG_IS_W(dest_size) && REG_IS_L(src_size)) {
         /* Preserve upper destination bits; only replace the architected low 16 bits. */
         host_arm64_BFI(block, dest_reg, src_reg, 0, 16);
@@ -1252,7 +1637,6 @@ codegen_MOVZX(codeblock_t *block, uop_t *uop)
     int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
 
     if (REG_IS_Q(dest_size) && REG_IS_L(src_size)) {
-        host_arm64_MOV_REG(block, src_reg, src_reg, 0); //Zero extends src_reg
         host_arm64_FMOV_D_Q(block, dest_reg, src_reg);
     } else if (REG_IS_L(dest_size) && REG_IS_Q(src_size)) {
         host_arm64_FMOV_W_S(block, dest_reg, src_reg);
@@ -1353,8 +1737,6 @@ codegen_MOV_REG_PTR(codeblock_t *block, uop_t *uop)
     host_arm64_MOVX_IMM(block, REG_TEMP, (uint64_t) uop->p);
     if (REG_IS_L(dest_size)) {
         host_arm64_LDR_IMM_W(block, dest_reg, REG_TEMP, 0);
-    } else if (REG_IS_D(dest_size) || REG_IS_Q(dest_size)) {
-        host_arm64_LDR_IMM_F64(block, dest_reg, REG_TEMP, 0);
     } else
         fatal("MOV_REG_PTR %02x\n", uop->dest_reg_a_real);
 
@@ -2109,7 +2491,7 @@ codegen_PMULHW(codeblock_t *block, uop_t *uop)
 
     if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b)) {
         host_arm64_SMULL_V4S_4H(block, dest_reg, src_reg_a, src_reg_b);
-        host_arm64_SQSHRN_V4H_4S(block, dest_reg, dest_reg, 16);
+        host_arm64_SHRN_V4H_4S(block, dest_reg, dest_reg, 16);
     } else
         fatal("PMULHW %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
 
@@ -3235,6 +3617,39 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_ADD_IMM &
         UOP_MASK]
     = codegen_ADD_IMM,
+    [UOP_IMUL &
+        UOP_MASK]
+    = codegen_IMUL,
+    [UOP_IMUL_IMM &
+        UOP_MASK]
+    = codegen_IMUL_IMM,
+    [UOP_IMUL_HI &
+        UOP_MASK]
+    = codegen_IMUL_HI,
+    [UOP_UMUL &
+        UOP_MASK]
+    = codegen_UMUL,
+    [UOP_UMUL_HI &
+        UOP_MASK]
+    = codegen_UMUL_HI,
+    [UOP_UDIV_CHECK &
+        UOP_MASK]
+    = codegen_UDIV_CHECK,
+    [UOP_IDIV_CHECK &
+        UOP_MASK]
+    = codegen_IDIV_CHECK,
+    [UOP_UDIV &
+        UOP_MASK]
+    = codegen_UDIV,
+    [UOP_UMOD &
+        UOP_MASK]
+    = codegen_UMOD,
+    [UOP_IDIV &
+        UOP_MASK]
+    = codegen_IDIV,
+    [UOP_IMOD &
+        UOP_MASK]
+    = codegen_IMOD,
     [UOP_ADD_LSHIFT &
         UOP_MASK]
     = codegen_ADD_LSHIFT,
@@ -3624,6 +4039,21 @@ codegen_direct_read_64(codeblock_t *block, int host_reg, void *p)
         fatal("codegen_direct_read_double - not in range\n");
 }
 void
+codegen_direct_read_128(codeblock_t *block, int host_reg, void *p)
+{
+    int offset = (uintptr_t) p - (uintptr_t) &cpu_state;
+
+    if (in_range12_dq(offset))
+        host_arm64_LDR_IMM_F128(block, host_reg, REG_CPUSTATE, offset);
+    else if (offset >= 0) {
+        /*The scaled immediate form needs a 16 byte aligned offset, which
+          cpu_state does not guarantee, so form the address explicitly*/
+        host_arm64_ADDX_IMM(block, REG_TEMP, REG_CPUSTATE, offset);
+        host_arm64_LDR_IMM_F128(block, host_reg, REG_TEMP, 0);
+    } else
+        fatal("codegen_direct_read_128 - not in range\n");
+}
+void
 codegen_direct_read_pointer(codeblock_t *block, int host_reg, void *p)
 {
     if (in_range12_q((uintptr_t) p - (uintptr_t) &cpu_state))
@@ -3698,6 +4128,21 @@ codegen_direct_write_64(codeblock_t *block, void *p, int host_reg)
         host_arm64_STR_IMM_F64(block, host_reg, REG_CPUSTATE, (uintptr_t) p - (uintptr_t) &cpu_state);
     else
         fatal("codegen_direct_write_double - not in range\n");
+}
+void
+codegen_direct_write_128(codeblock_t *block, void *p, int host_reg)
+{
+    int offset = (uintptr_t) p - (uintptr_t) &cpu_state;
+
+    if (in_range12_dq(offset))
+        host_arm64_STR_IMM_F128(block, host_reg, REG_CPUSTATE, offset);
+    else if (offset >= 0) {
+        /*The scaled immediate form needs a 16 byte aligned offset, which
+          cpu_state does not guarantee, so form the address explicitly*/
+        host_arm64_ADDX_IMM(block, REG_TEMP, REG_CPUSTATE, offset);
+        host_arm64_STR_IMM_F128(block, host_reg, REG_TEMP, 0);
+    } else
+        fatal("codegen_direct_write_128 - not in range\n");
 }
 void
 codegen_direct_write_double(codeblock_t *block, void *p, int host_reg)
@@ -3778,6 +4223,11 @@ codegen_direct_read_double_stack(codeblock_t *block, int host_reg, int stack_off
 {
     host_arm64_LDR_IMM_F64(block, host_reg, REG_XSP, stack_offset);
 }
+void
+codegen_direct_read_128_stack(codeblock_t *block, int host_reg, int stack_offset)
+{
+    host_arm64_LDR_IMM_F128(block, host_reg, REG_XSP, stack_offset);
+}
 
 void
 codegen_direct_write_32_stack(codeblock_t *block, int stack_offset, int host_reg)
@@ -3796,6 +4246,11 @@ void
 codegen_direct_write_double_stack(codeblock_t *block, int stack_offset, int host_reg)
 {
     host_arm64_STR_IMM_F64(block, host_reg, REG_XSP, stack_offset);
+}
+void
+codegen_direct_write_128_stack(codeblock_t *block, int stack_offset, int host_reg)
+{
+    host_arm64_STR_IMM_F128(block, host_reg, REG_XSP, stack_offset);
 }
 
 void

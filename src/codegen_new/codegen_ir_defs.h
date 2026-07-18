@@ -69,6 +69,11 @@
 #define UOP_MOV (UOP_TYPE_PARAMS_REGS | 0x22)
 /*UOP_MOVZX - dest_reg = zero_extend(src_reg_a)*/
 #define UOP_MOVZX (UOP_TYPE_PARAMS_REGS | 0x23)
+/*UOP_MOVSS - dest_reg[31:0] = src_reg_b[31:0], dest_reg[127:32] = src_reg_a[127:32]*/
+#define UOP_MOVSS (UOP_TYPE_PARAMS_REGS | 0x2b)
+/*UOP_MOVSD - dest_reg[63:0] = src_reg_b[63:0], dest_reg[127:64] = src_reg_a[127:64].
+  QWORD temp forms copy/extract the low 64 bits.*/
+#define UOP_MOVSD (UOP_TYPE_PARAMS_REGS | 0x2c)
 /*UOP_MOVSX - dest_reg = sign_extend(src_reg_a)*/
 #define UOP_MOVSX (UOP_TYPE_PARAMS_REGS | 0x24)
 /*UOP_MOV_DOUBLE_INT - dest_reg = (double)src_reg_a*/
@@ -108,6 +113,14 @@
 #define UOP_XOR_IMM (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x3a)
 /*UOP_ANDN - dest_reg = ~src_reg_a & src_reg_b*/
 #define UOP_ANDN (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x3b)
+/*UOP_IMUL - dest_reg = src_reg_a * src_reg_b*/
+#define UOP_IMUL (UOP_TYPE_PARAMS_REGS | 0x3c)
+/*UOP_IMUL_IMM - dest_reg = src_reg_a * immediate*/
+#define UOP_IMUL_IMM (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x3d)
+/*UOP_IMUL_HI - dest_reg = ((int64_t)(int32_t)src_reg_a * (int64_t)(int32_t)src_reg_b) >> 32*/
+#define UOP_IMUL_HI (UOP_TYPE_PARAMS_REGS | 0x3e)
+/*UOP_UMUL_HI - dest_reg = ((uint64_t)src_reg_a * (uint64_t)src_reg_b) >> 32*/
+#define UOP_UMUL_HI (UOP_TYPE_PARAMS_REGS | 0x3f)
 /*UOP_MEM_LOAD_ABS - dest_reg = src_reg_a:[immediate]*/
 #define UOP_MEM_LOAD_ABS (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x40 | UOP_TYPE_ORDER_BARRIER)
 /*UOP_MEM_LOAD_REG - dest_reg = src_reg_a:[src_reg_b]*/
@@ -136,6 +149,8 @@
 #define UOP_CMP_JB (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_POINTER | 0x4c | UOP_TYPE_ORDER_BARRIER)
 /*UOP_CMP_JNBE - if (src_reg_a > src_reg_b) then jump to ptr*/
 #define UOP_CMP_JNBE (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_POINTER | 0x4d | UOP_TYPE_ORDER_BARRIER)
+/*UOP_UMUL - dest_reg = src_reg_a * src_reg_b*/
+#define UOP_UMUL (UOP_TYPE_PARAMS_REGS | 0x4e)
 
 /*UOP_SAR - dest_reg = src_reg_a >> src_reg_b*/
 #define UOP_SAR (UOP_TYPE_PARAMS_REGS | 0x50)
@@ -157,6 +172,18 @@
 #define UOP_ROR (UOP_TYPE_PARAMS_REGS | 0x58)
 /*UOP_ROR_IMM - dest_reg = src_reg_a rotate>> immediate*/
 #define UOP_ROR_IMM (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x59)
+/*UOP_UDIV_CHECK - dest_reg = unsigned divide of src_reg_b:src_reg_a by src_reg_c traps for imm_data-bit quotient*/
+#define UOP_UDIV_CHECK (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x5a)
+/*UOP_IDIV_CHECK - dest_reg = signed divide of src_reg_b:src_reg_a by src_reg_c traps for imm_data-bit quotient*/
+#define UOP_IDIV_CHECK (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x5b)
+/*UOP_UDIV - dest_reg = unsigned quotient of src_reg_b:src_reg_a / src_reg_c*/
+#define UOP_UDIV (UOP_TYPE_PARAMS_REGS | 0x5c)
+/*UOP_UMOD - dest_reg = unsigned remainder of src_reg_b:src_reg_a / src_reg_c*/
+#define UOP_UMOD (UOP_TYPE_PARAMS_REGS | 0x5d)
+/*UOP_IDIV - dest_reg = signed quotient of src_reg_b:src_reg_a / src_reg_c*/
+#define UOP_IDIV (UOP_TYPE_PARAMS_REGS | 0x5e)
+/*UOP_IMOD - dest_reg = signed remainder of src_reg_b:src_reg_a / src_reg_c*/
+#define UOP_IMOD (UOP_TYPE_PARAMS_REGS | 0x5f)
 
 /*UOP_CMP_IMM_JZ_DEST - if (src_reg_a == imm_data) then jump to ptr*/
 #define UOP_CMP_IMM_JZ_DEST (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | UOP_TYPE_PARAMS_POINTER | 0x60 | UOP_TYPE_ORDER_BARRIER | UOP_TYPE_JUMP)
@@ -340,7 +367,60 @@
 /*UOP_PAVGUSB - (packed byte) dest_reg = (src_reg_a + src_reg_b + 1) >> 1*/
 #define UOP_PAVGUSB (UOP_TYPE_PARAMS_REGS | 0xc8)
 
-#define UOP_MAX     0xce
+
+/*UOP_SSE_ENTER - must be called before any SSE registers accessed*/
+#define UOP_SSE_ENTER (0xce | UOP_TYPE_BARRIER)
+#define UOP_CHECK_ALIGN (0xcf | UOP_TYPE_BARRIER)
+
+/*UOP_UNPCKLPS - dest_reg = interleave low packed singles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKLPS (UOP_TYPE_PARAMS_REGS | 0xd0)
+/*UOP_UNPCKLPD - dest_reg = interleave low packed doubles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKLPD (UOP_TYPE_PARAMS_REGS | 0xd1)
+
+/*UOP_UNPCKHPS - dest_reg = interleave high packed singles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKHPS (UOP_TYPE_PARAMS_REGS | 0xd2)
+/*UOP_UNPCKHPD - dest_reg = interleave high packed doubles from src_reg_a/src_reg_b*/
+#define UOP_UNPCKHPD (UOP_TYPE_PARAMS_REGS | 0xd3)
+
+/*UOP_ADDPS - dest_reg = packed single src_reg_a + src_reg_b*/
+#define UOP_ADDPS (UOP_TYPE_PARAMS_REGS | 0xd4)
+/*UOP_ADDPD - dest_reg = packed double src_reg_a + src_reg_b*/
+#define UOP_ADDPD (UOP_TYPE_PARAMS_REGS | 0xd5)
+/*UOP_ADDSS - dest_reg[31:0] = src_reg_a[31:0] + src_reg_b[31:0], dest_reg[127:32] = src_reg_a[127:32]*/
+#define UOP_ADDSS (UOP_TYPE_PARAMS_REGS | 0xd6)
+/*UOP_ADDSD - dest_reg[63:0] = src_reg_a[63:0] + src_reg_b[63:0], dest_reg[127:64] = src_reg_a[127:64]*/
+#define UOP_ADDSD (UOP_TYPE_PARAMS_REGS | 0xd7)
+/*UOP_MULPS - dest_reg = packed single src_reg_a * src_reg_b*/
+#define UOP_MULPS (UOP_TYPE_PARAMS_REGS | 0xd8)
+/*UOP_MULPD - dest_reg = packed double src_reg_a * src_reg_b*/
+#define UOP_MULPD (UOP_TYPE_PARAMS_REGS | 0xd9)
+/*UOP_MULSS - dest_reg[31:0] = src_reg_a[31:0] * src_reg_b[31:0], dest_reg[127:32] = src_reg_a[127:32]*/
+#define UOP_MULSS (UOP_TYPE_PARAMS_REGS | 0xda)
+/*UOP_MULSD - dest_reg[63:0] = src_reg_a[63:0] * src_reg_b[63:0], dest_reg[127:64] = src_reg_a[127:64]*/
+#define UOP_MULSD (UOP_TYPE_PARAMS_REGS | 0xdb)
+/*UOP_SUBPS - dest_reg = packed single src_reg_a - src_reg_b*/
+#define UOP_SUBPS (UOP_TYPE_PARAMS_REGS | 0xdc)
+/*UOP_SUBPD - dest_reg = packed double src_reg_a - src_reg_b*/
+#define UOP_SUBPD (UOP_TYPE_PARAMS_REGS | 0xdd)
+/*UOP_SUBSS - dest_reg[31:0] = src_reg_a[31:0] - src_reg_b[31:0], dest_reg[127:32] = src_reg_a[127:32]*/
+#define UOP_SUBSS (UOP_TYPE_PARAMS_REGS | 0xde)
+/*UOP_SUBSD - dest_reg[63:0] = src_reg_a[63:0] - src_reg_b[63:0], dest_reg[127:64] = src_reg_a[127:64]*/
+#define UOP_SUBSD (UOP_TYPE_PARAMS_REGS | 0xdf)
+/*UOP_DIVPS - dest_reg = packed single src_reg_a / src_reg_b*/
+#define UOP_DIVPS (UOP_TYPE_PARAMS_REGS | 0xe0)
+/*UOP_DIVPD - dest_reg = packed double src_reg_a / src_reg_b*/
+#define UOP_DIVPD (UOP_TYPE_PARAMS_REGS | 0xe1)
+/*UOP_DIVSS - dest_reg[31:0] = src_reg_a[31:0] / src_reg_b[31:0], dest_reg[127:32] = src_reg_a[127:32]*/
+#define UOP_DIVSS (UOP_TYPE_PARAMS_REGS | 0xe2)
+/*UOP_DIVSD - dest_reg[63:0] = src_reg_a[63:0] / src_reg_b[63:0], dest_reg[127:64] = src_reg_a[127:64]*/
+#define UOP_DIVSD (UOP_TYPE_PARAMS_REGS | 0xe3)
+
+/*UOP_PADDQ - (packed quad) dest_reg = src_reg_a + src_reg_b*/
+#define UOP_PADDQ (UOP_TYPE_PARAMS_REGS | 0xe4)
+/*UOP_PSUBQ - (packed quad) dest_reg = src_reg_a - src_reg_b*/
+#define UOP_PSUBQ (UOP_TYPE_PARAMS_REGS | 0xe5)
+
+#define UOP_MAX     0xe6
 
 #define UOP_INVALID 0xff
 
@@ -564,6 +644,19 @@ uop_gen_reg_dst_src3(uint32_t uop_type, ir_data_t *ir, int dest_reg, int src_reg
 }
 
 static inline void
+uop_gen_reg_dst_src3_imm(uint32_t uop_type, ir_data_t *ir, int dest_reg, int src_reg_a, int src_reg_b, int src_reg_c, uint32_t imm)
+{
+    uop_t *uop = uop_alloc(ir, uop_type);
+
+    uop->type       = uop_type;
+    uop->src_reg_a  = codegen_reg_read(src_reg_a);
+    uop->src_reg_b  = codegen_reg_read(src_reg_b);
+    uop->src_reg_c  = codegen_reg_read(src_reg_c);
+    uop->dest_reg_a = codegen_reg_write(dest_reg, ir->wr_pos - 1);
+    uop->imm_data   = imm;
+}
+
+static inline void
 uop_gen_reg_dst_src_imm(uint32_t uop_type, ir_data_t *ir, int dest_reg, int src_reg, uint32_t imm)
 {
     uop_t *uop = uop_alloc(ir, uop_type);
@@ -685,6 +778,8 @@ uop_gen_reg_src2_pointer(uint32_t uop_type, ir_data_t *ir, int src_reg_a, int sr
 }
 
 extern int codegen_mmx_enter(void);
+extern int codegen_sse_enter(void);
+extern int codegen_sse_check_align(uint32_t eaddr);
 extern int codegen_femms(void);
 extern int codegen_fp_enter(void);
 
@@ -704,6 +799,17 @@ extern int codegen_fp_enter(void);
 #define uop_SUB_IMM(ir, dst_reg, src_reg, imm)                   uop_gen_reg_dst_src_imm(UOP_SUB_IMM, ir, dst_reg, src_reg, imm)
 #define uop_XOR(ir, dst_reg, src_reg_a, src_reg_b)               uop_gen_reg_dst_src2(UOP_XOR, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_XOR_IMM(ir, dst_reg, src_reg, imm)                   uop_gen_reg_dst_src_imm(UOP_XOR_IMM, ir, dst_reg, src_reg, imm)
+#define uop_IMUL(ir, dst_reg, src_reg_a, src_reg_b)              uop_gen_reg_dst_src2(UOP_IMUL, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_IMUL_IMM(ir, dst_reg, src_reg, imm)                  uop_gen_reg_dst_src_imm(UOP_IMUL_IMM, ir, dst_reg, src_reg, imm)
+#define uop_IMUL_HI(ir, dst_reg, src_reg_a, src_reg_b)           uop_gen_reg_dst_src2(UOP_IMUL_HI, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_UMUL(ir, dst_reg, src_reg_a, src_reg_b)              uop_gen_reg_dst_src2(UOP_UMUL, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_UMUL_HI(ir, dst_reg, src_reg_a, src_reg_b)           uop_gen_reg_dst_src2(UOP_UMUL_HI, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_UDIV_CHECK(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, bits) uop_gen_reg_dst_src3_imm(UOP_UDIV_CHECK, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, bits)
+#define uop_IDIV_CHECK(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, bits) uop_gen_reg_dst_src3_imm(UOP_IDIV_CHECK, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, bits)
+#define uop_UDIV(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)    uop_gen_reg_dst_src3(UOP_UDIV, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)
+#define uop_UMOD(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)    uop_gen_reg_dst_src3(UOP_UMOD, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)
+#define uop_IDIV(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)    uop_gen_reg_dst_src3(UOP_IDIV, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)
+#define uop_IMOD(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)    uop_gen_reg_dst_src3(UOP_IMOD, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)
 
 #define uop_SAR(ir, dst_reg, src_reg, shift_reg)                 uop_gen_reg_dst_src2(UOP_SAR, ir, dst_reg, src_reg, shift_reg)
 #define uop_SAR_IMM(ir, dst_reg, src_reg, imm)                   uop_gen_reg_dst_src_imm(UOP_SAR_IMM, ir, dst_reg, src_reg, imm)
@@ -773,6 +879,12 @@ extern int codegen_fp_enter(void);
         codegen_mmx_entered = 1;                             \
         codegen_fpu_entered = 0;                             \
     } while (0)
+#define uop_SSE_ENTER(ir)                                    \
+    do {                                                     \
+            uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);            \
+            uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_sse_enter); \
+            uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_exit_rout); \
+    } while (0)
 #else
 #define uop_FP_ENTER(ir)                                    \
     do {                                                    \
@@ -788,7 +900,19 @@ extern int codegen_fp_enter(void);
         codegen_mmx_entered = 1;                             \
         codegen_fpu_entered = 0;                             \
     } while (0)
+#define uop_SSE_ENTER(ir)                                    \
+    do {                                                     \
+        uop_gen_imm(UOP_SSE_ENTER, ir, cpu_state.oldpc);     \
+    } while (0)
 #endif
+
+#define uop_CHECK_ALIGN(ir) \
+ do {                                                     \
+            uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);            \
+            uop_LOAD_FUNC_ARG_REG(ir, 0, IREG_eaaddr); \
+            uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_sse_check_align); \
+            uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_gpf_rout); \
+    } while (0) \
 
 #define uop_JMP(ir, p)                                                   uop_gen_pointer(UOP_JMP, ir, p)
 #define uop_JMP_DEST(ir)                                                 uop_gen(UOP_JMP_DEST, ir)
@@ -815,6 +939,8 @@ extern int codegen_fp_enter(void);
 #define uop_MOV_REG_PTR(ir, reg, p)                                      uop_gen_reg_dst_pointer(UOP_MOV_REG_PTR, ir, reg, p)
 #define uop_MOVZX_REG_PTR_8(ir, reg, p)                                  uop_gen_reg_dst_pointer(UOP_MOVZX_REG_PTR_8, ir, reg, p)
 #define uop_MOVZX_REG_PTR_16(ir, reg, p)                                 uop_gen_reg_dst_pointer(UOP_MOVZX_REG_PTR_16, ir, reg, p)
+#define uop_MOVSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MOVSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MOVSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MOVSD, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_MOVSX(ir, dst_reg, src_reg)                                  uop_gen_reg_dst_src1(UOP_MOVSX, ir, dst_reg, src_reg)
 #define uop_MOVZX(ir, dst_reg, src_reg)                                  uop_gen_reg_dst_src1(UOP_MOVZX, ir, dst_reg, src_reg)
 #define uop_MOV_DOUBLE_INT(ir, dst_reg, src_reg)                         uop_gen_reg_dst_src1(UOP_MOV_DOUBLE_INT, ir, dst_reg, src_reg)
@@ -830,6 +956,7 @@ extern int codegen_fp_enter(void);
 #define uop_PADDB(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PADDB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDW(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PADDW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PADDD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PADDQ(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PADDQ, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDSB(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PADDSB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDSW(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PADDSW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PADDUSB(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PADDUSB, ir, dst_reg, src_reg_a, src_reg_b)
@@ -880,6 +1007,7 @@ extern int codegen_fp_enter(void);
 #define uop_PSUBB(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PSUBB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBW(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PSUBW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PSUBD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PSUBQ(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PSUBQ, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBSB(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PSUBSB, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBSW(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PSUBSW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PSUBUSB(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PSUBUSB, ir, dst_reg, src_reg_a, src_reg_b)
@@ -891,6 +1019,29 @@ extern int codegen_fp_enter(void);
 #define uop_PUNPCKLBW(ir, dst_reg, src_reg_a, src_reg_b)                 uop_gen_reg_dst_src2(UOP_PUNPCKLBW, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PUNPCKLWD(ir, dst_reg, src_reg_a, src_reg_b)                 uop_gen_reg_dst_src2(UOP_PUNPCKLWD, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_PUNPCKLDQ(ir, dst_reg, src_reg_a, src_reg_b)                 uop_gen_reg_dst_src2(UOP_PUNPCKLDQ, ir, dst_reg, src_reg_a, src_reg_b)
+
+#define uop_UNPCKLPS(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKLPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_UNPCKLPD(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKLPD, ir, dst_reg, src_reg_a, src_reg_b)
+
+#define uop_UNPCKHPS(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKHPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_UNPCKHPD(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_UNPCKHPD, ir, dst_reg, src_reg_a, src_reg_b)
+
+#define uop_ADDPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_ADDPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_ADDPD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_ADDPD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_ADDSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_ADDSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_ADDSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_ADDSD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MULPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MULPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MULPD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MULPD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MULSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MULSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MULSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MULSD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_SUBPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_SUBPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_SUBPD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_SUBPD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_SUBSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_SUBSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_SUBSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_SUBSD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_DIVPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_DIVPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_DIVPD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_DIVPD, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_DIVSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_DIVSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_DIVSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_DIVSD, ir, dst_reg, src_reg_a, src_reg_b)
 
 #define uop_STORE_PTR_IMM(ir, p, imm)                                    uop_gen_pointer_imm(UOP_STORE_P_IMM, ir, p, imm)
 #define uop_STORE_PTR_IMM_8(ir, p, imm)                                  uop_gen_pointer_imm(UOP_STORE_P_IMM_8, ir, p, imm)
@@ -907,6 +1058,7 @@ void codegen_direct_read_8(codeblock_t *block, int host_reg, void *p);
 void codegen_direct_read_16(codeblock_t *block, int host_reg, void *p);
 void codegen_direct_read_32(codeblock_t *block, int host_reg, void *p);
 void codegen_direct_read_64(codeblock_t *block, int host_reg, void *p);
+void codegen_direct_read_128(codeblock_t *block, int host_reg, void *p);
 void codegen_direct_read_pointer(codeblock_t *block, int host_reg, void *p);
 void codegen_direct_read_double(codeblock_t *block, int host_reg, void *p);
 void codegen_direct_read_st_8(codeblock_t *block, int host_reg, void *base, int reg_idx);
@@ -917,6 +1069,7 @@ void codegen_direct_write_8(codeblock_t *block, void *p, int host_reg);
 void codegen_direct_write_16(codeblock_t *block, void *p, int host_reg);
 void codegen_direct_write_32(codeblock_t *block, void *p, int host_reg);
 void codegen_direct_write_64(codeblock_t *block, void *p, int host_reg);
+void codegen_direct_write_128(codeblock_t *block, void *p, int host_reg);
 void codegen_direct_write_pointer(codeblock_t *block, void *p, int host_reg);
 void codegen_direct_write_ptr(codeblock_t *block, void *p, int host_reg);
 void codegen_direct_write_double(codeblock_t *block, void *p, int host_reg);
@@ -927,11 +1080,13 @@ void codegen_direct_write_st_double(codeblock_t *block, void *base, int reg_idx,
 void codegen_direct_read_16_stack(codeblock_t *block, int host_reg, int stack_offset);
 void codegen_direct_read_32_stack(codeblock_t *block, int host_reg, int stack_offset);
 void codegen_direct_read_64_stack(codeblock_t *block, int host_reg, int stack_offset);
+void codegen_direct_read_128_stack(codeblock_t *block, int host_reg, int stack_offset);
 void codegen_direct_read_pointer_stack(codeblock_t *block, int host_reg, int stack_offset);
 void codegen_direct_read_double_stack(codeblock_t *block, int host_reg, int stack_offset);
 
 void codegen_direct_write_32_stack(codeblock_t *block, int stack_offset, int host_reg);
 void codegen_direct_write_64_stack(codeblock_t *block, int stack_offset, int host_reg);
+void codegen_direct_write_128_stack(codeblock_t *block, int stack_offset, int host_reg);
 void codegen_direct_write_pointer_stack(codeblock_t *block, int stack_offset, int host_reg);
 void codegen_direct_write_double_stack(codeblock_t *block, int stack_offset, int host_reg);
 
