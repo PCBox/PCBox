@@ -10789,10 +10789,47 @@ const cpu_family_t cpu_families[] = {
         }
     },
 #endif
+
+#ifdef USE_NEW_DYNAREC
+    {
+        .package       = CPU_PKG_SOCKET423 | CPU_PKG_SOCKET478,
+        .manufacturer  = "Intel",
+        .name          = "Generic",
+        .internal_name = "generic_intel",
+        .cpus          = (const CPU[]) {
+            { "400",  CPU_GENERICINTEL, fpus_internal,  400000000,  1.0, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 36, 36, 12, 12, 48 },
+            { "600",  CPU_GENERICINTEL, fpus_internal,  600000000,  1.5, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 54, 54, 18, 18, 72 },
+            { "800",  CPU_GENERICINTEL, fpus_internal,  800000000,  2.0, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 72, 72, 24, 24, 96 },
+            { "1000", CPU_GENERICINTEL, fpus_internal, 1000000000,  2.5, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 90, 90, 30, 30, 120 },
+            { "1200", CPU_GENERICINTEL, fpus_internal, 1200000000,  3.0, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 108, 108, 36, 36, 144 },
+            { "1400", CPU_GENERICINTEL, fpus_internal, 1400000000,  3.5, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 126, 126, 42, 42, 168 },
+            { "1600", CPU_GENERICINTEL, fpus_internal, 1600000000,  4.0, 1500, 0xF07, 0xF07, 0, CPU_SUPPORTS_DYNAREC, 135, 135, 45, 45, 192 },
+            { .name = "", 0 }
+        }
+    },
+#else
+    {
+        .package       = CPU_PKG_SOCKET423 | CPU_PKG_SOCKET478,
+        .manufacturer  = "Intel",
+        .name          = "Generic",
+        .internal_name = "generic_intel",
+        .cpus          = (const CPU[]) {
+            { "400",  CPU_GENERICINTEL, fpus_internal,  400000000,  1.0, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 36, 36, 12, 12, 48 },
+            { "600",  CPU_GENERICINTEL, fpus_internal,  600000000,  1.5, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 54, 54, 18, 18, 72 },
+            { "800",  CPU_GENERICINTEL, fpus_internal,  800000000,  2.0, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 72, 72, 24, 24, 96 },
+            { "1000", CPU_GENERICINTEL, fpus_internal, 1000000000,  2.5, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 90, 90, 30, 30, 120 },
+            { "1200", CPU_GENERICINTEL, fpus_internal, 1200000000,  3.0, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 108, 108, 36, 36, 144 },
+            { "1400", CPU_GENERICINTEL, fpus_internal, 1400000000,  3.5, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 126, 126, 42, 42, 168 },
+            { "1600", CPU_GENERICINTEL, fpus_internal, 1600000000,  4.0, 1500, 0xF07, 0xF07, 0, 0/*CPU_SUPPORTS_DYNAREC*/, 135, 135, 45, 45, 192 },
+            { .name = "", 0 }
+        }
+    },
+#endif
+
 //#ifdef USE_GENERICINTEL
 #ifdef USE_NEW_DYNAREC
     {
-        .package       = CPU_PKG_SOCKET370 | CPU_PKG_SLOT1 | CPU_PKG_SLOT2 | CPU_PKG_SOCKET423 | CPU_PKG_SOCKET478,
+        .package       = CPU_PKG_SOCKET370 | CPU_PKG_SLOT1 | CPU_PKG_SLOT2,
         .manufacturer  = "Intel",
         .name          = "Generic",
         .internal_name = "generic_intel",
