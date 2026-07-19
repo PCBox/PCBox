@@ -137,6 +137,12 @@ extern lapic_t* current_lapic;
 
 extern ioapic_t* current_ioapic;
 
+static inline int
+apic_ioapic_is_enabled(const ioapic_t *ioapic)
+{
+    return ioapic && ioapic->ioapic_mem_window.enable;
+}
+
 extern void apic_ioapic_set_base(uint8_t x_base, uint8_t y_base);
 extern void apic_lapic_set_base(uint32_t base);
 extern void apic_lapic_readd_mapping(void);

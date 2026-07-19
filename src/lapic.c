@@ -106,7 +106,7 @@ ioapic_has_unmasked_route(const ioapic_t *ioapic)
 
 int lapic_is_pic_enabled(void)
 {
-    if (!current_ioapic || !current_lapic ||
+    if (!apic_ioapic_is_enabled(current_ioapic) || !current_lapic ||
         !lapic_is_sw_enabled(current_lapic))
         return true;
 
@@ -256,7 +256,7 @@ apic_lapic_writel(uint32_t addr, uint32_t val, void *priv)
             bit = get_highest_priority_int(dev->isr_l);
             if (bit != -1) {
                 lapic_set_bit_isr(dev, bit, 0);
-                if (lapic_get_bit_tmr(dev, bit) && current_ioapic) {
+                if (lapic_get_bit_tmr(dev, bit) && apic_ioapic_is_enabled(current_ioapic)) {
                     lapic_set_bit_tmr(dev, bit, 0);
                     apic_lapic_ioapic_remote_eoi(current_ioapic, bit);
                     if (lapic_irq_pending(dev) > 0)
@@ -752,7 +752,7 @@ lapic_speed_changed(void* priv)
 int
 pic_pending_int(void)
 {
-    if (!current_ioapic)
+    if (!apic_ioapic_is_enabled(current_ioapic))
         return pic.int_pending;
 
     if (!current_lapic)
