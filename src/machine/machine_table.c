@@ -120,6 +120,7 @@ const machine_filter_t machine_chipsets[] = {
     { "Intel 440GX",                MACHINE_CHIPSET_INTEL_440GX         },
     { "Intel i815EP",               MACHINE_CHIPSET_INTEL_I815EP        },
     { "Intel i845",                 MACHINE_CHIPSET_INTEL_I845          },
+    { "Intel i845E",                MACHINE_CHIPSET_INTEL_I845E         },
     { "OPTi 283",                   MACHINE_CHIPSET_OPTI_283            },
     { "OPTi 291",                   MACHINE_CHIPSET_OPTI_291            },
     { "OPTi 381",                   MACHINE_CHIPSET_OPTI_381            },

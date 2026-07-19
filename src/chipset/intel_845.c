@@ -67,6 +67,9 @@ typedef struct intel_845_t {
     smram_t   *h_segment;
     smram_t   *tseg_segment;
     agpgart_t *agpgart;
+    uint8_t    revision;
+    uint8_t    pad2[3];
+    const device_t *agp_device;
 } intel_845_t;
 
 static uint32_t
@@ -626,7 +629,7 @@ intel_845_reset(void *priv)
     dev->pci_conf[0x03] = 0x1a;
     dev->pci_conf[0x04] = 0x06; /* PCICMD */
     dev->pci_conf[0x06] = 0x90; /* PCISTS */
-    dev->pci_conf[0x08] = 0x04; /* RID - B0 stepping */
+    dev->pci_conf[0x08] = dev->revision; /* RID */
     dev->pci_conf[0x0b] = 0x06; /* BCC - bridge */
     dev->pci_conf[0x10] = 0x08; /* APBASE */
     dev->pci_conf[0x34] = 0xe4; /* CAPPTR */
@@ -669,16 +672,19 @@ intel_845_close(void *priv)
 }
 
 static void *
-intel_845_init(UNUSED(const device_t *info))
+intel_845_init(const device_t *info)
 {
     intel_845_t *dev = (intel_845_t *) calloc(1, sizeof(intel_845_t));
+
+    dev->revision   = (info->local == 1) ? 0x11 : 0x04;
+    dev->agp_device = (info->local == 1) ? &intel_845e_agp_device : &intel_845_agp_device;
 
     cpu_set_pci_speed(33333333);
     cpu_set_agp_speed(66666667);
 
     pci_add_card(PCI_ADD_NORTHBRIDGE, intel_845_read, intel_845_write, dev, &dev->pci_slot);
 
-    device_add(&intel_845_agp_device);
+    device_add(dev->agp_device);
     dev->agpgart = device_add(&agpgart_device);
 
     mem_mapping_add(&dev->mchbar_mapping, 0, 0,
@@ -707,6 +713,20 @@ const device_t intel_845_device = {
     .internal_name = "intel_845",
     .flags         = DEVICE_PCI,
     .local         = 0,
+    .init          = intel_845_init,
+    .close         = intel_845_close,
+    .reset         = intel_845_reset,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t intel_845e_device = {
+    .name          = "Intel 845E MCH Bridge",
+    .internal_name = "intel_845e",
+    .flags         = DEVICE_PCI,
+    .local         = 1,
     .init          = intel_845_init,
     .close         = intel_845_close,
     .reset         = intel_845_reset,
