@@ -37,6 +37,7 @@ add_executable(PCBox
     pci_dummy.c
     pic.c
     pit.c
+    pit_exact.c
     pit_fast.c
     port_6x.c
     port_92.c
