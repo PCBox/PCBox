@@ -24,6 +24,9 @@
 #    if defined WIN32 || defined _WIN32 || defined _WIN32
 #        include <windows.h>
 #    endif
+#    if defined _MSC_VER
+#        include <intrin.h>
+#    endif
 #    include <string.h>
 
 void *codegen_mem_load_byte;
@@ -42,6 +45,8 @@ void *codegen_mem_store_double;
 
 void *codegen_gpf_rout;
 void *codegen_exit_rout;
+
+uint64_t codegen_host_cpu_features;
 
 host_reg_def_t codegen_host_reg_list[CODEGEN_HOST_REGS] = {
   /*Note: while EAX and EDX are normally volatile registers under x86
@@ -70,6 +75,77 @@ host_reg_def_t codegen_host_fp_reg_list[CODEGEN_HOST_FP_REGS] = {
     { REG_XMM4, HOST_REG_FLAG_VOLATILE},
     { REG_XMM5, HOST_REG_FLAG_VOLATILE}
 };
+
+static void
+host_cpuid(uint32_t leaf, uint32_t subleaf, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx)
+{
+#    if defined(__GNUC__) || defined(__clang__)
+    __asm__ volatile(
+        "cpuid"
+        : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx)
+        : "a"(leaf), "c"(subleaf));
+#    else
+    *eax = *ebx = *ecx = *edx = 0;
+#    endif
+}
+
+static uint64_t
+host_xgetbv(uint32_t xcr)
+{
+#    if defined(__GNUC__) || defined(__clang__)
+    uint32_t eax, edx;
+
+    __asm__ volatile(
+        "xgetbv"
+        : "=a"(eax), "=d"(edx)
+        : "c"(xcr));
+    return ((uint64_t) edx << 32) | eax;
+#    else
+    return 0;
+#    endif
+}
+
+static uint64_t
+detect_host_cpu_features(void)
+{
+    uint64_t features = 0;
+    uint32_t max_leaf;
+    uint32_t eax, ebx, ecx, edx;
+    int      os_avx;
+
+    host_cpuid(0, 0, &max_leaf, &ebx, &ecx, &edx);
+
+    if (max_leaf < 1)
+        return 0;
+
+    host_cpuid(1, 0, &eax, &ebx, &ecx, &edx);
+
+    if (ecx & (1U << 0))
+        features |= CODEGEN_HOST_CPU_FEATURE_SSE3;
+    if (ecx & (1U << 9))
+        features |= CODEGEN_HOST_CPU_FEATURE_SSSE3;
+    if (ecx & (1U << 19))
+        features |= CODEGEN_HOST_CPU_FEATURE_SSE4_1;
+    if (ecx & (1U << 20))
+        features |= CODEGEN_HOST_CPU_FEATURE_SSE4_2;
+
+    os_avx = ((ecx & ((1U << 27) | (1U << 28))) == ((1U << 27) | (1U << 28))) &&
+             ((host_xgetbv(0) & 0x6) == 0x6);
+    if (os_avx)
+        features |= CODEGEN_HOST_CPU_FEATURE_AVX;
+
+    if (max_leaf >= 7) {
+        host_cpuid(7, 0, &eax, &ebx, &ecx, &edx);
+        if (ebx & (1U << 3))
+            features |= CODEGEN_HOST_CPU_FEATURE_BMI1;
+        if (ebx & (1U << 8))
+            features |= CODEGEN_HOST_CPU_FEATURE_BMI2;
+        if (os_avx && (ebx & (1U << 5)))
+            features |= CODEGEN_HOST_CPU_FEATURE_AVX2;
+    }
+
+    return features;
+}
 
 static void
 build_load_routine(codeblock_t *block, int size, int is_float)
@@ -294,6 +370,8 @@ codegen_backend_init(void)
 {
     codeblock_t *block;
     int          c;
+
+    codegen_host_cpu_features = detect_host_cpu_features();
 
     codeblock      = calloc(BLOCK_SIZE, sizeof(codeblock_t));
     codeblock_hash = calloc(HASH_SIZE, sizeof(codeblock_t *));
