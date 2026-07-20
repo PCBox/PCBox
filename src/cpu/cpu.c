@@ -408,6 +408,8 @@ cpu_is_eligible(const cpu_family_t *cpu_family, int cpu, int machine)
         packages |= CPU_PKG_SOCKET1;
     else if (packages & CPU_PKG_SLOT1)
         packages |= CPU_PKG_SOCKET370 | CPU_PKG_SOCKET8;
+    else if (packages & CPU_PKG_SOCKET423)
+        packages |= CPU_PKG_SOCKET478;
 
     /* Package type. */
     if (!(cpu_family->package & packages))
