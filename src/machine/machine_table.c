@@ -23746,6 +23746,7 @@ const machine_t machines[] = {
         .aliases                  = { "" }
     },
 
+#ifdef DEV_BRANCH
     {
         .name = "[Intel i845] Abit AB-BW7",
         .internal_name = "abbw7",
@@ -23793,6 +23794,7 @@ const machine_t machines[] = {
         .net_device = NULL,
         .aliases                  = { "" }
     },
+#endif
 
     {
         .name = "[Intel i845] QDI PlatiniX 2",
