@@ -29,6 +29,9 @@
 
 #include <86box/apic.h>
 
+#define IOAPIC_DEFAULT_ID   2
+#define IOAPIC_WINDOW_SIZE 0x1000
+
 /* Only one processor is emulated */
 ioapic_t* current_ioapic = NULL;
 
@@ -37,9 +40,8 @@ void apic_ioapic_set_base(uint8_t x_base, uint8_t y_base)
     if (!current_ioapic)
         return;
 
-    mem_mapping_set_addr(&current_ioapic->ioapic_mem_window, 0xFEC00000 | ((y_base & 0x3) << 8) | ((x_base & 0xF) << 16), 0x20);
+    mem_mapping_set_addr(&current_ioapic->ioapic_mem_window, 0xFEC00000 | ((y_base & 0x3) << 8) | ((x_base & 0xF) << 16), IOAPIC_WINDOW_SIZE);
 
-    //pclog("I/O APIC base: 0x%08X\n", current_ioapic->ioapic_mem_window.base);
 }
 
 void
@@ -52,26 +54,45 @@ ioapic_i82093aa_reset(ioapic_t* ioapic)
     for (i = 0; i < 256; i++) {
         ioapic->ioapic_regs[i] = 0;
     }
+    ioapic->ioapicd   = IOAPIC_DEFAULT_ID << 24;
+    ioapic->ioapicarb = IOAPIC_DEFAULT_ID << 24;
     for (i = 0; i < IOAPIC_RED_TABL_SIZE; i++) {
         ioapic->ioredtabl_s[i].intr_mask = 1;
     }
-    //pclog("IOAPIC: RESET!\n");
+}
+
+static int
+lapic_vector_active(lapic_t *lapic, uint8_t vector)
+{
+    const uint32_t mask = 1u << (vector & 31);
+    const uint8_t  idx  = vector >> 5;
+
+    if (lapic == NULL)
+        return 0;
+
+    return !!((lapic->irr_l[idx] | lapic->isr_l[idx]) & mask);
+}
+
+static void
+lapic_clear_tmr_vector(lapic_t *lapic, uint8_t vector)
+{
+    const uint32_t mask = 1u << (vector & 31);
+    const uint8_t  idx  = vector >> 5;
+
+    if (lapic != NULL)
+        lapic->tmr_l[idx] &= ~mask;
 }
 
 void
 apic_ioapic_lapic_interrupt_check(ioapic_t* ioapic, uint8_t irq)
 {
-    uint32_t mask = 1 << irq;
+    uint32_t mask = 1u << irq;
     apic_ioredtable_t service_parameters;
 
     if (irq >= 24)
         return;
 
     service_parameters = ioapic->ioredtabl_s[irq];
-
-    if (service_parameters.delmod == 0b111) {
-        return;
-    }
 
     if (!(ioapic->irr & mask))
         return;
@@ -81,43 +102,54 @@ apic_ioapic_lapic_interrupt_check(ioapic_t* ioapic, uint8_t irq)
     
     if (service_parameters.delmod == 2 || service_parameters.delmod == 4 || service_parameters.delmod == 5)
         service_parameters.trigmode = 0;
-    
-    if (service_parameters.trigmode == 0) {
+
+    if (!current_lapic)
+        return;
+
+    if (service_parameters.destmod == 0 && (service_parameters.dest_mask & 0xf) != ((current_lapic->lapic_id >> 24) & 0xf)) {
+        return;
+    }
+    if (service_parameters.destmod == 1 && !(((uint8_t)(service_parameters.dest_mask)) & (1 << ((current_lapic->lapic_id >> 24) & 0xff)))) {
+        return;
+    }
+
+    if (service_parameters.trigmode == 0)
         ioapic->irr &= ~mask;
-    } else {
+    else {
+        if (ioapic->ioredtabl_s[irq].rirr) {
+            if (lapic_vector_active(current_lapic, service_parameters.intvec))
+                return;
+
+            ioapic->ioredtabl_s[irq].rirr = 0;
+            lapic_clear_tmr_vector(current_lapic, service_parameters.intvec);
+        }
+
         ioapic->ioredtabl_s[irq].rirr = 1;
-        if (service_parameters.rirr == 1) {
-            return;
-        }
     }
 
-
-    if(current_lapic) {
-        if (service_parameters.destmod == 0 && (service_parameters.dest_mask & 0xf) != ((current_lapic->lapic_id >> 24) & 0xf)) {
-            //pclog("LAPIC ID does not match\n");
-            return;
-        }
-        if (service_parameters.destmod == 1 && !(((uint8_t)(service_parameters.dest_mask)) & (1 << ((current_lapic->lapic_id >> 24) & 0xff)))) {
-            //pclog("LAPIC ID is not in set\n");
-            return;
-        }
-        lapic_service_interrupt(current_lapic, service_parameters);
+    if (service_parameters.delmod == 0b111) {
+        apic_lapic_service_extint();
+        return;
     }
+
+    lapic_service_interrupt(current_lapic, service_parameters);
 }
-
-void apic_ioapic_service_all(void* priv);
 
 void
 apic_ioapic_set_irq(ioapic_t* ioapic, uint8_t irq, int level)
 {
-    uint32_t mask = 1 << irq;
+    uint32_t mask = 1u << irq;
 
     if (irq >= 24)
         return;
 
-    if (level && (ioapic->irq_level & mask))
+    if (level && (ioapic->irq_level & mask)) {
+        if (ioapic->ioredtabl_s[irq].trigmode) {
+            ioapic->irr |= mask;
+            apic_ioapic_lapic_interrupt_check(ioapic, irq);
+        }
         return;
-    else if (level)
+    } else if (level)
         ioapic->irq_level |= mask;
 
     {
@@ -194,17 +226,19 @@ ioapic_i82093aa_readl(uint32_t addr, void *priv)
             ret = dev->ioapicd;
             break;
         case 1:
-            ret = dev->extended ? 0x170012 : 0x170011;
+            ret = dev->extended ? 0x170020 : 0x170011;
             break;
         case 2:
             ret = dev->ioapicarb;
+            break;
+        case 3:
+            ret = dev->bootcfg;
             break;
         default:
             if (addr >= 0x10 && addr <= 0x3F)
                 ret = dev->ioredtabl_l[addr - 0x10];
             break;
     }
-    //pclog("IOAPIC read reg 0x%08X (index 0x%X)\n", ret, dev->ioapic_index);
     return ret;
 }
 
@@ -217,11 +251,9 @@ ioapic_i82093aa_writel(uint32_t addr, uint32_t val, void *priv)
     {
         case 0x00:
             dev->ioapic_index = val & 0xFF;
-            //pclog("IOAPIC index: 0x%02X\n", val & 0xFF);
             return;
         case 0x10:
             addr = dev->ioapic_index;
-            //pclog("IOAPIC write data: 0x%08X\n", val);
             break;
         case 0x20:
             if (dev->extended)
@@ -237,7 +269,10 @@ ioapic_i82093aa_writel(uint32_t addr, uint32_t val, void *priv)
 
     switch (addr) {
         case 0:
-            dev->ioapicd = val;
+            dev->ioapicd = val & 0x0f000000;
+            break;
+        case 3:
+            dev->bootcfg = val & 1;
             break;
         default:
             if (addr >= 0x10 && addr <= 0x3F)
@@ -274,7 +309,7 @@ ioapic_i82093aa_init(const device_t* info)
     dev = (ioapic_t *) calloc(sizeof(ioapic_t), 1);
     current_ioapic = dev;
 
-    mem_mapping_add(&dev->ioapic_mem_window, 0xFEC00000, 0x20, ioapic_i82093aa_read, ioapic_i82093aa_readw, ioapic_i82093aa_readl, NULL, NULL, ioapic_i82093aa_writel, NULL, MEM_MAPPING_EXTERNAL, dev);
+    mem_mapping_add(&dev->ioapic_mem_window, 0xFEC00000, IOAPIC_WINDOW_SIZE, ioapic_i82093aa_read, ioapic_i82093aa_readw, ioapic_i82093aa_readl, NULL, NULL, ioapic_i82093aa_writel, NULL, MEM_MAPPING_EXTERNAL, dev);
     timer_add(&dev->ioapic_service, apic_ioapic_service_all, dev, 0);
     ioapic_i82093aa_reset(dev);
 

@@ -48,6 +48,7 @@
 #include <86box/mem.h>
 #include <86box/pci.h>
 #include <86box/pic.h>
+#include <86box/port_92.h>
 #include <86box/smbus.h>
 #include <86box/sound.h>
 #include <86box/tco.h>
@@ -55,8 +56,6 @@
 #include <86box/apic.h>
 
 #include <86box/chipset.h>
-
-#define ENABLE_INTEL_ICH2_LOG 1
 
 #ifdef ENABLE_INTEL_ICH2_LOG
 int intel_ich2_do_log = ENABLE_INTEL_ICH2_LOG;
@@ -97,7 +96,7 @@ static void
 intel_ich2_acpi_setup(intel_ich2_t *dev)
 {
     uint32_t base     = (dev->pci_conf[0][0x41] << 8) | (dev->pci_conf[0][0x40] & 0x80);
-    int      acpi_irq = ((dev->pci_conf[0][0x44] & 7) < 3) ? (9 + (dev->pci_conf[0][0x44] & 7)) : (20 + dev->pci_conf[0][0x44] & 3);
+    int      acpi_irq = ((dev->pci_conf[0][0x44] & 7) < 3) ? (9 + (dev->pci_conf[0][0x44] & 7)) : (20 + (dev->pci_conf[0][0x44] & 3));
     int      enable   = !!(dev->pci_conf[0][0x44] & 0x10);
 
     acpi_update_io_mapping(dev->acpi, base, enable);
@@ -120,7 +119,7 @@ intel_ich2_bioswe(intel_ich2_t *dev)
 static void
 intel_ich2_tco_interrupt(intel_ich2_t *dev)
 {
-    uint16_t tco_irq = ((dev->pci_conf[0][0x45] & 7) < 3) ? (9 + (dev->pci_conf[0][0x45] & 7)) : (20 + dev->pci_conf[0][0x44] & 3);
+    uint16_t tco_irq = ((dev->pci_conf[0][0x45] & 7) < 3) ? (9 + (dev->pci_conf[0][0x45] & 7)) : (20 + (dev->pci_conf[0][0x45] & 3));
     tco_irq_update(dev->tco, tco_irq);
 }
 
@@ -485,8 +484,7 @@ intel_ich2_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
                 break;
 
             case 0xa4:
-                dev->pci_conf[func][addr] = val & 1;
-                dev->pci_conf[func][addr] &= val & 6;
+                dev->pci_conf[func][addr] = val & 7;
                 break;
 
             case 0xb8 ... 0xbb:
@@ -691,8 +689,8 @@ intel_ich2_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 
             case 0x3c:
                 dev->pci_conf[func][addr] = val;                       /* 86Box doesn't give any capabilities to take the PCI IRQ pin, also */
-                smbus_piix4_get_irq(pci_get_int(0x1f, 2), dev->smbus); /* can't use pointers as whatever recieved from there is temporary.  */
-                intel_ich2_log("Intel ICH2 SMBus: Got IRQ %d\n", pci_get_int(0x1f, 2));
+                smbus_piix4_get_irq(val, dev->smbus);                  /* can't use pointers as whatever recieved from there is temporary.  */
+                intel_ich2_log("Intel ICH2 SMBus: Got IRQ %d\n", val);
                 break;
 
             case 0x40:
@@ -736,7 +734,7 @@ intel_ich2_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
             case 0x3c:
                 dev->pci_conf[func][addr] = val;          /* 86Box doesn't give any capabilities to take the PCI IRQ pin, also */
                 if (sound_card_current[0] == SOUND_INTERNAL) /* can't use pointers as whatever recieved from there is temporary.  */
-                    intel_ac97_set_irq(pci_get_int(0x1f, 2), dev->ac97);
+                    intel_ac97_set_irq(val, dev->ac97);
                 break;
 
             default:
@@ -894,6 +892,14 @@ intel_ich2_reset(void *priv)
 
     if (cpu_busspeed >= 100000000) /* Go UltraDMA 100 if CPU is up for it. Not that it actually matters */
         dev->pci_conf[1][0x55] = 0xf0;
+
+    sff_set_irq_pin(dev->ide_drive[0], PCI_INTA);
+    sff_set_irq_line(dev->ide_drive[0], 14);
+    sff_set_irq_mode(dev->ide_drive[0], IRQ_MODE_LEGACY);
+
+    sff_set_irq_pin(dev->ide_drive[1], PCI_INTA);
+    sff_set_irq_line(dev->ide_drive[1], 15);
+    sff_set_irq_mode(dev->ide_drive[1], IRQ_MODE_LEGACY);
 
     sff_bus_master_reset(dev->ide_drive[0]); /* Setup the IDE */
     sff_bus_master_reset(dev->ide_drive[1]);
@@ -1055,6 +1061,9 @@ intel_ich2_init(UNUSED(const device_t *info))
     /* NVR Handler */
     dev->nvr   = device_add_params(&nvr_at_device, (void *) (uintptr_t) NVR_PIIX4);
     acpi_set_nvr(dev->acpi, dev->nvr);
+
+    /* System Control Port A */
+    device_add(&port_92_pci_device);
 
     /* Intel ICH2 Hub */
     device_add(&intel_ich2_hub_device);

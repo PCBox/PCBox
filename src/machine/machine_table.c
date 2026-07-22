@@ -69,7 +69,7 @@ const machine_filter_t machine_types[] = {
     { "[1998] Slot 2",                    MACHINE_TYPE_SLOT2      },
     { "[1998] Socket 370",                MACHINE_TYPE_SOCKET370  },
     { "[2000] Socket 423",                MACHINE_TYPE_SOCKET423  },
-    { "[2000] Socket 478",                MACHINE_TYPE_SOCKET478  },
+    { "[2001] Socket 478",                MACHINE_TYPE_SOCKET478  },
     { "Miscellaneous",                    MACHINE_TYPE_MISC       }
 };
 
@@ -120,6 +120,7 @@ const machine_filter_t machine_chipsets[] = {
     { "Intel 440GX",                MACHINE_CHIPSET_INTEL_440GX         },
     { "Intel i815EP",               MACHINE_CHIPSET_INTEL_I815EP        },
     { "Intel i845",                 MACHINE_CHIPSET_INTEL_I845          },
+    { "Intel i845E",                MACHINE_CHIPSET_INTEL_I845E         },
     { "OPTi 283",                   MACHINE_CHIPSET_OPTI_283            },
     { "OPTi 291",                   MACHINE_CHIPSET_OPTI_291            },
     { "OPTi 381",                   MACHINE_CHIPSET_OPTI_381            },
@@ -11937,13 +11938,13 @@ const machine_t machines[] = {
         .kbc_p1                   = 0x00000cf0,
         .gpio                     = 0xffffffff,
         .gpio_acpi                = 0xffffffff,
-        .device                   = NULL,
+        .device                   = &m4li_device,
         .kbd_device               = NULL,
         .fdc_device               = NULL,
         .vid_device               = NULL,
         .snd_device               = NULL,
         .net_device               = NULL,
-        .aliases                  = { "" }
+        .aliases                  = { "Micron MBD001035-xx", "" }
     },
     /* AMIKEY-2 */
     {
@@ -15320,13 +15321,13 @@ const machine_t machines[] = {
         .kbc_p1                   = 0x00000cf0,
         .gpio                     = 0xffffffff,
         .gpio_acpi                = 0xffffffff,
-        .device                   = NULL,
+        .device                   = &m54si_device,
         .kbd_device               = NULL,
         .fdc_device               = NULL,
         .vid_device               = NULL,
         .snd_device               = NULL,
         .net_device               = NULL,
-        .aliases                  = { "" }
+        .aliases                  = { "Micron Diablo", "Micron MBD001013-xx", "" }
     },
     /* This has Phoenix KBC firmware. */
     {
@@ -17363,7 +17364,7 @@ const machine_t machines[] = {
         .vid_device               = &s3_virge_375_onboard_pci_device,
         .snd_device               = &ymf701_device,
         .net_device               = NULL,
-        .aliases                  = { "Intel Tucson", "Toshiba Infinia 7xx1", "" }
+        .aliases                  = { "Intel Tucson", "Micron ClientPro MTA", "Micron Millennia LXA", "Toshiba Infinia 7xx1", "" }
     },
     /* Has a SM(S)C FDC37C935 Super I/O chip with on-chip KBC with Phoenix
        MultiKey/42 (version 1.38) KBC firmware. */
@@ -18224,7 +18225,7 @@ const machine_t machines[] = {
             .max_multi   = 4.0
         },
         .bus_flags = MACHINE_PS2_PCI,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_SOUND | MACHINE_APM, /* Machine has internal video: S3 Trio64V2/DX */
+        .flags     = MACHINE_VIDEO | MACHINE_IDE_DUAL | MACHINE_SOUND | MACHINE_APM, /* Machine has internal video: S3 Trio64V2/DX */
         .ram       = {
             .min  = 4096,
             .max  = 131072,
@@ -18245,7 +18246,7 @@ const machine_t machines[] = {
         .device                   = NULL,
         .kbd_device               = NULL,
         .fdc_device               = NULL,
-        .vid_device               = NULL,
+        .vid_device               = &s3_trio64v2dx_onboard_pci_device, /* Machine has also internal video: S3 ViRGE */
         .snd_device               = &cs4237b_device,
         .net_device               = NULL,
         .aliases                  = { "Packard Bell PB820", "BCM FM530", "" }
@@ -18697,7 +18698,7 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = &ymf715_onboard_device,
         .net_device               = NULL,
-        .aliases                  = { "Intel Anchorage", "Packard Bell PB79x", "Sony Vaio PCV-130", "Sony Vaio PCV-150", "" }
+        .aliases                  = { "Intel Anchorage", "Micron Millennia MME", "Packard Bell PB79x", "Sony Vaio PCV-130", "Sony Vaio PCV-150", "" }
     },
     /* This has the Winbond W83977 Super I/O Chip with AMIKey-2 KBC firmware, which is type 'H'. */
     {
@@ -20621,7 +20622,7 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = &cs4236_onboard_device,
         .net_device               = NULL,
-        .aliases                  = { "Intel Venus", "Dell Dimension XPS Pro___n", "Gateway 2000 Venus", "" }
+        .aliases                  = { "Intel Venus", "Dell Dimension XPS Pro___n", "Gateway 2000 Venus", "Micron ClientPro XVI", "Micron Millennia Pro 1", "" }
     },
     /* Has the AMIKey-2 ('H') KBC firmware. */
     {
@@ -23697,6 +23698,200 @@ const machine_t machines[] = {
         .aliases                  = { "MSI MS-6309", "" }
     },
 
+    {
+        .name = "[Intel i845] MSI MS-6529",
+        .internal_name = "ms6529",
+        .type = MACHINE_TYPE_SOCKET423,
+        .chipset = MACHINE_CHIPSET_INTEL_I845,
+        .init = machine_at_ms6529_init,
+        .p1_handler = NULL,
+        .gpio_handler = NULL,
+        .available_flag = MACHINE_AVAILABLE,
+        .gpio_acpi_handler = NULL,
+        .cpu = {
+            .package = CPU_PKG_SOCKET423,
+            .block = CPU_BLOCK_NONE,
+            .min_bus = 100000000,
+            .max_bus = 100000000,
+            .min_voltage = 1300,
+            .max_voltage = 3500,
+            .min_multi = 1.0,
+            .max_multi = 20.0
+        },
+        .bus_flags = MACHINE_PS2_NOISA,
+        .flags = MACHINE_IDE_DUAL | MACHINE_SOUND | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .ram = {
+            .min = 262144,
+            .max = 3145728,
+            .step = 262144
+        },
+        .nvrmask = 255,
+        .jumpered_ecp_dma         = 0,
+        .default_jumpered_ecp_dma = -1,
+        .kbc_device               = NULL,
+        .kbc_params               = 0,
+        .nvr_device               = NULL,
+        .nvr_params               = 0x00000000,
+        .sio_device               = &w83627hf_no_port_92_device,
+        .sio_params               = 0x00000000,
+        .kbc_p1                   = 0x00000cf0,
+        .gpio                     = 0xffffffff,
+        .gpio_acpi                = 0xffffffff,
+        .device = NULL,
+        .kbd_device               = NULL,
+        .fdc_device = NULL,
+        .vid_device = NULL,
+        .snd_device = NULL,
+        .net_device = NULL,
+        .aliases                  = { "" }
+    },
+
+    {
+        .name = "[Intel i845] DFI WB72-SC",
+        .internal_name = "wb72",
+        .type = MACHINE_TYPE_SOCKET423,
+        .chipset = MACHINE_CHIPSET_INTEL_I845,
+        .init = machine_at_wb72_init,
+        .p1_handler = NULL,
+        .gpio_handler = NULL,
+        .available_flag = MACHINE_AVAILABLE,
+        .gpio_acpi_handler = NULL,
+        .cpu = {
+            .package = CPU_PKG_SOCKET423,
+            .block = CPU_BLOCK_NONE,
+            .min_bus = 100000000,
+            .max_bus = 100000000,
+            .min_voltage = 1300,
+            .max_voltage = 3500,
+            .min_multi = 1.0,
+            .max_multi = 20.0
+        },
+        .bus_flags = MACHINE_PS2_NOISA,
+        .flags = MACHINE_IDE_DUAL | MACHINE_SOUND | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .ram = {
+            .min = 262144,
+            .max = 3145728,
+            .step = 262144
+        },
+        .nvrmask = 255,
+        .jumpered_ecp_dma         = 0,
+        .default_jumpered_ecp_dma = -1,
+        .kbc_device               = NULL,
+        .kbc_params               = 0,
+        .nvr_device               = NULL,
+        .nvr_params               = 0x00000000,
+        .sio_device               = &w83627hf_no_port_92_device,
+        .sio_params               = 0x00000000,
+        .kbc_p1                   = 0x00000cf0,
+        .gpio                     = 0xffffffff,
+        .gpio_acpi                = 0xffffffff,
+        .device = NULL,
+        .kbd_device               = NULL,
+        .fdc_device = NULL,
+        .vid_device = NULL,
+        .snd_device = NULL,
+        .net_device = NULL,
+        .aliases                  = { "" }
+    },
+
+#ifdef DEV_BRANCH
+    {
+        .name = "[Intel i845] Abit AB-BW7",
+        .internal_name = "abbw7",
+        .type = MACHINE_TYPE_SOCKET423,
+        .chipset = MACHINE_CHIPSET_INTEL_I845,
+        .init = machine_at_abbw7_init,
+        .p1_handler = NULL,
+        .gpio_handler = NULL,
+        .available_flag = MACHINE_AVAILABLE,
+        .gpio_acpi_handler = NULL,
+        .cpu = {
+            .package = CPU_PKG_SOCKET423,
+            .block = CPU_BLOCK_NONE,
+            .min_bus = 100000000,
+            .max_bus = 100000000,
+            .min_voltage = 1300,
+            .max_voltage = 3500,
+            .min_multi = 1.0,
+            .max_multi = 20.0
+        },
+        .bus_flags = MACHINE_PS2_NOISA,
+        .flags = MACHINE_IDE_DUAL | MACHINE_SOUND | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .ram = {
+            .min = 262144,
+            .max = 3145728,
+            .step = 262144
+        },
+        .nvrmask = 255,
+        .jumpered_ecp_dma         = 0,
+        .default_jumpered_ecp_dma = -1,
+        .kbc_device               = NULL,
+        .kbc_params               = 0,
+        .nvr_device               = NULL,
+        .nvr_params               = 0x00000000,
+        .sio_device               = &w83627hf_no_port_92_device,
+        .sio_params               = 0x00000000,
+        .kbc_p1                   = 0x00000cf0,
+        .gpio                     = 0xffffffff,
+        .gpio_acpi                = 0xffffffff,
+        .device = NULL,
+        .kbd_device               = NULL,
+        .fdc_device = NULL,
+        .vid_device = NULL,
+        .snd_device = NULL,
+        .net_device = NULL,
+        .aliases                  = { "" }
+    },
+#endif
+
+    {
+        .name = "[Intel i845] QDI PlatiniX 2",
+        .internal_name = "platinix2",
+        .type = MACHINE_TYPE_SOCKET478,
+        .chipset = MACHINE_CHIPSET_INTEL_I845,
+        .init = machine_at_platinix2_init,
+        .p1_handler = NULL,
+        .gpio_handler = NULL,
+        .available_flag = MACHINE_AVAILABLE,
+        .gpio_acpi_handler = NULL,
+        .cpu = {
+            .package = CPU_PKG_SOCKET478,
+            .block = CPU_BLOCK_NONE,
+            .min_bus = 100000000,
+            .max_bus = 100000000,
+            .min_voltage = 1300,
+            .max_voltage = 3500,
+            .min_multi = 1.0,
+            .max_multi = 20.0
+        },
+        .bus_flags = MACHINE_PS2_NOISA,
+        .flags = MACHINE_IDE_DUAL | MACHINE_SOUND | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .ram = {
+            .min = 262144,
+            .max = 3145728,
+            .step = 262144
+        },
+        .nvrmask = 255,
+        .jumpered_ecp_dma         = 0,
+        .default_jumpered_ecp_dma = -1,
+        .kbc_device               = NULL,
+        .kbc_params               = 0,
+        .nvr_device               = NULL,
+        .nvr_params               = 0x00000000,
+        .sio_device               = &w83627hf_no_port_92_device,
+        .sio_params               = 0x00000000,
+        .kbc_p1                   = 0x00000cf0,
+        .gpio                     = 0xffffffff,
+        .gpio_acpi                = 0xffffffff,
+        .device = NULL,
+        .kbd_device               = NULL,
+        .fdc_device = NULL,
+        .vid_device = NULL,
+        .snd_device = NULL,
+        .net_device = NULL,
+        .aliases                  = { "" }
+    },
+
     /* Miscellaneous/Fake/Hypervisor machines */
     /* Has a Winbond W83977F Super I/O chip with on-chip KBC with AMIKey-2 KBC
        firmware. */
@@ -23745,54 +23940,6 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = NULL,
         .net_device               = NULL,
-        .aliases                  = { "" }
-    },
-
-    {
-        .name = "[Intel i845] MSI MS-6529",
-        .internal_name = "ms6529",
-        .type = MACHINE_TYPE_SOCKET423,
-        .chipset = MACHINE_CHIPSET_INTEL_I845,
-        .init = machine_at_ms6529_init,
-        .p1_handler = NULL,
-        .gpio_handler = NULL,
-        .available_flag = MACHINE_AVAILABLE,
-        .gpio_acpi_handler = NULL,
-        .cpu = {
-            .package = CPU_PKG_SOCKET423,
-            .block = CPU_BLOCK_NONE,
-            .min_bus = 200000000,
-            .max_bus = 200000000,
-            .min_voltage = 1300,
-            .max_voltage = 3500,
-            .min_multi = 1.0,
-            .max_multi = 8.0
-        },
-        .bus_flags = MACHINE_PS2_NOISA,
-        .flags = MACHINE_IDE_DUAL | MACHINE_SOUND,
-        .ram = {
-            .min = 32768,
-            .max = 3145728,
-            .step = 32768
-        },
-        .nvrmask = 255,
-        .jumpered_ecp_dma         = 0,
-        .default_jumpered_ecp_dma = -1,
-        .kbc_device               = NULL,
-        .kbc_params               = 0,
-        .nvr_device               = NULL,
-        .nvr_params               = 0x00000000,
-        .sio_device               = &w83627hf_device,
-        .sio_params               = 0x00000000,
-        .kbc_p1                   = 0x00000cf0,
-        .gpio                     = 0xffffffff,
-        .gpio_acpi                = 0xffffffff,
-        .device = NULL,
-        .kbd_device               = NULL,
-        .fdc_device = NULL,
-        .vid_device = NULL,
-        .snd_device = NULL,
-        .net_device = NULL,
         .aliases                  = { "" }
     },
 
@@ -24304,5 +24451,3 @@ machine_get_nvr_name(void)
 {
     return machine_get_nvr_name_ex(machine);
 }
-
-

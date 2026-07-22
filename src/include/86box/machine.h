@@ -314,6 +314,7 @@ enum {
     MACHINE_CHIPSET_VLSI_WILDCAT,
     MACHINE_CHIPSET_WD76C10,
     MACHINE_CHIPSET_ZYMOS_POACH,
+    MACHINE_CHIPSET_INTEL_I845E,
     MACHINE_CHIPSET_MAX
 };
 
@@ -868,6 +869,9 @@ extern int             machine_at_pci400cb_init(const machine_t *);
 extern int             machine_at_acerp3_init(const machine_t *);
 extern int             machine_at_486sp3c_init(const machine_t *);
 extern int             machine_at_ls486e_init(const machine_t *);
+#ifdef EMU_DEVICE_H
+extern const device_t  m4li_device;
+#endif
 extern int             machine_at_m4li_init(const machine_t *);
 extern int             machine_at_ms4144_init(const machine_t *);
 extern int             machine_at_r418_init(const machine_t *);
@@ -1015,6 +1019,9 @@ extern int             machine_at_hot539_init(const machine_t *);
 extern const device_t  bravoms586_device;
 #endif
 extern int             machine_at_bravoms586_init(const machine_t *);
+#ifdef EMU_DEVICE_H
+extern const device_t  m54si_device;
+#endif
 extern int             machine_at_m54si_init(const machine_t *);
 extern int             machine_at_pb600_init(const machine_t *);
 
@@ -1427,6 +1434,11 @@ extern int             machine_at_cairo5_init(const machine_t *);
 
 /* m_at_socket423.c */
 extern int             machine_at_ms6529_init(const machine_t *);
+extern int             machine_at_wb72_init(const machine_t *);
+extern int             machine_at_abbw7_init(const machine_t *);
+
+/* m_at_socket478.c */
+extern int             machine_at_platinix2_init(const machine_t *);
 
 /* m_at_slota.c */
 extern int machine_at_k7m_init(const machine_t *);

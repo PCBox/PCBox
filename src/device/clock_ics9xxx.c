@@ -60,8 +60,8 @@ typedef struct ics9xxx_model_t {
 #if defined(ENABLE_ICS9xxx_LOG) || defined(ENABLE_ICS9xxx_DETECT)
     const char *name; /* populated by macro */
 #endif
-    uint8_t max_reg : 3;        /* largest register index */
-    uint8_t regs[7];            /* default registers */
+    uint8_t max_reg : 4;        /* largest register index */
+    uint8_t regs[16];           /* default registers */
     struct fs_regs {            /* for each hardware frequency select bit [FS0:FS4]: */
         uint8_t normal_reg : 3; /* which register (or -1) for non-inverted input (FSn) */
         uint8_t normal_bit : 3; /* which bit (0-7) for non-inverted input (FSn) */
@@ -84,9 +84,9 @@ typedef struct ics9xxx_t {
     device_t        *dyn_device;
 
     ics9xxx_frequency_t *frequencies_ptr;
-    uint8_t              regs[7];
-    int8_t               addr_register : 4;
-    uint8_t              relevant_regs : 7;
+    uint8_t              regs[16];
+    int8_t               addr_register : 5;
+    uint16_t             relevant_regs;
     uint8_t              bus_match     : 5;
 } ics9xxx_t;
 
@@ -539,6 +539,13 @@ static const ics9xxx_model_t ics9xxx_models[] = {
         {.bus = 13300, .pci_div = 4},
         {0}
     }
+    ICS9xxx_MODEL_END()
+    ICS9xxx_MODEL(ICS9502_08)
+    .max_reg = 10,
+    .regs = {0x00, 0xff, 0xff, 0xff, 0x6d, 0xbf, 0x00, 0x00, 0x00, 0x00, 0x00},
+    .fs_regs = {{0, 4, 4, 7}, {0, 5, 4, 4}, {0, 6, 5, 6}, {0, 2, 4, 1}, {-1, -1, -1, -1}},
+    .hw_select = {0, 3},
+    .frequencies_ref = ICS9250_08
     ICS9xxx_MODEL_END()
 #ifdef ENABLE_ICS9xxx_DETECT
     ICS9xxx_MODEL(ICS9250_10)
@@ -1010,6 +1017,10 @@ ics9xxx_read(UNUSED(void *bus), UNUSED(uint8_t addr), void *priv)
     else if ((dev->model_idx == ICS9250_50) && (dev->addr_register == 0))
     ret = dev->regs[dev->addr_register] & 0x0b; /* -50 reads back revision ID instead */
 #endif
+    else if ((dev->model_idx == ICS9502_08) && (dev->addr_register == 6))
+        ret = 0x01;
+    else if ((dev->model_idx == ICS9502_08) && (dev->addr_register == 7))
+        ret = 0x28;
     else
         ret = dev->regs[dev->addr_register];
 

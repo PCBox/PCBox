@@ -141,6 +141,12 @@ acpi_timer_overflow(void *priv)
 }
 
 static void
+acpi_timer_update_from_regs(acpi_t *dev)
+{
+    acpi_timer_update(dev, (dev->regs.pmen & TMROF_EN) && !(dev->regs.pmsts & TMROF_STS));
+}
+
+static void
 acpi_gp_timer_update(acpi_t *dev, bool enable, int count)
 {
     if (enable) {
@@ -203,6 +209,10 @@ acpi_update_irq(acpi_t *dev)
     sis_55xx_common_t *sis = (sis_55xx_common_t *) dev->priv;
 
     switch (dev->vendor) {
+        case VEN_INTEL_ICH2:
+            sci_level |= (dev->regs.gpsts & dev->regs.gpen);
+            sci_level |= (dev->regs.gpsts1 & dev->regs.gpen1);
+            break;
         case VEN_SMC:
             sci_level |= (dev->regs.pmsts & BM_STS);
             break;
@@ -220,7 +230,7 @@ acpi_update_irq(acpi_t *dev)
             if (dev->irq_line != 0)
             {
                 if (dev->irq_line >= 16 && current_ioapic && current_ioapic->ioapic_mem_window.enable)
-                    apic_ioapic_set_irq(current_ioapic, dev->irq_line, 0);
+                    apic_ioapic_set_irq(current_ioapic, dev->irq_line, 1);
                 else
                     picintlevel(1 << dev->irq_line, &dev->irq_state);
             }
@@ -1121,12 +1131,14 @@ acpi_reg_write_common_regs(UNUSED(int size), uint16_t addr, uint8_t val, void *p
             if ((addr == 0x01) && (val & 0x04))
                 acpi_rtc_status = 0;
             acpi_update_irq(dev);
+            acpi_timer_update_from_regs(dev);
             break;
         case 0x02:
         case 0x03:
             /* PMEN - Power Management Resume Enable Register (IO) */
             dev->regs.pmen = ((dev->regs.pmen & ~(0xff << shift16)) | (val << shift16)) & 0x0521;
             acpi_update_irq(dev);
+            acpi_timer_update_from_regs(dev);
             break;
         case 0x04:
         case 0x05:
@@ -1392,24 +1404,28 @@ acpi_reg_write_intel_ich2(int size, uint16_t addr, uint8_t val, void *priv)
         case 0x29:
             /* GPE0_STS - General Purpose Event 0 Status Register */
             dev->regs.gpsts &= ~((val << shift16) & 0x09fb);
+            acpi_update_irq(dev);
             break;
 
         case 0x2a:
         case 0x2b:
             /* GPE0_EN - General Purpose Event 0 Enables Register */
             dev->regs.gpen = ((dev->regs.gpen & ~(0xff << shift16)) | (val << shift16)) & 0x097d;
+            acpi_update_irq(dev);
             break;
 
         case 0x2c:
         case 0x2d:
             /* GPE1_STS - General Purpose Event 1 Status Register */
             dev->regs.gpsts1 &= ~((val << shift16) & 0x09fb);
+            acpi_update_irq(dev);
             break;
 
         case 0x2e:
         case 0x2f:
             /* GPE1_EN - General Purpose Event 1 Enable Register */
-            dev->regs.gpen1 = ((dev->regs.gpen & ~(0xff << shift16)) | (val << shift16)) & 0x097d;
+            dev->regs.gpen1 = ((dev->regs.gpen1 & ~(0xff << shift16)) | (val << shift16)) & 0x097d;
+            acpi_update_irq(dev);
             break;
 
         case 0x30:
@@ -1418,6 +1434,7 @@ acpi_reg_write_intel_ich2(int size, uint16_t addr, uint8_t val, void *priv)
         case 0x33:
             /* SMI_EN - SMI Control and Enable Register */
             dev->regs.smi_en = ((dev->regs.smi_en & ~(0xff << shift32)) | (val << shift32)) & 0x0000867f;
+            tco_set_smi_enable(dev->tco, (dev->regs.smi_en & 0x00002001) == 0x00002001);
 
             if (addr == 0x30) {
                 apm_set_do_smi(dev->apm, !!(val & 0x20));
@@ -2559,6 +2576,7 @@ void
 acpi_set_tco(acpi_t *dev, tco_t *tco)
 {
     dev->tco = tco;
+    tco_set_smi_enable(dev->tco, (dev->regs.smi_en & 0x00002001) == 0x00002001);
 }
 
 void
@@ -2595,6 +2613,18 @@ acpi_pwrbtn_timer(void *priv)
     }
 }
 
+static int
+acpi_is_enable_cmd(uint8_t val)
+{
+    return (val == ACPI_ENABLE) || (val == 0xe1);
+}
+
+static int
+acpi_is_disable_cmd(uint8_t val)
+{
+    return (val == ACPI_DISABLE) || (val == 0x1e);
+}
+
 static void
 acpi_apm_out(uint16_t port, uint8_t val, void *priv)
 {
@@ -2621,9 +2651,17 @@ acpi_apm_out(uint16_t port, uint8_t val, void *priv)
             dev->apm->cmd = val;
             if (dev->vendor == VEN_INTEL)
                 dev->regs.glbsts |= 0x20;
-            else if (dev->vendor == VEN_INTEL_ICH2)
+            else if (dev->vendor == VEN_INTEL_ICH2) {
+                if (acpi_is_enable_cmd(val)) {
+                    dev->regs.pmcntrl |= SCI_EN;
+                    acpi_update_irq(dev);
+                } else if (acpi_is_disable_cmd(val)) {
+                    dev->regs.pmcntrl &= ~SCI_EN;
+                    acpi_update_irq(dev);
+                }
                 if (dev->apm->do_smi)
                     dev->regs.smi_sts |= 0x00000020;
+            }
             acpi_raise_smi(dev, dev->apm->do_smi);
         } else
             dev->apm->stat = val;

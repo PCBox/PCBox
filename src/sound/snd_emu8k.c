@@ -1770,6 +1770,7 @@ emu8k_update(emu8k_t *emu8k)
     /* Voices section  */
     for (uint8_t c = 0; c < 32; c++) {
         emu_voice = &emu8k->voice[c];
+        buf       = &emu8k->buffer[emu8k->pos * 2];
 
         if (emu_voice->env_engine_on || emu_voice->cvcf_curr_volume)
             num_active++;

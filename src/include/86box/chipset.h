@@ -124,6 +124,7 @@ extern const device_t ioapic_device;
 /* Intel ICH2 */
 extern const device_t intel_815ep_device;
 extern const device_t intel_845_device;
+extern const device_t intel_845e_device;
 extern const device_t intel_ich2_device;
 /* VTech */
 extern const device_t laserxt_device;

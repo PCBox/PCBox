@@ -73,8 +73,74 @@ smbus_piix4_raise_smi(smbus_piix4_t *dev)
     if (dev->smi_en) { /* Raise SMI when needed if it's enabled by the Chipset */
         dev->acpi->regs.smi_sts |= 0x00010000;
         acpi_raise_smi(dev->acpi, 1);
-    } else
+    } else if (dev->irq < 16)
         picint(1 << dev->irq);
+}
+
+#define ICH2_BLOCK_ACTIVE 0x8000
+#define ICH2_BLOCK_READ   0x4000
+#define ICH2_BLOCK_COUNT  0x00ff
+
+static uint8_t
+smbus_piix4_ich2_clamp_block_len(uint8_t block_len)
+{
+    if (!block_len || (block_len > SMBUS_PIIX4_BLOCK_DATA_SIZE))
+        block_len = SMBUS_PIIX4_BLOCK_DATA_SIZE;
+
+    return block_len;
+}
+
+static uint8_t
+smbus_piix4_ich2_data0_block_len(smbus_piix4_t *dev)
+{
+    dev->data0 = smbus_piix4_ich2_clamp_block_len(dev->data0);
+
+    return dev->data0;
+}
+
+static void
+smbus_piix4_ich2_finish_block(smbus_piix4_t *dev, uint8_t smbus_addr)
+{
+    i2c_stop(i2c_smbus, smbus_addr);
+    dev->byte_rw = 0;
+    dev->stat |= 0x82; /* INTR and BYTE_DONE */
+}
+
+static void
+smbus_piix4_ich2_advance_block(smbus_piix4_t *dev)
+{
+    uint8_t smbus_addr = dev->addr >> 1;
+    uint8_t count;
+    uint8_t block_len;
+
+    if (!(dev->byte_rw & ICH2_BLOCK_ACTIVE))
+        return;
+
+    count     = dev->byte_rw & ICH2_BLOCK_COUNT;
+    block_len = smbus_piix4_ich2_clamp_block_len(dev->block_len);
+
+    if (dev->byte_rw & ICH2_BLOCK_READ) {
+        dev->block_data_byte = i2c_read(i2c_smbus, smbus_addr);
+        count++;
+        dev->byte_rw = (dev->byte_rw & ~ICH2_BLOCK_COUNT) | count;
+        dev->stat |= 0x80;
+        if (count >= block_len)
+            smbus_piix4_ich2_finish_block(dev, smbus_addr);
+        return;
+    } else {
+        if (!i2c_write(i2c_smbus, smbus_addr, dev->block_data_byte)) {
+            dev->stat |= 0x04;
+            smbus_piix4_ich2_finish_block(dev, smbus_addr);
+            return;
+        }
+    }
+
+    count++;
+    dev->byte_rw = (dev->byte_rw & ~ICH2_BLOCK_COUNT) | count;
+    dev->stat |= 0x80;
+
+    if (count >= block_len)
+        smbus_piix4_ich2_finish_block(dev, smbus_addr);
 }
 
 static uint8_t
@@ -110,9 +176,13 @@ smbus_piix4_read(uint16_t addr, void *priv)
             break;
 
         case 0x07:
-            ret = dev->data[dev->index++];
-            if (dev->index >= SMBUS_PIIX4_BLOCK_DATA_SIZE)
-                dev->index = 0;
+            if (dev->local == SMBUS_INTEL_ICH2)
+                ret = dev->block_data_byte;
+            else {
+                ret = dev->data[dev->index++];
+                if (dev->index >= SMBUS_PIIX4_BLOCK_DATA_SIZE)
+                    dev->index = 0;
+            }
             break;
 
         default:
@@ -137,15 +207,16 @@ smbus_piix4_write(uint16_t addr, uint8_t val, void *priv)
     uint16_t       i = 0;
 
     smbus_piix4_log("SMBus PIIX4: write(%02X, %02X)\n", addr, val);
-
     prev_stat      = dev->next_stat;
     dev->next_stat = 0x00;
     switch (addr - dev->io_base) {
         case 0x00:
-            for (smbus_addr = 0x02; smbus_addr <= ((dev->local == SMBUS_INTEL_ICH2) ? 0x40 : 0x10); smbus_addr <<= 1) { /* handle clearable bits */
+            for (smbus_addr = 0x02; smbus_addr && (smbus_addr <= ((dev->local == SMBUS_INTEL_ICH2) ? 0x80 : 0x10)); smbus_addr <<= 1) { /* handle clearable bits */
                 if (val & smbus_addr)
                     dev->stat &= ~smbus_addr;
             }
+            if ((dev->local == SMBUS_INTEL_ICH2) && (val & 0x80))
+                smbus_piix4_ich2_advance_block(dev);
             break;
 
         case 0x02:
@@ -247,33 +318,17 @@ smbus_piix4_write(uint16_t addr, uint8_t val, void *priv)
 
                     case 0xd: /* I2C block R/W */
                         if (dev->local == SMBUS_INTEL_ICH2) {
-                            if (!dev->byte_rw) {
-                                i2c_write(i2c_smbus, smbus_addr, dev->cmd);
-                                if (read)
-                                    dev->data0 = i2c_read(i2c_smbus, smbus_addr); // For byte reads, the count is recieved and stored at the DATA0 register
-                                else
-                                    i2c_write(i2c_smbus, smbus_addr, dev->data0);
+                            dev->block_len = smbus_piix4_ich2_clamp_block_len(dev->data0);
+                            i2c_write(i2c_smbus, smbus_addr, dev->cmd);
+                            if (read)
+                                dev->data0 = i2c_read(i2c_smbus, smbus_addr);
+                            else if (cmd == 0x5)
+                                i2c_write(i2c_smbus, smbus_addr, smbus_piix4_ich2_data0_block_len(dev));
 
-                                dev->byte_rw = 1;
-                            }
-
-                            if (read) {
-                                dev->block_data_byte = i2c_read(i2c_smbus, smbus_addr);
-                                dev->stat |= 0x80;
-                                smbus_piix4_raise_smi(dev);
-                                if (dev->ctl & 0x20) { /* Finish the Transfer */
-                                    dev->byte_rw = 0;
-                                    dev->stat |= 2;
-                                }
-                            } else {
-                                i2c_write(i2c_smbus, smbus_addr, dev->cmd);
-                                if (((dev->byte_rw >> 4) & 0xff) < dev->data0) {
-                                    i2c_write(i2c_smbus, smbus_addr, dev->block_data_byte);
-                                    dev->stat |= 0x80;
-                                    dev->byte_rw += 0x10000;
-                                } else
-                                    dev->byte_rw = 0;
-                            }
+                            dev->byte_rw = ICH2_BLOCK_ACTIVE | (read ? ICH2_BLOCK_READ : 0);
+                            smbus_piix4_ich2_advance_block(dev);
+                            dev->next_stat = 0x00;
+                            timer_bytes    = 0;
                         } else {
                             if (read) {
                                 timer_bytes++;
@@ -398,6 +453,28 @@ smbus_piix4_response(void *priv)
     dev->stat = dev->next_stat;
 }
 
+static void
+smbus_piix4_reset(void *priv)
+{
+    smbus_piix4_t *dev = (smbus_piix4_t *) priv;
+
+    timer_disable(&dev->response_timer);
+
+    dev->byte_rw         = 0;
+    dev->stat            = 0;
+    dev->next_stat       = 0;
+    dev->ctl             = 0;
+    dev->cmd             = 0;
+    dev->addr            = 0;
+    dev->data0           = 0;
+    dev->data1           = 0;
+    dev->index           = 0;
+    dev->block_data_byte = 0;
+    dev->block_len       = 0;
+    dev->irq             = 0xff;
+    memset(dev->data, 0, sizeof(dev->data));
+}
+
 void
 smbus_piix4_remap(smbus_piix4_t *dev, uint16_t new_io_base, uint8_t enable)
 {
@@ -448,6 +525,7 @@ smbus_piix4_init(const device_t *info)
     timer_add(&dev->response_timer, smbus_piix4_response, dev, 0);
 
     smbus_piix4_setclock(dev, 16384); /* default to 16.384 KHz */
+    smbus_piix4_reset(dev);
 
     return dev;
 }
@@ -471,7 +549,7 @@ const device_t piix4_smbus_device = {
     .local         = SMBUS_PIIX4,
     .init          = smbus_piix4_init,
     .close         = smbus_piix4_close,
-    .reset         = NULL,
+    .reset         = smbus_piix4_reset,
     .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
@@ -485,7 +563,7 @@ const device_t intel_ich2_smbus_device = {
     .local         = SMBUS_INTEL_ICH2,
     .init          = smbus_piix4_init,
     .close         = smbus_piix4_close,
-    .reset         = NULL,
+    .reset         = smbus_piix4_reset,
     .available = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,
@@ -499,7 +577,7 @@ const device_t via_smbus_device = {
     .local         = SMBUS_VIA,
     .init          = smbus_piix4_init,
     .close         = smbus_piix4_close,
-    .reset         = NULL,
+    .reset         = smbus_piix4_reset,
     .available     = NULL,
     .speed_changed = NULL,
     .force_redraw  = NULL,

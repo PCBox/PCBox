@@ -327,8 +327,6 @@ static int cyrix_addr;
 static void    cpu_write(uint16_t addr, uint8_t val, void *priv);
 static uint8_t cpu_read(uint16_t addr, void *priv);
 
-#define ENABLE_CPU_LOG 1
-
 #ifdef ENABLE_CPU_LOG
 int cpu_do_log = ENABLE_CPU_LOG;
 
@@ -410,6 +408,8 @@ cpu_is_eligible(const cpu_family_t *cpu_family, int cpu, int machine)
         packages |= CPU_PKG_SOCKET1;
     else if (packages & CPU_PKG_SLOT1)
         packages |= CPU_PKG_SOCKET370 | CPU_PKG_SOCKET8;
+    else if (packages & CPU_PKG_SOCKET423)
+        packages |= CPU_PKG_SOCKET478;
 
     /* Package type. */
     if (!(cpu_family->package & packages))
@@ -4751,6 +4751,13 @@ i686_invalid_rdmsr:
                     EAX = msr.ecx20 & 0xffffffff;
                     EDX = msr.ecx20 >> 32;
                     break;
+                /* EBL_CR_POWERON - Processor Hard Power-On Configuration */
+                case 0x2a:
+                    EAX = 0xc4000000;
+                    EDX = 0;
+                    break;
+                case 0x2b:
+                    break;
                 /* BIOS_UPDT_TRIG - BIOS Update Trigger */
                 case 0x79:
                     EAX = msr.bios_updt & 0xffffffff;
@@ -6042,6 +6049,8 @@ i686_invalid_wrmsr:
                     break;
                 /* EBL_CR_POWERON - Processor Hard Power-On Configuration */
                 case 0x2a:
+                    break;
+                case 0x2b:
                     break;
                 /* TEST_CTL - Test Control Register */
                 case 0x33:

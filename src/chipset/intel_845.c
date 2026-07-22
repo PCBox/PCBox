@@ -56,15 +56,20 @@ intel_845_log(const char *fmt, ...)
 
 typedef struct intel_845_t {
     uint8_t    pci_conf[256];
+    uint8_t    mchbar_regs[0x200];
     uint8_t    subsystem_locked[4];
     uint8_t    pci_slot;
     uint8_t    pad[2];
+    mem_mapping_t mchbar_mapping;
     uint32_t   tseg_base;
     uint32_t   tseg_size;
     smram_t   *c_segment;
     smram_t   *h_segment;
     smram_t   *tseg_segment;
     agpgart_t *agpgart;
+    uint8_t    revision;
+    uint8_t    pad2[3];
+    const device_t *agp_device;
 } intel_845_t;
 
 static uint32_t
@@ -75,11 +80,27 @@ intel_845_tom(const intel_845_t *dev)
     return (uint32_t) tom << 16;
 }
 
+static uint16_t
+intel_845_default_tom_reg(void)
+{
+    uint16_t tom = (mem_size >> 6) & 0xfff0;
+
+    return (tom < 0x0200) ? 0x0200 : tom;
+}
+
+static void
+intel_845_set_tom_reg(intel_845_t *dev, uint16_t tom)
+{
+    dev->pci_conf[0xc4] = tom & 0xff;
+    dev->pci_conf[0xc5] = tom >> 8;
+}
+
 static void
 intel_845_agp_aperture(intel_845_t *dev)
 {
     uint32_t aperture_base;
     uint32_t aperture_size;
+    uint64_t aperture_end;
     int      aperture_enable;
 
     dev->pci_conf[0x10] = 0x08;
@@ -92,7 +113,13 @@ intel_845_agp_aperture(intel_845_t *dev)
     dev->pci_conf[0x13] = (aperture_base >> 24) & 0xff;
 
     aperture_size   = ((uint32_t) ((~dev->pci_conf[0xb4] & 0x3f) + 1)) << 22;
-    aperture_enable = !!(dev->pci_conf[0x51] & 0x02) && (aperture_base != 0);
+    aperture_end    = (uint64_t) aperture_base + aperture_size;
+    aperture_enable = !!(dev->pci_conf[0x51] & 0x02) &&
+                      (aperture_base != 0) &&
+                      (dev->agpgart->gart_base != 0) &&
+                      (aperture_base >= intel_845_tom(dev)) &&
+                      (aperture_end > aperture_base) &&
+                      (aperture_end <= 0x100000000ULL);
 
     if (aperture_enable)
         intel_845_log("Intel 845 MCH: AGP aperture enabled at %08x, size %u MB\n",
@@ -112,6 +139,112 @@ intel_845_gart_table(intel_845_t *dev)
     intel_845_log("Intel 845 MCH: AGP GART base updated to %08x\n", agp_gart_base);
 
     agpgart_set_gart(dev->agpgart, agp_gart_base);
+    intel_845_agp_aperture(dev);
+}
+
+static uint32_t
+intel_845_mchbar_base(const intel_845_t *dev)
+{
+    return ((dev->pci_conf[0x17] << 24) | (dev->pci_conf[0x16] << 16) |
+            (dev->pci_conf[0x15] << 8) | dev->pci_conf[0x14]) & 0xfffff000;
+}
+
+static void
+intel_845_mchbar_recalc(intel_845_t *dev)
+{
+    const uint32_t base = intel_845_mchbar_base(dev);
+
+    if (base != 0) {
+        intel_845_log("Intel 845 MCH: MCHBAR enabled at %08x\n", base);
+        mem_mapping_set_addr(&dev->mchbar_mapping, base, 0x1000);
+    } else {
+        intel_845_log("Intel 845 MCH: MCHBAR disabled\n");
+        mem_mapping_disable(&dev->mchbar_mapping);
+    }
+}
+
+static int
+intel_845_mchbar_is_shadowed(uint32_t reg)
+{
+    return ((reg >= 0x20) && (reg <= 0xdf)) ||
+           ((reg >= 0x140) && (reg <= 0x1df));
+}
+
+static uint8_t
+intel_845_mchbar_readb(uint32_t addr, void *priv)
+{
+    const intel_845_t *dev = (intel_845_t *) priv;
+    const uint32_t     reg = addr & 0x1ff;
+    uint8_t            ret = 0x00;
+
+    switch (reg) {
+        case 0x2c:
+        case 0x30 ... 0x34:
+            ret = dev->mchbar_regs[reg];
+            break;
+
+        default:
+            if (intel_845_mchbar_is_shadowed(reg))
+                ret = dev->mchbar_regs[reg];
+            break;
+    }
+
+    intel_845_log("Intel 845 MCH: MCHBAR[%03x] (%02x)\n", reg, ret);
+    return ret;
+}
+
+static uint16_t
+intel_845_mchbar_readw(uint32_t addr, void *priv)
+{
+    return intel_845_mchbar_readb(addr, priv) | (intel_845_mchbar_readb(addr + 1, priv) << 8);
+}
+
+static uint32_t
+intel_845_mchbar_readl(uint32_t addr, void *priv)
+{
+    return intel_845_mchbar_readw(addr, priv) | (intel_845_mchbar_readw(addr + 2, priv) << 16);
+}
+
+static void
+intel_845_mchbar_writeb(uint32_t addr, uint8_t val, void *priv)
+{
+    intel_845_t   *dev = (intel_845_t *) priv;
+    const uint32_t reg = addr & 0x1ff;
+
+    intel_845_log("Intel 845 MCH: MCHBAR[%03x] = %02x\n", reg, val);
+
+    switch (reg) {
+        case 0x2c:
+            dev->mchbar_regs[reg] = val & 0x3f;
+            break;
+
+        case 0x30 ... 0x33:
+            dev->mchbar_regs[reg] = val & 0x77;
+            break;
+
+        case 0x34:
+            dev->mchbar_regs[reg] = val & 0x07;
+            break;
+
+        default:
+            if (intel_845_mchbar_is_shadowed(reg))
+                dev->mchbar_regs[reg] = val;
+            break;
+    }
+}
+
+static void
+intel_845_mchbar_writew(uint32_t addr, uint16_t val, void *priv)
+{
+    intel_845_mchbar_writeb(addr, val & 0xff, priv);
+    intel_845_mchbar_writeb(addr + 1, val >> 8, priv);
+}
+
+static void
+intel_845_mchbar_writel(uint32_t addr, uint32_t val, void *priv)
+{
+    intel_845_mchbar_writew(addr, val & 0xffff, priv);
+    intel_845_mchbar_writew(addr + 2, val >> 16, priv);
 }
 
 static void
@@ -132,7 +265,7 @@ intel_845_pam_recalc(int addr, uint8_t val)
                                ((val & 0x20) ? MEM_WRITE_INTERNAL : MEM_WRITE_EXTANY));
     }
 
-    flushmmucache_nopc();
+    flushmmucache();
 }
 
 static void
@@ -143,7 +276,7 @@ intel_845_fdhc_recalc(intel_845_t *dev)
                                (dev->pci_conf[0x97] & 0x80) ?
                                (MEM_READ_EXTANY | MEM_WRITE_EXTANY) :
                                (MEM_READ_INTERNAL | MEM_WRITE_INTERNAL));
-        flushmmucache_nopc();
+        flushmmucache();
     }
 }
 
@@ -201,7 +334,7 @@ intel_845_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
 {
     intel_845_t *dev = (intel_845_t *) priv;
     uint16_t     reg;
-
+    
     intel_845_log("Intel 845 MCH: dev->regs[%02x] = %02x\n", addr, val);
 
     if (func)
@@ -224,6 +357,22 @@ intel_845_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
         case 0x13:
             dev->pci_conf[addr] = val;
             intel_845_agp_aperture(dev);
+            break;
+
+        case 0x14:
+            dev->pci_conf[addr] = 0x00;
+            intel_845_mchbar_recalc(dev);
+            break;
+
+        case 0x15:
+            dev->pci_conf[addr] = val & 0xf0;
+            intel_845_mchbar_recalc(dev);
+            break;
+
+        case 0x16:
+        case 0x17:
+            dev->pci_conf[addr] = val;
+            intel_845_mchbar_recalc(dev);
             break;
 
         case 0x2c ... 0x2f:
@@ -280,7 +429,7 @@ intel_845_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
             break;
 
         case 0x7f:
-            dev->pci_conf[addr] = val;
+            dev->pci_conf[addr] = val & 0x30;
             break;
 
         case 0x90:
@@ -367,11 +516,13 @@ intel_845_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
         case 0xc4:
             dev->pci_conf[addr] = val & 0xf0;
             intel_845_smram_recalc(dev);
+            intel_845_agp_aperture(dev);
             break;
 
         case 0xc5:
             dev->pci_conf[addr] = val;
             intel_845_smram_recalc(dev);
+            intel_845_agp_aperture(dev);
             break;
 
         case 0xc6:
@@ -410,15 +561,33 @@ intel_845_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
             dev->pci_conf[addr] = val;
             break;
 
+        case 0xf4:
+        case 0xf5:
+        case 0xf7:
+            dev->pci_conf[addr] = 0x00;
+            break;
+
+        case 0xf6:
+            dev->pci_conf[addr] = val & 0x40;
+            break;
+
+        case 0xfe:
+            dev->pci_conf[addr] = val & 0x0c;
+            break;
+
+        case 0xff:
+            dev->pci_conf[addr] = val;
+            break;
+
         default:
             break;
     }
 
     reg = dev->pci_conf[0xc4] | (dev->pci_conf[0xc5] << 8);
-    if ((addr == 0xc4 || addr == 0xc5) && (reg < 0x0100)) {
-        dev->pci_conf[0xc4] = 0x00;
-        dev->pci_conf[0xc5] = 0x01;
+    if ((addr == 0xc4 || addr == 0xc5) && (reg < 0x0200)) {
+        intel_845_set_tom_reg(dev, intel_845_default_tom_reg());
         intel_845_smram_recalc(dev);
+        intel_845_agp_aperture(dev);
     }
 }
 
@@ -451,6 +620,7 @@ intel_845_reset(void *priv)
     }
 
     memset(dev->pci_conf, 0x00, sizeof(dev->pci_conf));
+    memset(dev->mchbar_regs, 0x00, sizeof(dev->mchbar_regs));
     memset(dev->subsystem_locked, 0x00, sizeof(dev->subsystem_locked));
 
     dev->pci_conf[0x00] = 0x86; /* VID - Intel */
@@ -459,10 +629,10 @@ intel_845_reset(void *priv)
     dev->pci_conf[0x03] = 0x1a;
     dev->pci_conf[0x04] = 0x06; /* PCICMD */
     dev->pci_conf[0x06] = 0x90; /* PCISTS */
-    dev->pci_conf[0x08] = 0x04; /* RID - B0 stepping */
+    dev->pci_conf[0x08] = dev->revision; /* RID */
     dev->pci_conf[0x0b] = 0x06; /* BCC - bridge */
     dev->pci_conf[0x10] = 0x08; /* APBASE */
-    dev->pci_conf[0x34] = 0xa0; /* CAPPTR */
+    dev->pci_conf[0x34] = 0xe4; /* CAPPTR */
     dev->pci_conf[0x78] = 0x10; /* DRT */
     dev->pci_conf[0x9d] = 0x02; /* SMRAM */
     dev->pci_conf[0x9e] = 0x38; /* ESMRAMC */
@@ -471,8 +641,7 @@ intel_845_reset(void *priv)
     dev->pci_conf[0xa4] = 0x17; /* AGPSTAT */
     dev->pci_conf[0xa5] = 0x02;
     dev->pci_conf[0xa7] = 0x1f;
-    dev->pci_conf[0xc4] = 0x00; /* TOM - 16 MB */
-    dev->pci_conf[0xc5] = 0x01;
+    intel_845_set_tom_reg(dev, intel_845_default_tom_reg()); /* TOM */
     dev->pci_conf[0xe4] = 0x09; /* CAPID */
     dev->pci_conf[0xe5] = 0xa0;
     dev->pci_conf[0xe6] = 0x04;
@@ -481,6 +650,7 @@ intel_845_reset(void *priv)
     spd_write_drbs_intel_845(dev->pci_conf);
     intel_845_agp_aperture(dev);
     intel_845_gart_table(dev);
+    intel_845_mchbar_recalc(dev);
 
     for (int i = 0x90; i <= 0x96; i++)
         intel_845_pam_recalc(i, dev->pci_conf[i]);
@@ -497,21 +667,34 @@ intel_845_close(void *priv)
     smram_del(dev->c_segment);
     smram_del(dev->h_segment);
     smram_del(dev->tseg_segment);
+    mem_mapping_disable(&dev->mchbar_mapping);
     free(dev);
 }
 
 static void *
-intel_845_init(UNUSED(const device_t *info))
+intel_845_init(const device_t *info)
 {
     intel_845_t *dev = (intel_845_t *) calloc(1, sizeof(intel_845_t));
+
+    dev->revision   = (info->local == 1) ? 0x11 : 0x04;
+    dev->agp_device = (info->local == 1) ? &intel_845e_agp_device : &intel_845_agp_device;
 
     cpu_set_pci_speed(33333333);
     cpu_set_agp_speed(66666667);
 
     pci_add_card(PCI_ADD_NORTHBRIDGE, intel_845_read, intel_845_write, dev, &dev->pci_slot);
 
-    device_add(&intel_845_agp_device);
+    device_add(dev->agp_device);
     dev->agpgart = device_add(&agpgart_device);
+
+    mem_mapping_add(&dev->mchbar_mapping, 0, 0,
+                    intel_845_mchbar_readb,
+                    intel_845_mchbar_readw,
+                    intel_845_mchbar_readl,
+                    intel_845_mchbar_writeb,
+                    intel_845_mchbar_writew,
+                    intel_845_mchbar_writel,
+                    NULL, MEM_MAPPING_EXTERNAL, dev);
 
     cpu_cache_int_enabled = 1;
     cpu_cache_ext_enabled = 1;
@@ -530,6 +713,20 @@ const device_t intel_845_device = {
     .internal_name = "intel_845",
     .flags         = DEVICE_PCI,
     .local         = 0,
+    .init          = intel_845_init,
+    .close         = intel_845_close,
+    .reset         = intel_845_reset,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
+};
+
+const device_t intel_845e_device = {
+    .name          = "Intel 845E MCH Bridge",
+    .internal_name = "intel_845e",
+    .flags         = DEVICE_PCI,
+    .local         = 1,
     .init          = intel_845_init,
     .close         = intel_845_close,
     .reset         = intel_845_reset,

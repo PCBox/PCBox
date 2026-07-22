@@ -192,6 +192,7 @@ int      time_sync                              = 0;              /* (C) enable 
 int      confirm_reset                          = 1;              /* (G) enable reset confirmation */
 int      confirm_exit                           = 1;              /* (G) enable exit confirmation */
 int      confirm_save                           = 1;              /* (G) enable save confirmation */
+int      chd_precache_level                     = 0;              /* (G) CHD precache level */
 int      enable_discord                         = 0;              /* (C) enable Discord integration */
 int      pit_mode                               = -1;             /* (C) force setting PIT mode */
 int      fm_driver                              = 0;              /* (C) select FM sound driver */
@@ -230,6 +231,7 @@ double   video_gl_input_scale = 1.0;                              /* (C) OpenGL 
 int      video_gl_input_scale_mode = FULLSCR_SCALE_FULL;          /* (C) OpenGL 3.x input stretch mode */
 int      color_scheme = 0;                                        /* (C) Color scheme of UI (Windows-only) */
 int      fdd_sounds_enabled = 1;                                  /* (C) Floppy drive sounds enabled */
+int      is_new_808x = 0;                                         /* (C) Use the new 808x code. */
 
 // Accelerator key array
 struct accelKey acc_keys[NUM_ACCELS];

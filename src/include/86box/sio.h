@@ -183,6 +183,7 @@ extern const device_t vl82c113_device;
 /* Winbond */
 extern const device_t w83627hf_device;
 extern const device_t w83627hf_no_hwm_device;
+extern const device_t w83627hf_no_port_92_device;
 
 #define W83777F              0x00007
 #define W83787F              0x00008

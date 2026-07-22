@@ -2240,15 +2240,21 @@ smi_raise(void)
 }
 
 void
-nmi_raise(void)
+nmi_raise_cpu(void)
 {
     if (is486 && (cpu_fast_off_flags & 0x20000000))
         cpu_fast_off_advance();
 
+    nmi = 1;
+}
+
+void
+nmi_raise(void)
+{
     if (current_lapic && (current_lapic->lapic_spurious_interrupt & 0x100)) {
         apic_lapic_service_nmi();
     } else
-        nmi = 1;
+        nmi_raise_cpu();
 }
 
 #ifndef USE_DYNAREC

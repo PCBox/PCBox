@@ -241,14 +241,14 @@ pci_irq(uint8_t slot, uint8_t pci_int, int level, int set, uint8_t *irq_state)
     if (slot >= PCI_MIRQ_BASE && slot <= (PCI_MIRQ_BASE | 0x1)) {
         if (set)
         {
-            if (current_ioapic) {
+            if (apic_ioapic_is_enabled(current_ioapic)) {
                 //pclog("Slot %d, IRQ %d\n", slot, 20 + (slot - PCI_MIRQ_BASE));
                 apic_ioapic_set_irq(current_ioapic, 20 + (slot - PCI_MIRQ_BASE), 1);
             }
         }
         else
         {
-            if (current_ioapic) {
+            if (apic_ioapic_is_enabled(current_ioapic)) {
                 //pclog("Slot %d, IRQ %d (clear)\n", slot, 20 + (slot - PCI_MIRQ_BASE));
                 apic_ioapic_clear_irq(current_ioapic, 20 + (slot - PCI_MIRQ_BASE));
             }
@@ -258,14 +258,14 @@ pci_irq(uint8_t slot, uint8_t pci_int, int level, int set, uint8_t *irq_state)
     if (slot >= 0 && slot <= PCI_CARD_MAX) {
         if (set)
         {
-            if (current_ioapic) {
+            if (apic_ioapic_is_enabled(current_ioapic)) {
                 //pclog("Slot %d, IRQ %d\n", slot, 16 + pci_int_index);
                 apic_ioapic_set_irq(current_ioapic, 16 + pci_int_index, level);
             }
         }
         else
         {
-            if (current_ioapic) {
+            if (apic_ioapic_is_enabled(current_ioapic)) {
                 //pclog("Slot %d, IRQ %d (clear)\n", slot, 16 + pci_int_index);
                 apic_ioapic_clear_irq(current_ioapic, 16 + pci_int_index);
             }

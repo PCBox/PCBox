@@ -22,7 +22,7 @@
 #include <stddef.h>
 #include <wchar.h>
 #include <math.h>
-#define HAVE_STDARG_H
+#define HAVE_STDARG_HREG_RSP
 #include <86box/86box.h>
 #include "cpu.h"
 #include <86box/machine.h>
@@ -438,9 +438,7 @@ voodoo_readl(uint32_t addr, void *priv)
                     int busy         = (written - voodoo->cmd_read) ||
                                (voodoo->cmdfifo_depth_rd != voodoo->cmdfifo_depth_wr) ||
                                voodoo->voodoo_busy ||
-                               RENDER_VOODOO_BUSY(voodoo, 0) ||
-                               (voodoo->render_threads >= 2 && RENDER_VOODOO_BUSY(voodoo, 1)) ||
-                               (voodoo->render_threads == 4 && (RENDER_VOODOO_BUSY(voodoo, 2) || RENDER_VOODOO_BUSY(voodoo, 3)));
+                               voodoo_any_render_thread_busy(voodoo);
 
                     if (SLI_ENABLED && voodoo->type != VOODOO_2) {
                         voodoo_t *voodoo_other  = (voodoo == voodoo->set->voodoos[0]) ? voodoo->set->voodoos[1] : voodoo->set->voodoos[0];
@@ -453,9 +451,7 @@ voodoo_readl(uint32_t addr, void *priv)
                         if ((other_written - voodoo_other->cmd_read) ||
                             (voodoo_other->cmdfifo_depth_rd != voodoo_other->cmdfifo_depth_wr) ||
                             voodoo_other->voodoo_busy ||
-                            RENDER_VOODOO_BUSY(voodoo_other, 0) ||
-                            (voodoo_other->render_threads >= 2 && RENDER_VOODOO_BUSY(voodoo_other, 1)) ||
-                            (voodoo_other->render_threads == 4 && (RENDER_VOODOO_BUSY(voodoo_other, 2) || RENDER_VOODOO_BUSY(voodoo_other, 3))))
+                            voodoo_any_render_thread_busy(voodoo_other))
                             busy = 1;
                         if (!voodoo_other->voodoo_busy)
                             voodoo_wake_fifo_thread(voodoo_other);
@@ -1217,34 +1213,46 @@ voodoo_card_init(void)
     voodoo->svga     = svga_get_pri();
     voodoo->fbiInit0 = 0;
 
-    voodoo->wake_fifo_thread         = thread_create_event();
-    voodoo->wake_render_thread[0]    = thread_create_event();
-    voodoo->wake_render_thread[1]    = thread_create_event();
-    voodoo->wake_render_thread[2]    = thread_create_event();
-    voodoo->wake_render_thread[3]    = thread_create_event();
-    voodoo->wake_main_thread         = thread_create_event();
-    voodoo->fifo_not_full_event      = thread_create_event();
-    voodoo->fifo_empty_event         = thread_create_event();
+    voodoo->wake_fifo_thread    = thread_create_event();
+    voodoo->wake_main_thread    = thread_create_event();
+    voodoo->fifo_not_full_event = thread_create_event();
+    voodoo->fifo_empty_event    = thread_create_event();
     thread_set_event(voodoo->fifo_empty_event);
     ATOMIC_STORE(voodoo->fifo_empty_signaled, 1);
-    voodoo->render_not_full_event[0] = thread_create_event();
-    voodoo->render_not_full_event[1] = thread_create_event();
-    voodoo->render_not_full_event[2] = thread_create_event();
-    voodoo->render_not_full_event[3] = thread_create_event();
-    voodoo->fifo_thread_run          = 1;
-    voodoo->fifo_thread              = thread_create(voodoo_fifo_thread, voodoo);
-    voodoo->render_thread_run[0]     = 1;
-    voodoo->render_thread[0]         = thread_create(voodoo_render_thread_1, voodoo);
-    if (voodoo->render_threads >= 2) {
-        voodoo->render_thread_run[1] = 1;
-        voodoo->render_thread[1]     = thread_create(voodoo_render_thread_2, voodoo);
+
+    /* Allocate dynamic per-render-thread arrays */
+    voodoo->render_thread         = calloc(voodoo->render_threads, sizeof(thread_t *));
+    voodoo->render_thread_param   = calloc(voodoo->render_threads, sizeof(render_thread_param_t));
+    voodoo->wake_render_thread    = calloc(voodoo->render_threads, sizeof(event_t *));
+    voodoo->render_not_full_event = calloc(voodoo->render_threads, sizeof(event_t *));
+#if (defined __aarch64__ || defined _M_ARM64)
+    voodoo->render_voodoo_busy    = calloc(voodoo->render_threads, sizeof(*voodoo->render_voodoo_busy));
+    voodoo->params_read_idx       = calloc(voodoo->render_threads, sizeof(*voodoo->params_read_idx));
+#else
+    voodoo->render_voodoo_busy    = calloc(voodoo->render_threads, sizeof(int));
+    voodoo->params_read_idx       = calloc(voodoo->render_threads, sizeof(ATOMIC_INT));
+#endif
+    voodoo->pixel_count           = calloc(voodoo->render_threads, sizeof(int));
+    voodoo->texel_count           = calloc(voodoo->render_threads, sizeof(int));
+    voodoo->pixel_count_old       = calloc(voodoo->render_threads, sizeof(int));
+    voodoo->texel_count_old       = calloc(voodoo->render_threads, sizeof(int));
+    voodoo->render_time           = calloc(voodoo->render_threads, sizeof(int));
+
+    for (int t = 0; t < voodoo->render_threads; t++) {
+        voodoo->wake_render_thread[t]    = thread_create_event();
+        voodoo->render_not_full_event[t] = thread_create_event();
     }
-    if (voodoo->render_threads == 4) {
-        voodoo->render_thread_run[2] = 1;
-        voodoo->render_thread[2]     = thread_create(voodoo_render_thread_3, voodoo);
-        voodoo->render_thread_run[3] = 1;
-        voodoo->render_thread[3]     = thread_create(voodoo_render_thread_4, voodoo);
+
+    voodoo->fifo_thread_run = 1;
+    voodoo->fifo_thread     = thread_create(voodoo_fifo_thread, voodoo);
+
+    for (int t = 0; t < voodoo->render_threads; t++) {
+        voodoo->render_thread_run[t]       = 1;
+        voodoo->render_thread_param[t].voodoo = voodoo;
+        voodoo->render_thread_param[t].index  = t;
+        voodoo->render_thread[t]           = thread_create(voodoo_render_thread_entry, &voodoo->render_thread_param[t]);
     }
+
     voodoo->swap_mutex = thread_create_mutex();
     timer_add(&voodoo->wake_timer, voodoo_wake_timer, (void *) voodoo, 0);
 
@@ -1349,34 +1357,46 @@ voodoo_2d3d_card_init(int type)
 
     voodoo->fbiInit0 = 0;
 
-    voodoo->wake_fifo_thread         = thread_create_event();
-    voodoo->wake_render_thread[0]    = thread_create_event();
-    voodoo->wake_render_thread[1]    = thread_create_event();
-    voodoo->wake_render_thread[2]    = thread_create_event();
-    voodoo->wake_render_thread[3]    = thread_create_event();
-    voodoo->wake_main_thread         = thread_create_event();
-    voodoo->fifo_not_full_event      = thread_create_event();
-    voodoo->fifo_empty_event         = thread_create_event();
+    voodoo->wake_fifo_thread    = thread_create_event();
+    voodoo->wake_main_thread    = thread_create_event();
+    voodoo->fifo_not_full_event = thread_create_event();
+    voodoo->fifo_empty_event    = thread_create_event();
     thread_set_event(voodoo->fifo_empty_event);
     ATOMIC_STORE(voodoo->fifo_empty_signaled, 1);
-    voodoo->render_not_full_event[0] = thread_create_event();
-    voodoo->render_not_full_event[1] = thread_create_event();
-    voodoo->render_not_full_event[2] = thread_create_event();
-    voodoo->render_not_full_event[3] = thread_create_event();
-    voodoo->fifo_thread_run          = 1;
-    voodoo->fifo_thread              = thread_create(voodoo_fifo_thread, voodoo);
-    voodoo->render_thread_run[0]     = 1;
-    voodoo->render_thread[0]         = thread_create(voodoo_render_thread_1, voodoo);
-    if (voodoo->render_threads >= 2) {
-        voodoo->render_thread_run[1] = 1;
-        voodoo->render_thread[1]     = thread_create(voodoo_render_thread_2, voodoo);
+
+    /* Allocate dynamic per-render-thread arrays */
+    voodoo->render_thread         = calloc(voodoo->render_threads, sizeof(thread_t *));
+    voodoo->render_thread_param   = calloc(voodoo->render_threads, sizeof(render_thread_param_t));
+    voodoo->wake_render_thread    = calloc(voodoo->render_threads, sizeof(event_t *));
+    voodoo->render_not_full_event = calloc(voodoo->render_threads, sizeof(event_t *));
+#if (defined __aarch64__ || defined _M_ARM64)
+    voodoo->render_voodoo_busy    = calloc(voodoo->render_threads, sizeof(*voodoo->render_voodoo_busy));
+    voodoo->params_read_idx       = calloc(voodoo->render_threads, sizeof(*voodoo->params_read_idx));
+#else
+    voodoo->render_voodoo_busy    = calloc(voodoo->render_threads, sizeof(int));
+    voodoo->params_read_idx       = calloc(voodoo->render_threads, sizeof(ATOMIC_INT));
+#endif
+    voodoo->pixel_count           = calloc(voodoo->render_threads, sizeof(int));
+    voodoo->texel_count           = calloc(voodoo->render_threads, sizeof(int));
+    voodoo->pixel_count_old       = calloc(voodoo->render_threads, sizeof(int));
+    voodoo->texel_count_old       = calloc(voodoo->render_threads, sizeof(int));
+    voodoo->render_time           = calloc(voodoo->render_threads, sizeof(int));
+
+    for (int t = 0; t < voodoo->render_threads; t++) {
+        voodoo->wake_render_thread[t]    = thread_create_event();
+        voodoo->render_not_full_event[t] = thread_create_event();
     }
-    if (voodoo->render_threads == 4) {
-        voodoo->render_thread_run[2] = 1;
-        voodoo->render_thread[2]     = thread_create(voodoo_render_thread_3, voodoo);
-        voodoo->render_thread_run[3] = 1;
-        voodoo->render_thread[3]     = thread_create(voodoo_render_thread_4, voodoo);
+
+    voodoo->fifo_thread_run = 1;
+    voodoo->fifo_thread     = thread_create(voodoo_fifo_thread, voodoo);
+
+    for (int t = 0; t < voodoo->render_threads; t++) {
+        voodoo->render_thread_run[t]       = 1;
+        voodoo->render_thread_param[t].voodoo = voodoo;
+        voodoo->render_thread_param[t].index  = t;
+        voodoo->render_thread[t]           = thread_create(voodoo_render_thread_entry, &voodoo->render_thread_param[t]);
     }
+
     voodoo->swap_mutex = thread_create_mutex();
     timer_add(&voodoo->wake_timer, voodoo_wake_timer, (void *) voodoo, 0);
 
@@ -1507,30 +1527,35 @@ voodoo_card_close(voodoo_t *voodoo)
     voodoo->fifo_thread_run = 0;
     thread_set_event(voodoo->wake_fifo_thread);
     thread_wait(voodoo->fifo_thread);
-    voodoo->render_thread_run[0] = 0;
-    thread_set_event(voodoo->wake_render_thread[0]);
-    thread_wait(voodoo->render_thread[0]);
-    if (voodoo->render_threads >= 2) {
-        voodoo->render_thread_run[1] = 0;
-        thread_set_event(voodoo->wake_render_thread[1]);
-        thread_wait(voodoo->render_thread[1]);
+
+    for (int t = 0; t < voodoo->render_threads; t++) {
+        voodoo->render_thread_run[t] = 0;
+        thread_set_event(voodoo->wake_render_thread[t]);
+        thread_wait(voodoo->render_thread[t]);
     }
-    if (voodoo->render_threads == 4) {
-        voodoo->render_thread_run[2] = 0;
-        thread_set_event(voodoo->wake_render_thread[2]);
-        thread_wait(voodoo->render_thread[2]);
-        voodoo->render_thread_run[3] = 0;
-        thread_set_event(voodoo->wake_render_thread[3]);
-        thread_wait(voodoo->render_thread[3]);
-    }
+
     thread_destroy_event(voodoo->fifo_not_full_event);
     thread_destroy_event(voodoo->fifo_empty_event);
     thread_destroy_event(voodoo->wake_main_thread);
     thread_destroy_event(voodoo->wake_fifo_thread);
-    thread_destroy_event(voodoo->wake_render_thread[0]);
-    thread_destroy_event(voodoo->wake_render_thread[1]);
-    thread_destroy_event(voodoo->render_not_full_event[0]);
-    thread_destroy_event(voodoo->render_not_full_event[1]);
+
+    for (int t = 0; t < voodoo->render_threads; t++) {
+        thread_destroy_event(voodoo->wake_render_thread[t]);
+        thread_destroy_event(voodoo->render_not_full_event[t]);
+    }
+
+    /* Free dynamic per-render-thread arrays */
+    free(voodoo->render_thread);
+    free(voodoo->render_thread_param);
+    free(voodoo->wake_render_thread);
+    free(voodoo->render_not_full_event);
+    free(voodoo->render_voodoo_busy);
+    free(voodoo->params_read_idx);
+    free(voodoo->pixel_count);
+    free(voodoo->texel_count);
+    free(voodoo->pixel_count_old);
+    free(voodoo->texel_count_old);
+    free(voodoo->render_time);
 
     if (voodoo->wait_stats_enabled && voodoo->wait_stats_explicit) {
         pclog("Voodoo wait stats (type=%d): fifo_full waits=%" PRIu64 " ticks=%" PRIu64 " spins=%" PRIu64
@@ -1697,7 +1722,10 @@ static const device_config_t voodoo_config[] = {
         .selection      = {
             { .description = "1", .value = 1 },
             { .description = "2", .value = 2 },
+            { .description = "3", .value = 3 },
             { .description = "4", .value = 4 },
+            { .description = "6", .value = 6 },
+            { .description = "8", .value = 8 },
             { .description = ""              }
         },
         .bios           = { { 0 } }

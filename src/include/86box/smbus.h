@@ -50,6 +50,7 @@ typedef struct smbus_piix4_t {
     uint8_t    index;
     uint8_t    data[SMBUS_PIIX4_BLOCK_DATA_SIZE];
     uint8_t    block_data_byte;
+    uint8_t    block_len;
     uint8_t    irq;
     uint8_t    smi_en;
     acpi_t    *acpi;

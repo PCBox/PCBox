@@ -707,23 +707,20 @@ picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
     if (update_pending == NULL)
         return;
     
-    if (set)
-    {
-            if (current_ioapic) {
-                uint8_t i = 0;
-                for (i = 0; i < 16; i++) {
-                    if ((num & (1 << i)) && i != 2) apic_ioapic_set_irq(current_ioapic, (i == 0) ? 2 : i, level);
-                }
+    if (set) {
+        if (apic_ioapic_is_enabled(current_ioapic)) {
+            uint8_t i = 0;
+            for (i = 0; i < 16; i++) {
+                if ((num & (1 << i)) && i != 2) apic_ioapic_set_irq(current_ioapic, (i == 0) ? 2 : i, level);
             }
-    }
-    else
-    {
-            if (current_ioapic) {
-                uint8_t i = 0;
-                for (i = 0; i < 16; i++) {
-                    if ((num & (1 << i)) && i != 2) apic_ioapic_clear_irq(current_ioapic, (i == 0) ? 2 : i);
-                }
+        }
+    } else {
+        if (apic_ioapic_is_enabled(current_ioapic)) {
+            uint8_t i = 0;
+            for (i = 0; i < 16; i++) {
+                if ((num & (1 << i)) && i != 2) apic_ioapic_clear_irq(current_ioapic, (i == 0) ? 2 : i);
             }
+        }
     }
 
     /* Make sure to ignore all slave IRQ's, and in case of AT+,
@@ -929,7 +926,7 @@ picinterrupt_common(void)
                 pic.interrupt |= 0x40; /* Mark slave pending. */
         }
     } else {
-        if (current_lapic && current_ioapic && lapic_irq_pending(current_lapic) > 0)
+        if (current_lapic && apic_ioapic_is_enabled(current_ioapic) && lapic_irq_pending(current_lapic) > 0)
         {
             return apic_lapic_picinterrupt();
         }
@@ -966,7 +963,7 @@ picinterrupt(void)
 
     if (!lapic_is_pic_enabled())
     {
-        if (current_lapic && current_ioapic && lapic_irq_pending(current_lapic) > 0)
+        if (current_lapic && apic_ioapic_is_enabled(current_ioapic) && lapic_irq_pending(current_lapic) > 0)
         {
             return apic_lapic_picinterrupt();
         }

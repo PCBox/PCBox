@@ -30,6 +30,7 @@ typedef struct ioapic_t
             uint32_t ioapicd;
             uint32_t ioapicver;
             uint32_t ioapicarb;
+            uint32_t bootcfg;
             union {
                 uint64_t ioredtabl[IOAPIC_RED_TABL_SIZE];
                 apic_ioredtable_t ioredtabl_s[IOAPIC_RED_TABL_SIZE];
@@ -126,17 +127,27 @@ typedef struct lapic_t
 #define IOAPIC_INTERRUPT_MASK 0x10000
 #define IOAPIC_DEST_MASK      0xE000000000000000ull
 
+#ifdef EMU_DEVICE_H
 extern const device_t i82093aa_ioapic_device;
 extern const device_t lapic_device;
+#endif
 
 /* Only one processor is emulated. */
 extern lapic_t* current_lapic;
 
 extern ioapic_t* current_ioapic;
 
+static inline int
+apic_ioapic_is_enabled(const ioapic_t *ioapic)
+{
+    return ioapic && ioapic->ioapic_mem_window.enable;
+}
+
 extern void apic_ioapic_set_base(uint8_t x_base, uint8_t y_base);
 extern void apic_lapic_set_base(uint32_t base);
+extern void apic_lapic_readd_mapping(void);
 extern uint8_t apic_lapic_is_irr_pending(void);
+extern void apic_ioapic_service_all(void *priv);
 extern void apic_ioapic_lapic_interrupt_check(ioapic_t* ioapic, uint8_t irq);
 extern void apic_ioapic_set_irq(ioapic_t* ioapic, uint8_t irq, int level);
 extern void apic_ioapic_clear_irq(ioapic_t* ioapic, uint8_t irq);

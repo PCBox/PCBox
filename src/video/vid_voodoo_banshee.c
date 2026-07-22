@@ -1133,7 +1133,7 @@ banshee_status(banshee_t *banshee)
     int           fifo_entries = FIFO_ENTRIES;
     int           swap_count   = voodoo->swap_count;
     int           written      = voodoo->cmd_written + voodoo->cmd_written_fifo;
-    int           busy         = (written - voodoo->cmd_read) || (voodoo->cmdfifo_depth_rd != voodoo->cmdfifo_depth_wr) || (voodoo->cmdfifo_depth_rd_2 != voodoo->cmdfifo_depth_wr_2) || RENDER_VOODOO_BUSY(voodoo, 0) || RENDER_VOODOO_BUSY(voodoo, 1) || RENDER_VOODOO_BUSY(voodoo, 2) || RENDER_VOODOO_BUSY(voodoo, 3) || voodoo->voodoo_busy;
+    int           busy         = (written - voodoo->cmd_read) || (voodoo->cmdfifo_depth_rd != voodoo->cmdfifo_depth_wr) || (voodoo->cmdfifo_depth_rd_2 != voodoo->cmdfifo_depth_wr_2) || voodoo_any_render_thread_busy(voodoo) || voodoo->voodoo_busy;
     uint32_t      ret          = 0;
 
     if (fifo_entries < 0x20)
@@ -3834,7 +3834,10 @@ static const device_config_t voodoo_sgram_config[] = {
         .selection      = {
             { .description = "1", .value = 1 },
             { .description = "2", .value = 2 },
+            { .description = "3", .value = 3 },
             { .description = "4", .value = 4 },
+            { .description = "6", .value = 6 },
+            { .description = "8", .value = 8 },
             { .description = ""              }
         },
         .bios           = { { 0 } }
@@ -3968,7 +3971,10 @@ static const device_config_t voodoo_banshee_pci_config[] = {
         .selection      = {
             { .description = "1", .value = 1 },
             { .description = "2", .value = 2 },
+            { .description = "3", .value = 3 },
             { .description = "4", .value = 4 },
+            { .description = "6", .value = 6 },
+            { .description = "8", .value = 8 },
             { .description = ""              }
         },
         .bios           = { { 0 } }
@@ -4102,7 +4108,10 @@ static const device_config_t voodoo_banshee_agp_config[] = {
         .selection      = {
             { .description = "1", .value = 1 },
             { .description = "2", .value = 2 },
+            { .description = "3", .value = 3 },
             { .description = "4", .value = 4 },
+            { .description = "6", .value = 6 },
+            { .description = "8", .value = 8 },
             { .description = ""              }
         },
         .bios           = { { 0 } }
@@ -4179,7 +4188,10 @@ static const device_config_t voodoo_nomem_config[] = {
         .selection      = {
             { .description = "1", .value = 1 },
             { .description = "2", .value = 2 },
+            { .description = "3", .value = 3 },
             { .description = "4", .value = 4 },
+            { .description = "6", .value = 6 },
+            { .description = "8", .value = 8 },
             { .description = ""              }
         },
         .bios           = { { 0 } }
@@ -4318,7 +4330,10 @@ static const device_config_t voodoo_3_3500_agp_config[] = {
         .selection      = {
             { .description = "1", .value = 1 },
             { .description = "2", .value = 2 },
+            { .description = "3", .value = 3 },
             { .description = "4", .value = 4 },
+            { .description = "6", .value = 6 },
+            { .description = "8", .value = 8 },
             { .description = ""              }
         },
         .bios           = { { 0 } }

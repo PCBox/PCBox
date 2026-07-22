@@ -147,7 +147,7 @@ typedef struct voodoo_arm64_data_t {
     int      rejected;
 } voodoo_arm64_data_t;
 
-/* LRU generation counter per partition (4 partitions = odd_even).
+/* LRU generation counter per partition (one partition per render thread).
  * Per-instance in voodoo_t so SLI cards don't share eviction state.
  * Thread-safe: each partition is touched by exactly one render thread. */
 
@@ -4633,15 +4633,16 @@ voodoo_codegen_init(voodoo_t *voodoo)
 {
     voodoo_arm64_data_t *voodoo_arm64_data;
     uint32_t             slot;
+    int                  total_blocks = BLOCK_NUM * voodoo->render_threads;
 
-    voodoo->codegen_data = plat_mmap(sizeof(voodoo_arm64_data_t) * BLOCK_NUM * 4, 0);
+    voodoo->codegen_data = plat_mmap(sizeof(voodoo_arm64_data_t) * total_blocks, 0);
     if (!voodoo->codegen_data) {
         fatal("ARM64 JIT: failed to allocate codegen metadata buffer\n");
     }
     voodoo_arm64_data = voodoo->codegen_data;
-    memset(voodoo_arm64_data, 0, sizeof(voodoo_arm64_data_t) * BLOCK_NUM * 4);
+    memset(voodoo_arm64_data, 0, sizeof(voodoo_arm64_data_t) * total_blocks);
 
-    for (slot = 0; slot < (uint32_t) (BLOCK_NUM * 4); slot++) {
+    for (slot = 0; slot < (uint32_t) total_blocks; slot++) {
         voodoo_arm64_data[slot].code_block = plat_mmap(BLOCK_SIZE, 1);
         if (!voodoo_arm64_data[slot].code_block) {
             while (slot > 0) {
@@ -4651,7 +4652,7 @@ voodoo_codegen_init(voodoo_t *voodoo)
                     voodoo_arm64_data[slot].code_block = NULL;
                 }
             }
-            plat_munmap(voodoo_arm64_data, sizeof(voodoo_arm64_data_t) * BLOCK_NUM * 4);
+            plat_munmap(voodoo_arm64_data, sizeof(voodoo_arm64_data_t) * total_blocks);
             voodoo->codegen_data = NULL;
             fatal("ARM64 JIT: failed to allocate executable code block\n");
         }
@@ -4666,7 +4667,7 @@ voodoo_codegen_init(voodoo_t *voodoo)
                     voodoo_arm64_data[slot].code_block = NULL;
                 }
             }
-            plat_munmap(voodoo_arm64_data, sizeof(voodoo_arm64_data_t) * BLOCK_NUM * 4);
+            plat_munmap(voodoo_arm64_data, sizeof(voodoo_arm64_data_t) * total_blocks);
             voodoo->codegen_data = NULL;
             fatal("ARM64 JIT: failed to set code block executable\n");
         }
@@ -4770,19 +4771,20 @@ voodoo_codegen_close(voodoo_t *voodoo)
 {
     voodoo_arm64_data_t *voodoo_arm64_data = voodoo->codegen_data;
     uint32_t             slot;
+    int                  total_blocks = BLOCK_NUM * voodoo->render_threads;
 
     if (!voodoo_arm64_data) {
         return;
     }
 
-    for (slot = 0; slot < (uint32_t) (BLOCK_NUM * 4); slot++) {
+    for (slot = 0; slot < (uint32_t) total_blocks; slot++) {
         if (voodoo_arm64_data[slot].code_block) {
             plat_munmap(voodoo_arm64_data[slot].code_block, BLOCK_SIZE);
             voodoo_arm64_data[slot].code_block = NULL;
         }
     }
 
-    plat_munmap(voodoo_arm64_data, sizeof(voodoo_arm64_data_t) * BLOCK_NUM * 4);
+    plat_munmap(voodoo_arm64_data, sizeof(voodoo_arm64_data_t) * total_blocks);
     voodoo->codegen_data = NULL;
 }
 
