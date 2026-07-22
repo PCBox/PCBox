@@ -217,3 +217,21 @@ intel_845_spd_init(void)
     spd_register(SPD_TYPE_SDRAM, 7, 1024);
     intel_845_spd_fix_geometry();
 }
+
+void
+intel_845_spd_init_wb72(void)
+{
+    spd_register(SPD_TYPE_SDRAM, 7, 1024);
+    intel_845_spd_fix_geometry();
+
+    for (uint8_t slot = 0; slot < SPD_MAX_SLOTS; slot++) {
+        spd_t *spd = spd_modules[slot];
+
+        if ((spd == NULL) || (spd->sdram_data.mem_type != SPD_TYPE_SDRAM))
+            continue;
+
+        /* WB72 rejects SDRAM CAS masks above CL3 during bootblock row validation. */
+        spd->sdram_data.cas = 0x06;
+        intel_845_spd_rechecksum(spd);
+    }
+}

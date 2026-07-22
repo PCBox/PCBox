@@ -155,5 +155,6 @@ extern void spd_write_drbs_intel_845(uint8_t *regs);
 extern void    intel_815ep_spd_init(void);    /* Initialize the SPD (For the Machines) */
 extern uint8_t intel_815ep_get_banking(void); /* Get the Banking Configuration (For the Chipset) */
 extern void    intel_845_spd_init(void);      /* Initialize the SPD (For the Machines) */
+extern void    intel_845_spd_init_wb72(void); /* Initialize the SPD (For the WB72) */
 
 #endif /*EMU_SPD_H*/
