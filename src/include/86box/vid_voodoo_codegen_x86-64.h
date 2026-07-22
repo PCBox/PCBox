@@ -76,7 +76,6 @@ static __m128i xmm_ff_b; // = 0x00000000ffffffffull;
 
 static __m128i  alookup[257];
 static __m128i  aminuslookup[256];
-static __m128i  minus_254; // = 0xff02ff02ff02ff02ull;
 static __m128i  bilinear_lookup[256 * 2];
 static __m128i  xmm_00_ff_w[2];
 static uint32_t i_00_ff_w[2] = { 0, 0xff };
@@ -681,7 +680,6 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     xmm_01_w  = _mm_set_epi32(0, 0, 0x00010001, 0x00010001);
     xmm_ff_w  = _mm_set_epi32(0, 0, 0x00ff00ff, 0x00ff00ff);
     xmm_ff_b  = _mm_set_epi32(0, 0, 0, 0x00ffffff);
-    minus_254 = _mm_set_epi32(0, 0, 0xff02ff02, 0xff02ff02);
 #if 0
     *(uint64_t *)&const_1_48 = 0x45b0000000000000ull;
     block_pos = 0;
@@ -733,14 +731,6 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x0f);
     addbyte(0x6f);
     addbyte(0x07 | (2 << 3));
-    addbyte(0x49); /*MOV R15, minus_254*/
-    addbyte(0xbf);
-    addquad((uint64_t) (uintptr_t) &minus_254);
-    addbyte(0x66); /*MOVDQA XMM11, [R15]*/
-    addbyte(0x45);
-    addbyte(0x0f);
-    addbyte(0x6f);
-    addbyte(0x07 | (3 << 3));
 
 #if _WIN64
     addbyte(0x48); /*MOV RDI, RCX (voodoo_state)*/
@@ -776,6 +766,40 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x49); /*MOV R13, i_00_ff_w*/
     addbyte(0xb8 | (13 & 7));
     addquad((uint64_t) (uintptr_t) &i_00_ff_w);
+
+    addbyte(0xf3); /*MOVQ XMM11, params->tmu[0].dWdX*/
+    addbyte(0x45);
+    addbyte(0x0f);
+    addbyte(0x7e);
+    addbyte(0x9f);
+    addlong(offsetof(voodoo_params_t, tmu[0].dWdX));
+    addbyte(0xf3); /*MOVDQU XMM12, params->dBdX*/
+    addbyte(0x45);
+    addbyte(0x0f);
+    addbyte(0x6f);
+    addbyte(0xa7);
+    addlong(offsetof(voodoo_params_t, dBdX));
+    addbyte(0xf3); /*MOVDQU XMM13, params->tmu[0].dSdX*/
+    addbyte(0x45);
+    addbyte(0x0f);
+    addbyte(0x6f);
+    addbyte(0xaf);
+    addlong(offsetof(voodoo_params_t, tmu[0].dSdX));
+    if (voodoo->dual_tmus) {
+        addbyte(0xf3); /*MOVDQU XMM14, params->tmu[1].dSdX*/
+        addbyte(0x45);
+        addbyte(0x0f);
+        addbyte(0x6f);
+        addbyte(0xb7);
+        addlong(offsetof(voodoo_params_t, tmu[1].dSdX));
+    } else {
+        addbyte(0xf3); /*MOVQ XMM14, params->dWdX*/
+        addbyte(0x45);
+        addbyte(0x0f);
+        addbyte(0x7e);
+        addbyte(0xb7);
+        addlong(offsetof(voodoo_params_t, dWdX));
+    }
 
     loop_jump_pos = block_pos;
     if (params->fbzMode & FBZ_STIPPLE) {
@@ -3287,35 +3311,22 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x7e);
     addbyte(0xa7);
     addlong(offsetof(voodoo_state_t, tmu0_w));
-    addbyte(0xf3); /*MOVDQU XMM0, params->dBdX[ESI]*/
-    addbyte(0x0f);
-    addbyte(0x6f);
-    addbyte(0x86);
-    addlong(offsetof(voodoo_params_t, dBdX));
     addbyte(0x8b); /*MOV EAX, params->dZdX[ESI]*/
     addbyte(0x86);
     addlong(offsetof(voodoo_params_t, dZdX));
-    addbyte(0xf3); /*MOVDQU XMM5, params->tmu[0].dSdX[ESI]*/
-    addbyte(0x0f);
-    addbyte(0x6f);
-    addbyte(0xae);
-    addlong(offsetof(voodoo_params_t, tmu[0].dSdX));
-    addbyte(0xf3); /*MOVQ XMM6, params->tmu[0].dWdX[ESI]*/
-    addbyte(0x0f);
-    addbyte(0x7e);
-    addbyte(0xb6);
-    addlong(offsetof(voodoo_params_t, tmu[0].dWdX));
 
     if (state->xdir > 0) {
-        addbyte(0x66); /*PADDD XMM1, XMM0*/
+        addbyte(0x66); /*PADDD XMM1, XMM12*/
+        addbyte(0x41);
         addbyte(0x0f);
         addbyte(0xfe);
-        addbyte(0xc8);
+        addbyte(0xcc);
     } else {
-        addbyte(0x66); /*PSUBD XMM1, XMM0*/
+        addbyte(0x66); /*PSUBD XMM1, XMM12*/
+        addbyte(0x41);
         addbyte(0x0f);
         addbyte(0xfa);
-        addbyte(0xc8);
+        addbyte(0xcc);
     }
 
     addbyte(0xf3); /*MOVQ XMM0, state->w*/
@@ -3328,52 +3339,69 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x7f);
     addbyte(0x8f);
     addlong(offsetof(voodoo_state_t, ib));
-    addbyte(0xf3); /*MOVQ XMM7, params->dWdX*/
-    addbyte(0x0f);
-    addbyte(0x7e);
-    addbyte(0xbe);
-    addlong(offsetof(voodoo_params_t, dWdX));
+    if (voodoo->dual_tmus) {
+        addbyte(0xf3); /*MOVQ XMM7, params->dWdX*/
+        addbyte(0x0f);
+        addbyte(0x7e);
+        addbyte(0xbe);
+        addlong(offsetof(voodoo_params_t, dWdX));
+    }
 
     if (state->xdir > 0) {
-        addbyte(0x66); /*PADDQ XMM3, XMM5*/
+        addbyte(0x66); /*PADDQ XMM3, XMM13*/
+        addbyte(0x41);
         addbyte(0x0f);
         addbyte(0xd4);
         addbyte(0xdd);
-        addbyte(0x66); /*PADDQ XMM4, XMM6*/
+        addbyte(0x66); /*PADDQ XMM4, XMM11*/
+        addbyte(0x41);
         addbyte(0x0f);
         addbyte(0xd4);
-        addbyte(0xe6);
-        addbyte(0x66); /*PADDQ XMM0, XMM7*/
-        addbyte(0x0f);
-        addbyte(0xd4);
-        addbyte(0xc7);
+        addbyte(0xe3);
+        if (voodoo->dual_tmus) {
+            addbyte(0x66); /*PADDQ XMM0, XMM7*/
+            addbyte(0x0f);
+            addbyte(0xd4);
+            addbyte(0xc7);
+        } else {
+            addbyte(0x66); /*PADDQ XMM0, XMM14*/
+            addbyte(0x41);
+            addbyte(0x0f);
+            addbyte(0xd4);
+            addbyte(0xc6);
+        }
         addbyte(0x01); /*ADD state->z[EDI], EAX*/
         addbyte(0x87);
         addlong(offsetof(voodoo_state_t, z));
     } else {
-        addbyte(0x66); /*PSUBQ XMM3, XMM5*/
+        addbyte(0x66); /*PSUBQ XMM3, XMM13*/
+        addbyte(0x41);
         addbyte(0x0f);
         addbyte(0xfb);
         addbyte(0xdd);
-        addbyte(0x66); /*PSUBQ XMM4, XMM6*/
+        addbyte(0x66); /*PSUBQ XMM4, XMM11*/
+        addbyte(0x41);
         addbyte(0x0f);
         addbyte(0xfb);
-        addbyte(0xe6);
-        addbyte(0x66); /*PSUBQ XMM0, XMM7*/
-        addbyte(0x0f);
-        addbyte(0xfb);
-        addbyte(0xc7);
+        addbyte(0xe3);
+        if (voodoo->dual_tmus) {
+            addbyte(0x66); /*PSUBQ XMM0, XMM7*/
+            addbyte(0x0f);
+            addbyte(0xfb);
+            addbyte(0xc7);
+        } else {
+            addbyte(0x66); /*PSUBQ XMM0, XMM14*/
+            addbyte(0x41);
+            addbyte(0x0f);
+            addbyte(0xfb);
+            addbyte(0xc6);
+        }
         addbyte(0x29); /*SUB state->z[EDI], EAX*/
         addbyte(0x87);
         addlong(offsetof(voodoo_state_t, z));
     }
 
     if (voodoo->dual_tmus) {
-        addbyte(0xf3); /*MOVDQU XMM5, params->tmu[1].dSdX[ESI]*/
-        addbyte(0x0f);
-        addbyte(0x6f);
-        addbyte(0xae);
-        addlong(offsetof(voodoo_params_t, tmu[1].dSdX));
         addbyte(0xf3); /*MOVQ XMM6, params->tmu[1].dWdX[ESI]*/
         addbyte(0x0f);
         addbyte(0x7e);
@@ -3410,19 +3438,21 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
         addlong(offsetof(voodoo_state_t, tmu1_w));
 
         if (state->xdir > 0) {
-            addbyte(0x66); /*PADDQ XMM3, XMM5*/
+            addbyte(0x66); /*PADDQ XMM3, XMM14*/
+            addbyte(0x41);
             addbyte(0x0f);
             addbyte(0xd4);
-            addbyte(0xdd);
+            addbyte(0xde);
             addbyte(0x66); /*PADDQ XMM4, XMM6*/
             addbyte(0x0f);
             addbyte(0xd4);
             addbyte(0xe6);
         } else {
-            addbyte(0x66); /*PSUBQ XMM3, XMM5*/
+            addbyte(0x66); /*PSUBQ XMM3, XMM14*/
+            addbyte(0x41);
             addbyte(0x0f);
             addbyte(0xfb);
-            addbyte(0xdd);
+            addbyte(0xde);
             addbyte(0x66); /*PSUBQ XMM4, XMM6*/
             addbyte(0x0f);
             addbyte(0xfb);
