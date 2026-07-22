@@ -32,14 +32,13 @@ typedef struct voodoo_x86_data_t {
     uint32_t tLOD[2];
     uint32_t trexInit1;
     int      is_tiled;
+    int      bilinear_enabled;
+    int      valid;
 } voodoo_x86_data_t;
 
 #if 0
 static voodoo_x86_data_t voodoo_x86_data[2][BLOCK_NUM];
 #endif
-
-static int last_block[VOODOO_MAX_RENDER_THREADS]          = { 0 };
-static int next_block_to_write[VOODOO_MAX_RENDER_THREADS] = { 0 };
 
 #define addbyte(val)                   \
     do {                               \
@@ -3516,22 +3515,22 @@ int voodoo_recomp = 0;
 static inline void *
 voodoo_get_block(voodoo_t *voodoo, voodoo_params_t *params, voodoo_state_t *state, int odd_even)
 {
-    int                b               = last_block[odd_even];
+    int                b               = voodoo->jit_last_block[odd_even];
     voodoo_x86_data_t *voodoo_x86_data = voodoo->codegen_data;
     voodoo_x86_data_t *data;
 
-    for (uint8_t c = 0; c < 8; c++) {
-        data = &voodoo_x86_data[odd_even + c * voodoo->render_threads];
+    for (uint8_t c = 0; c < BLOCK_NUM; c++) {
+        data = &voodoo_x86_data[odd_even + b * voodoo->render_threads];
 
-        if (state->xdir == data->xdir && params->alphaMode == data->alphaMode && params->fbzMode == data->fbzMode && params->fogMode == data->fogMode && params->fbzColorPath == data->fbzColorPath && (voodoo->trexInit1[0] & (1 << 18)) == data->trexInit1 && params->textureMode[0] == data->textureMode[0] && params->textureMode[1] == data->textureMode[1] && (params->tLOD[0] & LOD_MASK) == data->tLOD[0] && (params->tLOD[1] & LOD_MASK) == data->tLOD[1] && ((params->col_tiled || params->aux_tiled) ? 1 : 0) == data->is_tiled) {
-            last_block[odd_even] = b;
+        if (data->valid && state->xdir == data->xdir && params->alphaMode == data->alphaMode && params->fbzMode == data->fbzMode && params->fogMode == data->fogMode && params->fbzColorPath == data->fbzColorPath && (voodoo->trexInit1[0] & (1 << 18)) == data->trexInit1 && params->textureMode[0] == data->textureMode[0] && params->textureMode[1] == data->textureMode[1] && (params->tLOD[0] & LOD_MASK) == data->tLOD[0] && (params->tLOD[1] & LOD_MASK) == data->tLOD[1] && ((params->col_tiled || params->aux_tiled) ? 1 : 0) == data->is_tiled && voodoo->bilinear_enabled == data->bilinear_enabled) {
+            voodoo->jit_last_block[odd_even] = b;
             return data->code_block;
         }
 
-        b = (b + 1) & 7;
+        b = (b + 1) & BLOCK_MASK;
     }
     voodoo_recomp++;
-    data = &voodoo_x86_data[odd_even + next_block_to_write[odd_even] * voodoo->render_threads];
+    data = &voodoo_x86_data[odd_even + voodoo->jit_next_block[odd_even] * voodoo->render_threads];
 #if 0
     code_block = data->code_block;
 #endif
@@ -3549,8 +3548,10 @@ voodoo_get_block(voodoo_t *voodoo, voodoo_params_t *params, voodoo_state_t *stat
     data->tLOD[0]        = params->tLOD[0] & LOD_MASK;
     data->tLOD[1]        = params->tLOD[1] & LOD_MASK;
     data->is_tiled       = (params->col_tiled || params->aux_tiled) ? 1 : 0;
+    data->bilinear_enabled = voodoo->bilinear_enabled;
+    data->valid          = 1;
 
-    next_block_to_write[odd_even] = (next_block_to_write[odd_even] + 1) & 7;
+    voodoo->jit_next_block[odd_even] = (voodoo->jit_next_block[odd_even] + 1) & BLOCK_MASK;
 
     return data->code_block;
 }
@@ -3559,6 +3560,8 @@ void
 voodoo_codegen_init(voodoo_t *voodoo)
 {
     voodoo->codegen_data = plat_mmap(sizeof(voodoo_x86_data_t) * BLOCK_NUM * voodoo->render_threads, 1);
+    memset(voodoo->jit_last_block, 0, sizeof(voodoo->jit_last_block));
+    memset(voodoo->jit_next_block, 0, sizeof(voodoo->jit_next_block));
 
     for (uint16_t c = 0; c < 256; c++) {
         int d[4];

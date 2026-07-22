@@ -754,6 +754,7 @@ typedef struct voodoo_t {
 
     /* JIT cache state -- per-instance to avoid races between render threads */
     int      jit_last_block[VOODOO_MAX_RENDER_THREADS];
+    int      jit_next_block[VOODOO_MAX_RENDER_THREADS];
     uint64_t jit_generation[VOODOO_MAX_RENDER_THREADS];
     struct voodoo_set_t *set;
 
