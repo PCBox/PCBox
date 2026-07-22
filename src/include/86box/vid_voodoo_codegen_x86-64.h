@@ -81,6 +81,16 @@ static __m128i  xmm_00_ff_w[2];
 static uint32_t i_00_ff_w[2] = { 0, 0xff };
 
 static inline int
+codegen_load_r64_const(uint8_t *code_block, int block_pos, uint64_t constant, int reg)
+{
+    addbyte(0x49); /*MOV Rn, constant*/
+    addbyte(0xb8 | (reg & 7));
+    addquad(constant);
+
+    return block_pos;
+}
+
+static inline int
 codegen_load_xmm_const(uint8_t *code_block, int block_pos, const __m128i *constant, int xmm_reg)
 {
     addbyte(0x49); /*MOV R15, constant*/
@@ -678,17 +688,32 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     int depth_jump_pos   = 0;
     int depth_jump_pos2  = 0;
     int loop_jump_pos    = 0;
+    const int fetch_tmu0 =
+        !voodoo->dual_tmus ||
+        (params->textureMode[0] & TEXTUREMODE_MASK) != TEXTUREMODE_PASSTHROUGH;
+    const int fetch_tmu1 =
+        voodoo->dual_tmus &&
+        (params->textureMode[0] & TEXTUREMODE_LOCAL_MASK) != TEXTUREMODE_LOCAL;
+    const int tmu0_trilinear = params->textureMode[0] & TEXTUREMODE_TRILINEAR;
+    const int tmu1_trilinear = params->textureMode[1] & TEXTUREMODE_TRILINEAR;
     const int dual_texture_blend =
         voodoo->dual_tmus &&
         (params->textureMode[0] & TEXTUREMODE_LOCAL_MASK) != TEXTUREMODE_LOCAL &&
         (params->textureMode[0] & TEXTUREMODE_MASK) != TEXTUREMODE_PASSTHROUGH;
     const int color_blend_factor = !(cc_mselect == CC_MSELECT_ZERO && !cc_reverse_blend);
     const int alpha_blend        = params->alphaMode & (1 << 4);
+    const int need_logtable      = (fetch_tmu0 && (params->textureMode[0] & 1)) ||
+                              (fetch_tmu1 && (params->textureMode[1] & 1));
+    const int need_xmm_00_ff_w = dual_texture_blend &&
+                                 (tmu0_trilinear || (tc_sub_clocal_1 && tmu1_trilinear));
+    const int need_i_00_ff_w = dual_texture_blend &&
+                               ((tca_sub_clocal && tmu0_trilinear) ||
+                                (tca_sub_clocal_1 && tmu1_trilinear));
     const int need_xmm_01_w      = dual_texture_blend || color_blend_factor;
     const int need_xmm_ff_w =
         (dual_texture_blend &&
-         ((tc_sub_clocal_1 && !(params->textureMode[1] & TEXTUREMODE_TRILINEAR) && !tc_reverse_blend_1) ||
-          (!(params->textureMode[0] & TEXTUREMODE_TRILINEAR) && !tc_reverse_blend) ||
+         ((tc_sub_clocal_1 && !tmu1_trilinear && !tc_reverse_blend_1) ||
+          (!tmu0_trilinear && !tc_reverse_blend) ||
           tc_invert_output)) ||
         (color_blend_factor && !cc_reverse_blend) ||
         (alpha_blend && (dest_afunc == AFUNC_AOM_COLOR || src_afunc == AFUNC_AOM_COLOR));
@@ -757,21 +782,14 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0xf7);
 #endif
 
-    addbyte(0x49); /*MOV R9, logtable*/
-    addbyte(0xb8 | (9 & 7));
-    addquad((uint64_t) (uintptr_t) &logtable);
-    addbyte(0x49); /*MOV R10, alookup*/
-    addbyte(0xb8 | (10 & 7));
-    addquad((uint64_t) (uintptr_t) &alookup);
-    addbyte(0x49); /*MOV R11, aminuslookup*/
-    addbyte(0xb8 | (11 & 7));
-    addquad((uint64_t) (uintptr_t) &aminuslookup);
-    addbyte(0x49); /*MOV R12, xmm_00_ff_w*/
-    addbyte(0xb8 | (12 & 7));
-    addquad((uint64_t) (uintptr_t) &xmm_00_ff_w);
-    addbyte(0x49); /*MOV R13, i_00_ff_w*/
-    addbyte(0xb8 | (13 & 7));
-    addquad((uint64_t) (uintptr_t) &i_00_ff_w);
+    if (need_logtable)
+        block_pos = codegen_load_r64_const(code_block, block_pos, (uint64_t) (uintptr_t) &logtable, 9);
+    block_pos = codegen_load_r64_const(code_block, block_pos, (uint64_t) (uintptr_t) &alookup, 10);
+    block_pos = codegen_load_r64_const(code_block, block_pos, (uint64_t) (uintptr_t) &aminuslookup, 11);
+    if (need_xmm_00_ff_w)
+        block_pos = codegen_load_r64_const(code_block, block_pos, (uint64_t) (uintptr_t) &xmm_00_ff_w, 12);
+    if (need_i_00_ff_w)
+        block_pos = codegen_load_r64_const(code_block, block_pos, (uint64_t) (uintptr_t) &i_00_ff_w, 13);
 
     loop_jump_pos = block_pos;
     if (params->fbzMode & FBZ_STIPPLE) {
