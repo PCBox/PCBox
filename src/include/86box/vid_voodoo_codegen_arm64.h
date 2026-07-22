@@ -143,6 +143,7 @@ typedef struct voodoo_arm64_data_t {
     uint32_t tLOD[2];
     uint32_t trexInit1;
     int      is_tiled;
+    int      bilinear_enabled;
     int      valid;
     int      rejected;
 } voodoo_arm64_data_t;
@@ -160,7 +161,7 @@ static int arm64_jit_rwx = 1;  /* Linux: born RWX, skip mprotect */
 static int arm64_jit_rwx = 0;
 #endif
 
-/* jit_last_block[4] is in voodoo_t for MRU-hint fast probe. */
+/* jit_last_block[] is in voodoo_t for MRU-hint fast probe. */
 
 /* ========================================================================
  * Emission primitive -- ARM64 instructions are always 4 bytes
@@ -4462,6 +4463,7 @@ arm64_codegen_store_cache_key(voodoo_arm64_data_t *data, voodoo_t *voodoo, voodo
     data->tLOD[0]        = params->tLOD[0] & LOD_MASK;
     data->tLOD[1]        = params->tLOD[1] & LOD_MASK;
     data->is_tiled       = (params->col_tiled || params->aux_tiled) ? 1 : 0;
+    data->bilinear_enabled = voodoo->bilinear_enabled;
     data->valid          = valid;
     data->rejected       = rejected;
 }
@@ -4543,7 +4545,8 @@ voodoo_get_block(voodoo_t *voodoo, voodoo_params_t *params, voodoo_state_t *stat
             && params->textureMode[1] == data->textureMode[1]
             && (params->tLOD[0] & LOD_MASK) == data->tLOD[0]
             && (params->tLOD[1] & LOD_MASK) == data->tLOD[1]
-            && ((params->col_tiled || params->aux_tiled) ? 1 : 0) == data->is_tiled) {
+            && ((params->col_tiled || params->aux_tiled) ? 1 : 0) == data->is_tiled
+            && voodoo->bilinear_enabled == data->bilinear_enabled) {
             if (data->rejected)
                 return NULL;
 
@@ -4676,6 +4679,7 @@ voodoo_codegen_init(voodoo_t *voodoo)
 
     /* Initialize per-instance JIT cache state */
     memset(voodoo->jit_last_block, 0, sizeof(voodoo->jit_last_block));
+    memset(voodoo->jit_next_block, 0, sizeof(voodoo->jit_next_block));
     memset(voodoo->jit_generation, 0, sizeof(voodoo->jit_generation));
 
     for (uint16_t c = 0; c < 256; c++) {
