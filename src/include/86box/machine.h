@@ -704,6 +704,11 @@ extern int             machine_at_ga486l_init(const machine_t *);
 extern int             machine_at_vantage4865c_init(const machine_t *);
 
 /* OPTi 493 */
+#ifdef EMU_DEVICE_H
+extern const device_t  precisionv486_device;
+#endif
+extern int             machine_at_precisionv486_init(const machine_t *);
+extern int             machine_at_cpc2000le_init(const machine_t *);
 extern int             machine_at_svc486wb_init(const machine_t *);
 
 /* OPTi 495SX */
@@ -768,6 +773,7 @@ extern int             machine_at_cougar_init(const machine_t *);
 extern int             machine_at_spc7500p_init(const machine_t *);
 
 /* SiS 461 */
+extern int             machine_at_auvacam_init(const machine_t *);
 extern int             machine_at_decpclpv_init(const machine_t *);
 extern int             machine_at_dell466np_init(const machine_t *);
 extern int             machine_at_valuepoint433_init(const machine_t *);
