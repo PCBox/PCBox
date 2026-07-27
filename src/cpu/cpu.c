@@ -5763,6 +5763,8 @@ pentium_invalid_wrmsr:
                 /* EBL_CR_POWERON - Processor Hard Power-On Configuration */
                 case 0x2a:
                     break;
+                case 0x2b:
+                    break;
                 /* Unknown */
                 case 0x32:
                     if (cpu_s->cpu_type == CPU_PENTIUMPRO)
