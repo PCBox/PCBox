@@ -1235,6 +1235,9 @@ msgstr "无法打开选定的配置文件进行读取：%1"
 msgid "Use regular expressions in search box"
 msgstr "在搜索框中使用正则表达式"
 
+msgid "Delete virtual machines to Recycle Bin"
+msgstr ""
+
 msgid "%n machine(s) are currently active. Are you sure you want to exit the VM manager anyway?"
 msgid_plural "%n machines are currently active. Are you sure you want to exit the VM manager anyway?"
 msgstr[0] "%n 个计算机当前处于活动状态。您确定要退出虚拟机管理器吗？"
@@ -1407,8 +1410,11 @@ msgstr "强制终止虚拟机可能导致数据丢失。仅在86Box进程卡住�
 msgid "&Delete"
 msgstr "删除(&D)"
 
-msgid "Do you really want to delete the virtual machine \"%1\" and all its files? This action cannot be undone!"
-msgstr "你真的想删除虚拟机 \"%1\" 及其所有文件吗？此操作无法撤消！"
+msgid "Do you really want to delete the virtual machine \"%1\" and all its files?"
+msgstr "你真的想删除虚拟机 \"%1\" 及其所有文件吗？"
+
+msgid "This action cannot be undone!"
+msgstr "此操作无法撤消！"
 
 msgid "Show &config file"
 msgstr "显示配置文件(&C)"
@@ -2925,6 +2931,21 @@ msgstr "型号："
 msgid "Failed to initialize Vulkan renderer."
 msgstr "Vulkan 渲染器初始化失败。"
 
+msgid "Failed to create Vulkan 1.3 instance."
+msgstr ""
+
+msgid "No Vulkan-capable physical devices found."
+msgstr ""
+
+msgid "librashader not found. Shaders will not be available."
+msgstr ""
+
+msgid "Vulkan device lost."
+msgstr ""
+
+msgid "Vulkan surface lost."
+msgstr ""
+
 msgid "GLSL Error"
 msgstr "GLSL 错误"
 
@@ -2945,6 +2966,9 @@ msgstr "着色器管理器"
 
 msgid "Shader Configuration"
 msgstr "着色器配置"
+
+msgid "GPU:"
+msgstr ""
 
 msgid "Add"
 msgstr "添加"
@@ -3247,6 +3271,9 @@ msgstr "无法加载 CD-ROM 映像 \"%s\"。"
 msgid "Unable to load image \"%s\": %1 is missing, which is required for Daemon Tools MDS v2 and MDX image support."
 msgstr "无法加载映像 \"%s\"：缺少 %1，这是 Daemon Tools MDS v2和 MDX "
 "映像支持所必需的。"
+
+msgid "Unable to load image \"%s\": %1 is missing, which is required for Aaru format image support."
+msgstr ""
 
 msgid "The DVD image \"%s\" has been inserted into a drive that does not support DVD media and will be ignored."
 msgstr "DVD 映像 \"%s\" 已插入不支持 DVD 介质的驱动器，将被忽略。"
