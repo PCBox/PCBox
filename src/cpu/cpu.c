@@ -4448,6 +4448,8 @@ pentium_invalid_rdmsr:
                             EAX |= (1 << 18);
                     }
                     break;
+                case 0x2b:
+                    break;
                 /* Unknown */
                 case 0x32:
                     if (cpu_s->cpu_type == CPU_PENTIUMPRO)
@@ -5760,6 +5762,8 @@ pentium_invalid_wrmsr:
                     break;
                 /* EBL_CR_POWERON - Processor Hard Power-On Configuration */
                 case 0x2a:
+                    break;
+                case 0x2b:
                     break;
                 /* Unknown */
                 case 0x32:

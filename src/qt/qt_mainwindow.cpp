@@ -533,7 +533,7 @@ MainWindow::MainWindow(QWidget *parent)
             fprintf(stderr, "OpenGL renderers are unsupported on %s.\n", QApplication::platformName().toUtf8().data());
         vid_api = RENDERER_SOFTWARE;
         ui->actionVulkan->setVisible(false);
-        ui->actionOpenGL_3_0_Core->setVisible(false);
+        ui->actionOpenGL->setVisible(false);
     }
 
 #ifndef USE_VNC
@@ -565,7 +565,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto actGroup = new QActionGroup(this);
     actGroup->addAction(ui->actionSoftware_Renderer);
-    actGroup->addAction(ui->actionOpenGL_3_0_Core);
+    actGroup->addAction(ui->actionOpenGL);
     actGroup->addAction(ui->actionVulkan);
     actGroup->addAction(ui->actionVNC);
     actGroup->setExclusive(true);
@@ -960,8 +960,6 @@ void MainWindow::onHardResetCompleted()
 void
 MainWindow::closeEvent(QCloseEvent *event)
 {
-    const int old_exiting_manually = exiting_manually;
-
     if (!exiting_manually && mouse_capture) {
         event->ignore();
         return;
@@ -984,11 +982,6 @@ MainWindow::closeEvent(QCloseEvent *event)
             return;
         }
     }
-
-    if (old_exiting_manually && (video_fullscreen > 0))
-        /* Exit full screen. */
-        on_actionFullscreen_triggered();
-
     if (window_remember && !video_fullscreen) {
         window_w = ui->stackedWidget->width();
         window_h = ui->stackedWidget->height();

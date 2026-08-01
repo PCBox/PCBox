@@ -695,14 +695,31 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
         (params->textureMode[0] & TEXTUREMODE_LOCAL_MASK) != TEXTUREMODE_LOCAL;
     const int tmu0_trilinear = params->textureMode[0] & TEXTUREMODE_TRILINEAR;
     const int tmu1_trilinear = params->textureMode[1] & TEXTUREMODE_TRILINEAR;
+    const int texture_reads_enabled = params->fbzColorPath & FBZCP_TEXTURE_ENABLED;
+    const int fetch_any_tmu = fetch_tmu0 || fetch_tmu1;
+    const int update_tmu0 = fetch_tmu0;
+    const int update_tmu1 = fetch_tmu1;
     const int dual_texture_blend =
         voodoo->dual_tmus &&
         (params->textureMode[0] & TEXTUREMODE_LOCAL_MASK) != TEXTUREMODE_LOCAL &&
         (params->textureMode[0] & TEXTUREMODE_MASK) != TEXTUREMODE_PASSTHROUGH;
     const int color_blend_factor = !(cc_mselect == CC_MSELECT_ZERO && !cc_reverse_blend);
     const int alpha_blend        = params->alphaMode & (1 << 4);
+    const int need_rbp           = fetch_any_tmu || alpha_blend;
     const int need_logtable      = (fetch_tmu0 && (params->textureMode[0] & 1)) ||
-                              (fetch_tmu1 && (params->textureMode[1] & 1));
+                                   (fetch_tmu1 && (params->textureMode[1] & 1));
+    const int need_alookup_texture = (fetch_tmu0 && (state->clamp_s[0] || state->clamp_t[0])) ||
+                                     (fetch_tmu1 && (state->clamp_s[1] || state->clamp_t[1]));
+    const int need_alookup_fog = (params->fogMode & FOG_ENABLE) && !(params->fogMode & FOG_CONSTANT);
+    const int need_alookup_alpha =
+        alpha_blend &&
+        ((dest_afunc != AFUNC_AZERO && dest_afunc != AFUNC_AONE) ||
+         (src_afunc != AFUNC_AZERO && src_afunc != AFUNC_AONE));
+    const int need_alookup = need_alookup_texture || need_alookup_fog || need_alookup_alpha;
+    const int need_aminuslookup =
+        alpha_blend &&
+        (dest_afunc == AFUNC_AOMSRC_ALPHA || dest_afunc == AFUNC_AOMDST_ALPHA ||
+         src_afunc == AFUNC_AOMSRC_ALPHA || src_afunc == AFUNC_AOMDST_ALPHA);
     const int need_xmm_00_ff_w = dual_texture_blend &&
                                  (tmu0_trilinear || (tc_sub_clocal_1 && tmu1_trilinear));
     const int need_i_00_ff_w = dual_texture_blend &&
@@ -742,14 +759,21 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
             return;
     }
 #endif
-    addbyte(0x55); /*PUSH RBP*/
-    addbyte(0x57); /*PUSH RDI*/
-    addbyte(0x56); /*PUSH RSI*/
+    if (need_rbp)
+        addbyte(0x55); /*PUSH RBP*/
+#if _WIN64
+    addbyte(0x57);     /*PUSH RDI*/
+    addbyte(0x56);     /*PUSH RSI*/
+#endif
     addbyte(0x53); /*PUSH RBX*/
-    addbyte(0x41); /*PUSH R12*/
-    addbyte(0x54);
-    addbyte(0x41); /*PUSH R13*/
-    addbyte(0x55);
+    if (need_xmm_00_ff_w) {
+        addbyte(0x41); /*PUSH R12*/
+        addbyte(0x54);
+    }
+    if (need_i_00_ff_w) {
+        addbyte(0x41); /*PUSH R13*/
+        addbyte(0x55);
+    }
     addbyte(0x41); /*PUSH R14*/
     addbyte(0x56);
     addbyte(0x41); /*PUSH R15*/
@@ -783,8 +807,10 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
 
     if (need_logtable)
         block_pos = codegen_load_r64_const(code_block, block_pos, (uint64_t) (uintptr_t) &logtable, 9);
-    block_pos = codegen_load_r64_const(code_block, block_pos, (uint64_t) (uintptr_t) &alookup, 10);
-    block_pos = codegen_load_r64_const(code_block, block_pos, (uint64_t) (uintptr_t) &aminuslookup, 11);
+    if (need_alookup)
+        block_pos = codegen_load_r64_const(code_block, block_pos, (uint64_t) (uintptr_t) &alookup, 10);
+    if (need_aminuslookup)
+        block_pos = codegen_load_r64_const(code_block, block_pos, (uint64_t) (uintptr_t) &aminuslookup, 11);
     if (need_xmm_00_ff_w)
         block_pos = codegen_load_r64_const(code_block, block_pos, (uint64_t) (uintptr_t) &xmm_00_ff_w, 12);
     if (need_i_00_ff_w)
@@ -3290,16 +3316,18 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x6f);
     addbyte(0x8f);
     addlong(offsetof(voodoo_state_t, ib));
-    addbyte(0xf3); /*MOVDQU XMM3, state->tmu0_s[EDI]*/
-    addbyte(0x0f);
-    addbyte(0x6f);
-    addbyte(0x9f);
-    addlong(offsetof(voodoo_state_t, tmu0_s));
-    addbyte(0xf3); /*MOVQ XMM4, state->tmu0_w[EDI]*/
-    addbyte(0x0f);
-    addbyte(0x7e);
-    addbyte(0xa7);
-    addlong(offsetof(voodoo_state_t, tmu0_w));
+    if (update_tmu0) {
+        addbyte(0xf3); /*MOVDQU XMM3, state->tmu0_s[EDI]*/
+        addbyte(0x0f);
+        addbyte(0x6f);
+        addbyte(0x9f);
+        addlong(offsetof(voodoo_state_t, tmu0_s));
+        addbyte(0xf3); /*MOVQ XMM4, state->tmu0_w[EDI]*/
+        addbyte(0x0f);
+        addbyte(0x7e);
+        addbyte(0xa7);
+        addlong(offsetof(voodoo_state_t, tmu0_w));
+    }
     addbyte(0xf3); /*MOVDQU XMM0, params->dBdX[ESI]*/
     addbyte(0x0f);
     addbyte(0x6f);
@@ -3308,16 +3336,18 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x8b); /*MOV EAX, params->dZdX[ESI]*/
     addbyte(0x86);
     addlong(offsetof(voodoo_params_t, dZdX));
-    addbyte(0xf3); /*MOVDQU XMM5, params->tmu[0].dSdX[ESI]*/
-    addbyte(0x0f);
-    addbyte(0x6f);
-    addbyte(0xae);
-    addlong(offsetof(voodoo_params_t, tmu[0].dSdX));
-    addbyte(0xf3); /*MOVQ XMM6, params->tmu[0].dWdX[ESI]*/
-    addbyte(0x0f);
-    addbyte(0x7e);
-    addbyte(0xb6);
-    addlong(offsetof(voodoo_params_t, tmu[0].dWdX));
+    if (update_tmu0) {
+        addbyte(0xf3); /*MOVDQU XMM5, params->tmu[0].dSdX[ESI]*/
+        addbyte(0x0f);
+        addbyte(0x6f);
+        addbyte(0xae);
+        addlong(offsetof(voodoo_params_t, tmu[0].dSdX));
+        addbyte(0xf3); /*MOVQ XMM6, params->tmu[0].dWdX[ESI]*/
+        addbyte(0x0f);
+        addbyte(0x7e);
+        addbyte(0xb6);
+        addlong(offsetof(voodoo_params_t, tmu[0].dWdX));
+    }
 
     if (state->xdir > 0) {
         addbyte(0x66); /*PADDD XMM1, XMM0*/
@@ -3348,14 +3378,16 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addlong(offsetof(voodoo_params_t, dWdX));
 
     if (state->xdir > 0) {
-        addbyte(0x66); /*PADDQ XMM3, XMM5*/
-        addbyte(0x0f);
-        addbyte(0xd4);
-        addbyte(0xdd);
-        addbyte(0x66); /*PADDQ XMM4, XMM6*/
-        addbyte(0x0f);
-        addbyte(0xd4);
-        addbyte(0xe6);
+        if (update_tmu0) {
+            addbyte(0x66); /*PADDQ XMM3, XMM5*/
+            addbyte(0x0f);
+            addbyte(0xd4);
+            addbyte(0xdd);
+            addbyte(0x66); /*PADDQ XMM4, XMM6*/
+            addbyte(0x0f);
+            addbyte(0xd4);
+            addbyte(0xe6);
+        }
         addbyte(0x66); /*PADDQ XMM0, XMM7*/
         addbyte(0x0f);
         addbyte(0xd4);
@@ -3364,14 +3396,16 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
         addbyte(0x87);
         addlong(offsetof(voodoo_state_t, z));
     } else {
-        addbyte(0x66); /*PSUBQ XMM3, XMM5*/
-        addbyte(0x0f);
-        addbyte(0xfb);
-        addbyte(0xdd);
-        addbyte(0x66); /*PSUBQ XMM4, XMM6*/
-        addbyte(0x0f);
-        addbyte(0xfb);
-        addbyte(0xe6);
+        if (update_tmu0) {
+            addbyte(0x66); /*PSUBQ XMM3, XMM5*/
+            addbyte(0x0f);
+            addbyte(0xfb);
+            addbyte(0xdd);
+            addbyte(0x66); /*PSUBQ XMM4, XMM6*/
+            addbyte(0x0f);
+            addbyte(0xfb);
+            addbyte(0xe6);
+        }
         addbyte(0x66); /*PSUBQ XMM0, XMM7*/
         addbyte(0x0f);
         addbyte(0xfb);
@@ -3381,7 +3415,7 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
         addlong(offsetof(voodoo_state_t, z));
     }
 
-    if (voodoo->dual_tmus) {
+    if (update_tmu1) {
         addbyte(0xf3); /*MOVDQU XMM5, params->tmu[1].dSdX[ESI]*/
         addbyte(0x0f);
         addbyte(0x6f);
@@ -3394,23 +3428,25 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
         addlong(offsetof(voodoo_params_t, tmu[1].dWdX));
     }
 
-    addbyte(0xf3); /*MOVDQU state->tmu0_s, XMM3*/
-    addbyte(0x0f);
-    addbyte(0x7f);
-    addbyte(0x9f);
-    addlong(offsetof(voodoo_state_t, tmu0_s));
-    addbyte(0x66); /*MOVQ state->tmu0_w, XMM4*/
-    addbyte(0x0f);
-    addbyte(0xd6);
-    addbyte(0xa7);
-    addlong(offsetof(voodoo_state_t, tmu0_w));
+    if (update_tmu0) {
+        addbyte(0xf3); /*MOVDQU state->tmu0_s, XMM3*/
+        addbyte(0x0f);
+        addbyte(0x7f);
+        addbyte(0x9f);
+        addlong(offsetof(voodoo_state_t, tmu0_s));
+        addbyte(0x66); /*MOVQ state->tmu0_w, XMM4*/
+        addbyte(0x0f);
+        addbyte(0xd6);
+        addbyte(0xa7);
+        addlong(offsetof(voodoo_state_t, tmu0_w));
+    }
     addbyte(0x66); /*MOVQ state->w, XMM0*/
     addbyte(0x0f);
     addbyte(0xd6);
     addbyte(0x87);
     addlong(offsetof(voodoo_state_t, w));
 
-    if (voodoo->dual_tmus) {
+    if (update_tmu1) {
         addbyte(0xf3); /*MOVDQU XMM3, state->tmu1_s[EDI]*/
         addbyte(0x0f);
         addbyte(0x6f);
@@ -3500,14 +3536,21 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x5f);
     addbyte(0x41); /*POP R14*/
     addbyte(0x5e);
-    addbyte(0x41); /*POP R13*/
-    addbyte(0x5d);
-    addbyte(0x41); /*POP R12*/
-    addbyte(0x5c);
+    if (need_i_00_ff_w) {
+        addbyte(0x41); /*POP R13*/
+        addbyte(0x5d);
+    }
+    if (need_xmm_00_ff_w) {
+        addbyte(0x41); /*POP R12*/
+        addbyte(0x5c);
+    }
     addbyte(0x5b); /*POP RBX*/
+#if _WIN64
     addbyte(0x5e); /*POP RSI*/
     addbyte(0x5f); /*POP RDI*/
-    addbyte(0x5d); /*POP RBP*/
+#endif
+    if (need_rbp)
+        addbyte(0x5d); /*POP RBP*/
 
     addbyte(0xC3); /*RET*/
 }

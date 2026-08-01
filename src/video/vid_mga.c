@@ -692,6 +692,7 @@ static void     mystique_iload_write_l(uint32_t addr, uint32_t val, void *priv);
 
 static uint32_t blit_idump_read(mystique_t *mystique);
 static void     blit_iload_write(mystique_t *mystique, uint32_t data, int size);
+static void     blit_line_start(mystique_t *mystique, int closed, int autoline);
 
 void
 mystique_out(uint16_t addr, uint8_t val, void *priv)
@@ -3112,6 +3113,62 @@ run_dma(mystique_t *mystique)
                                 blit_iload_write(mystique, val, 32);
 
                             words_transferred++;
+                            if ((mystique->dma.secaddress & DMA_ADDR_MASK) >= (mystique->dma.secend & DMA_ADDR_MASK)) {
+                                if ((mystique->dma.primaddress & DMA_ADDR_MASK) == (mystique->dma.primend & DMA_ADDR_MASK)) {
+                                    mystique->endprdmasts_pending = 1;
+                                    mystique->dma.state           = MGA_DMA_STATE_IDLE;
+                                    mystique->dma.words_expected = 0;
+                                    mystique->dma.pri_state = 0;
+                                } else {
+                                    mystique->dma.state = MGA_DMA_STATE_PRI;
+                                    mystique->dma.words_expected = 0;
+                                    mystique->dma.pri_state = 0;
+                                }
+                            }
+                        }
+                        break;
+
+                    case DMA_MODE_VECTOR:
+                        {
+                            uint32_t val;
+                            if ((mystique->dma.secaddress & DMA_ADDR_MASK) >= (mystique->dma.secend & DMA_ADDR_MASK)) {
+                                if ((mystique->dma.primaddress & DMA_ADDR_MASK) == (mystique->dma.primend & DMA_ADDR_MASK)) {
+                                    mystique->endprdmasts_pending = 1;
+                                    mystique->dma.state           = MGA_DMA_STATE_IDLE;
+                                    mystique->dma.words_expected = 0;
+                                    mystique->dma.pri_state = 0;
+                                } else {
+                                    mystique->dma.state = MGA_DMA_STATE_PRI;
+                                    mystique->dma.words_expected = 0;
+                                    mystique->dma.pri_state = 0;
+                                }
+                            }
+
+                            if (mystique->dma.sec_state == 0) {
+                                dma_bm_read(mystique->dma.secaddress & DMA_ADDR_MASK, (uint8_t *) &mystique->dma.sec_header, 4, 4);
+                                mystique->dma.secaddress += 4;
+                                //pclog("DMA header (secondary): 0x%08X\n", mystique->dma.sec_header);
+                                words_transferred++;
+                            }
+
+                            for(int i = 0; i < 32; i++)
+                            {
+                                dma_bm_read(mystique->dma.secaddress & DMA_ADDR_MASK, (uint8_t *) &val, 4, 4);
+                                mystique->dma.secaddress += 4;
+                                
+                                if (!mystique->dma.sec_header & (1 << i)) {
+                                    mystique->dwgreg.ar[5] = val & 0xffff;
+                                    mystique->dwgreg.ar[6] = (val >> 16) & 0xffff;
+                                }
+                                else {
+                                    mystique->dwgreg.ar[0] = val & 0xffff;
+                                    mystique->dwgreg.ar[2] = (val >> 16) & 0xffff;
+                                    int autoline = !!(mystique->dwgreg.dwgctrl & 0x1);
+                                    int closed = !!(mystique->dwgreg.dwgctrl & 0x2);
+                                    blit_line_start(mystique, closed, autoline);
+                                }
+                                words_transferred++;
+                            }
                             if ((mystique->dma.secaddress & DMA_ADDR_MASK) >= (mystique->dma.secend & DMA_ADDR_MASK)) {
                                 if ((mystique->dma.primaddress & DMA_ADDR_MASK) == (mystique->dma.primend & DMA_ADDR_MASK)) {
                                     mystique->endprdmasts_pending = 1;

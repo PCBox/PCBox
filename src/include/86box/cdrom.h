@@ -33,6 +33,8 @@
 #define CD_STATUS_HAS_AUDIO         0xc
 #define CD_STATUS_MASK              0x1f
 
+#define CD_SECTOR_FLAG_SCRAMBLED    0x80000000
+
 /* Medium changed flag. */
 #define CD_STATUS_TRANSITION     0x40
 #define CD_STATUS_MEDIUM_CHANGED 0x80
@@ -151,6 +153,7 @@ static const struct cdrom_drive_types_s {
     { "CREATIVE", "CD2422E",          "MC10", "",          "creative_2422",  BUS_TYPE_IDE,  0, 24, 36, 0, 0, {  4,  2,  2,  2 } },
     { "CREATIVE", "CD3621E",          "ZC10", "",          "creative_3621",  BUS_TYPE_IDE,  0, 36, 36, 0, 0, {  4,  2,  2,  2 } },
     { "CREATIVE", "CD5220E",          "2.02", "",          "creative_5220",  BUS_TYPE_IDE,  0, 52, 36, 0, 0, {  4,  2,  2,  4 } },
+    { "CREATIVEDVD-ROM", "DVD2240E",  "1.7A", "",          "creative_d2240", BUS_TYPE_IDE,  0, 20, 36, 0, 1, {  4,  2,  2,  4 } }, /* The "CREATIVEDVD-ROM" name is used by the real drive, not a mistake */
     { "ECS",      "300ESD",           "V200", "",          "ecs_300",        BUS_TYPE_IDE,  0,  3, 36, 0, 0, {  2, -1, -1, -1 } }, /* Firmware revision not yet confirmed */
     { "ECS",      "600ESD",           "V300", "",          "ecs_600",        BUS_TYPE_IDE,  0,  6, 36, 0, 0, {  3, -1, -1, -1 } },
     { "GOLDSTAR", "CRD-8160B",        "3.14", "",          "goldstar",       BUS_TYPE_IDE,  0, 16, 36, 0, 0, {  4,  2,  1, -1 } },
@@ -511,7 +514,7 @@ typedef struct cdrom {
 
 extern cdrom_t cdrom[CDROM_NUM];
 
-#define MSFtoLBA(m, s, f)  ((((m * 60) + s) * 75) + f)
+#define MSFtoLBA(m, s, f)  (((((m) * 60) + (s)) * 75) + (f))
 
 static __inline int
 bin2bcd(int x)
@@ -579,7 +582,7 @@ extern int             cdrom_read_toc_sony(const cdrom_t *dev, uint8_t *b, const
                                            const int msf, const int max_len);
 #ifdef USE_CDROM_MITSUMI
 extern void            cdrom_get_track_buffer(cdrom_t *dev, uint8_t *buf);
-extern void            cdrom_get_q(cdrom_t *dev, uint8_t *buf, int *curtoctrk, uint8_t mode);
+extern int             cdrom_get_q(cdrom_t *dev, uint8_t *buf, int curtoctrk, uint8_t mode);
 extern uint8_t         cdrom_mitsumi_audio_play(cdrom_t *dev, uint32_t pos, uint32_t len);
 #endif
 extern uint8_t         cdrom_read_disc_info_toc(cdrom_t *dev, uint8_t *b,
