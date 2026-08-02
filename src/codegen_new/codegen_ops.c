@@ -48,6 +48,10 @@
 #    define X86_DIVPS ropDIVPS
 #    define X86_UNPCKLPS ropUNPCKLPS
 #    define X86_UNPCKHPS ropUNPCKHPS
+#    define X86_MOVAPS_D_R ropMOVAPS_d_r
+#    define X86_MOVAPS_R_D ropMOVAPS_r_d
+#    define X86_MOVUPS_D_R ropMOVUPS_d_r
+#    define X86_MOVUPS_R_D ropMOVUPS_r_d
 #else
 #    define X86_PADDQ NULL
 #    define X86_PSUBQ NULL
@@ -57,6 +61,10 @@
 #    define X86_DIVPS NULL
 #    define X86_UNPCKLPS NULL
 #    define X86_UNPCKHPS NULL
+#    define X86_MOVAPS_D_R NULL
+#    define X86_MOVAPS_R_D NULL
+#    define X86_MOVUPS_D_R NULL
+#    define X86_MOVUPS_R_D NULL
 #endif
 
 RecompOpFn recomp_opcodes[512] = {
@@ -112,8 +120,8 @@ RecompOpFn recomp_opcodes_0f[512] = {
         /*16-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
-/*10*/  ropMOVUPS_r_d,  ropMOVUPS_d_r,  NULL,           NULL,           X86_UNPCKLPS,   X86_UNPCKHPS,   NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
-/*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVAPS_r_d,  ropMOVAPS_d_r,  NULL,           ropMOVAPS_d_r,  NULL,           NULL,           NULL,           NULL,
+/*10*/  X86_MOVUPS_R_D,  X86_MOVUPS_D_R,  NULL,           NULL,           X86_UNPCKLPS,   X86_UNPCKHPS,   NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           X86_MOVAPS_R_D,  X86_MOVAPS_D_R,  NULL,           X86_MOVAPS_D_R,  NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
 /*40*/  ropCMOVO_w,     ropCMOVNO_w,    ropCMOVB_w,     ropCMOVNB_w,    ropCMOVE_w,     ropCMOVNE_w,    ropCMOVBE_w,    ropCMOVNBE_w,   ropCMOVS_w,     ropCMOVNS_w,    ropCMOVP_w,     ropCMOVNP_w,    ropCMOVL_w,     ropCMOVNL_w,    ropCMOVLE_w,    ropCMOVNLE_w,
@@ -138,8 +146,8 @@ RecompOpFn recomp_opcodes_0f[512] = {
         /*32-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
-/*10*/  ropMOVUPS_r_d,  ropMOVUPS_d_r,  NULL,           NULL,           X86_UNPCKLPS,   X86_UNPCKHPS,   NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
-/*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVAPS_r_d,  ropMOVAPS_d_r,  NULL,           ropMOVAPS_d_r,  NULL,           NULL,           NULL,           NULL,
+/*10*/  X86_MOVUPS_R_D,  X86_MOVUPS_D_R,  NULL,           NULL,           X86_UNPCKLPS,   X86_UNPCKHPS,   NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           X86_MOVAPS_R_D,  X86_MOVAPS_D_R,  NULL,           X86_MOVAPS_D_R,  NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
 /*40*/  ropCMOVO_l,     ropCMOVNO_l,    ropCMOVB_l,     ropCMOVNB_l,    ropCMOVE_l,     ropCMOVNE_l,    ropCMOVBE_l,    ropCMOVNBE_l,   ropCMOVS_l,     ropCMOVNS_l,    ropCMOVP_l,     ropCMOVNP_l,    ropCMOVL_l,     ropCMOVNL_l,    ropCMOVLE_l,    ropCMOVNLE_l,
