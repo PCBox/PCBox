@@ -23,6 +23,7 @@
 #define CODEGEN_HOST_CPU_FEATURE_AVX2   (1ULL << 5)
 #define CODEGEN_HOST_CPU_FEATURE_BMI1   (1ULL << 6)
 #define CODEGEN_HOST_CPU_FEATURE_BMI2   (1ULL << 7)
+#define CODEGEN_HOST_CPU_FEATURE_AVX512 (1ULL << 8)
 
 extern uint64_t codegen_host_cpu_features;
 

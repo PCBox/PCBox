@@ -135,6 +135,8 @@ detect_host_cpu_features(void)
     if (os_avx)
         features |= CODEGEN_HOST_CPU_FEATURE_AVX;
 
+    os_avx512 = os_avx && ((host_xgetbv(0) & 0xe0) == 0xe0);
+
     if (max_leaf >= 7) {
         host_cpuid(7, 0, &eax, &ebx, &ecx, &edx);
         if (ebx & (1U << 3))
@@ -143,6 +145,8 @@ detect_host_cpu_features(void)
             features |= CODEGEN_HOST_CPU_FEATURE_BMI2;
         if (os_avx && (ebx & (1U << 5)))
             features |= CODEGEN_HOST_CPU_FEATURE_AVX2;
+        if (os_avx512 && (ebx & (0xd003U << 16)))
+            features |= CODEGEN_HOST_CPU_FEATURE_AVX512;
     }
 
     return features;
