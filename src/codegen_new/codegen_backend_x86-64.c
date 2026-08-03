@@ -112,7 +112,7 @@ detect_host_cpu_features(void)
     uint64_t features = 0;
     uint32_t max_leaf;
     uint32_t eax, ebx, ecx, edx;
-    int      os_avx;
+    int      os_avx, os_avx512;
 
     host_cpuid(0, 0, &max_leaf, &ebx, &ecx, &edx);
 
