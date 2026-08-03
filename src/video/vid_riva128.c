@@ -2353,8 +2353,8 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		    riva128->pgraph.notify_impending = 1;
 		    riva128->pgraph.m2mf_obj = (param & 0xf) << 20;
 
-			uint32_t src_obj_addr = (graphobj1 & 0xffff) << 4;
-			uint32_t dst_obj_addr = (graphobj2 & 0xffff) << 4;
+			uint32_t src_obj_addr = ((graphobj1 >> 16) & 0xffff) << 4;
+			uint32_t dst_obj_addr = (graphobj1 & 0xffff) << 4;
 			uint32_t src_flags = riva128_ramin_read_l(src_obj_addr,
 				riva128);
 			uint32_t dst_flags = riva128_ramin_read_l(dst_obj_addr,
