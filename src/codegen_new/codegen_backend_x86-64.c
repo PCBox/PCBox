@@ -5,6 +5,7 @@
 #    include <86box/86box.h>
 #    include "cpu.h"
 #    include <86box/mem.h>
+#    include <86box/plat.h>
 
 #    include "codegen.h"
 #    include "codegen_allocator.h"
@@ -373,8 +374,8 @@ codegen_backend_init(void)
 
     codegen_host_cpu_features = detect_host_cpu_features();
 
-    codeblock      = calloc(BLOCK_SIZE, sizeof(codeblock_t));
-    codeblock_hash = calloc(HASH_SIZE, sizeof(codeblock_t *));
+    codeblock      = plat_mmap(BLOCK_SIZE * sizeof(codeblock_t), 0);
+    codeblock_hash = plat_mmap(HASH_SIZE * sizeof(codeblock_t *), 0);
 
     for (c = 0; c < BLOCK_SIZE; c++)
         codeblock[c].valid = 0;
