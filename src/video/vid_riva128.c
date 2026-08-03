@@ -2402,13 +2402,15 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
         				uint32_t out_off = riva128->pgraph.m2mf_out_dma_cur + (pixel * inc_out);
 
 						uint32_t src_logical_addr = in_off + src_adjust;
+						uint32_t src_limit_check = (pixel * inc_in) + src_adjust;
 						uint32_t dst_logical_addr = out_off + dst_adjust;
+						uint32_t dst_limit_check = (pixel * inc_out) + dst_adjust;
 
 						uint32_t src_unpaged_addr = src_pte_frame + src_adjust;
 						uint32_t src_pte_index = src_logical_addr >> 12;
 						uint32_t src_pte_byte = src_logical_addr & 0xfff;
 						uint32_t src_pte_frame_new = riva128_ramin_read_l(src_obj_addr + (src_pte_index << 2) + 8, riva128);
-						if(src_logical_addr >= src_limit)
+						if(src_limit_check >= src_limit)
 						{
 							riva128_pdma_interrupt(12, riva128);
 							goto method_end;
@@ -2433,7 +2435,7 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 						uint32_t dst_pte_index = dst_logical_addr >> 12;
 						uint32_t dst_pte_byte = dst_logical_addr & 0xfff;
 						uint32_t dst_pte_frame_new = riva128_ramin_read_l(dst_obj_addr + (dst_pte_index << 2) + 8, riva128);
-						if(dst_logical_addr >= dst_limit)
+						if(dst_limit_check >= dst_limit)
 						{
 							riva128_pdma_interrupt(12, riva128);
 							goto method_end;
