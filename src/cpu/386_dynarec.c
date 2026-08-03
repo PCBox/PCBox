@@ -422,10 +422,8 @@ exec386_dynarec_int(void)
     }
 
     while (!cpu_block_end) {
-#    ifndef USE_NEW_DYNAREC
         oldcs  = CS;
         oldcpl = CPL;
-#    endif
         cpu_state.oldpc = cpu_state.pc;
         cpu_state.op32  = use32;
 
@@ -502,9 +500,7 @@ block_ended:
         if (trap & 16) dr[6] |= 0x2000;
 
         trap = 0;
-#    ifndef USE_NEW_DYNAREC
         oldcs = CS;
-#    endif
         cpu_state.oldpc = cpu_state.pc;
         x86_int(1);
     }
@@ -723,10 +719,8 @@ exec386_dynarec_dyn(void)
         codegen_in_recompile = 1;
 
         while (!cpu_block_end) {
-#    ifndef USE_NEW_DYNAREC
             oldcs  = CS;
             oldcpl = CPL;
-#    endif
             cpu_state.oldpc = cpu_state.pc;
             cpu_state.op32  = use32;
 
@@ -826,10 +820,8 @@ exec386_dynarec_dyn(void)
         codegen_block_init(phys_addr);
 
         while (!cpu_block_end) {
-#    ifndef USE_NEW_DYNAREC
             oldcs  = CS;
             oldcpl = CPL;
-#    endif
             cpu_state.oldpc = cpu_state.pc;
             cpu_state.op32  = use32;
 
@@ -937,10 +929,10 @@ exec386_dynarec(int32_t cycs)
         cycles_start = cycles;
 
         while (cycles > 0) {
-#    ifndef USE_NEW_DYNAREC
             oldcs           = CS;
-            cpu_state.oldpc = cpu_state.pc;
             oldcpl          = CPL;
+#    ifndef USE_NEW_DYNAREC
+            cpu_state.oldpc = cpu_state.pc;
             cpu_state.op32  = use32;
 
             cycdiff = 0;
@@ -985,9 +977,7 @@ exec386_dynarec(int32_t cycs)
             }
 
             if (new_ne) {
-#    ifndef USE_NEW_DYNAREC
                 oldcs = CS;
-#    endif
                 cpu_state.oldpc = cpu_state.pc;
                 new_ne = 0;
                 x86_int(16);
@@ -996,9 +986,7 @@ exec386_dynarec(int32_t cycs)
             if (smi_line)
                 enter_smm_check(0);
             else if (nmi && nmi_enable && nmi_mask) {
-#    ifndef USE_NEW_DYNAREC
                 oldcs = CS;
-#    endif
                 cpu_state.oldpc = cpu_state.pc;
                 x86_int(2);
                 nmi_enable = 0;
@@ -1013,9 +1001,7 @@ exec386_dynarec(int32_t cycs)
             } else if ((cpu_state.flags & I_FLAG) && (pic_pending_int())) {
                 vector = picinterrupt();
                 if (vector != -1) {
-#    ifndef USE_NEW_DYNAREC
                     oldcs = CS;
-#    endif
                     cpu_state.oldpc = cpu_state.pc;
                     x86_int(vector);
                 }
@@ -1080,10 +1066,8 @@ exec386(int32_t cycs)
 #endif
             ins_cycles = cycles;
 
-#ifndef USE_NEW_DYNAREC
             oldcs  = CS;
             oldcpl = CPL;
-#endif
             cpu_state.oldpc = cpu_state.pc;
             cpu_state.op32  = use32;
 
@@ -1185,9 +1169,7 @@ block_ended:
                 flags_rebuild();
 
                 new_ne = 0;
-#ifndef USE_NEW_DYNAREC
                 oldcs = CS;
-#endif
                 cpu_state.oldpc = cpu_state.pc;
                 x86_int(16);
             } else if (trap) {
@@ -1198,9 +1180,7 @@ block_ended:
                 if (trap & 16) dr[6] |= 0x2000;
 #endif
                 trap = 0;
-#ifndef USE_NEW_DYNAREC
                 oldcs = CS;
-#endif
                 cpu_state.oldpc = cpu_state.pc;
                 x86_int(1);
             }
@@ -1208,9 +1188,7 @@ block_ended:
             if (smi_line)
                 enter_smm_check(0);
             else if (nmi && nmi_enable && nmi_mask) {
-#ifndef USE_NEW_DYNAREC
                 oldcs = CS;
-#endif
                 cpu_state.oldpc = cpu_state.pc;
                 x86_int(2);
                 nmi_enable = 0;
