@@ -3602,7 +3602,7 @@ voodoo_get_block(voodoo_t *voodoo, voodoo_params_t *params, voodoo_state_t *stat
 void
 voodoo_codegen_init(voodoo_t *voodoo)
 {
-    voodoo->codegen_data = plat_mmap(sizeof(voodoo_x86_data_t) * BLOCK_NUM * voodoo->render_threads, 1);
+    voodoo->codegen_data = plat_mmap(sizeof(voodoo_x86_data_t) * BLOCK_NUM * voodoo->render_threads, 1, NULL);
     memset(voodoo->jit_last_block, 0, sizeof(voodoo->jit_last_block));
     memset(voodoo->jit_next_block, 0, sizeof(voodoo->jit_next_block));
 
