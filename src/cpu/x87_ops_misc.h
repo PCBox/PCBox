@@ -173,6 +173,12 @@ FSTOR(void)
             cpu_state.npxs = readmemw(easeg, cpu_state.eaaddr + 2);
             x87_settag(readmemw(easeg, cpu_state.eaaddr + 4));
             cpu_state.TOP = (cpu_state.npxs >> 11) & 7;
+            x87_pc_off = readmemw(easeg, cpu_state.eaaddr + 6);
+            if(cr0 & 1) x87_pc_seg = readmemw(easeg, cpu_state.eaaddr + 8);
+            else x87_pc_seg = 0;
+            x87_op_off = readmemw(easeg, cpu_state.eaaddr + 10);
+            if(cr0 & 1) x87_op_seg = readmemw(easeg, cpu_state.eaaddr + 12);
+            else x87_op_seg = 0;
             cpu_state.eaaddr += 14;
             break;
         case 0x100: /*32-bit real mode*/
@@ -182,6 +188,12 @@ FSTOR(void)
             cpu_state.npxs = readmemw(easeg, cpu_state.eaaddr + 4);
             x87_settag(readmemw(easeg, cpu_state.eaaddr + 8));
             cpu_state.TOP = (cpu_state.npxs >> 11) & 7;
+            x87_pc_off = readmeml(easeg, cpu_state.eaaddr + 12);
+            if(cr0 & 1) x87_pc_seg = readmemw(easeg, cpu_state.eaaddr + 16);
+            else x87_pc_seg = 0;
+            x87_op_off = readmeml(easeg, cpu_state.eaaddr + 20);
+            if(cr0 & 1) x87_op_seg = readmemw(easeg, cpu_state.eaaddr + 24);
+            else x87_op_seg = 0;
             cpu_state.eaaddr += 28;
             break;
     }
@@ -331,11 +343,12 @@ FSAVE(void)
             }
             break;
         case 0x100: /*32-bit real mode*/
-            writememw(easeg, cpu_state.eaaddr, cpu_state.npxc);
-            writememw(easeg, cpu_state.eaaddr + 4, cpu_state.npxs);
-            writememw(easeg, cpu_state.eaaddr + 8, x87_gettag());
-            writememw(easeg, cpu_state.eaaddr + 12, x87_pc_off);
-            writememw(easeg, cpu_state.eaaddr + 20, x87_op_off);
+            writememw(easeg, cpu_state.eaaddr, cpu_state.npxc | 0xffff0000u);
+            writememw(easeg, cpu_state.eaaddr + 4, cpu_state.npxs | 0xffff0000u);
+            writememw(easeg, cpu_state.eaaddr + 8, x87_gettag() | 0xffff0000u);
+            writememw(easeg, cpu_state.eaaddr + 12, x87_pc_off | 0xffff0000u);
+            writememl(easeg, cpu_state.eaaddr + 16, (x87_pc_off >> 16) << 12);
+            writememw(easeg, cpu_state.eaaddr + 20, x87_op_off | 0xffff0000u);
             writememl(easeg, cpu_state.eaaddr + 24, (x87_op_off >> 16) << 12);
             cpu_state.eaaddr += 28;
             if (cpu_state.ismmx) {
