@@ -16,6 +16,100 @@
 
 #define LOD_MASK   (LOD_TMIRROR_S | LOD_TMIRROR_T)
 
+#define CODEGEN_HOST_CPU_FEATURE_SSE3   (1ULL << 0)
+#define CODEGEN_HOST_CPU_FEATURE_SSSE3  (1ULL << 1)
+#define CODEGEN_HOST_CPU_FEATURE_SSE4_1 (1ULL << 2)
+#define CODEGEN_HOST_CPU_FEATURE_SSE4_2 (1ULL << 3)
+#define CODEGEN_HOST_CPU_FEATURE_AVX    (1ULL << 4)
+#define CODEGEN_HOST_CPU_FEATURE_AVX2   (1ULL << 5)
+#define CODEGEN_HOST_CPU_FEATURE_BMI1   (1ULL << 6)
+#define CODEGEN_HOST_CPU_FEATURE_BMI2   (1ULL << 7)
+#define CODEGEN_HOST_CPU_FEATURE_AVX512 (1ULL << 8)
+
+static uint64_t codegen_host_cpu_features;
+
+static inline int
+codegen_host_cpu_has_feature(uint64_t feature)
+{
+    return (codegen_host_cpu_features & feature) == feature;
+}
+
+static void
+host_cpuid(uint32_t leaf, uint32_t subleaf, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx)
+{
+#    if defined(__GNUC__) || defined(__clang__)
+    __asm__ volatile(
+        "cpuid"
+        : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx)
+        : "a"(leaf), "c"(subleaf));
+#    else
+    *eax = *ebx = *ecx = *edx = 0;
+#    endif
+}
+
+static uint64_t
+host_xgetbv(uint32_t xcr)
+{
+#    if defined(__GNUC__) || defined(__clang__)
+    uint32_t eax, edx;
+
+    __asm__ volatile(
+        "xgetbv"
+        : "=a"(eax), "=d"(edx)
+        : "c"(xcr));
+    return ((uint64_t) edx << 32) | eax;
+#    else
+    return 0;
+#    endif
+}
+
+static uint64_t
+detect_host_cpu_features(void)
+{
+    uint64_t features = 0;
+    uint32_t max_leaf;
+    uint32_t eax, ebx, ecx, edx;
+    int      os_avx, os_avx512;
+
+    host_cpuid(0, 0, &max_leaf, &ebx, &ecx, &edx);
+
+    if (max_leaf < 1)
+        return 0;
+
+    host_cpuid(1, 0, &eax, &ebx, &ecx, &edx);
+
+    if (ecx & (1U << 0))
+        features |= CODEGEN_HOST_CPU_FEATURE_SSE3;
+    if (ecx & (1U << 9))
+        features |= CODEGEN_HOST_CPU_FEATURE_SSSE3;
+    if (ecx & (1U << 19))
+        features |= CODEGEN_HOST_CPU_FEATURE_SSE4_1;
+    if (ecx & (1U << 20))
+        features |= CODEGEN_HOST_CPU_FEATURE_SSE4_2;
+
+    os_avx = ((ecx & ((1U << 27) | (1U << 28))) == ((1U << 27) | (1U << 28))) &&
+             ((host_xgetbv(0) & 0x6) == 0x6);
+    if (os_avx)
+        features |= CODEGEN_HOST_CPU_FEATURE_AVX;
+
+    os_avx512 = os_avx && ((host_xgetbv(0) & 0xe0) == 0xe0);
+
+    if (max_leaf >= 7) {
+        host_cpuid(7, 0, &eax, &ebx, &ecx, &edx);
+        if (ebx & (1U << 3))
+            features |= CODEGEN_HOST_CPU_FEATURE_BMI1;
+        if (ebx & (1U << 8))
+            features |= CODEGEN_HOST_CPU_FEATURE_BMI2;
+        if (os_avx && (ebx & (1U << 5)))
+            features |= CODEGEN_HOST_CPU_FEATURE_AVX2;
+        if (os_avx512 && (ebx & (0xd003U << 16)))
+            features |= CODEGEN_HOST_CPU_FEATURE_AVX512;
+    }
+
+    codegen_host_cpu_features = features;
+    return features;
+}
+
 /* Suppress a false positive warning on gcc that causes excessive build log spam */
 #if __GNUC__ >= 10
 #    pragma GCC diagnostic ignored "-Wstringop-overflow"
@@ -107,6 +201,7 @@ codegen_load_xmm_const(uint8_t *code_block, int block_pos, const __m128i *consta
 static inline int
 codegen_texture_fetch(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, voodoo_state_t *state, int block_pos, int tmu)
 {
+    const int use_ssse3 = codegen_host_cpu_has_feature(CODEGEN_HOST_CPU_FEATURE_SSSE3);
     if (params->textureMode[tmu] & 1) {
         addbyte(0x48); /*MOV RBX, state->tmu0_s*/
         addbyte(0x8b);
@@ -539,15 +634,25 @@ codegen_texture_fetch(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *pa
             addbyte(0x0f);
             addbyte(0xfd);
             addbyte(0xc0 | 1 | (0 << 3));
-            addbyte(0x66); /*MOV XMM1, XMM0*/
-            addbyte(0x0f);
-            addbyte(0x6f);
-            addbyte(0xc0 | 0 | (1 << 3));
-            addbyte(0x66); /*PSRLDQ XMM0, 8*/
-            addbyte(0x0f);
-            addbyte(0x73);
-            addbyte(0xd8);
-            addbyte(8);
+            if (use_ssse3) {
+                /* PALIGNR extracts XMM0's high quadword into XMM1. */
+                addbyte(0x66); /*PALIGNR XMM1, XMM0, 8*/
+                addbyte(0x0f);
+                addbyte(0x3a);
+                addbyte(0x0f);
+                addbyte(0xc8);
+                addbyte(8);
+            } else {
+                addbyte(0x66); /*MOV XMM1, XMM0*/
+                addbyte(0x0f);
+                addbyte(0x6f);
+                addbyte(0xc0 | 0 | (1 << 3));
+                addbyte(0x66); /*PSRLDQ XMM0, 8*/
+                addbyte(0x0f);
+                addbyte(0x73);
+                addbyte(0xd8);
+                addbyte(8);
+            }
             addbyte(0x66); /*PADDW XMM0, XMM1*/
             addbyte(0x0f);
             addbyte(0xfd);
@@ -701,6 +806,7 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     const int update_tmu1 = fetch_tmu1;
     /* One TMU delta pair can live in XMM13/XMM14 throughout the span. */
     const int cached_tmu = update_tmu0 ? 0 : (update_tmu1 ? 1 : -1);
+    const int use_ssse3 = codegen_host_cpu_has_feature(CODEGEN_HOST_CPU_FEATURE_SSSE3);
     const int dual_texture_blend =
         voodoo->dual_tmus &&
         (params->textureMode[0] & TEXTUREMODE_LOCAL_MASK) != TEXTUREMODE_LOCAL &&
@@ -3632,6 +3738,8 @@ voodoo_get_block(voodoo_t *voodoo, voodoo_params_t *params, voodoo_state_t *stat
 void
 voodoo_codegen_init(voodoo_t *voodoo)
 {
+    detect_host_cpu_features();
+
     voodoo->codegen_data = plat_mmap(sizeof(voodoo_x86_data_t) * BLOCK_NUM * voodoo->render_threads, 1, NULL);
     memset(voodoo->jit_last_block, 0, sizeof(voodoo->jit_last_block));
     memset(voodoo->jit_next_block, 0, sizeof(voodoo->jit_next_block));

@@ -149,6 +149,8 @@ detect_host_cpu_features(void)
             features |= CODEGEN_HOST_CPU_FEATURE_AVX512;
     }
 
+    codegen_host_cpu_features = features;
+
     return features;
 }
 
