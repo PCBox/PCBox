@@ -170,7 +170,7 @@ ropRET_imm_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(
 {
     uint16_t offset = 0;
     if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
-        LOAD_IMMEDIATE_FROM_RAM_16(block, ir, IREG_temp1_W, cs + op_pc);
+        LOAD_IMMEDIATE_FROM_RAM_16(block, ir, IREG_temp2_W, cs + op_pc);
     }
     else {
         offset = fastreadw(cs + op_pc);
@@ -187,12 +187,11 @@ ropRET_imm_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(
     if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
         if (stack32)
         {
-            /* FIX: Use IREG_temp0 to prevent register tracking collision with IREG_temp1_W */
-            uop_MOVZX(ir, IREG_temp0, IREG_temp1_W);
-            uop_ADD(ir, IREG_ESP, IREG_ESP, IREG_temp0);
+            uop_MOVZX(ir, IREG_temp2, IREG_temp2_W);
+            uop_ADD(ir, IREG_ESP, IREG_ESP, IREG_temp2);
         }
         else
-            uop_ADD(ir, IREG_SP, IREG_SP, IREG_temp1_W);
+            uop_ADD(ir, IREG_SP, IREG_SP, IREG_temp2_W);
         ADD_SP(ir, 2);
     }
     else 
@@ -210,7 +209,7 @@ ropRET_imm_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(
 {
     uint16_t offset = 0;
     if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
-        LOAD_IMMEDIATE_FROM_RAM_16(block, ir, IREG_temp1_W, cs + op_pc);
+        LOAD_IMMEDIATE_FROM_RAM_16(block, ir, IREG_temp2_W, cs + op_pc);
     }
     else {
         offset = fastreadw(cs + op_pc);
@@ -228,12 +227,11 @@ ropRET_imm_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(
     if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
         if (stack32)
         {
-            /* FIX: Use IREG_temp0 to prevent register tracking collision with IREG_temp1_W */
-            uop_MOVZX(ir, IREG_temp0, IREG_temp1_W);
-            uop_ADD(ir, IREG_ESP, IREG_ESP, IREG_temp0);
+            uop_MOVZX(ir, IREG_temp2, IREG_temp2_W);
+            uop_ADD(ir, IREG_ESP, IREG_ESP, IREG_temp2);
         }
         else
-            uop_ADD(ir, IREG_SP, IREG_SP, IREG_temp1_W);
+            uop_ADD(ir, IREG_SP, IREG_SP, IREG_temp2_W);
         ADD_SP(ir, 4);
     }
     else 
@@ -305,7 +303,7 @@ ropRETF_imm_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED
         return 0;
 
     if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
-        LOAD_IMMEDIATE_FROM_RAM_16(block, ir, IREG_temp1_W, cs + op_pc);
+        LOAD_IMMEDIATE_FROM_RAM_16(block, ir, IREG_temp2_W, cs + op_pc);
     }
     else {
         offset = fastreadw(cs + op_pc);
@@ -326,12 +324,11 @@ ropRETF_imm_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED
     if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
         if (stack32)
         {
-            /* FIX: Use IREG_temp0 to prevent register tracking collision with IREG_temp1_W */
-            uop_MOVZX(ir, IREG_temp0, IREG_temp1_W);
-            uop_ADD(ir, IREG_ESP, IREG_ESP, IREG_temp0);
+            uop_MOVZX(ir, IREG_temp2, IREG_temp2_W);
+            uop_ADD(ir, IREG_ESP, IREG_ESP, IREG_temp2);
         }
         else
-            uop_ADD(ir, IREG_SP, IREG_SP, IREG_temp1_W);
+            uop_ADD(ir, IREG_SP, IREG_SP, IREG_temp2_W);
         ADD_SP(ir, 4);
     }
     else 
@@ -346,12 +343,17 @@ ropRETF_imm_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED
 uint32_t
 ropRETF_imm_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    uint16_t offset;
+    uint16_t offset = 0;
 
     if ((msw & 1) && !(cpu_state.eflags & VM_FLAG))
         return 0;
 
-    offset = fastreadw(cs + op_pc);
+    if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
+        LOAD_IMMEDIATE_FROM_RAM_16(block, ir, IREG_temp2_W, cs + op_pc);
+    }
+    else {
+        offset = fastreadw(cs + op_pc);
+    }
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
 
     if (stack32) {
@@ -368,12 +370,11 @@ ropRETF_imm_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED
     if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
         if (stack32)
         {
-            /* FIX: Use IREG_temp0 to prevent register tracking collision with IREG_temp1_W */
-            uop_MOVZX(ir, IREG_temp0, IREG_temp1_W);
-            uop_ADD(ir, IREG_ESP, IREG_ESP, IREG_temp0);
+            uop_MOVZX(ir, IREG_temp2, IREG_temp2_W);
+            uop_ADD(ir, IREG_ESP, IREG_ESP, IREG_temp2);
         }
         else
-            uop_ADD(ir, IREG_SP, IREG_SP, IREG_temp1_W);
+            uop_ADD(ir, IREG_SP, IREG_SP, IREG_temp2_W);
         ADD_SP(ir, 8);
     }
     else 
