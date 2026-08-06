@@ -202,6 +202,7 @@ static inline int
 codegen_texture_fetch(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, voodoo_state_t *state, int block_pos, int tmu)
 {
     const int use_ssse3 = codegen_host_cpu_has_feature(CODEGEN_HOST_CPU_FEATURE_SSSE3);
+    const int use_avx2  = codegen_host_cpu_has_feature(CODEGEN_HOST_CPU_FEATURE_AVX2);
     if (params->textureMode[tmu] & 1) {
         addbyte(0x48); /*MOV RBX, state->tmu0_s*/
         addbyte(0x8b);
@@ -608,32 +609,72 @@ codegen_texture_fetch(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *pa
             addbyte(0xb8);
             addquad((uintptr_t) bilinear_lookup);
 
-            addbyte(0x66); /*PUNPCKLBW XMM0, XMM2*/
-            addbyte(0x0f);
-            addbyte(0x60);
-            addbyte(0xc2);
-            addbyte(0x66); /*PUNPCKLBW XMM1, XMM2*/
-            addbyte(0x0f);
-            addbyte(0x60);
-            addbyte(0xca);
-
             addbyte(0x4c); /*ADD RSI, R8*/
             addbyte(0x01);
             addbyte(0xc6);
 
-            addbyte(0x66); /*PMULLW XMM0, bilinear_lookup[ESI]*/
-            addbyte(0x0f);
-            addbyte(0xd5);
-            addbyte(0x06);
-            addbyte(0x66); /*PMULLW XMM1, bilinear_lookup[ESI]+0x10*/
-            addbyte(0x0f);
-            addbyte(0xd5);
-            addbyte(0x4e);
-            addbyte(0x10);
-            addbyte(0x66); /*PADDW XMM0, XMM1*/
-            addbyte(0x0f);
-            addbyte(0xfd);
-            addbyte(0xc0 | 1 | (0 << 3));
+            if (use_avx2) {
+                /*
+                 * Put the two texture rows in the low/high 128-bit lanes and
+                 * multiply both by their adjacent lookup entries at once.  The
+                 * reduction below is identical to the SSE2/SSSE3 path: add the
+                 * rows first, then add the two texels in each colour channel.
+                 */
+                addbyte(0xc5); /*VPXOR YMM2, YMM2, YMM2*/
+                addbyte(0xed);
+                addbyte(0xef);
+                addbyte(0xd2);
+                addbyte(0xc4); /*VINSERTI128 YMM0, YMM0, XMM1, 1*/
+                addbyte(0xe3);
+                addbyte(0x7d);
+                addbyte(0x38);
+                addbyte(0xc1);
+                addbyte(1);
+                addbyte(0xc5); /*VPUNPCKLBW YMM0, YMM0, YMM2*/
+                addbyte(0xfd);
+                addbyte(0x60);
+                addbyte(0xc2);
+                addbyte(0xc5); /*VPMULLW YMM0, YMM0, bilinear_lookup[RSI]*/
+                addbyte(0xfd);
+                addbyte(0xd5);
+                addbyte(0x06);
+                addbyte(0xc4); /*VEXTRACTI128 XMM1, YMM0, 1*/
+                addbyte(0xe3);
+                addbyte(0x7d);
+                addbyte(0x39);
+                addbyte(0xc1);
+                addbyte(1);
+                addbyte(0xc5); /*VPADDW XMM0, XMM0, XMM1*/
+                addbyte(0xf9);
+                addbyte(0xfd);
+                addbyte(0xc1);
+                /* The remaining emitted operations are legacy SSE encodings. */
+                addbyte(0xc5); /*VZEROUPPER*/
+                addbyte(0xf8);
+                addbyte(0x77);
+            } else {
+                addbyte(0x66); /*PUNPCKLBW XMM0, XMM2*/
+                addbyte(0x0f);
+                addbyte(0x60);
+                addbyte(0xc2);
+                addbyte(0x66); /*PUNPCKLBW XMM1, XMM2*/
+                addbyte(0x0f);
+                addbyte(0x60);
+                addbyte(0xca);
+                addbyte(0x66); /*PMULLW XMM0, bilinear_lookup[ESI]*/
+                addbyte(0x0f);
+                addbyte(0xd5);
+                addbyte(0x06);
+                addbyte(0x66); /*PMULLW XMM1, bilinear_lookup[ESI]+0x10*/
+                addbyte(0x0f);
+                addbyte(0xd5);
+                addbyte(0x4e);
+                addbyte(0x10);
+                addbyte(0x66); /*PADDW XMM0, XMM1*/
+                addbyte(0x0f);
+                addbyte(0xfd);
+                addbyte(0xc0 | 1 | (0 << 3));
+            }
             if (use_ssse3) {
                 /* PALIGNR extracts XMM0's high quadword into XMM1. */
                 addbyte(0x66); /*PALIGNR XMM1, XMM0, 8*/
