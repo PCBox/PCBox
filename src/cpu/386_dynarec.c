@@ -539,18 +539,15 @@ exec386_dynarec_dyn(void)
         valid_block = (block->pc == cs + cpu_state.pc) && (block->_cs == cs) && (block->phys == phys_addr) && !((block->status ^ cpu_cur_status) & CPU_STATUS_FLAGS) && ((block->status & cpu_cur_status & CPU_STATUS_MASK) == (cpu_cur_status & CPU_STATUS_MASK));
         if (!valid_block) {
 #    ifdef USE_NEW_DYNAREC
-            for (unsigned int way = 1; way < CODEBLOCK_HASH_WAYS; way++) {
-                const uint16_t alternate_nr = codeblock_hash_get(hash, way);
+            const uint16_t alternate_nr = codeblock_hash_get(hash, 1);
 
-                if (alternate_nr) {
-                    codeblock_t *alternate = &codeblock[alternate_nr];
+            if (alternate_nr) {
+                codeblock_t *alternate = &codeblock[alternate_nr];
 
-                    valid_block = (alternate->pc == cs + cpu_state.pc) && (alternate->_cs == cs) && (alternate->phys == phys_addr) && !((alternate->status ^ cpu_cur_status) & CPU_STATUS_FLAGS) && ((alternate->status & cpu_cur_status & CPU_STATUS_MASK) == (cpu_cur_status & CPU_STATUS_MASK));
-                    if (valid_block) {
-                        block = alternate;
-                        codeblock_hash_promote(hash, alternate_nr);
-                        break;
-                    }
+                valid_block = (alternate->pc == cs + cpu_state.pc) && (alternate->_cs == cs) && (alternate->phys == phys_addr) && !((alternate->status ^ cpu_cur_status) & CPU_STATUS_FLAGS) && ((alternate->status & cpu_cur_status & CPU_STATUS_MASK) == (cpu_cur_status & CPU_STATUS_MASK));
+                if (valid_block) {
+                    block = alternate;
+                    codeblock_hash_promote(hash, alternate_nr);
                 }
             }
 #    endif
