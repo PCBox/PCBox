@@ -117,7 +117,7 @@ host_x86_ADD16_REG_IMM(codeblock_t *block, int dst_reg, uint16_t imm_data)
         codegen_addbyte3(block, 0x83, 0xc0 | RM_OP_ADD | (dst_reg & 7), imm_data & 0xff); /*ADD dst_reg, imm_data*/
     } else if (dst_reg == REG_EAX) {
         codegen_alloc_bytes(block, 4);
-        codegen_addbyte2(block, 0x66, 0x05); /*AND AX, imm_data*/
+        codegen_addbyte2(block, 0x66, 0x05); /*ADD AX, imm_data*/
         codegen_addword(block, imm_data);
     } else {
         codegen_alloc_bytes(block, 6);
