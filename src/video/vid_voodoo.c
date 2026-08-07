@@ -22,7 +22,7 @@
 #include <stddef.h>
 #include <wchar.h>
 #include <math.h>
-#define HAVE_STDARG_HREG_RSP
+#define HAVE_STDARG_H
 #include <86box/86box.h>
 #include "cpu.h"
 #include <86box/machine.h>
