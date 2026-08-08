@@ -833,6 +833,8 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     int depth_jump_pos   = 0;
     int depth_jump_pos2  = 0;
     int loop_jump_pos    = 0;
+    int return_jump_pos[2];
+    int return_jumps     = 0;
     const int fetch_tmu0 =
         !voodoo->dual_tmus ||
         (params->textureMode[0] & TEXTUREMODE_MASK) != TEXTUREMODE_PASSTHROUGH;
@@ -1268,7 +1270,9 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
         } else
             fatal("Bad depth_op\n");
     } else if ((params->fbzMode & FBZ_DEPTH_ENABLE) && (depthop == DEPTHOP_NEVER)) {
-        addbyte(0xC3); /*RET*/
+        addbyte(0xe9); /*JMP shared epilogue*/
+        return_jump_pos[return_jumps++] = block_pos;
+        addlong(0);
     }
 
     /*XMM0 = colour*/
@@ -2712,7 +2716,9 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
                 break;
         }
     } else if ((params->alphaMode & 1) && (alpha_func == AFUNC_NEVER)) {
-        addbyte(0xC3); /*RET*/
+        addbyte(0xe9); /*JMP shared epilogue*/
+        return_jump_pos[return_jumps++] = block_pos;
+        addlong(0);
     }
 
     if (params->alphaMode & (1 << 4)) {
@@ -3721,6 +3727,10 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x0f); /*JNZ loop_jump_pos*/
     addbyte(0x85);
     addlong(loop_jump_pos - (block_pos + 4));
+
+    for (int jump = 0; jump < return_jumps; jump++)
+        *(uint32_t *) &code_block[return_jump_pos[jump]] =
+            block_pos - (return_jump_pos[jump] + 4);
 
 #if _WIN64
     for (int xmm = 6; xmm <= 15; xmm++) {
