@@ -12,7 +12,12 @@
 
 #define BLOCK_NUM  8
 #define BLOCK_MASK (BLOCK_NUM - 1)
-#define BLOCK_SIZE 8192
+/*
+ * Keep enough headroom for the Windows x64 nonvolatile-XMM save frame in
+ * addition to the largest generated pixel pipeline.  Blocks are generated
+ * into this fixed-size array without incremental bounds checks.
+ */
+#define BLOCK_SIZE 16384
 
 #define LOD_MASK   (LOD_TMIRROR_S | LOD_TMIRROR_T)
 
