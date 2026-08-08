@@ -12,12 +12,7 @@
 
 #define BLOCK_NUM  8
 #define BLOCK_MASK (BLOCK_NUM - 1)
-/*
- * Keep enough headroom for the Windows x64 nonvolatile-XMM save frame in
- * addition to the largest generated pixel pipeline.  Blocks are generated
- * into this fixed-size array without incremental bounds checks.
- */
-#define BLOCK_SIZE 16384
+#define BLOCK_SIZE 8192
 
 #define LOD_MASK   (LOD_TMIRROR_S | LOD_TMIRROR_T)
 
@@ -934,25 +929,18 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x57);
 
 #if _WIN64
-    /*
-     * XMM6-XMM15 are nonvolatile under the Windows x64 ABI.  The generated
-     * span code uses these registers, so preserve their low 128 bits across
-     * the call.  MOVDQU avoids depending on the alignment left by the
-     * variable number of integer-register pushes above.
-     */
-    addbyte(0x48); /*SUB RSP, 10 * 16*/
-    addbyte(0x81);
-    addbyte(0xec);
-    addlong(10 * 16);
+    addbyte(0x48); /*MOV RDI, RCX (voodoo_state)*/
+    addbyte(0x89);
+    addbyte(0xcf);
+    /* XMM6-XMM15 are nonvolatile under the Windows x64 ABI. */
     for (int xmm = 6; xmm <= 15; xmm++) {
-        addbyte(0xf3); /*MOVDQU [RSP + (xmm - 6) * 16], XMMx*/
+        addbyte(0xf3); /*MOVDQU state->xmm_nonvolatile[xmm - 6], XMMx*/
         if (xmm >= 8)
             addbyte(0x44); /*REX.R*/
         addbyte(0x0f);
         addbyte(0x7f);
-        addbyte(0x84 | ((xmm & 7) << 3));
-        addbyte(0x24);
-        addlong((xmm - 6) * 16);
+        addbyte(0x87 | ((xmm & 7) << 3));
+        addlong(offsetof(voodoo_state_t, xmm_nonvolatile) + (xmm - 6) * 16);
     }
 #endif
 
@@ -964,9 +952,6 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
         block_pos = codegen_load_xmm_const(code_block, block_pos, &xmm_ff_b, 10);
 
 #if _WIN64
-    addbyte(0x48); /*MOV RDI, RCX (voodoo_state)*/
-    addbyte(0x89);
-    addbyte(0xcf);
     addbyte(0x49); /*MOV R15, RDX (voodoo_params)*/
     addbyte(0x89);
     addbyte(0xd7);
@@ -3739,19 +3724,14 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
 
 #if _WIN64
     for (int xmm = 6; xmm <= 15; xmm++) {
-        addbyte(0xf3); /*MOVDQU XMMx, [RSP + (xmm - 6) * 16]*/
+        addbyte(0xf3); /*MOVDQU XMMx, state->xmm_nonvolatile[xmm - 6]*/
         if (xmm >= 8)
             addbyte(0x44); /*REX.R*/
         addbyte(0x0f);
         addbyte(0x6f);
-        addbyte(0x84 | ((xmm & 7) << 3));
-        addbyte(0x24);
-        addlong((xmm - 6) * 16);
+        addbyte(0x87 | ((xmm & 7) << 3));
+        addlong(offsetof(voodoo_state_t, xmm_nonvolatile) + (xmm - 6) * 16);
     }
-    addbyte(0x48); /*ADD RSP, 10 * 16*/
-    addbyte(0x81);
-    addbyte(0xc4);
-    addlong(10 * 16);
 #endif
 
     addbyte(0x41); /*POP R15*/

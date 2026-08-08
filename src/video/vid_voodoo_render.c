@@ -94,6 +94,11 @@ typedef struct voodoo_state_t {
     int lod_frac[2];
 
     int stipple;
+
+#if _WIN64
+    /* Storage used by generated spans to preserve the nonvolatile XMM regs. */
+    uint8_t xmm_nonvolatile[10][16];
+#endif
 } voodoo_state_t;
 
 #ifdef ENABLE_VOODOO_RENDER_LOG
