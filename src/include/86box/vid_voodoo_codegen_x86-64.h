@@ -201,7 +201,7 @@ codegen_load_xmm_const(uint8_t *code_block, int block_pos, const __m128i *consta
 static inline int
 codegen_texture_fetch(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, voodoo_state_t *state, int block_pos, int tmu)
 {
-    const int use_ssse3 = 0;//codegen_host_cpu_has_feature(CODEGEN_HOST_CPU_FEATURE_SSSE3);
+    const int use_ssse3 = codegen_host_cpu_has_feature(CODEGEN_HOST_CPU_FEATURE_SSSE3);
     const int use_avx2  = 0;//codegen_host_cpu_has_feature(CODEGEN_HOST_CPU_FEATURE_AVX2);
     if (params->textureMode[tmu] & 1) {
         addbyte(0x48); /*MOV RBX, state->tmu0_s*/
