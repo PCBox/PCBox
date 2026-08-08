@@ -928,6 +928,29 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x41); /*PUSH R15*/
     addbyte(0x57);
 
+#if _WIN64
+    /*
+     * XMM6-XMM15 are nonvolatile under the Windows x64 ABI.  The generated
+     * span code uses these registers, so preserve their low 128 bits across
+     * the call.  MOVDQU avoids depending on the alignment left by the
+     * variable number of integer-register pushes above.
+     */
+    addbyte(0x48); /*SUB RSP, 10 * 16*/
+    addbyte(0x81);
+    addbyte(0xec);
+    addlong(10 * 16);
+    for (int xmm = 6; xmm <= 15; xmm++) {
+        addbyte(0xf3); /*MOVDQU [RSP + (xmm - 6) * 16], XMMx*/
+        if (xmm >= 8)
+            addbyte(0x44); /*REX.R*/
+        addbyte(0x0f);
+        addbyte(0x7f);
+        addbyte(0x84 | ((xmm & 7) << 3));
+        addbyte(0x24);
+        addlong((xmm - 6) * 16);
+    }
+#endif
+
     if (need_xmm_01_w)
         block_pos = codegen_load_xmm_const(code_block, block_pos, &xmm_01_w, 8);
     if (need_xmm_ff_w)
@@ -3708,6 +3731,23 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x0f); /*JNZ loop_jump_pos*/
     addbyte(0x85);
     addlong(loop_jump_pos - (block_pos + 4));
+
+#if _WIN64
+    for (int xmm = 6; xmm <= 15; xmm++) {
+        addbyte(0xf3); /*MOVDQU XMMx, [RSP + (xmm - 6) * 16]*/
+        if (xmm >= 8)
+            addbyte(0x44); /*REX.R*/
+        addbyte(0x0f);
+        addbyte(0x6f);
+        addbyte(0x84 | ((xmm & 7) << 3));
+        addbyte(0x24);
+        addlong((xmm - 6) * 16);
+    }
+    addbyte(0x48); /*ADD RSP, 10 * 16*/
+    addbyte(0x81);
+    addbyte(0xc4);
+    addlong(10 * 16);
+#endif
 
     addbyte(0x41); /*POP R15*/
     addbyte(0x5f);
