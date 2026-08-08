@@ -7,7 +7,8 @@ opCVTPI2PS_xmm_mm_a16(uint32_t fetchdat)
     if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opCVTPI2PD_xmm_mm_a16(fetchdat);
 
-    MMX_ENTER();
+    if(cpu_mod == 3) MMX_ENTER();
+    else SSE_ENTER();
     fetch_ea_16(fetchdat);
     MMX_GETSRC();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
@@ -26,7 +27,8 @@ opCVTPI2PS_xmm_mm_a32(uint32_t fetchdat)
     if ((cpu_features & CPU_FEATURE_SSE2) && cpu_state.sse_xmm)
         return opCVTPI2PD_xmm_mm_a32(fetchdat);
 
-    MMX_ENTER();
+    if(cpu_mod == 3) MMX_ENTER();
+    else SSE_ENTER();
     fetch_ea_32(fetchdat);
     MMX_GETSRC();
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
