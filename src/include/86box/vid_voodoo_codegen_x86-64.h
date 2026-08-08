@@ -957,6 +957,9 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x49); /*MOV R15, RDX (voodoo_params)*/
     addbyte(0x89);
     addbyte(0xd7);
+    addbyte(0x48); /*MOV RSI, RDX (voodoo_params for prologue loads)*/
+    addbyte(0x89);
+    addbyte(0xd6);
     addbyte(0x4d); /*MOV R14, R9 (real_y)*/
     addbyte(0x89);
     addbyte(0xce);
