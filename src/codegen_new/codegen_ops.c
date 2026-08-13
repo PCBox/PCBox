@@ -59,6 +59,8 @@
 #    define X86_MOVMSKPS ropMOVMSKPS
 #    define X86_SHUFPS ropSHUFPS
 #    define X86_SQRTPS ropSQRTPS
+#    define X86_RSQRTPS ropRSQRTPS
+#    define X86_RCPPS ropRCPPS
 #    define X86_MINPS ropMINPS
 #    define X86_MAXPS ropMAXPS
 #    define X86_CMPPS ropCMPPS
@@ -84,6 +86,8 @@
 #    define X86_MOVMSKPS NULL
 #    define X86_SHUFPS NULL
 #    define X86_SQRTPS NULL
+#    define X86_RSQRTPS NULL
+#    define X86_RCPPS NULL
 #    define X86_MINPS NULL
 #    define X86_MAXPS NULL
 #    define X86_CMPPS NULL
@@ -149,7 +153,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
 /*40*/  ropCMOVO_w,     ropCMOVNO_w,    ropCMOVB_w,     ropCMOVNB_w,    ropCMOVE_w,     ropCMOVNE_w,    ropCMOVBE_w,    ropCMOVNBE_w,   ropCMOVS_w,     ropCMOVNS_w,    ropCMOVP_w,     ropCMOVNP_w,    ropCMOVL_w,     ropCMOVNL_w,    ropCMOVLE_w,    ropCMOVNLE_w,
-/*50*/  X86_MOVMSKPS,   X86_SQRTPS,     NULL,           NULL,           ropANDPS,       ropANDNPS,      ropORPS,        ropXORPS,       X86_ADDPS,      X86_MULPS,      NULL,           NULL,           X86_SUBPS,      X86_MINPS,      X86_DIVPS,      X86_MAXPS,
+/*50*/  X86_MOVMSKPS,   X86_SQRTPS,     X86_RSQRTPS,    X86_RCPPS,      ropANDPS,       ropANDNPS,      ropORPS,        ropXORPS,       X86_ADDPS,      X86_MULPS,      NULL,           NULL,           X86_SUBPS,      X86_MINPS,      X86_DIVPS,      X86_MAXPS,
 /*60*/  ropPUNPCKLBW,   ropPUNPCKLWD,   ropPUNPCKLDQ,   ropPACKSSWB,    ropPCMPGTB,     ropPCMPGTW,     ropPCMPGTD,     ropPACKUSWB,    ropPUNPCKHBW,   ropPUNPCKHWD,   ropPUNPCKHDQ,   ropPACKSSDW,    NULL,           NULL,           ropMOVD_r_d,    ropMOVQ_r_q,
 /*70*/  NULL,           ropPSxxW_imm,   ropPSxxD_imm,   ropPSxxQ_imm,   ropPCMPEQB,     ropPCMPEQW,     ropPCMPEQD,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVD_d_r,    ropMOVQ_q_r,
 
@@ -175,7 +179,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
 /*40*/  ropCMOVO_l,     ropCMOVNO_l,    ropCMOVB_l,     ropCMOVNB_l,    ropCMOVE_l,     ropCMOVNE_l,    ropCMOVBE_l,    ropCMOVNBE_l,   ropCMOVS_l,     ropCMOVNS_l,    ropCMOVP_l,     ropCMOVNP_l,    ropCMOVL_l,     ropCMOVNL_l,    ropCMOVLE_l,    ropCMOVNLE_l,
-/*50*/  X86_MOVMSKPS,   X86_SQRTPS,     NULL,           NULL,           ropANDPS,       ropANDNPS,      ropORPS,        ropXORPS,       X86_ADDPS,      X86_MULPS,      NULL,           NULL,           X86_SUBPS,      X86_MINPS,      X86_DIVPS,      X86_MAXPS,
+/*50*/  X86_MOVMSKPS,   X86_SQRTPS,     X86_RSQRTPS,    X86_RCPPS,      ropANDPS,       ropANDNPS,      ropORPS,        ropXORPS,       X86_ADDPS,      X86_MULPS,      NULL,           NULL,           X86_SUBPS,      X86_MINPS,      X86_DIVPS,      X86_MAXPS,
 /*60*/  ropPUNPCKLBW,   ropPUNPCKLWD,   ropPUNPCKLDQ,   ropPACKSSWB,    ropPCMPGTB,     ropPCMPGTW,     ropPCMPGTD,     ropPACKUSWB,    ropPUNPCKHBW,   ropPUNPCKHWD,   ropPUNPCKHDQ,   ropPACKSSDW,    NULL,           NULL,           ropMOVD_r_d,    ropMOVQ_r_q,
 /*70*/  NULL,           ropPSxxW_imm,   ropPSxxD_imm,   ropPSxxQ_imm,   ropPCMPEQB,     ropPCMPEQW,     ropPCMPEQD,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVD_d_r,    ropMOVQ_q_r,
 
@@ -249,6 +253,8 @@ RecompOpFn recomp_opcodes_REPE_0f[512] = {
     [0x010] = ropMOVSS_r_d,
     [0x011] = ropMOVSS_d_r,
     [0x051] = ropSQRTSS,
+    [0x052] = ropRSQRTSS,
+    [0x053] = ropRCPSS,
     [0x058] = ropADDSS,
     [0x059] = ropMULSS,
     [0x05c] = ropSUBSS,
@@ -259,6 +265,8 @@ RecompOpFn recomp_opcodes_REPE_0f[512] = {
     [0x110] = ropMOVSS_r_d,
     [0x111] = ropMOVSS_d_r,
     [0x151] = ropSQRTSS,
+    [0x152] = ropRSQRTSS,
+    [0x153] = ropRCPSS,
     [0x158] = ropADDSS,
     [0x159] = ropMULSS,
     [0x15c] = ropSUBSS,

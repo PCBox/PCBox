@@ -437,8 +437,12 @@
 #define UOP_CMPPS    (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0xf1)
 #define UOP_CMPSS    (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0xf2)
 #define UOP_COMISS   (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0xf3)
+#define UOP_RCPPS    (UOP_TYPE_PARAMS_REGS | 0xf4)
+#define UOP_RCPSS    (UOP_TYPE_PARAMS_REGS | 0xf5)
+#define UOP_RSQRTPS  (UOP_TYPE_PARAMS_REGS | 0xf6)
+#define UOP_RSQRTSS  (UOP_TYPE_PARAMS_REGS | 0xf7)
 
-#define UOP_MAX     0xf4
+#define UOP_MAX     0xf8
 
 #define UOP_INVALID 0xff
 
@@ -1075,6 +1079,10 @@ extern int codegen_fp_enter(void);
 #define uop_CMPPS(ir, dst_reg, src_reg_a, src_reg_b, imm)                uop_gen_reg_dst_src2_imm(UOP_CMPPS, ir, dst_reg, src_reg_a, src_reg_b, imm)
 #define uop_CMPSS(ir, dst_reg, src_reg_a, src_reg_b, imm)                uop_gen_reg_dst_src2_imm(UOP_CMPSS, ir, dst_reg, src_reg_a, src_reg_b, imm)
 #define uop_COMISS(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, imm)    uop_gen_reg_dst_src3_imm(UOP_COMISS, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, imm)
+#define uop_RCPPS(ir, dst_reg, src_reg)                                  uop_gen_reg_dst_src1(UOP_RCPPS, ir, dst_reg, src_reg)
+#define uop_RCPSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_RCPSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_RSQRTPS(ir, dst_reg, src_reg)                                uop_gen_reg_dst_src1(UOP_RSQRTPS, ir, dst_reg, src_reg)
+#define uop_RSQRTSS(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_RSQRTSS, ir, dst_reg, src_reg_a, src_reg_b)
 
 #define uop_STORE_PTR_IMM(ir, p, imm)                                    uop_gen_pointer_imm(UOP_STORE_P_IMM, ir, p, imm)
 #define uop_STORE_PTR_IMM_8(ir, p, imm)                                  uop_gen_pointer_imm(UOP_STORE_P_IMM_8, ir, p, imm)

@@ -2249,6 +2249,52 @@ codegen_SQRTSS(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_RCPPS(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg   = HOST_REG_GET(uop->src_reg_a_real);
+    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size))
+        host_x86_RCPPS_XREG_XREG(block, dest_reg, src_reg);
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("RCPPS %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_RCPSS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_RCPSS_XREG_XREG, "RCPSS", 0);
+}
+
+static int
+codegen_RSQRTPS(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg   = HOST_REG_GET(uop->src_reg_a_real);
+    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size))
+        host_x86_RSQRTPS_XREG_XREG(block, dest_reg, src_reg);
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("RSQRTPS %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_RSQRTSS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_RSQRTSS_XREG_XREG, "RSQRTSS", 0);
+}
+
+static int
 codegen_CMPPS(codeblock_t *block, uop_t *uop)
 {
     int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
@@ -4673,6 +4719,18 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_COMISS &
         UOP_MASK]
     = codegen_COMISS,
+    [UOP_RCPPS &
+        UOP_MASK]
+    = codegen_RCPPS,
+    [UOP_RCPSS &
+        UOP_MASK]
+    = codegen_RCPSS,
+    [UOP_RSQRTPS &
+        UOP_MASK]
+    = codegen_RSQRTPS,
+    [UOP_RSQRTSS &
+        UOP_MASK]
+    = codegen_RSQRTSS,
 
     [UOP_SSE_ENTER &
         UOP_MASK]

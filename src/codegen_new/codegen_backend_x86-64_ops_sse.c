@@ -928,6 +928,31 @@ host_x86_PUNPCKLDQ_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 }
 
 void
+host_x86_RCPPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 3);
+    codegen_addbyte3(block, 0x0f, 0x53, 0xc0 | src_reg | (dst_reg << 3)); /*RCPPS dst_reg, src_reg*/
+}
+void
+host_x86_RCPSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0xf3, 0x0f, 0x53, 0xc0 | src_reg | (dst_reg << 3)); /*RCPSS dst_reg, src_reg*/
+}
+void
+host_x86_RSQRTPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 3);
+    codegen_addbyte3(block, 0x0f, 0x52, 0xc0 | src_reg | (dst_reg << 3)); /*RSQRTPS dst_reg, src_reg*/
+}
+void
+host_x86_RSQRTSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0xf3, 0x0f, 0x52, 0xc0 | src_reg | (dst_reg << 3)); /*RSQRTSS dst_reg, src_reg*/
+}
+
+void
 host_x86_SQRTSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_alloc_bytes(block, 4);
