@@ -1920,7 +1920,7 @@ codegen_MOVSD(codeblock_t *block, uop_t *uop)
     int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b)) {
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && (REG_IS_DQ(src_size_b) || REG_IS_Q(src_size_b))) {
         if (dest_reg != src_reg_a)
             host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
         host_x86_MOVSD_XREG_XREG(block, dest_reg, src_reg_b);
@@ -2116,6 +2116,214 @@ static int
 codegen_DIVSD(codeblock_t *block, uop_t *uop)
 {
     return codegen_SSE_ARITH(block, uop, host_x86_DIVSD_XREG_XREG, "DIVSD", 1);
+}
+
+static int
+codegen_SHUFPS(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b)) {
+        if (dest_reg != src_reg_a)
+            host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        host_x86_SHUFPS_XREG_XREG(block, dest_reg, src_reg_b, uop->imm_data);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("SHUFPS %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_MOVHLPS(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && (REG_IS_DQ(src_size_b) || REG_IS_Q(src_size_b))) {
+        if (dest_reg != src_reg_a)
+            host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        host_x86_MOVHLPS_XREG_XREG(block, dest_reg, src_reg_b);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("MOVHLPS %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_MOVLHPS(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && (REG_IS_DQ(src_size_b) || REG_IS_Q(src_size_b))) {
+        if (dest_reg != src_reg_a)
+            host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        host_x86_MOVLHPS_XREG_XREG(block, dest_reg, src_reg_b);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("MOVLHPS %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_MOVMSKPS(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg   = HOST_REG_GET(uop->src_reg_a_real);
+    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
+
+    if (REG_IS_L(dest_size) && REG_IS_DQ(src_size))
+        host_x86_MOVMSKPS_REG_XREG(block, dest_reg, src_reg);
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("MOVMSKPS %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_MINPS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_MINPS_XREG_XREG, "MINPS", 0);
+}
+
+static int
+codegen_MINSS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_MINSS_XREG_XREG, "MINSS", 0);
+}
+
+static int
+codegen_MAXPS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_MAXPS_XREG_XREG, "MAXPS", 0);
+}
+
+static int
+codegen_MAXSS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_MAXSS_XREG_XREG, "MAXSS", 0);
+}
+
+static int
+codegen_SQRTPS(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg   = HOST_REG_GET(uop->src_reg_a_real);
+    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size))
+        host_x86_SQRTPS_XREG_XREG(block, dest_reg, src_reg);
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("SQRTPS %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_SQRTSS(codeblock_t *block, uop_t *uop)
+{
+    return codegen_SSE_ARITH(block, uop, host_x86_SQRTSS_XREG_XREG, "SQRTSS", 0);
+}
+
+static int
+codegen_CMPPS(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b)) {
+        if (dest_reg != src_reg_a)
+            host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        host_x86_CMPPS_XREG_XREG(block, dest_reg, src_reg_b, uop->imm_data & 7);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("CMPPS %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_CMPSS(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b)) {
+        if (dest_reg != src_reg_a)
+            host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        host_x86_CMPSS_XREG_XREG(block, dest_reg, src_reg_b, uop->imm_data & 7);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("CMPSS %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_COMISS(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int flags_reg  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_b_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_c_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int flags_size = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_b_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_c_real);
+
+    if (REG_IS_W(dest_size) && REG_IS_W(flags_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b)) {
+        host_x86_MOV32_REG_REG(block, REG_ECX, flags_reg);
+        host_x86_AND32_REG_IMM(block, REG_ECX, 0xffff & ~(V_FLAG | A_FLAG | N_FLAG | Z_FLAG | P_FLAG | C_FLAG));
+        host_x86_PUSH(block, REG_RAX);
+        if (uop->imm_data)
+            host_x86_COMISS_XREG_XREG(block, src_reg_a, src_reg_b);
+        else
+            host_x86_UCOMISS_XREG_XREG(block, src_reg_a, src_reg_b);
+        host_x86_LAHF(block);
+        host_x86_SHR32_IMM(block, REG_EAX, 8);
+        host_x86_AND32_REG_IMM(block, REG_EAX, C_FLAG | P_FLAG | Z_FLAG);
+        host_x86_OR32_REG_REG(block, REG_ECX, REG_EAX);
+        host_x86_POP(block, REG_RAX);
+        host_x86_MOV16_REG_REG(block, dest_reg, REG_ECX);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("COMISS %02x %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real, uop->src_reg_c_real);
+#    endif
+    return 0;
 }
 
 static int
@@ -4425,6 +4633,46 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_DIVSD &
         UOP_MASK]
     = codegen_DIVSD,
+
+    [UOP_SHUFPS &
+        UOP_MASK]
+    = codegen_SHUFPS,
+    [UOP_MOVHLPS &
+        UOP_MASK]
+    = codegen_MOVHLPS,
+    [UOP_MOVLHPS &
+        UOP_MASK]
+    = codegen_MOVLHPS,
+    [UOP_MOVMSKPS &
+        UOP_MASK]
+    = codegen_MOVMSKPS,
+    [UOP_MINPS &
+        UOP_MASK]
+    = codegen_MINPS,
+    [UOP_MINSS &
+        UOP_MASK]
+    = codegen_MINSS,
+    [UOP_MAXPS &
+        UOP_MASK]
+    = codegen_MAXPS,
+    [UOP_MAXSS &
+        UOP_MASK]
+    = codegen_MAXSS,
+    [UOP_SQRTPS &
+        UOP_MASK]
+    = codegen_SQRTPS,
+    [UOP_SQRTSS &
+        UOP_MASK]
+    = codegen_SQRTSS,
+    [UOP_CMPPS &
+        UOP_MASK]
+    = codegen_CMPPS,
+    [UOP_CMPSS &
+        UOP_MASK]
+    = codegen_CMPSS,
+    [UOP_COMISS &
+        UOP_MASK]
+    = codegen_COMISS,
 
     [UOP_SSE_ENTER &
         UOP_MASK]

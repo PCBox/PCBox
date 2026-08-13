@@ -423,7 +423,22 @@
 /*UOP_CMOVNZ - dest_reg = src_reg_c ? src_reg_b : src_reg_a*/
 #define UOP_CMOVNZ (UOP_TYPE_PARAMS_REGS | 0xe6)
 
-#define UOP_MAX     0xe7
+/*SSE1 shuffles, moves, arithmetic, and comparisons*/
+#define UOP_SHUFPS   (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0xe7)
+#define UOP_MOVHLPS  (UOP_TYPE_PARAMS_REGS | 0xe8)
+#define UOP_MOVLHPS  (UOP_TYPE_PARAMS_REGS | 0xe9)
+#define UOP_MOVMSKPS (UOP_TYPE_PARAMS_REGS | 0xea)
+#define UOP_MINPS    (UOP_TYPE_PARAMS_REGS | 0xeb)
+#define UOP_MINSS    (UOP_TYPE_PARAMS_REGS | 0xec)
+#define UOP_MAXPS    (UOP_TYPE_PARAMS_REGS | 0xed)
+#define UOP_MAXSS    (UOP_TYPE_PARAMS_REGS | 0xee)
+#define UOP_SQRTPS   (UOP_TYPE_PARAMS_REGS | 0xef)
+#define UOP_SQRTSS   (UOP_TYPE_PARAMS_REGS | 0xf0)
+#define UOP_CMPPS    (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0xf1)
+#define UOP_CMPSS    (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0xf2)
+#define UOP_COMISS   (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0xf3)
+
+#define UOP_MAX     0xf4
 
 #define UOP_INVALID 0xff
 
@@ -1046,6 +1061,20 @@ extern int codegen_fp_enter(void);
 #define uop_DIVPD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_DIVPD, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_DIVSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_DIVSS, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_DIVSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_DIVSD, ir, dst_reg, src_reg_a, src_reg_b)
+
+#define uop_SHUFPS(ir, dst_reg, src_reg_a, src_reg_b, imm)               uop_gen_reg_dst_src2_imm(UOP_SHUFPS, ir, dst_reg, src_reg_a, src_reg_b, imm)
+#define uop_MOVHLPS(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_MOVHLPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MOVLHPS(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_MOVLHPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MOVMSKPS(ir, dst_reg, src_reg)                               uop_gen_reg_dst_src1(UOP_MOVMSKPS, ir, dst_reg, src_reg)
+#define uop_MINPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MINPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MINSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MINSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MAXPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MAXPS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_MAXSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MAXSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_SQRTPS(ir, dst_reg, src_reg)                                 uop_gen_reg_dst_src1(UOP_SQRTPS, ir, dst_reg, src_reg)
+#define uop_SQRTSS(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_SQRTSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_CMPPS(ir, dst_reg, src_reg_a, src_reg_b, imm)                uop_gen_reg_dst_src2_imm(UOP_CMPPS, ir, dst_reg, src_reg_a, src_reg_b, imm)
+#define uop_CMPSS(ir, dst_reg, src_reg_a, src_reg_b, imm)                uop_gen_reg_dst_src2_imm(UOP_CMPSS, ir, dst_reg, src_reg_a, src_reg_b, imm)
+#define uop_COMISS(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, imm)    uop_gen_reg_dst_src3_imm(UOP_COMISS, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, imm)
 
 #define uop_STORE_PTR_IMM(ir, p, imm)                                    uop_gen_pointer_imm(UOP_STORE_P_IMM, ir, p, imm)
 #define uop_STORE_PTR_IMM_8(ir, p, imm)                                  uop_gen_pointer_imm(UOP_STORE_P_IMM_8, ir, p, imm)

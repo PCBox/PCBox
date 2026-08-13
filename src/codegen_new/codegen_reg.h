@@ -245,6 +245,7 @@ enum {
 #define IREG_MM(reg)               ((reg) + IREG_MM0)
 
 #define IREG_XMM(reg)              ((reg) + IREG_XMM0)
+#define IREG_XMM_Q(reg)            ((reg) + IREG_XMM0x + IREG_SIZE_Q)
 
 #define IREG_TOP_diff_stack_offset 32
 
