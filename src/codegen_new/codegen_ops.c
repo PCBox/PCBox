@@ -151,7 +151,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
 /*40*/  ropCMOVO_l,     ropCMOVNO_l,    ropCMOVB_l,     ropCMOVNB_l,    ropCMOVE_l,     ropCMOVNE_l,    ropCMOVBE_l,    ropCMOVNBE_l,   ropCMOVS_l,     ropCMOVNS_l,    ropCMOVP_l,     ropCMOVNP_l,    ropCMOVL_l,     ropCMOVNL_l,    ropCMOVLE_l,    ropCMOVNLE_l,
-/*50*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           X86_ADDPS,      X86_MULPS,      NULL,           NULL,           X86_SUBPS,      NULL,           X86_DIVPS,      NULL,
+/*50*/  NULL,           NULL,           NULL,           NULL,           ropANDPS,       ropANDNPS,      ropORPS,        ropXORPS,       X86_ADDPS,      X86_MULPS,      NULL,           NULL,           X86_SUBPS,      NULL,           X86_DIVPS,      NULL,
 /*60*/  ropPUNPCKLBW,   ropPUNPCKLWD,   ropPUNPCKLDQ,   ropPACKSSWB,    ropPCMPGTB,     ropPCMPGTW,     ropPCMPGTD,     ropPACKUSWB,    ropPUNPCKHBW,   ropPUNPCKHWD,   ropPUNPCKHDQ,   ropPACKSSDW,    NULL,           NULL,           ropMOVD_r_d,    ropMOVQ_r_q,
 /*70*/  NULL,           ropPSxxW_imm,   ropPSxxD_imm,   ropPSxxQ_imm,   ropPCMPEQB,     ropPCMPEQW,     ropPCMPEQD,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVD_d_r,    ropMOVQ_q_r,
 

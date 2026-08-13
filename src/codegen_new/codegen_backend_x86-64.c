@@ -345,30 +345,32 @@ build_store_routine(codeblock_t *block, int size, int is_float)
 static void
 build_loadstore_routines(codeblock_t *block)
 {
-    codegen_mem_load_byte = &codeblock[block_current].data[block_pos];
+    /* Helper emission may advance to another allocator block, so always use
+       block_write_data rather than the first block's data pointer. */
+    codegen_mem_load_byte = &block_write_data[block_pos];
     build_load_routine(block, 1, 0);
-    codegen_mem_load_word = &codeblock[block_current].data[block_pos];
+    codegen_mem_load_word = &block_write_data[block_pos];
     build_load_routine(block, 2, 0);
-    codegen_mem_load_long = &codeblock[block_current].data[block_pos];
+    codegen_mem_load_long = &block_write_data[block_pos];
     build_load_routine(block, 4, 0);
-    codegen_mem_load_quad = &codeblock[block_current].data[block_pos];
+    codegen_mem_load_quad = &block_write_data[block_pos];
     build_load_routine(block, 8, 0);
-    codegen_mem_load_single = &codeblock[block_current].data[block_pos];
+    codegen_mem_load_single = &block_write_data[block_pos];
     build_load_routine(block, 4, 1);
-    codegen_mem_load_double = &codeblock[block_current].data[block_pos];
+    codegen_mem_load_double = &block_write_data[block_pos];
     build_load_routine(block, 8, 1);
 
-    codegen_mem_store_byte = &codeblock[block_current].data[block_pos];
+    codegen_mem_store_byte = &block_write_data[block_pos];
     build_store_routine(block, 1, 0);
-    codegen_mem_store_word = &codeblock[block_current].data[block_pos];
+    codegen_mem_store_word = &block_write_data[block_pos];
     build_store_routine(block, 2, 0);
-    codegen_mem_store_long = &codeblock[block_current].data[block_pos];
+    codegen_mem_store_long = &block_write_data[block_pos];
     build_store_routine(block, 4, 0);
-    codegen_mem_store_quad = &codeblock[block_current].data[block_pos];
+    codegen_mem_store_quad = &block_write_data[block_pos];
     build_store_routine(block, 8, 0);
-    codegen_mem_store_single = &codeblock[block_current].data[block_pos];
+    codegen_mem_store_single = &block_write_data[block_pos];
     build_store_routine(block, 4, 1);
-    codegen_mem_store_double = &codeblock[block_current].data[block_pos];
+    codegen_mem_store_double = &block_write_data[block_pos];
     build_store_routine(block, 8, 1);
 }
 
@@ -401,7 +403,7 @@ codegen_backend_init(void)
     block_write_data                        = codeblock[block_current].data;
     build_loadstore_routines(&codeblock[block_current]);
 
-    codegen_gpf_rout = &codeblock[block_current].data[block_pos];
+    codegen_gpf_rout = &block_write_data[block_pos];
 #    if _WIN64
     host_x86_XOR32_REG_REG(block, REG_ECX, REG_ECX);
     host_x86_XOR32_REG_REG(block, REG_EDX, REG_EDX);
@@ -410,7 +412,7 @@ codegen_backend_init(void)
     host_x86_XOR32_REG_REG(block, REG_ESI, REG_ESI);
 #    endif
     host_x86_CALL(block, (void *) x86gpf);
-    codegen_exit_rout = &codeblock[block_current].data[block_pos];
+    codegen_exit_rout = &block_write_data[block_pos];
     host_x86_ADD64_REG_IMM(block, REG_RSP, 0x58);
     host_x86_POP(block, REG_R15);
     host_x86_POP(block, REG_R14);
