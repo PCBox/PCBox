@@ -536,6 +536,80 @@ ropCVTSS2SI(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
     return rop_sse_single_to_int(block, ir, fetchdat, op_32, op_pc, 0);
 }
 
+uint32_t
+ropCVTPI2PS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    int dest_reg = (fetchdat >> 3) & 7;
+
+    if (op_sse_xmm)
+        return 0;
+
+    if ((fetchdat & 0xc0) == 0xc0)
+        uop_MMX_ENTER(ir);
+    else
+        uop_SSE_ENTER(ir);
+
+    codegen_mark_code_present(block, cs + op_pc, 1);
+    if ((fetchdat & 0xc0) == 0xc0) {
+        uop_CVTPI2PS(ir, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_MM(fetchdat & 7));
+    } else {
+        x86seg *target_seg;
+
+        uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+        target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+        codegen_check_seg_read(block, ir, target_seg);
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 7);
+        uop_MEM_LOAD_REG(ir, IREG_temp0_Q, ireg_seg_base(target_seg), IREG_eaaddr);
+        uop_CVTPI2PS(ir, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_temp0_Q);
+    }
+
+    return op_pc + 1;
+}
+
+static uint32_t
+rop_sse_packed_to_mmx(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc, int truncate)
+{
+    int dest_reg = (fetchdat >> 3) & 7;
+
+    if (op_sse_xmm)
+        return 0;
+
+    uop_MMX_ENTER(ir);
+    codegen_mark_code_present(block, cs + op_pc, 1);
+    if ((fetchdat & 0xc0) == 0xc0) {
+        if (truncate)
+            uop_CVTTPS2PI(ir, IREG_MM(dest_reg), IREG_XMM(fetchdat & 7));
+        else
+            uop_CVTPS2PI(ir, IREG_MM(dest_reg), IREG_XMM(fetchdat & 7));
+    } else {
+        x86seg *target_seg;
+
+        uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+        target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+        codegen_check_seg_read(block, ir, target_seg);
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 7);
+        uop_MEM_LOAD_REG(ir, IREG_temp0_Q, ireg_seg_base(target_seg), IREG_eaaddr);
+        if (truncate)
+            uop_CVTTPS2PI(ir, IREG_MM(dest_reg), IREG_temp0_Q);
+        else
+            uop_CVTPS2PI(ir, IREG_MM(dest_reg), IREG_temp0_Q);
+    }
+
+    return op_pc + 1;
+}
+
+uint32_t
+ropCVTTPS2PI(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    return rop_sse_packed_to_mmx(block, ir, fetchdat, op_32, op_pc, 1);
+}
+
+uint32_t
+ropCVTPS2PI(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    return rop_sse_packed_to_mmx(block, ir, fetchdat, op_32, op_pc, 0);
+}
+
 static uint32_t
 rop_sse_cmp(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc, int scalar)
 {

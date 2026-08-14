@@ -66,6 +66,9 @@
 #    define X86_CMPPS ropCMPPS
 #    define X86_UCOMISS ropUCOMISS
 #    define X86_COMISS ropCOMISS
+#    define X86_CVTPI2PS ropCVTPI2PS
+#    define X86_CVTTPS2PI ropCVTTPS2PI
+#    define X86_CVTPS2PI ropCVTPS2PI
 #else
 #    define X86_PADDQ NULL
 #    define X86_PSUBQ NULL
@@ -93,6 +96,9 @@
 #    define X86_CMPPS NULL
 #    define X86_UCOMISS NULL
 #    define X86_COMISS NULL
+#    define X86_CVTPI2PS NULL
+#    define X86_CVTTPS2PI NULL
+#    define X86_CVTPS2PI NULL
 #endif
 
 RecompOpFn recomp_opcodes[512] = {
@@ -149,7 +155,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
 /*10*/  X86_MOVUPS_R_D, X86_MOVUPS_D_R, X86_MOVLPS_R_Q, X86_MOVLPS_Q_R, X86_UNPCKLPS,   X86_UNPCKHPS,   X86_MOVHPS_R_Q, X86_MOVHPS_Q_R, NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
-/*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           X86_MOVAPS_R_D, X86_MOVAPS_D_R, NULL,           X86_MOVAPS_D_R, NULL,           NULL,           X86_UCOMISS,    X86_COMISS,
+/*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           X86_MOVAPS_R_D, X86_MOVAPS_D_R, X86_CVTPI2PS,   X86_MOVAPS_D_R, X86_CVTTPS2PI,  X86_CVTPS2PI,   X86_UCOMISS,    X86_COMISS,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
 /*40*/  ropCMOVO_w,     ropCMOVNO_w,    ropCMOVB_w,     ropCMOVNB_w,    ropCMOVE_w,     ropCMOVNE_w,    ropCMOVBE_w,    ropCMOVNBE_w,   ropCMOVS_w,     ropCMOVNS_w,    ropCMOVP_w,     ropCMOVNP_w,    ropCMOVL_w,     ropCMOVNL_w,    ropCMOVLE_w,    ropCMOVNLE_w,
@@ -175,7 +181,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
 /*10*/  X86_MOVUPS_R_D, X86_MOVUPS_D_R, X86_MOVLPS_R_Q, X86_MOVLPS_Q_R, X86_UNPCKLPS,   X86_UNPCKHPS,   X86_MOVHPS_R_Q, X86_MOVHPS_Q_R, NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
-/*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           X86_MOVAPS_R_D, X86_MOVAPS_D_R, NULL,           X86_MOVAPS_D_R, NULL,           NULL,           X86_UCOMISS,    X86_COMISS,
+/*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           X86_MOVAPS_R_D, X86_MOVAPS_D_R, X86_CVTPI2PS,   X86_MOVAPS_D_R, X86_CVTTPS2PI,  X86_CVTPS2PI,   X86_UCOMISS,    X86_COMISS,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
 /*40*/  ropCMOVO_l,     ropCMOVNO_l,    ropCMOVB_l,     ropCMOVNB_l,    ropCMOVE_l,     ropCMOVNE_l,    ropCMOVBE_l,    ropCMOVNBE_l,   ropCMOVS_l,     ropCMOVNS_l,    ropCMOVP_l,     ropCMOVNP_l,    ropCMOVL_l,     ropCMOVNL_l,    ropCMOVLE_l,    ropCMOVNLE_l,

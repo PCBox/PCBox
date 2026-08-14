@@ -444,8 +444,11 @@
 #define UOP_CVTSI2SS   (UOP_TYPE_PARAMS_REGS | 0xf8)
 #define UOP_CVTTSS2SI  (UOP_TYPE_PARAMS_REGS | 0xf9)
 #define UOP_CVTSS2SI   (UOP_TYPE_PARAMS_REGS | 0xfa)
+#define UOP_CVTPI2PS   (UOP_TYPE_PARAMS_REGS | 0xfb)
+#define UOP_CVTTPS2PI  (UOP_TYPE_PARAMS_REGS | 0xfc)
+#define UOP_CVTPS2PI   (UOP_TYPE_PARAMS_REGS | 0xfd)
 
-#define UOP_MAX     0xfb
+#define UOP_MAX     0xfe
 
 #define UOP_INVALID 0xff
 
@@ -1089,6 +1092,9 @@ extern int codegen_fp_enter(void);
 #define uop_CVTSI2SS(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_CVTSI2SS, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_CVTTSS2SI(ir, dst_reg, src_reg)                              uop_gen_reg_dst_src1(UOP_CVTTSS2SI, ir, dst_reg, src_reg)
 #define uop_CVTSS2SI(ir, dst_reg, src_reg)                               uop_gen_reg_dst_src1(UOP_CVTSS2SI, ir, dst_reg, src_reg)
+#define uop_CVTPI2PS(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_CVTPI2PS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_CVTTPS2PI(ir, dst_reg, src_reg)                              uop_gen_reg_dst_src1(UOP_CVTTPS2PI, ir, dst_reg, src_reg)
+#define uop_CVTPS2PI(ir, dst_reg, src_reg)                               uop_gen_reg_dst_src1(UOP_CVTPS2PI, ir, dst_reg, src_reg)
 
 #define uop_STORE_PTR_IMM(ir, p, imm)                                    uop_gen_pointer_imm(UOP_STORE_P_IMM, ir, p, imm)
 #define uop_STORE_PTR_IMM_8(ir, p, imm)                                  uop_gen_pointer_imm(UOP_STORE_P_IMM_8, ir, p, imm)

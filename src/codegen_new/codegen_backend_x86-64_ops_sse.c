@@ -112,6 +112,13 @@ host_x86_CVTPS2DQ_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 }
 
 void
+host_x86_CVTTPS2DQ_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0xf3, 0x0f, 0x5b, 0xc0 | src_reg | (dst_reg << 3)); /*CVTTPS2DQ dst_reg, src_reg*/
+}
+
+void
 host_x86_CVTSD2SI_REG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_alloc_bytes(block, 5);

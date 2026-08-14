@@ -15,6 +15,7 @@ void host_x86_COMISD_XREG_XREG(codeblock_t *block, int src_reg_a, int src_reg_b)
 
 void host_x86_CVTDQ2PS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_CVTPS2DQ_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_CVTTPS2DQ_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
 void host_x86_CVTSD2SI_REG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_CVTSD2SI_REG64_XREG(codeblock_t *block, int dst_reg, int src_reg);

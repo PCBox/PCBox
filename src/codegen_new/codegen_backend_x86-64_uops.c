@@ -2367,6 +2367,69 @@ codegen_CVTSS2SI(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_CVTPI2PS(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_Q(src_size_b)) {
+        if (dest_reg != src_reg_a)
+            host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        host_x86_MOVQ_XREG_XREG(block, REG_XMM_TEMP, src_reg_b);
+        codegen_load_guest_sse_rounding(block);
+        host_x86_CVTDQ2PS_XREG_XREG(block, REG_XMM_TEMP, REG_XMM_TEMP);
+        host_x86_LDMXCSR(block, &cpu_state.old_fp_control);
+        host_x86_MOVSD_XREG_XREG(block, dest_reg, REG_XMM_TEMP);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("CVTPI2PS %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_CVTTPS2PI(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg   = HOST_REG_GET(uop->src_reg_a_real);
+    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
+
+    if (REG_IS_Q(dest_size) && (REG_IS_DQ(src_size) || REG_IS_Q(src_size)))
+        host_x86_CVTTPS2DQ_XREG_XREG(block, dest_reg, src_reg);
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("CVTTPS2PI %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_CVTPS2PI(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg   = HOST_REG_GET(uop->src_reg_a_real);
+    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
+
+    if (REG_IS_Q(dest_size) && (REG_IS_DQ(src_size) || REG_IS_Q(src_size))) {
+        codegen_load_guest_sse_rounding(block);
+        host_x86_CVTPS2DQ_XREG_XREG(block, dest_reg, src_reg);
+        host_x86_LDMXCSR(block, &cpu_state.old_fp_control);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("CVTPS2PI %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
+#    endif
+    return 0;
+}
+
+static int
 codegen_CMPPS(codeblock_t *block, uop_t *uop)
 {
     int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
@@ -4812,6 +4875,15 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_CVTSS2SI &
         UOP_MASK]
     = codegen_CVTSS2SI,
+    [UOP_CVTPI2PS &
+        UOP_MASK]
+    = codegen_CVTPI2PS,
+    [UOP_CVTTPS2PI &
+        UOP_MASK]
+    = codegen_CVTTPS2PI,
+    [UOP_CVTPS2PI &
+        UOP_MASK]
+    = codegen_CVTPS2PI,
 
     [UOP_SSE_ENTER &
         UOP_MASK]
