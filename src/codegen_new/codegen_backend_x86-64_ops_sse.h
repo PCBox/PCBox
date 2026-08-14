@@ -19,6 +19,8 @@ void host_x86_CVTPS2DQ_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_CVTSD2SI_REG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_CVTSD2SI_REG64_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_CVTSD2SS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_CVTSS2SI_REG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_CVTTSS2SI_REG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_CVTSI2SD_XREG_REG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_CVTSI2SD_XREG_REG64(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_CVTSI2SS_XREG_REG(codeblock_t *block, int dst_reg, int src_reg);
@@ -31,6 +33,7 @@ void host_x86_DIVPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_DIVSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
 void host_x86_LDMXCSR(codeblock_t *block, void *p);
+void host_x86_LDMXCSR_BASE_OFFSET(codeblock_t *block, int base_reg, int offset);
 
 void host_x86_MAXSD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 

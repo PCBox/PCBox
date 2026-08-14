@@ -423,7 +423,7 @@
 /*UOP_CMOVNZ - dest_reg = src_reg_c ? src_reg_b : src_reg_a*/
 #define UOP_CMOVNZ (UOP_TYPE_PARAMS_REGS | 0xe6)
 
-/*SSE1 shuffles, moves, arithmetic, and comparisons*/
+/*SSE1 XMM operations*/
 #define UOP_SHUFPS   (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0xe7)
 #define UOP_MOVHLPS  (UOP_TYPE_PARAMS_REGS | 0xe8)
 #define UOP_MOVLHPS  (UOP_TYPE_PARAMS_REGS | 0xe9)
@@ -441,8 +441,11 @@
 #define UOP_RCPSS    (UOP_TYPE_PARAMS_REGS | 0xf5)
 #define UOP_RSQRTPS  (UOP_TYPE_PARAMS_REGS | 0xf6)
 #define UOP_RSQRTSS  (UOP_TYPE_PARAMS_REGS | 0xf7)
+#define UOP_CVTSI2SS   (UOP_TYPE_PARAMS_REGS | 0xf8)
+#define UOP_CVTTSS2SI  (UOP_TYPE_PARAMS_REGS | 0xf9)
+#define UOP_CVTSS2SI   (UOP_TYPE_PARAMS_REGS | 0xfa)
 
-#define UOP_MAX     0xf8
+#define UOP_MAX     0xfb
 
 #define UOP_INVALID 0xff
 
@@ -1083,6 +1086,9 @@ extern int codegen_fp_enter(void);
 #define uop_RCPSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_RCPSS, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_RSQRTPS(ir, dst_reg, src_reg)                                uop_gen_reg_dst_src1(UOP_RSQRTPS, ir, dst_reg, src_reg)
 #define uop_RSQRTSS(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_RSQRTSS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_CVTSI2SS(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_CVTSI2SS, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_CVTTSS2SI(ir, dst_reg, src_reg)                              uop_gen_reg_dst_src1(UOP_CVTTSS2SI, ir, dst_reg, src_reg)
+#define uop_CVTSS2SI(ir, dst_reg, src_reg)                               uop_gen_reg_dst_src1(UOP_CVTSS2SI, ir, dst_reg, src_reg)
 
 #define uop_STORE_PTR_IMM(ir, p, imm)                                    uop_gen_pointer_imm(UOP_STORE_P_IMM, ir, p, imm)
 #define uop_STORE_PTR_IMM_8(ir, p, imm)                                  uop_gen_pointer_imm(UOP_STORE_P_IMM_8, ir, p, imm)

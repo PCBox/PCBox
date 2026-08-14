@@ -134,6 +134,23 @@ host_x86_CVTSD2SS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 }
 
 void
+host_x86_CVTSS2SI_REG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 5);
+    codegen_addbyte(block, 0xf3);
+    add_rex_if_needed(block, 0, dst_reg, 0, src_reg);
+    codegen_addbyte3(block, 0x0f, 0x2d, modrm_reg_reg(dst_reg, src_reg)); /*CVTSS2SI dst_reg, src_reg*/
+}
+void
+host_x86_CVTTSS2SI_REG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 5);
+    codegen_addbyte(block, 0xf3);
+    add_rex_if_needed(block, 0, dst_reg, 0, src_reg);
+    codegen_addbyte3(block, 0x0f, 0x2c, modrm_reg_reg(dst_reg, src_reg)); /*CVTTSS2SI dst_reg, src_reg*/
+}
+
+void
 host_x86_CVTSI2SD_XREG_REG(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_alloc_bytes(block, 5);
@@ -147,7 +164,7 @@ host_x86_CVTSI2SS_XREG_REG(codeblock_t *block, int dst_reg, int src_reg)
     codegen_alloc_bytes(block, 5);
     codegen_addbyte(block, 0xf3);
     add_rex_if_needed(block, 0, dst_reg, 0, src_reg);
-    codegen_addbyte3(block, 0x0f, 0x2a, modrm_reg_reg(dst_reg, src_reg)); /*CVTSI2SD dst_reg, src_reg*/
+    codegen_addbyte3(block, 0x0f, 0x2a, modrm_reg_reg(dst_reg, src_reg)); /*CVTSI2SS dst_reg, src_reg*/
 }
 void
 host_x86_CVTSI2SD_XREG_REG64(codeblock_t *block, int dst_reg, int src_reg)
@@ -211,6 +228,24 @@ host_x86_LDMXCSR(codeblock_t *block, void *p)
     } else {
         fatal("host_x86_LDMXCSR - out of range %p\n", p);
     }
+}
+
+void
+host_x86_LDMXCSR_BASE_OFFSET(codeblock_t *block, int base_reg, int offset)
+{
+    if (offset >= -128 && offset <= 127) {
+        if ((base_reg & 7) == REG_RSP) {
+            codegen_alloc_bytes(block, 6);
+            add_rex_if_needed(block, 0, 0, 0, base_reg);
+            codegen_addbyte3(block, 0x0f, 0xae, 0x50 | (base_reg & 7));
+            codegen_addbyte2(block, 0x24, offset);
+        } else {
+            codegen_alloc_bytes(block, 5);
+            add_rex_if_needed(block, 0, 0, 0, base_reg);
+            codegen_addbyte4(block, 0x0f, 0xae, 0x50 | (base_reg & 7), offset);
+        }
+    } else
+        fatal("LDMXCSR_BASE_OFFSET - offset %i\n", offset);
 }
 
 void
