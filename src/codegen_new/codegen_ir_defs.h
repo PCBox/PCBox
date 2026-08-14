@@ -448,7 +448,20 @@
 #define UOP_CVTTPS2PI  (UOP_TYPE_PARAMS_REGS | 0xfc)
 #define UOP_CVTPS2PI   (UOP_TYPE_PARAMS_REGS | 0xfd)
 
-#define UOP_MAX     0xfe
+/*SSE1 MMX operations. 0xff remains reserved for UOP_INVALID.*/
+#define UOP_PSHUFW   (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x100)
+#define UOP_PINSRW   (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x101)
+#define UOP_PEXTRW   (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x102)
+#define UOP_PMOVMSKB (UOP_TYPE_PARAMS_REGS | 0x103)
+#define UOP_PMINUB   (UOP_TYPE_PARAMS_REGS | 0x104)
+#define UOP_PMAXUB   (UOP_TYPE_PARAMS_REGS | 0x105)
+#define UOP_PAVGW    (UOP_TYPE_PARAMS_REGS | 0x106)
+#define UOP_PMULHUW  (UOP_TYPE_PARAMS_REGS | 0x107)
+#define UOP_PMINSW   (UOP_TYPE_PARAMS_REGS | 0x108)
+#define UOP_PMAXSW   (UOP_TYPE_PARAMS_REGS | 0x109)
+#define UOP_PSADBW   (UOP_TYPE_PARAMS_REGS | 0x10a)
+
+#define UOP_MAX     0x10b
 
 #define UOP_INVALID 0xff
 
@@ -1095,6 +1108,18 @@ extern int codegen_fp_enter(void);
 #define uop_CVTPI2PS(ir, dst_reg, src_reg_a, src_reg_b)                  uop_gen_reg_dst_src2(UOP_CVTPI2PS, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_CVTTPS2PI(ir, dst_reg, src_reg)                              uop_gen_reg_dst_src1(UOP_CVTTPS2PI, ir, dst_reg, src_reg)
 #define uop_CVTPS2PI(ir, dst_reg, src_reg)                               uop_gen_reg_dst_src1(UOP_CVTPS2PI, ir, dst_reg, src_reg)
+
+#define uop_PSHUFW(ir, dst_reg, src_reg, imm)                            uop_gen_reg_dst_src1_imm(UOP_PSHUFW, ir, dst_reg, src_reg, imm)
+#define uop_PINSRW(ir, dst_reg, src_reg_a, src_reg_b, imm)               uop_gen_reg_dst_src2_imm(UOP_PINSRW, ir, dst_reg, src_reg_a, src_reg_b, imm)
+#define uop_PEXTRW(ir, dst_reg, src_reg, imm)                            uop_gen_reg_dst_src1_imm(UOP_PEXTRW, ir, dst_reg, src_reg, imm)
+#define uop_PMOVMSKB(ir, dst_reg, src_reg)                               uop_gen_reg_dst_src1(UOP_PMOVMSKB, ir, dst_reg, src_reg)
+#define uop_PMINUB(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PMINUB, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PMAXUB(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PMAXUB, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PAVGW(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_PAVGW, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PMULHUW(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_PMULHUW, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PMINSW(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PMINSW, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PMAXSW(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PMAXSW, ir, dst_reg, src_reg_a, src_reg_b)
+#define uop_PSADBW(ir, dst_reg, src_reg_a, src_reg_b)                    uop_gen_reg_dst_src2(UOP_PSADBW, ir, dst_reg, src_reg_a, src_reg_b)
 
 #define uop_STORE_PTR_IMM(ir, p, imm)                                    uop_gen_pointer_imm(UOP_STORE_P_IMM, ir, p, imm)
 #define uop_STORE_PTR_IMM_8(ir, p, imm)                                  uop_gen_pointer_imm(UOP_STORE_P_IMM_8, ir, p, imm)

@@ -92,6 +92,8 @@ void host_x86_PADDSB_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_PADDSW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_PADDUSB_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_PADDUSW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_PAVGB_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_PAVGW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
 void host_x86_PAND_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_PANDN_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
@@ -108,6 +110,14 @@ void host_x86_PCMPGTD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_PMADDWD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_PMULHW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_PMULLW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_PEXTRW_REG_XREG(codeblock_t *block, int dst_reg, int src_reg, int word);
+void host_x86_PINSRW_XREG_REG(codeblock_t *block, int dst_reg, int src_reg, int word);
+void host_x86_PMAXSW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_PMAXUB_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_PMINSW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_PMINUB_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_PMOVMSKB_REG_XREG(codeblock_t *block, int dst_reg, int src_reg);
+void host_x86_PMULHUW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
 void host_x86_PSLLW_XREG_IMM(codeblock_t *block, int dst_reg, int shift);
 void host_x86_PSLLD_XREG_IMM(codeblock_t *block, int dst_reg, int shift);
@@ -148,6 +158,8 @@ void host_x86_SQRTPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_SQRTSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
 void host_x86_SHUFPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg, int imm);
+void host_x86_PSHUFW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg, int imm);
+void host_x86_PSADBW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 
 void host_x86_SUBPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);
 void host_x86_SUBPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg);

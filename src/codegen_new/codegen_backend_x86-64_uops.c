@@ -3344,6 +3344,156 @@ codegen_PMULLW(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_MMX_BINARY(codeblock_t *block, uop_t *uop, void (*host_func)(codeblock_t *, int, int), UNUSED(const char *name))
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b)) {
+        if (dest_reg == src_reg_a)
+            host_func(block, dest_reg, src_reg_b);
+        else if (dest_reg == src_reg_b)
+            host_func(block, dest_reg, src_reg_a);
+        else {
+            host_x86_MOVQ_XREG_XREG(block, dest_reg, src_reg_a);
+            host_func(block, dest_reg, src_reg_b);
+        }
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("%s %02x %02x %02x\n", name, uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_PAVGUSB(codeblock_t *block, uop_t *uop)
+{
+    return codegen_MMX_BINARY(block, uop, host_x86_PAVGB_XREG_XREG, "PAVGUSB");
+}
+
+static int
+codegen_PAVGW(codeblock_t *block, uop_t *uop)
+{
+    return codegen_MMX_BINARY(block, uop, host_x86_PAVGW_XREG_XREG, "PAVGW");
+}
+
+static int
+codegen_PMINUB(codeblock_t *block, uop_t *uop)
+{
+    return codegen_MMX_BINARY(block, uop, host_x86_PMINUB_XREG_XREG, "PMINUB");
+}
+
+static int
+codegen_PMAXUB(codeblock_t *block, uop_t *uop)
+{
+    return codegen_MMX_BINARY(block, uop, host_x86_PMAXUB_XREG_XREG, "PMAXUB");
+}
+
+static int
+codegen_PMULHUW(codeblock_t *block, uop_t *uop)
+{
+    return codegen_MMX_BINARY(block, uop, host_x86_PMULHUW_XREG_XREG, "PMULHUW");
+}
+
+static int
+codegen_PMINSW(codeblock_t *block, uop_t *uop)
+{
+    return codegen_MMX_BINARY(block, uop, host_x86_PMINSW_XREG_XREG, "PMINSW");
+}
+
+static int
+codegen_PMAXSW(codeblock_t *block, uop_t *uop)
+{
+    return codegen_MMX_BINARY(block, uop, host_x86_PMAXSW_XREG_XREG, "PMAXSW");
+}
+
+static int
+codegen_PSADBW(codeblock_t *block, uop_t *uop)
+{
+    return codegen_MMX_BINARY(block, uop, host_x86_PSADBW_XREG_XREG, "PSADBW");
+}
+
+static int
+codegen_PSHUFW(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg   = HOST_REG_GET(uop->src_reg_a_real);
+    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
+
+    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size))
+        host_x86_PSHUFW_XREG_XREG(block, dest_reg, src_reg, uop->imm_data);
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("PSHUFW %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_PINSRW(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
+    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
+    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
+    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
+
+    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_W(src_size_b)) {
+        if (dest_reg != src_reg_a)
+            host_x86_MOVQ_XREG_XREG(block, dest_reg, src_reg_a);
+        host_x86_PINSRW_XREG_REG(block, dest_reg, src_reg_b, uop->imm_data & 3);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("PINSRW %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_PEXTRW(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg   = HOST_REG_GET(uop->src_reg_a_real);
+    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
+
+    if (REG_IS_L(dest_size) && REG_IS_Q(src_size))
+        host_x86_PEXTRW_REG_XREG(block, dest_reg, src_reg, uop->imm_data & 3);
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("PEXTRW %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
+#    endif
+    return 0;
+}
+
+static int
+codegen_PMOVMSKB(codeblock_t *block, uop_t *uop)
+{
+    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
+    int src_reg   = HOST_REG_GET(uop->src_reg_a_real);
+    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
+    int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
+
+    if (REG_IS_L(dest_size) && REG_IS_Q(src_size)) {
+        host_x86_PMOVMSKB_REG_XREG(block, dest_reg, src_reg);
+        host_x86_AND32_REG_IMM(block, dest_reg, 0xff);
+    }
+#    ifdef RECOMPILER_DEBUG
+    else
+        fatal("PMOVMSKB %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
+#    endif
+    return 0;
+}
+
+static int
 codegen_PSLLW_IMM(codeblock_t *block, uop_t *uop)
 {
     int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
@@ -4679,6 +4829,42 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_PMULLW &
         UOP_MASK]
     = codegen_PMULLW,
+    [UOP_PAVGUSB &
+        UOP_MASK]
+    = codegen_PAVGUSB,
+    [UOP_PAVGW &
+        UOP_MASK]
+    = codegen_PAVGW,
+    [UOP_PMINUB &
+        UOP_MASK]
+    = codegen_PMINUB,
+    [UOP_PMAXUB &
+        UOP_MASK]
+    = codegen_PMAXUB,
+    [UOP_PMULHUW &
+        UOP_MASK]
+    = codegen_PMULHUW,
+    [UOP_PMINSW &
+        UOP_MASK]
+    = codegen_PMINSW,
+    [UOP_PMAXSW &
+        UOP_MASK]
+    = codegen_PMAXSW,
+    [UOP_PSADBW &
+        UOP_MASK]
+    = codegen_PSADBW,
+    [UOP_PSHUFW &
+        UOP_MASK]
+    = codegen_PSHUFW,
+    [UOP_PINSRW &
+        UOP_MASK]
+    = codegen_PINSRW,
+    [UOP_PEXTRW &
+        UOP_MASK]
+    = codegen_PEXTRW,
+    [UOP_PMOVMSKB &
+        UOP_MASK]
+    = codegen_PMOVMSKB,
 
     [UOP_PSLLW_IMM &
         UOP_MASK]

@@ -710,6 +710,19 @@ host_x86_PADDUSW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 }
 
 void
+host_x86_PAVGB_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0xe0, 0xc0 | src_reg | (dst_reg << 3)); /*PAVGB dst_reg, src_reg*/
+}
+void
+host_x86_PAVGW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0xe3, 0xc0 | src_reg | (dst_reg << 3)); /*PAVGW dst_reg, src_reg*/
+}
+
+void
 host_x86_PAND_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_alloc_bytes(block, 4);
@@ -788,6 +801,63 @@ host_x86_PMULLW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 {
     codegen_alloc_bytes(block, 4);
     codegen_addbyte4(block, 0x66, 0x0f, 0xd5, 0xc0 | src_reg | (dst_reg << 3)); /*PMULLW dst_reg, src_reg*/
+}
+
+void
+host_x86_PEXTRW_REG_XREG(codeblock_t *block, int dst_reg, int src_reg, int word)
+{
+    codegen_alloc_bytes(block, 6);
+    codegen_addbyte(block, 0x66);
+    add_rex_if_needed(block, 0, dst_reg, 0, src_reg);
+    codegen_addbyte3(block, 0x0f, 0xc5, modrm_reg_reg(dst_reg, src_reg));
+    codegen_addbyte(block, word);
+}
+void
+host_x86_PINSRW_XREG_REG(codeblock_t *block, int dst_reg, int src_reg, int word)
+{
+    codegen_alloc_bytes(block, 6);
+    codegen_addbyte(block, 0x66);
+    add_rex_if_needed(block, 0, dst_reg, 0, src_reg);
+    codegen_addbyte3(block, 0x0f, 0xc4, modrm_reg_reg(dst_reg, src_reg));
+    codegen_addbyte(block, word);
+}
+void
+host_x86_PMAXSW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0xee, 0xc0 | src_reg | (dst_reg << 3)); /*PMAXSW dst_reg, src_reg*/
+}
+void
+host_x86_PMAXUB_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0xde, 0xc0 | src_reg | (dst_reg << 3)); /*PMAXUB dst_reg, src_reg*/
+}
+void
+host_x86_PMINSW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0xea, 0xc0 | src_reg | (dst_reg << 3)); /*PMINSW dst_reg, src_reg*/
+}
+void
+host_x86_PMINUB_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0xda, 0xc0 | src_reg | (dst_reg << 3)); /*PMINUB dst_reg, src_reg*/
+}
+void
+host_x86_PMOVMSKB_REG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 5);
+    codegen_addbyte(block, 0x66);
+    add_rex_if_needed(block, 0, dst_reg, 0, src_reg);
+    codegen_addbyte3(block, 0x0f, 0xd7, modrm_reg_reg(dst_reg, src_reg));
+}
+void
+host_x86_PMULHUW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0xe4, 0xc0 | src_reg | (dst_reg << 3)); /*PMULHUW dst_reg, src_reg*/
 }
 
 void
@@ -1018,6 +1088,21 @@ host_x86_SHUFPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg, int imm)
 {
     codegen_alloc_bytes(block, 4);
     codegen_addbyte4(block, 0x0f, 0xc6, 0xc0 | src_reg | (dst_reg << 3), imm);
+}
+
+void
+host_x86_PSHUFW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg, int imm)
+{
+    codegen_alloc_bytes(block, 5);
+    codegen_addbyte4(block, 0xf2, 0x0f, 0x70, 0xc0 | src_reg | (dst_reg << 3)); /*PSHUFLW dst_reg, src_reg, imm*/
+    codegen_addbyte(block, imm);
+}
+
+void
+host_x86_PSADBW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    codegen_alloc_bytes(block, 4);
+    codegen_addbyte4(block, 0x66, 0x0f, 0xf6, 0xc0 | src_reg | (dst_reg << 3)); /*PSADBW dst_reg, src_reg*/
 }
 
 void
