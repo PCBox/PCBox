@@ -24,6 +24,7 @@
 #include <86box/pit.h>
 #include <86box/fdd.h>
 #include <86box/fdc.h>
+#include <86box/plat.h>
 #include <86box/keyboard.h>
 #include <86box/timer.h>
 
@@ -2242,8 +2243,13 @@ smi_raise(void)
 void
 nmi_raise_cpu(void)
 {
-    if (is486 && (cpu_fast_off_flags & 0x20000000))
+    if (is486 && (cpu_fast_off_flags & 0x20000000)) {
+        if (!is_cpu_thread)
+            startblit();
         cpu_fast_off_advance();
+        if (!is_cpu_thread)
+            endblit();
+    }
 
     nmi = 1;
 }
