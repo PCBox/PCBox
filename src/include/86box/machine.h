@@ -188,11 +188,12 @@ enum {
     MACHINE_TYPE_486SLC,
     MACHINE_TYPE_386DX,
     MACHINE_TYPE_386DX_486,
-    MACHINE_TYPE_486,
-    MACHINE_TYPE_486_S2,
-    MACHINE_TYPE_486_S3,
-    MACHINE_TYPE_486_S3_PCI,
-    MACHINE_TYPE_486_MISC,
+    MACHINE_TYPE_SOCKET1,
+    MACHINE_TYPE_SOCKET2,
+    MACHINE_TYPE_SOCKET3,
+    MACHINE_TYPE_SOCKET3_PCI,
+    MACHINE_TYPE_STPC,
+    MACHINE_TYPE_SOCKET3_4,
     MACHINE_TYPE_SOCKET4,
     MACHINE_TYPE_SOCKET4_5,
     MACHINE_TYPE_SOCKET5,
@@ -272,7 +273,9 @@ enum {
     MACHINE_CHIPSET_OPTI_498,
     MACHINE_CHIPSET_OPTI_499,
     MACHINE_CHIPSET_OPTI_895_802G,
-    MACHINE_CHIPSET_OPTI_547_597,
+    MACHINE_CHIPSET_OPTI_547,
+    MACHINE_CHIPSET_OPTI_571,
+    MACHINE_CHIPSET_OPTI_597,
     MACHINE_CHIPSET_OPTI_VIPER,
     MACHINE_CHIPSET_SARC_RC2016A,
     MACHINE_CHIPSET_SIS_310,
@@ -922,7 +925,7 @@ extern int             machine_at_hot433a_init(const machine_t *);
 extern int             machine_at_g486vpa_init(const machine_t *);
 extern int             machine_at_486vipio2_init(const machine_t *);
 
-/* m_at_486_misc.c */
+/* m_at_stpc.c */
 /* STPC Client */
 extern int             machine_at_itoxstar_init(const machine_t *);
 
@@ -939,6 +942,9 @@ extern int             machine_at_pcm9340_init(const machine_t *);
 
 /* STPC Atlas */
 extern int             machine_at_pcm5330_init(const machine_t *);
+
+/* m_at_socket3_4.c */
+extern int             machine_at_pat45pv_init(const machine_t *);
 
 /* m_at_socket4.c */
 /* i430LX */
