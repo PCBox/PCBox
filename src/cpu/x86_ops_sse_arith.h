@@ -1965,7 +1965,7 @@ opPAVGW_mm_mm_a32(uint32_t fetchdat)
     MMX_REG *dst;
 
     MMX_ENTER();
-    fetch_ea_16(fetchdat);
+    fetch_ea_32(fetchdat);
 
     dst = MMX_GETREGP(cpu_reg);
 
