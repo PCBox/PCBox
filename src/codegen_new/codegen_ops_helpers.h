@@ -1,6 +1,13 @@
 #include "386_common.h"
 #include "codegen_backend.h"
 
+/* Returning zero from a native opcode translator selects interpreter fallback. */
+#define REQUIRE_GUEST_FEATURE(feature)           \
+    do {                                         \
+        if (!(cpu_features & (feature)))         \
+            return 0;                            \
+    } while (0)
+
 static inline int
 LOAD_SP_WITH_OFFSET(ir_data_t *ir, int offset)
 {

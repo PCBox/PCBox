@@ -21,7 +21,8 @@
                        uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)                          \
     {                                                                                              \
         int dest_reg = (fetchdat >> 3) & 7;                                                        \
-        if (!op_sse_xmm || !(cpu_features & CPU_FEATURE_SSE2))                                     \
+        REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_MMX);                    \
+        if (!op_sse_xmm)                                                                           \
         {                                                                                          \
             uop_MMX_ENTER(ir);                                                                         \
             codegen_mark_code_present(block, cs + op_pc, 1);                                           \

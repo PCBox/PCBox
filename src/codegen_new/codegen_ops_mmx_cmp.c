@@ -22,6 +22,7 @@
     {                                                                                              \
         int dest_reg = (fetchdat >> 3) & 7;                                                        \
                                                                                                    \
+        REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_MMX);                    \
         if(!op_sse_xmm) \
         { \
             uop_MMX_ENTER(ir);                                                                         \
