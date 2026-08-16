@@ -21,6 +21,7 @@ ropMOVUPS_r_d(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -44,6 +45,7 @@ ropMOVUPS_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 {
     int src_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -67,6 +69,7 @@ ropMOVSS_r_d(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -90,6 +93,7 @@ ropMOVSS_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
 {
     int src_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -114,6 +118,7 @@ ropMOVSD_r_d(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE2);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -137,6 +142,7 @@ ropMOVSD_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
 {
     int src_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE2);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -161,6 +167,7 @@ ropUNPCKLPS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -191,6 +198,7 @@ ropUNPCKHPS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -221,6 +229,7 @@ ropMOVAPS_r_d(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -245,6 +254,7 @@ ropMOVAPS_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 {
     int src_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -272,6 +282,7 @@ ropMOVLPS_r_q(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
     if (op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -300,6 +311,7 @@ ropMOVLPS_q_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
     if (op_sse_xmm || (fetchdat & 0xc0) == 0xc0)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
@@ -319,6 +331,7 @@ ropMOVHPS_r_q(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
     if (op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -347,6 +360,7 @@ ropMOVHPS_q_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
     if (op_sse_xmm || (fetchdat & 0xc0) == 0xc0)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
@@ -365,6 +379,7 @@ ropMOVMSKPS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
     if (op_sse_xmm || (fetchdat & 0xc0) != 0xc0)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     uop_MOVMSKPS(ir, IREG_32((fetchdat >> 3) & 7), IREG_XMM(fetchdat & 7));
@@ -380,6 +395,7 @@ ropSHUFPS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
     if (op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {

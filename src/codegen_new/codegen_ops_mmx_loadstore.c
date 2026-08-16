@@ -24,6 +24,7 @@ ropMOVD_r_d(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
     if(op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -49,6 +50,7 @@ ropMOVD_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
     if(op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
     if (cpu_iscyrix && in_smm)
         return 0;
 
@@ -79,6 +81,7 @@ ropMOVQ_r_q(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
     if(op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -104,6 +107,7 @@ ropMOVQ_q_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
     if(op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -129,9 +133,11 @@ ropPSHUFW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
     int     src_reg;
     uint8_t imm;
 
-    if (op_sse_xmm || !(cpu_features & CPU_FEATURE_SSE))
+    if (op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -160,9 +166,11 @@ ropPINSRW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
     int     src_reg;
     uint8_t imm;
 
-    if (op_sse_xmm || !(cpu_features & CPU_FEATURE_SSE))
+    if (op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -189,9 +197,11 @@ ropPEXTRW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
 {
     uint8_t imm;
 
-    if (op_sse_xmm || !(cpu_features & CPU_FEATURE_SSE) || (fetchdat & 0xc0) != 0xc0)
+    if (op_sse_xmm || (fetchdat & 0xc0) != 0xc0)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     imm = fastreadb(cs + op_pc + 1) & 3;
@@ -203,9 +213,11 @@ ropPEXTRW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
 uint32_t
 ropPMOVMSKB(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    if (op_sse_xmm || !(cpu_features & CPU_FEATURE_SSE) || (fetchdat & 0xc0) != 0xc0)
+    if (op_sse_xmm || (fetchdat & 0xc0) != 0xc0)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     uop_PMOVMSKB(ir, IREG_32((fetchdat >> 3) & 7), IREG_MM(fetchdat & 7));

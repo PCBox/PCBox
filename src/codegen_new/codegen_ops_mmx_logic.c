@@ -21,6 +21,7 @@ ropPAND(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_MMX);
         if(!op_sse_xmm)
         {
             uop_MMX_ENTER(ir);
@@ -64,6 +65,7 @@ ropPANDN(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_MMX);
     if(!op_sse_xmm)
     {
         uop_MMX_ENTER(ir);
@@ -107,6 +109,7 @@ ropPOR(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetch
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_MMX);
     if(!op_sse_xmm)
     {
         uop_MMX_ENTER(ir);
@@ -150,6 +153,7 @@ ropPXOR(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_MMX);
     if(!op_sse_xmm)
     {
         uop_MMX_ENTER(ir);

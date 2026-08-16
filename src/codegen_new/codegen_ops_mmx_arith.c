@@ -16,11 +16,12 @@
 #include "codegen_ops_mmx_arith.h"
 #include "codegen_ops_helpers.h"
 
-#define ropParith(func)                                                                            \
+#define ropParith(func, mmx_feature)                                                               \
     uint32_t rop##func(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode),                  \
                        uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)                          \
     {                                                                                              \
         int dest_reg = (fetchdat >> 3) & 7;                                                        \
+        REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : (mmx_feature));                      \
         if(!op_sse_xmm)                                                                            \
         {                                                                                          \
             uop_MMX_ENTER(ir);                                                                         \
@@ -66,8 +67,10 @@
     {                                                                                              \
         int dest_reg = (fetchdat >> 3) & 7;                                                        \
                                                                                                    \
-        if (op_sse_xmm || !(cpu_features & CPU_FEATURE_SSE))                                      \
+        if (op_sse_xmm)                                                                            \
             return 0;                                                                              \
+        REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);                                                    \
+        REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);                                                    \
                                                                                                    \
         uop_MMX_ENTER(ir);                                                                         \
         codegen_mark_code_present(block, cs + op_pc, 1);                                          \
@@ -89,28 +92,28 @@
     }
 
 // clang-format off
-ropParith(PADDB)
-ropParith(PADDW)
-ropParith(PADDD)
-ropParith(PADDSB)
-ropParith(PADDSW)
-ropParith(PADDUSB)
-ropParith(PADDUSW)
+ropParith(PADDB, CPU_FEATURE_MMX)
+ropParith(PADDW, CPU_FEATURE_MMX)
+ropParith(PADDD, CPU_FEATURE_MMX)
+ropParith(PADDSB, CPU_FEATURE_MMX)
+ropParith(PADDSW, CPU_FEATURE_MMX)
+ropParith(PADDUSB, CPU_FEATURE_MMX)
+ropParith(PADDUSW, CPU_FEATURE_MMX)
 
-ropParith(PSUBB)
-ropParith(PSUBW)
-ropParith(PSUBD)
-ropParith(PSUBSB)
-ropParith(PSUBSW)
-ropParith(PSUBUSB)
-ropParith(PSUBUSW)
+ropParith(PSUBB, CPU_FEATURE_MMX)
+ropParith(PSUBW, CPU_FEATURE_MMX)
+ropParith(PSUBD, CPU_FEATURE_MMX)
+ropParith(PSUBSB, CPU_FEATURE_MMX)
+ropParith(PSUBSW, CPU_FEATURE_MMX)
+ropParith(PSUBUSB, CPU_FEATURE_MMX)
+ropParith(PSUBUSW, CPU_FEATURE_MMX)
 
-ropParith(PMADDWD)
-ropParith(PMULHW)
-ropParith(PMULLW)
+ropParith(PMADDWD, CPU_FEATURE_MMX)
+ropParith(PMULHW, CPU_FEATURE_MMX)
+ropParith(PMULLW, CPU_FEATURE_MMX)
 
-ropParith(PADDQ)
-ropParith(PSUBQ)
+ropParith(PADDQ, CPU_FEATURE_SSE2)
+ropParith(PSUBQ, CPU_FEATURE_SSE2)
 
 ropParithMMX(PMINUB, PMINUB)
 ropParithMMX(PMAXUB, PMAXUB)

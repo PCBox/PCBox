@@ -19,13 +19,15 @@
 uint32_t
 ropPSxxW_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    int reg   = fetchdat & 7;
-    int op    = fetchdat & 0x38;
-    int shift = fastreadb(cs + op_pc + 1);
+    int reg = fetchdat & 7;
+    int op  = fetchdat & 0x38;
+    int shift;
 
     if(op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+    shift = fastreadb(cs + op_pc + 1);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     switch (op) {
@@ -48,13 +50,15 @@ ropPSxxW_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
 uint32_t
 ropPSxxD_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    int reg   = fetchdat & 7;
-    int op    = fetchdat & 0x38;
-    int shift = fastreadb(cs + op_pc + 1);
+    int reg = fetchdat & 7;
+    int op  = fetchdat & 0x38;
+    int shift;
 
     if(op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+    shift = fastreadb(cs + op_pc + 1);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     switch (op) {
@@ -77,13 +81,15 @@ ropPSxxD_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
 uint32_t
 ropPSxxQ_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    int reg   = fetchdat & 7;
-    int op    = fetchdat & 0x38;
-    int shift = fastreadb(cs + op_pc + 1);
+    int reg = fetchdat & 7;
+    int op  = fetchdat & 0x38;
+    int shift;
 
     if(op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+    shift = fastreadb(cs + op_pc + 1);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     switch (op) {

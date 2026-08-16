@@ -103,9 +103,7 @@ rop_sse_arith_packed(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), 
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
-    if (op_sse_xmm && !(cpu_features & CPU_FEATURE_SSE2))
-        return 0;
-
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -130,6 +128,7 @@ rop_sse_arith_single(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), 
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -154,6 +153,7 @@ rop_sse_arith_double(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), 
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE2);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -252,6 +252,7 @@ rop_sse_minmax_packed(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint
     if (op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -283,6 +284,7 @@ rop_sse_minmax_single(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -341,6 +343,7 @@ ropSQRTPS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
     if (op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -365,6 +368,7 @@ ropSQRTSS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -392,6 +396,7 @@ rop_sse_approx_packed(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint
     if (op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -422,6 +427,7 @@ rop_sse_approx_single(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -476,6 +482,7 @@ ropCVTSI2SS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -499,6 +506,7 @@ rop_sse_single_to_int(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -544,6 +552,8 @@ ropCVTPI2PS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
     if (op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     if ((fetchdat & 0xc0) == 0xc0)
         uop_MMX_ENTER(ir);
     else
@@ -574,6 +584,8 @@ rop_sse_packed_to_mmx(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint
     if (op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -618,6 +630,7 @@ rop_sse_cmp(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_32
     if (!scalar && op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -670,6 +683,7 @@ rop_sse_comiss(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op
     if (op_sse_xmm)
         return 0;
 
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     uop_CALL_FUNC(ir, jit_flags_rebuild);
     codegen_mark_code_present(block, cs + op_pc, 1);
