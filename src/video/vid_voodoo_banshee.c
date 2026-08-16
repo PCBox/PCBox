@@ -3845,7 +3845,7 @@ static const device_config_t voodoo_sgram_config[] = {
 #ifndef NO_CODEGEN
     {
         .name           = "recompiler",
-        .description    = "Dynamic Recompiler",
+        .description    = "Dynamic recompiler",
         .type           = CONFIG_BINARY,
         .default_string = NULL,
         .default_int    = 1,
@@ -3982,7 +3982,7 @@ static const device_config_t voodoo_banshee_pci_config[] = {
 #ifndef NO_CODEGEN
     {
         .name           = "recompiler",
-        .description    = "Dynamic Recompiler",
+        .description    = "Dynamic recompiler",
         .type           = CONFIG_BINARY,
         .default_string = NULL,
         .default_int    = 1,
@@ -4119,7 +4119,7 @@ static const device_config_t voodoo_banshee_agp_config[] = {
     #ifndef NO_CODEGEN
     {
         .name           = "recompiler",
-        .description    = "Dynamic Recompiler",
+        .description    = "Dynamic recompiler",
         .type           = CONFIG_BINARY,
         .default_string = NULL,
         .default_int    = 1,
@@ -4199,7 +4199,7 @@ static const device_config_t voodoo_nomem_config[] = {
 #ifndef NO_CODEGEN
     {
         .name           = "recompiler",
-        .description    = "Dynamic Recompiler",
+        .description    = "Dynamic recompiler",
         .type           = CONFIG_BINARY,
         .default_string = NULL,
         .default_int    = 1,
@@ -4341,7 +4341,7 @@ static const device_config_t voodoo_3_3500_agp_config[] = {
 #ifndef NO_CODEGEN
     {
         .name           = "recompiler",
-        .description    = "Dynamic Recompiler",
+        .description    = "Dynamic recompiler",
         .type           = CONFIG_BINARY,
         .default_string = NULL,
         .default_int    = 1,
