@@ -354,7 +354,7 @@ ropMOVHPS_q_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
     codegen_check_seg_write(block, ir, target_seg);
     CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 7);
     uop_MOVHLPS(ir, IREG_temp0_DQ, IREG_XMM(src_reg), IREG_XMM(src_reg));
-    uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0_Q);
+    uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0_DQ_LO_Q);
 
     return op_pc + 1;
 }
