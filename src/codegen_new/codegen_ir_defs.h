@@ -448,7 +448,6 @@
 #define UOP_CVTTPS2PI  (UOP_TYPE_PARAMS_REGS | 0xfc)
 #define UOP_CVTPS2PI   (UOP_TYPE_PARAMS_REGS | 0xfd)
 
-/*SSE1 MMX operations. 0xff remains reserved for UOP_INVALID.*/
 #define UOP_PSHUFW   (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x100)
 #define UOP_PINSRW   (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x101)
 #define UOP_PEXTRW   (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x102)
@@ -463,7 +462,7 @@
 
 #define UOP_MAX     0x10b
 
-#define UOP_INVALID 0xff
+#define UOP_INVALID 0xffff
 
 #define UOP_MASK    0xffff
 
