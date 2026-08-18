@@ -393,7 +393,7 @@ ropSHUFPS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
     int     dest_reg = (fetchdat >> 3) & 7;
     x86seg *target_seg;
 
-    if (op_sse_xmm)
+    if (op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES))
         return 0;
 
     REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
