@@ -133,7 +133,7 @@ ropPSHUFW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
     int     src_reg;
     uint8_t imm;
 
-    if (op_sse_xmm)
+    if (op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES))
         return 0;
 
     REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
@@ -166,7 +166,7 @@ ropPINSRW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
     int     src_reg;
     uint8_t imm;
 
-    if (op_sse_xmm)
+    if (op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES))
         return 0;
 
     REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
@@ -197,7 +197,7 @@ ropPEXTRW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
 {
     uint8_t imm;
 
-    if (op_sse_xmm || (fetchdat & 0xc0) != 0xc0)
+    if (op_sse_xmm || ((fetchdat & 0xc0) != 0xc0) || (block->flags & CODEBLOCK_NO_IMMEDIATES))
         return 0;
 
     REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
