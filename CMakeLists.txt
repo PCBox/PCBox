@@ -45,6 +45,14 @@ project(PCBox
     HOMEPAGE_URL "https://pcbox-emu.xyz/"
     LANGUAGES C CXX)
 
+if (NOT (CMAKE_SIZEOF_VOID_P STREQUAL "8"))
+    message(FATAL_ERROR "Only 64-bit builds are supported.")
+endif()
+
+if (CMAKE_C_BYTE_ORDER STREQUAL "BIG_ENDIAN")
+    message(FATAL_ERROR "Big-endian builds are not supported.")
+endif()
+
 include(CPack)
 include(CMakeDependentOption)
 include(FetchContent)
