@@ -81,6 +81,10 @@
 #    define X86_PMINSW ropPMINSW
 #    define X86_PMAXSW ropPMAXSW
 #    define X86_PSADBW ropPSADBW
+#    define X86_ANDPS ropANDPS
+#    define X86_ANDNPS ropANDNPS
+#    define X86_ORPS ropORPS
+#    define X86_XORPS ropXORPS
 #else
 #    define X86_PADDQ NULL
 #    define X86_PSUBQ NULL
@@ -123,6 +127,10 @@
 #    define X86_PMINSW NULL
 #    define X86_PMAXSW NULL
 #    define X86_PSADBW NULL
+#    define X86_ANDPS NULL
+#    define X86_ANDNPS NULL
+#    define X86_ORPS NULL
+#    define X86_XORPS NULL
 #endif
 
 RecompOpFn recomp_opcodes[512] = {
@@ -183,7 +191,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
 /*40*/  ropCMOVO_w,     ropCMOVNO_w,    ropCMOVB_w,     ropCMOVNB_w,    ropCMOVE_w,     ropCMOVNE_w,    ropCMOVBE_w,    ropCMOVNBE_w,   ropCMOVS_w,     ropCMOVNS_w,    ropCMOVP_w,     ropCMOVNP_w,    ropCMOVL_w,     ropCMOVNL_w,    ropCMOVLE_w,    ropCMOVNLE_w,
-/*50*/  X86_MOVMSKPS,   X86_SQRTPS,     X86_RSQRTPS,    X86_RCPPS,      ropANDPS,       ropANDNPS,      ropORPS,        ropXORPS,       X86_ADDPS,      X86_MULPS,      NULL,           NULL,           X86_SUBPS,      X86_MINPS,      X86_DIVPS,      X86_MAXPS,
+/*50*/  X86_MOVMSKPS,   X86_SQRTPS,     X86_RSQRTPS,    X86_RCPPS,      X86_ANDPS,       X86_ANDNPS,      X86_ORPS,        X86_XORPS,       X86_ADDPS,      X86_MULPS,      NULL,           NULL,           X86_SUBPS,      X86_MINPS,      X86_DIVPS,      X86_MAXPS,
 /*60*/  ropPUNPCKLBW,   ropPUNPCKLWD,   ropPUNPCKLDQ,   ropPACKSSWB,    ropPCMPGTB,     ropPCMPGTW,     ropPCMPGTD,     ropPACKUSWB,    ropPUNPCKHBW,   ropPUNPCKHWD,   ropPUNPCKHDQ,   ropPACKSSDW,    NULL,           NULL,           ropMOVD_r_d,    ropMOVQ_r_q,
 /*70*/  X86_PSHUFW,     ropPSxxW_imm,   ropPSxxD_imm,   ropPSxxQ_imm,   ropPCMPEQB,     ropPCMPEQW,     ropPCMPEQD,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVD_d_r,    ropMOVQ_q_r,
 
@@ -209,7 +217,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
 /*40*/  ropCMOVO_l,     ropCMOVNO_l,    ropCMOVB_l,     ropCMOVNB_l,    ropCMOVE_l,     ropCMOVNE_l,    ropCMOVBE_l,    ropCMOVNBE_l,   ropCMOVS_l,     ropCMOVNS_l,    ropCMOVP_l,     ropCMOVNP_l,    ropCMOVL_l,     ropCMOVNL_l,    ropCMOVLE_l,    ropCMOVNLE_l,
-/*50*/  X86_MOVMSKPS,   X86_SQRTPS,     X86_RSQRTPS,    X86_RCPPS,      ropANDPS,       ropANDNPS,      ropORPS,        ropXORPS,       X86_ADDPS,      X86_MULPS,      NULL,           NULL,           X86_SUBPS,      X86_MINPS,      X86_DIVPS,      X86_MAXPS,
+/*50*/  X86_MOVMSKPS,   X86_SQRTPS,     X86_RSQRTPS,    X86_RCPPS,      X86_ANDPS,       X86_ANDNPS,      X86_ORPS,        X86_XORPS,       X86_ADDPS,      X86_MULPS,      NULL,           NULL,           X86_SUBPS,      X86_MINPS,      X86_DIVPS,      X86_MAXPS,
 /*60*/  ropPUNPCKLBW,   ropPUNPCKLWD,   ropPUNPCKLDQ,   ropPACKSSWB,    ropPCMPGTB,     ropPCMPGTW,     ropPCMPGTD,     ropPACKUSWB,    ropPUNPCKHBW,   ropPUNPCKHWD,   ropPUNPCKHDQ,   ropPACKSSDW,    NULL,           NULL,           ropMOVD_r_d,    ropMOVQ_r_q,
 /*70*/  X86_PSHUFW,     ropPSxxW_imm,   ropPSxxD_imm,   ropPSxxQ_imm,   ropPCMPEQB,     ropPCMPEQW,     ropPCMPEQD,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVD_d_r,    ropMOVQ_q_r,
 
