@@ -3156,7 +3156,7 @@ run_dma(mystique_t *mystique)
                                 dma_bm_read(mystique->dma.secaddress & DMA_ADDR_MASK, (uint8_t *) &val, 4, 4);
                                 mystique->dma.secaddress += 4;
                                 
-                                if (!mystique->dma.sec_header & (1 << i)) {
+                                if (!(mystique->dma.sec_header & (1 << i))) {
                                     mystique->dwgreg.ar[5] = val & 0xffff;
                                     mystique->dwgreg.ar[6] = (val >> 16) & 0xffff;
                                 }
