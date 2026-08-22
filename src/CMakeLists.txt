@@ -79,6 +79,10 @@ if(DYNAREC)
     add_compile_definitions(USE_DYNAREC)
 endif()
 
+if(FAST_DYNAREC)
+    add_compile_definitions(USE_FAST_DYNAREC)
+endif()
+
 if(DISCORD)
     add_compile_definitions(DISCORD)
     target_sources(PCBox PRIVATE discord.c)

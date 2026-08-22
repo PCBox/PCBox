@@ -602,6 +602,7 @@ load_machine(void)
         mem_size = machine_get_max_ram(machine);
 
     cpu_use_dynarec = !!ini_section_get_int(cat, "cpu_use_dynarec", 0);
+    cpu_use_dynarec_fast = !!ini_section_get_int(cat, "cpu_use_dynarec_fast", 0);
     fpu_softfloat = !!ini_section_get_int(cat, "fpu_softfloat", 0);
     if ((fpu_type != FPU_NONE) && machine_has_flags(machine, MACHINE_SOFTFLOAT_ONLY))
         fpu_softfloat = 1;
@@ -3242,6 +3243,7 @@ save_machine(void)
     ini_section_set_int(cat, "mem_size", mem_size);
 
     ini_section_set_int(cat, "cpu_use_dynarec", cpu_use_dynarec);
+    ini_section_set_int(cat, "cpu_use_dynarec_fast", cpu_use_dynarec_fast);
 
     if (fpu_softfloat == 0)
         ini_section_delete_var(cat, "fpu_softfloat");

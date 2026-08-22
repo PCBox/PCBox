@@ -950,6 +950,23 @@ extern int  cpu_block_end;
 
 extern int  cpu_force_interpreter;
 extern int  cpu_override_dynarec;
+extern int  cpu_use_dynarec_fast;
+
+/* Fast dynarec timing */
+#if defined(USE_DYNAREC) && defined(USE_FAST_DYNAREC)
+extern struct codegen_timing_t codegen_timing_fast;
+extern struct codegen_timing_t codegen_timing_fast_zero;
+#endif
+
+#if defined(USE_DYNAREC) && defined(USE_FAST_DYNAREC)
+extern void exec386_dynarec_fast(int32_t cycs);
+extern void exec386_dynarec_int(void);
+extern void exec386_dynarec_dyn(void);
+#else
+/* Fallback: define as regular dynarec if fast not compiled */
+#define exec386_dynarec_fast exec386_dynarec
+#endif
+
 
 extern void mmx_init(void);
 extern void prefetch_flush(void);

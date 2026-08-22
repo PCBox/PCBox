@@ -138,6 +138,10 @@ SettingsMachine::SettingsMachine(QWidget *parent)
 #ifndef USE_DYNAREC
     ui->checkBoxDynamicRecompiler->setEnabled(false);
     ui->checkBoxDynamicRecompiler->setVisible(false);
+    ui->checkBoxFastRecompiler->setEnabled(false);
+    ui->checkBoxFastRecompiler->setVisible(false);
+#else
+    ui->checkBoxFastRecompiler->setChecked(cpu_use_dynarec_fast ? true : false);
 #endif
 }
 
@@ -163,6 +167,7 @@ SettingsMachine::changed()
 #ifdef USE_DYNAREC
     has_changed |= (cpu_use_dynarec            != (ui->checkBoxDynamicRecompiler->isChecked() ? 1 : 0));
     has_changed |= (cpu_dyn_accurate_fpu_env   != (ui->checkBoxAccurateFPUEnvironment->isChecked() ? 1 : 0));
+    has_changed |= (cpu_use_dynarec_fast       != (ui->checkBoxFastRecompiler->isChecked() ? 1 : 0));
 #endif
     has_changed |= (fpu_softfloat              != (ui->checkBoxFPUSoftfloat->isChecked() ? 1 : 0));
     has_changed |= (force_10ms                 != (ui->radioButtonLargerFrames->isChecked() ? 1 : 0));
@@ -221,6 +226,7 @@ SettingsMachine::save(int soft)
     cpu_use_dynarec          = ui->checkBoxDynamicRecompiler->isChecked() ? 1 : 0;
     cpu_dyn_accurate_fpu_env = ui->checkBoxAccurateFPUEnvironment->isChecked() ? 1 : 0;
 #endif
+    cpu_use_dynarec_fast     = ui->checkBoxFastRecompiler->isChecked() ? 1 : 0;
     fpu_softfloat            = ui->checkBoxFPUSoftfloat->isChecked() ? 1 : 0;
     force_10ms               = ui->radioButtonLargerFrames->isChecked() ? 1 : 0;
 
@@ -377,14 +383,20 @@ SettingsMachine::on_comboBoxSpeed_currentIndexChanged(int index)
         if (!(flags & CPU_SUPPORTS_DYNAREC)) {
             ui->checkBoxDynamicRecompiler->setChecked(false);
             ui->checkBoxDynamicRecompiler->setEnabled(false);
+            ui->checkBoxFastRecompiler->setChecked(false);
+            ui->checkBoxFastRecompiler->setEnabled(false);
             ui->checkBoxAccurateFPUEnvironment->setEnabled(false);
         } else if ((flags & CPU_REQUIRES_DYNAREC) && !cpu_override) {
             ui->checkBoxDynamicRecompiler->setChecked(true);
             ui->checkBoxDynamicRecompiler->setEnabled(false);
+            ui->checkBoxFastRecompiler->setChecked(cpu_use_dynarec_fast);
+            ui->checkBoxFastRecompiler->setEnabled(true);
             ui->checkBoxAccurateFPUEnvironment->setEnabled(true);
         } else {
             ui->checkBoxDynamicRecompiler->setChecked(cpu_use_dynarec);
             ui->checkBoxDynamicRecompiler->setEnabled(true);
+            ui->checkBoxFastRecompiler->setChecked(cpu_use_dynarec_fast);
+            ui->checkBoxFastRecompiler->setEnabled(ui->checkBoxDynamicRecompiler->isChecked());
             ui->checkBoxAccurateFPUEnvironment->setEnabled(cpu_use_dynarec);
         }
 #endif
@@ -478,3 +490,26 @@ SettingsMachine::on_radioButtonLargerFrames_clicked()
 {
     ui->radioButtonSmallerFrames->setChecked(false);
 }
+
+void
+SettingsMachine::on_checkBoxDynamicRecompiler_stateChanged(int state)
+{
+#ifdef USE_DYNAREC
+    if (state == Qt::Checked) {
+        ui->checkBoxFastRecompiler->setEnabled(true);
+    } else {
+        ui->checkBoxFastRecompiler->setChecked(false);
+        ui->checkBoxFastRecompiler->setEnabled(false);
+    }
+#else
+    (void) state;
+#endif
+}
+
+void
+SettingsMachine::on_checkBoxFastRecompiler_stateChanged(int state)
+{
+    (void) state;
+    /* No additional logic needed, but keep for future warning icon */
+}
+

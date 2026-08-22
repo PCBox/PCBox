@@ -2341,12 +2341,25 @@ cpu_set(void)
             x87_concurrency = x87_concurrency_486;
     }
 
+    /* Fast dynarec: optionally override accurate timing with fast timing
+       that sacrifices accuracy for speed. */
+#if defined(USE_DYNAREC) && defined(USE_FAST_DYNAREC)
+    if (cpu_use_dynarec_fast) {
+        /* Use zero-cycle timing for maximum speed - no cycle accounting
+           code emitted, TSC advanced coarsely by fast exec loop. */
+        codegen_timing_set(&codegen_timing_fast_zero);
+    }
+#endif
+
     cpu_use_exec = 0;
 
     if (is386) {
 #if defined(USE_DYNAREC) && !defined(USE_GDBSTUB)
-        if (cpu_use_dynarec) {
-            cpu_exec = exec386_dynarec;
+        if (cpu_use_dynarec || cpu_use_dynarec_fast) {
+            if (cpu_use_dynarec_fast)
+                cpu_exec = exec386_dynarec_fast;
+            else
+                cpu_exec = exec386_dynarec;
             cpu_use_exec = 1;
         } else
 #endif /* defined(USE_DYNAREC) && !defined(USE_GDBSTUB) */

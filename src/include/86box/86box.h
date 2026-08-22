@@ -213,6 +213,7 @@ extern uint32_t mem_size;                   /* (C) memory size (Installed on sys
 extern uint32_t isa_mem_size;               /* (C) memory size (ISA Memory Cards) */
 extern int      cpu;                        /* (C) cpu type */
 extern int      cpu_use_dynarec;            /* (C) cpu uses/needs Dyna */
+extern int      cpu_use_dynarec_fast;       /* (C) use fast dynarec (sacrifice timing for speed) */
 extern int      fpu_type;                   /* (C) fpu type */
 extern int      fpu_softfloat;              /* (C) fpu uses softfloat */
 extern int      time_sync;                  /* (C) enable time sync */

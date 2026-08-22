@@ -409,7 +409,7 @@ update_tsc(void)
     }
 }
 
-static __inline void
+void
 exec386_dynarec_int(void)
 {
     cpu_block_end = 0;
@@ -516,9 +516,9 @@ block_ended:
 }
 
 #if defined(__linux__) && !defined(__clang__) && defined(USE_NEW_DYNAREC)
-static inline void __attribute__((optimize("O2")))
+void __attribute__((optimize("O2")))
 #else
-static __inline void
+void
 #endif
 exec386_dynarec_dyn(void)
 {
@@ -1082,6 +1082,7 @@ exec386_dynarec(int32_t cycs)
         cycles_main -= (cycles_start - cycles);
     }
 }
+
 #endif
 
 int
@@ -1090,7 +1091,11 @@ is_dynarec_active(void)
 #ifndef USE_DYNAREC
     return false;
 #else
+#ifdef USE_FAST_DYNAREC
+    return (cpu_exec == exec386_dynarec || cpu_exec == exec386_dynarec_fast) && (cpu_use_dynarec || cpu_use_dynarec_fast) && !(cpu_force_interpreter || cpu_override_dynarec || (!CACHE_ON()));
+#else
     return cpu_exec == exec386_dynarec && cpu_use_dynarec && !(cpu_force_interpreter || cpu_override_dynarec || (!CACHE_ON()));
+#endif
 #endif
 }
 

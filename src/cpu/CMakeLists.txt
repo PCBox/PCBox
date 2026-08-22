@@ -39,10 +39,10 @@ add_library(cpu OBJECT
 if(AMD_K5)
     target_compile_definitions(cpu PRIVATE USE_AMD_K5)
 
-if(DYNAREC)
-    add_library(ctk5 OBJECT codegen_timing_k5.c)
-    target_link_libraries(PCBox ctk5)
-endif()
+    if(DYNAREC)
+        add_library(ctk5 OBJECT codegen_timing_k5.c)
+        target_link_libraries(PCBox ctk5)
+    endif()
 
 endif()
 
@@ -51,7 +51,15 @@ if(GENERIC_INTEL)
 endif()
 
 if(DYNAREC)
-    target_sources(cpu PRIVATE 386_dynarec_ops.c)
+    target_sources(cpu PRIVATE
+        386_dynarec_ops.c
+    )
+
+    if(FAST_DYNAREC)
+        target_sources(cpu PRIVATE
+            386_dynarec_fast.c
+        )
+    endif()
 
     add_library(cgt OBJECT
         codegen_timing_486.c
@@ -63,6 +71,12 @@ if(DYNAREC)
         codegen_timing_winchip.c
         codegen_timing_winchip2.c
     )
+
+    if(FAST_DYNAREC)
+        target_sources(cgt PRIVATE
+            codegen_timing_fast.c
+        )
+    endif()
 endif()
 
 add_subdirectory(softfloat3e)

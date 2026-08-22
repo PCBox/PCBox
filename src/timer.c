@@ -307,7 +307,7 @@ timer_set_new_tsc(uint64_t new_tsc)
 
     /* Run timers already expired. */
 #ifdef USE_DYNAREC
-    if (cpu_use_dynarec)
+    if (cpu_use_dynarec || cpu_use_dynarec_fast)
         update_tsc();
 #endif
 

@@ -342,7 +342,7 @@ MainWindow::MainWindow(QWidget *parent)
         ui->actionForce_interpretation->setToolTip(tooltip_text);
         ui->actionForce_interpretation->setText(menu_text);
         ui->actionForce_interpretation->setChecked(cpu_force_interpreter);
-        ui->actionForce_interpretation->setEnabled(cpu_use_dynarec);
+        ui->actionForce_interpretation->setEnabled(cpu_use_dynarec || cpu_use_dynarec_fast);
     });
 
     connect(this, &MainWindow::hardResetCompleted, this, [this]() {
