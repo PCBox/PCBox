@@ -81,16 +81,15 @@ uint32_t biosaddr;
 uint32_t pccache;
 uint8_t *pccache2;
 
-int        readlnext;
-int        readlookup[256];
+int        readlnext[2];
+int        readlookup[512];
 uintptr_t  old_rl2;
-uint8_t    uncached = 0;
 int        writelnext;
 int        writelookup[256];
 
 /* The lookup tables. */
 page_t *page_lookup[1048576] = { 0 };
-uintptr_t readlookup2[1048576] = { 0 };
+uintptr_t readlookup2[2097152] = { 0 };
 uintptr_t writelookup2[1048576] = { 0 };
 
 
@@ -110,7 +109,8 @@ int mem_a20_alt     = 0;
 int mem_a20_chipset = 0;
 int mem_a20_state   = 0;
 
-int mmuflush = 0;
+int mmuflush        = 0;
+int is_compare      = 0;
 
 #ifdef USE_NEW_DYNAREC
 uint64_t *byte_dirty_mask;
@@ -141,7 +141,7 @@ static uint8_t        mtrr_area_refcounts[MEM_MAPPINGS_NO];
 
 static uint32_t       remap_start_addr;
 static uint32_t       remap_start_addr2;
-static size_t ram_size = 0;
+static size_t         ram_size = 0;
 
 #ifdef ENABLE_MEM_LOG
 int mem_do_log = ENABLE_MEM_LOG;
@@ -177,31 +177,35 @@ resetreadlookup(void)
     memset(page_lookup, 0x00, (1 << 20) * sizeof(page_t *));
 
     /* Initialize the tables for lower (<= 1024K) RAM. */
-    for (uint16_t c = 0; c < 256; c++) {
+    for (uint16_t c = 0; c < 512; c++) {
         readlookup[c]  = 0xffffffff;
-        writelookup[c] = 0xffffffff;
+
+        if (c < 256)
+            writelookup[c] = 0xffffffff;
     }
 
     /* Initialize the tables for high (> 1024K) RAM. */
-    memset(readlookup2, 0xff, (1 << 20) * sizeof(uintptr_t));
+    memset(readlookup2, 0xff, (2 << 20) * sizeof(uintptr_t));
 
     memset(writelookup2, 0xff, (1 << 20) * sizeof(uintptr_t));
 
-    readlnext  = 0;
-    writelnext = 0;
-    pccache    = 0xffffffff;
-    high_page  = 0;
+    readlnext[0] = 0;
+    readlnext[1] = 0;
+    writelnext   = 0;
+    pccache      = 0xffffffff;
+    high_page    = 0;
 }
 
 void
 flushmmucache(void)
 {
-    for (uint16_t c = 0; c < 256; c++) {
+    for (uint16_t c = 0; c < 512; c++) {
         if (readlookup[c] != (int) 0xffffffff) {
             readlookup2[readlookup[c]] = LOOKUP_INV;
+            readlookup2[readlookup[c] | 1048576] = LOOKUP_INV;
             readlookup[c]              = 0xffffffff;
         }
-        if (writelookup[c] != (int) 0xffffffff) {
+        if ((c < 256) && (writelookup[c] != (int) 0xffffffff)) {
             page_lookup[writelookup[c]]  = NULL;
             writelookup2[writelookup[c]] = LOOKUP_INV;
             writelookup[c]               = 0xffffffff;
@@ -246,12 +250,13 @@ flushmmucache_pc(void)
 void
 flushmmucache_nopc(void)
 {
-    for (uint16_t c = 0; c < 256; c++) {
+    for (uint16_t c = 0; c < 512; c++) {
         if (readlookup[c] != (int) 0xffffffff) {
             readlookup2[readlookup[c]] = LOOKUP_INV;
+            readlookup2[readlookup[c] | 1048576] = LOOKUP_INV;
             readlookup[c]              = 0xffffffff;
         }
-        if (writelookup[c] != (int) 0xffffffff) {
+        if ((c < 256) && (writelookup[c] != (int) 0xffffffff)) {
             page_lookup[writelookup[c]]  = NULL;
             writelookup2[writelookup[c]] = LOOKUP_INV;
             writelookup[c]               = 0xffffffff;
@@ -608,23 +613,26 @@ mem_addr_translate(uint32_t addr, uint32_t chunk_start, uint32_t len)
 void
 addreadlookup(uint32_t virt, uint32_t phys)
 {
+    uint32_t large_offset = is_compare ? 1048576 : 0;
+    uint32_t small_offset = is_compare ? 256 : 0;
+    uint32_t index        = large_offset | (virt >> 12);
+    int *    rln          = &(readlnext[is_compare]);
+    int      cur_rln      = *rln | (int) small_offset;
+
 #ifndef USE_DEBUG_REGS_486
     if (virt == 0xffffffff)
         return;
 
-    if (readlookup2[virt >> 12] != (uintptr_t) LOOKUP_INV)
+    if (readlookup2[index] != (uintptr_t) LOOKUP_INV)
         return;
 
-    if (readlookup[readlnext] != (int) 0xffffffff) {
-        if ((readlookup[readlnext] == ((es + DI) >> 12)) || (readlookup[readlnext] == ((es + EDI) >> 12)))
-            uncached = 1;
-        readlookup2[readlookup[readlnext]] = LOOKUP_INV;
-    }
+    if (readlookup[cur_rln] != (int) 0xffffffff)
+        readlookup2[large_offset | readlookup[cur_rln]] = LOOKUP_INV;
 
-    readlookup2[virt >> 12] = (uintptr_t) &ram[(uintptr_t) (phys & ~0xFFF) - (uintptr_t) (virt & ~0xfff)];
+    readlookup2[index] = (uintptr_t) &ram[(uintptr_t) (phys & ~0xFFF) - (uintptr_t) (virt & ~0xfff)];
 
-    readlookup[readlnext++] = virt >> 12;
-    readlnext &= (cachesize - 1);
+    readlookup[cur_rln] = virt >> 12;
+    *rln = (*rln + 1) & (cachesize - 1);
 #endif
 
     cycles -= 9;
@@ -998,6 +1006,9 @@ readmemwl(uint32_t addr)
     high_page = 0;
 
     if (addr & 1) {
+        uint32_t       large_offset = is_compare ? 1048576 : 0;
+        uintptr_t     *rl2 = &(readlookup2[large_offset | (addr >> 12)]);
+
         if (!cpu_cyrix_alignment || (addr & 7) == 7)
             cycles -= timing_misaligned;
         if ((addr & 0xfff) > 0xffe) {
@@ -1012,8 +1023,8 @@ readmemwl(uint32_t addr)
             }
 
             return readmembl_no_mmut(addr, addr64a[0]) | (((uint16_t) readmembl_no_mmut(addr + 1, addr64a[1])) << 8);
-        } else if (readlookup2[addr >> 12] != (uintptr_t) LOOKUP_INV)
-            return *(uint16_t *) (readlookup2[addr >> 12] + addr);
+        } else if (*rl2 != (uintptr_t) LOOKUP_INV)
+            return *(uint16_t *) (*rl2 + addr);
     }
 
     if (cr0 >> 31) {
@@ -1143,6 +1154,9 @@ readmemwl_no_mmut(uint32_t addr, uint32_t *a64)
     mem_logical_addr = addr;
 
     if (addr & 1) {
+        uint32_t       large_offset = is_compare ? 1048576 : 0;
+        uintptr_t     *rl2 = &(readlookup2[large_offset | (addr >> 12)]);
+
         if (!cpu_cyrix_alignment || (addr & 7) == 7)
             cycles -= timing_misaligned;
         if ((addr & 0xfff) > 0xffe) {
@@ -1152,8 +1166,8 @@ readmemwl_no_mmut(uint32_t addr, uint32_t *a64)
             }
 
             return readmembl_no_mmut(addr, a64[0]) | (((uint16_t) readmembl_no_mmut(addr + 1, a64[1])) << 8);
-        } else if (readlookup2[addr >> 12] != (uintptr_t) LOOKUP_INV)
-            return *(uint16_t *) (readlookup2[addr >> 12] + addr);
+        } else if (*rl2 != (uintptr_t) LOOKUP_INV)
+            return *(uint16_t *) (*rl2 + addr);
     }
 
     if (cr0 >> 31) {
@@ -1268,6 +1282,9 @@ readmemll(uint32_t addr)
     high_page = 0;
 
     if (addr & 3) {
+        uint32_t       large_offset = is_compare ? 1048576 : 0;
+        uintptr_t     *rl2 = &(readlookup2[large_offset | (addr >> 12)]);
+
         if (!cpu_cyrix_alignment || (addr & 7) > 4)
             cycles -= timing_misaligned;
         if ((addr & 0xfff) > 0xffc) {
@@ -1296,8 +1313,8 @@ readmemll(uint32_t addr)
             /* No need to waste precious CPU host cycles on mmutranslate's that were already done, just pass
                their result as a parameter to be used if needed. */
             return readmemwl_no_mmut(addr, addr64a) | (((uint32_t) readmemwl_no_mmut(addr + 2, &(addr64a[2]))) << 16);
-        } else if (readlookup2[addr >> 12] != (uintptr_t) LOOKUP_INV)
-            return *(uint32_t *) (readlookup2[addr >> 12] + addr);
+        } else if (*rl2 != (uintptr_t) LOOKUP_INV)
+            return *(uint32_t *) (*rl2 + addr);
     }
 
     if (cr0 >> 31) {
@@ -1449,6 +1466,9 @@ readmemll_no_mmut(uint32_t addr, uint32_t *a64)
     mem_logical_addr = addr;
 
     if (addr & 3) {
+        uint32_t       large_offset = is_compare ? 1048576 : 0;
+        uintptr_t     *rl2 = &(readlookup2[large_offset | (addr >> 12)]);
+
         if (!cpu_cyrix_alignment || (addr & 7) > 4)
             cycles -= timing_misaligned;
         if ((addr & 0xfff) > 0xffc) {
@@ -1458,8 +1478,8 @@ readmemll_no_mmut(uint32_t addr, uint32_t *a64)
             }
 
             return readmemwl_no_mmut(addr, a64) | ((uint32_t) (readmemwl_no_mmut(addr + 2, &(a64[2]))) << 16);
-        } else if (readlookup2[addr >> 12] != (uintptr_t) LOOKUP_INV)
-            return *(uint32_t *) (readlookup2[addr >> 12] + addr);
+        } else if (*rl2 != (uintptr_t) LOOKUP_INV)
+            return *(uint32_t *) (*rl2 + addr);
     }
 
     if (cr0 >> 31) {
@@ -1584,6 +1604,9 @@ readmemql(uint32_t addr)
     high_page = 0;
 
     if (addr & 7) {
+        uint32_t       large_offset = is_compare ? 1048576 : 0;
+        uintptr_t     *rl2 = &(readlookup2[large_offset | (addr >> 12)]);
+
         cycles -= timing_misaligned;
         if ((addr & 0xfff) > 0xff8) {
             if (cr0 >> 31) {
@@ -1611,8 +1634,8 @@ readmemql(uint32_t addr)
             /* No need to waste precious CPU host cycles on mmutranslate's that were already done, just pass
                their result as a parameter to be used if needed. */
             return readmemll_no_mmut(addr, addr64a) | (((uint64_t) readmemll_no_mmut(addr + 4, &(addr64a[4]))) << 32);
-        } else if (readlookup2[addr >> 12] != (uintptr_t) LOOKUP_INV)
-            return *(uint64_t *) (readlookup2[addr >> 12] + addr);
+        } else if (*rl2 != (uintptr_t) LOOKUP_INV)
+            return *(uint64_t *) (*rl2 + addr);
     }
 
     if (cr0 >> 31) {

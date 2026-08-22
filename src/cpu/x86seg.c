@@ -297,8 +297,6 @@ loadseg(uint16_t seg, x86seg *s)
                 return;
 #endif
             }
-            /* A null selector loads into the visible part verbatim - the RPL
-               bits are kept, only the descriptor cache is marked invalid. */
             s->seg     = seg;
             s->access  = 0x80;
             s->ar_high = 0x10;
