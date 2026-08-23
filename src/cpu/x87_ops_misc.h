@@ -168,8 +168,7 @@ FSTOR(void)
     switch ((cr0 & 1) | (cpu_state.op32 & 0x100)) {
         case 0x000: /*16-bit real mode*/
         case 0x001: /*16-bit protected mode*/
-            cpu_state.npxc = readmemw(easeg, cpu_state.eaaddr);
-            codegen_set_rounding_mode((cpu_state.npxc >> 10) & 3);
+            x87_set_control_word(readmemw(easeg, cpu_state.eaaddr));
             cpu_state.npxs = readmemw(easeg, cpu_state.eaaddr + 2);
             x87_settag(readmemw(easeg, cpu_state.eaaddr + 4));
             cpu_state.TOP = (cpu_state.npxs >> 11) & 7;
@@ -183,8 +182,7 @@ FSTOR(void)
             break;
         case 0x100: /*32-bit real mode*/
         case 0x101: /*32-bit protected mode*/
-            cpu_state.npxc = readmemw(easeg, cpu_state.eaaddr);
-            codegen_set_rounding_mode((cpu_state.npxc >> 10) & 3);
+            x87_set_control_word(readmemw(easeg, cpu_state.eaaddr));
             cpu_state.npxs = readmemw(easeg, cpu_state.eaaddr + 4);
             x87_settag(readmemw(easeg, cpu_state.eaaddr + 8));
             cpu_state.TOP = (cpu_state.npxs >> 11) & 7;
@@ -430,8 +428,7 @@ FSAVE(void)
             break;
     }
 
-    cpu_state.npxc = 0x37F;
-    codegen_set_rounding_mode(X87_ROUNDING_NEAREST);
+    x87_set_control_word(0x37F);
 #ifdef FPU_8087
     cpu_state.npxs &= 0x4700;
 #else
@@ -853,6 +850,7 @@ opFSQRT(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     cpu_state.pc++;
     ST(0) = sqrt(ST(0));
+    FP_ROUND_PC(ST(0));
     FP_TAG_VALID;
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fsqrt) : (x87_timings.fsqrt * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fsqrt) : (x87_concurrency.fsqrt * cpu_multi));
@@ -1005,16 +1003,14 @@ FLDENV(void)
     switch ((cr0 & 1) | (cpu_state.op32 & 0x100)) {
         case 0x000: /*16-bit real mode*/
         case 0x001: /*16-bit protected mode*/
-            cpu_state.npxc = readmemw(easeg, cpu_state.eaaddr);
-            codegen_set_rounding_mode((cpu_state.npxc >> 10) & 3);
+            x87_set_control_word(readmemw(easeg, cpu_state.eaaddr));
             cpu_state.npxs = readmemw(easeg, cpu_state.eaaddr + 2);
             x87_settag(readmemw(easeg, cpu_state.eaaddr + 4));
             cpu_state.TOP = (cpu_state.npxs >> 11) & 7;
             break;
         case 0x100: /*32-bit real mode*/
         case 0x101: /*32-bit protected mode*/
-            cpu_state.npxc = readmemw(easeg, cpu_state.eaaddr);
-            codegen_set_rounding_mode((cpu_state.npxc >> 10) & 3);
+            x87_set_control_word(readmemw(easeg, cpu_state.eaaddr));
             cpu_state.npxs = readmemw(easeg, cpu_state.eaaddr + 4);
             x87_settag(readmemw(easeg, cpu_state.eaaddr + 8));
             cpu_state.TOP = (cpu_state.npxs >> 11) & 7;
@@ -1056,8 +1052,7 @@ opFLDCW_a16(UNUSED(uint32_t fetchdat))
     tempw = geteaw();
     if (cpu_state.abrt)
         return 1;
-    cpu_state.npxc = tempw;
-    codegen_set_rounding_mode((cpu_state.npxc >> 10) & 3);
+    x87_set_control_word(tempw);
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fldcw) : (x87_timings.fldcw * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fldcw) : (x87_concurrency.fldcw * cpu_multi));
     return 0;
@@ -1073,8 +1068,7 @@ opFLDCW_a32(uint32_t fetchdat)
     tempw = geteaw();
     if (cpu_state.abrt)
         return 1;
-    cpu_state.npxc = tempw;
-    codegen_set_rounding_mode((cpu_state.npxc >> 10) & 3);
+    x87_set_control_word(tempw);
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fldcw) : (x87_timings.fldcw * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fldcw) : (x87_concurrency.fldcw * cpu_multi));
     return 0;
