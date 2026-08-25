@@ -430,11 +430,6 @@ exec386_dynarec_int(void)
         cpu_state.ea_seg = &cpu_state.seg_ds;
         cpu_state.ssegs  = 0;
 
-        /* Temp variables for FPU exception reporting. */
-        temp_CS = CS;
-        temp_cs = cs;
-        temp_pc = cpu_state.pc;
-
         fetchdat = fastreadl_fetch(cs + cpu_state.pc);
 #    ifdef ENABLE_386_DYNAREC_LOG
         if (in_smm)
@@ -442,6 +437,11 @@ exec386_dynarec_int(void)
 #    endif
 
         if (!cpu_state.abrt) {
+            /* Temp variables for FPU exception reporting. */
+            cpu_state.temp_CS = CS;
+            cpu_state.temp_cs = cs;
+            cpu_state.temp_pc = cpu_state.pc;
+
             opcode = fetchdat & 0xFF;
             fetchdat >>= 8;
 
@@ -756,11 +756,6 @@ exec386_dynarec_dyn(void)
             cpu_state.ea_seg = &cpu_state.seg_ds;
             cpu_state.ssegs  = 0;
 
-            /* Temp variables for FPU exception reporting. */
-            temp_CS = CS;
-            temp_cs = cs;
-            temp_pc = cpu_state.pc;
-
             fetchdat = fastreadl_fetch(cs + cpu_state.pc);
 #    ifdef ENABLE_386_DYNAREC_LOG
             if (in_smm)
@@ -768,6 +763,11 @@ exec386_dynarec_dyn(void)
 #    endif
 
             if (!cpu_state.abrt) {
+                /* Temp variables for FPU exception reporting. */
+                cpu_state.temp_CS = CS;
+                cpu_state.temp_cs = cs;
+                cpu_state.temp_pc = cpu_state.pc;
+
                 opcode = fetchdat & 0xFF;
                 fetchdat >>= 8;
 
@@ -865,11 +865,6 @@ exec386_dynarec_dyn(void)
 
             codegen_endpc = (cs + cpu_state.pc) + 8;
 
-            /* Temp variables for FPU exception reporting. */
-            temp_CS = CS;
-            temp_cs = cs;
-            temp_pc = cpu_state.pc;
-
             fetchdat      = fastreadl_fetch(cs + cpu_state.pc);
 
 #    ifdef ENABLE_386_DYNAREC_LOG
@@ -878,6 +873,11 @@ exec386_dynarec_dyn(void)
 #    endif
 
             if (!cpu_state.abrt) {
+                /* Temp variables for FPU exception reporting. */
+                cpu_state.temp_CS = CS;
+                cpu_state.temp_cs = cs;
+                cpu_state.temp_pc = cpu_state.pc;
+
                 opcode = fetchdat & 0xFF;
                 fetchdat >>= 8;
 
@@ -1349,14 +1349,14 @@ exec386(int32_t cycs)
             }
 #endif
 
-            /* Temp variables for FPU exception reporting. */
-            temp_CS = CS;
-            temp_cs = cs;
-            temp_pc = cpu_state.pc;
-
             fetchdat = fastreadl_fetch(cs + cpu_state.pc);
 
             if (!cpu_state.abrt) {
+                /* Temp variables for FPU exception reporting. */
+                cpu_state.temp_CS = CS;
+                cpu_state.temp_cs = cs;
+                cpu_state.temp_pc = cpu_state.pc;
+
 #ifdef ENABLE_386_LOG
                 if (in_smm)
                     x386_dynarec_log("[%04X:%08X] %08X\n", CS, cpu_state.pc, fetchdat);

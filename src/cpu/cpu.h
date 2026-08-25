@@ -481,6 +481,33 @@ typedef struct {
     uint8_t rex_byte;
     int rex_present;
     int sse_xmm;
+    
+    uint16_t temp_CS;
+    uint16_t fpu_CS;
+
+    uint32_t temp_cs;
+    uint32_t temp_pc;
+
+    uint32_t fpu_cs;
+    uint32_t fpu_pc;
+
+    uint16_t fpu_op;
+    uint16_t fpu_DS;
+    uint32_t fpu_ds;
+    uint32_t fpu_ea;
+
+#ifdef USE_DYNAREC
+    /* uint16_t dyn_CS;
+    uint16_t dyn_op;
+    uint32_t dyn_cs;
+    uint32_t dyn_pc;
+
+    uint16_t dyn_DS;
+    uint32_t dyn_ds;
+    uint32_t dyn_ea; */
+
+    int sf_exc;
+#endif
 } cpu_state_t;
 
 
@@ -938,20 +965,10 @@ extern int lock_legal_fe[8];
 
 extern int new_ne;
 
-extern uint16_t temp_CS;
-extern uint16_t fpu_CS;
-extern uint32_t temp_cs;
-extern uint32_t fpu_cs;
-extern uint32_t temp_pc;
-extern uint32_t fpu_pc;
-
-extern uint16_t fpu_op;
-extern uint16_t fpu_DS;
-extern uint32_t fpu_ds;
-extern uint32_t fpu_ea;
-
 extern int in_lock;
 extern int cpu_override_interpreter;
+
+extern int cpu_dyn_accurate_fpu_env;
 
 extern int is_lock_legal(uint32_t fetchdat);
 
