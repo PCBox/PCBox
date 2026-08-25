@@ -923,9 +923,7 @@ codegen_skip:
         uop_MOV_IMM(ir, IREG_ssegs, op_ssegs);
     uop_MOV_IMM(ir, IREG_sse_xmm, op_sse_xmm);
     uop_CALL_INSTRUCTION_FUNC(ir, op, fetchdat);
-<<<<<<< HEAD
     uop_MOV_IMM(ir, IREG_sse_xmm, 0);
-=======
     if (cpu_dyn_accurate_fpu_env && is_fpu) {
         if (fpu_softfloat)
             uop_CALL_FUNC(ir, fpu_sf_check_exceptions);
@@ -938,7 +936,6 @@ codegen_skip:
         if (fpu_softfloat)
             uop_CMP_IMM_JZ(ir, IREG_sf_exc, (uint32_t) 1, codegen_exit_rout);
     }
->>>>>>> 2f6fff3bfd0db0684aedf74e10ca93752d45e8c8
     codegen_flags_changed = 0;
     codegen_mark_code_present(block, cs + cpu_state.pc, 8);
 
