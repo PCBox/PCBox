@@ -288,7 +288,7 @@ struct accelKey def_acc_keys[NUM_ACCELS] = {
     {
         .name="release_mouse",
         .desc="Release mouse pointer",
-        .seq="Ctrl+End"
+        .seq="Ctrl+Alt+G"
     },
     {
         .name="hard_reset",
