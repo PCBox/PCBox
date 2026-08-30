@@ -492,24 +492,9 @@ SettingsMachine::on_radioButtonLargerFrames_clicked()
 }
 
 void
-SettingsMachine::on_checkBoxDynamicRecompiler_stateChanged(int state)
-{
-#ifdef USE_DYNAREC
-    if (state == Qt::Checked) {
-        ui->checkBoxFastRecompiler->setEnabled(true);
-    } else {
-        ui->checkBoxFastRecompiler->setChecked(false);
-        ui->checkBoxFastRecompiler->setEnabled(false);
-    }
-#else
-    (void) state;
-#endif
-}
-
-void
 SettingsMachine::on_checkBoxFastRecompiler_stateChanged(int state)
 {
-    (void) state;
+    ui->checkBoxFastRecompiler->setChecked(state);
     /* No additional logic needed, but keep for future warning icon */
 }
 
