@@ -138,8 +138,8 @@ SettingsMachine::SettingsMachine(QWidget *parent)
 #ifndef USE_DYNAREC
     ui->checkBoxDynamicRecompiler->setEnabled(false);
     ui->checkBoxDynamicRecompiler->setVisible(false);
-    ui->checkBoxFastRecompiler->setEnabled(false);
-    ui->checkBoxFastRecompiler->setVisible(false);
+    ui->checkBoxFastRecompiler->setEnabled(true);
+    ui->checkBoxFastRecompiler->setVisible(true);
 #else
     ui->checkBoxFastRecompiler->setChecked(cpu_use_dynarec_fast ? true : false);
 #endif
