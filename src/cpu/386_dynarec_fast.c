@@ -175,10 +175,9 @@ exec386_dynarec_fast(int32_t cycs)
             if (gdbstub_instruction())
                 return;
 #endif
+            if (TIMER_VAL_LESS_THAN_VAL(timer_target, (uint64_t) tsc))
+                timer_process();
         }
-
-        if (TIMER_VAL_LESS_THAN_VAL(timer_target, (uint64_t) tsc))
-            timer_process();
     }
 }
 
