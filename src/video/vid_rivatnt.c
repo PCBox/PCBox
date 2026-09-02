@@ -333,9 +333,9 @@ rivatnt_pci_write(int func, int addr, UNUSED(int len), uint8_t val, void *p)
     switch (addr) {
     case PCI_REG_COMMAND:
         rivatnt->pci_regs[PCI_REG_COMMAND] = val & 0x37;
-        io_removehandler(0x03c0, 0x0020, rivatnt_in, NULL, NULL, rivatnt_out, NULL, NULL, rivatnt);
+        io_removehandler(0x03a0, 0x0040, rivatnt_in, NULL, NULL, rivatnt_out, NULL, NULL, rivatnt);
         if (val & PCI_COMMAND_IO)
-            io_sethandler(0x03c0, 0x0020, rivatnt_in, NULL, NULL, rivatnt_out, NULL, NULL, rivatnt);
+            io_sethandler(0x03a0, 0x0040, rivatnt_in, NULL, NULL, rivatnt_out, NULL, NULL, rivatnt);
         rivatnt_recalc_mapping(rivatnt);
         break;
 
@@ -1231,7 +1231,7 @@ static void
 
     svga->vblank_start = rivatnt_vblank_start;
 
-    io_sethandler(0x03c0, 0x0020, rivatnt_in, NULL, NULL, rivatnt_out,
+    io_sethandler(0x03a0, 0x0040, rivatnt_in, NULL, NULL, rivatnt_out,
 			NULL, NULL, rivatnt);
 
     pci_add_card(PCI_ADD_NORMAL, rivatnt_pci_read, rivatnt_pci_write, rivatnt, &rivatnt->pci_slot);
