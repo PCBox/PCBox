@@ -1363,6 +1363,9 @@ extern int             machine_at_in440ex_init(const machine_t *);
 extern const device_t  in440exd_device;
 #endif
 extern int             machine_at_in440exd_init(const machine_t *);
+#ifdef EMU_DEVICE_H
+extern const device_t  optiplexe1_device;
+#endif
 extern int             machine_at_optiplexe1_init(const machine_t *);
 extern int             machine_at_brio83xx_init(const machine_t *);
 extern int             machine_at_p6i440e2_init(const machine_t *);
@@ -1389,6 +1392,9 @@ extern int             machine_at_p2bls_init(const machine_t *);
 extern int machine_at_p2bls_coreboot_init(const machine_t *);
 extern int             machine_at_p3bf_init(const machine_t *);
 extern int machine_at_p3bf_coreboot_init(const machine_t *);
+#ifdef EMU_DEVICE_H
+extern const device_t  optiplexgx1_device;
+#endif
 extern int             machine_at_optiplexgx1_init(const machine_t *);
 #ifdef EMU_DEVICE_H
 extern const device_t  ga686_device;
