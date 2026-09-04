@@ -22,7 +22,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <wchar.h>
-#include <limits.h>
 #define HAVE_STDARG_H
 #include <86box/86box.h>
 #include <86box/device.h>
@@ -30,10 +29,8 @@
 #include <86box/pic.h>
 #include <86box/dma.h>
 #include <86box/cdrom.h>
-#include <86box/cdrom_interface.h>
 #include <86box/cdrom_mitsumi.h>
 #include <86box/plat.h>
-#include <86box/sound.h>
 #include <86box/timer.h>
 
 #define RAW_SECTOR_SIZE    2352
@@ -105,9 +102,10 @@ typedef struct mcd_t {
     int      change;
     int      data;
     uint8_t  stat;
-    uint8_t  buf[RAW_SECTOR_SIZE];
+    uint8_t  buf[65536];
     int      buf_count;
     int      buf_idx;
+    int      real_count;
     uint8_t  cmdbuf[32];
     int      cmdbuf_count;
     int      cmdrd_count;
@@ -188,20 +186,22 @@ mitsumi_set_irq(const mcd_t *dev, const uint8_t mask)
 }
 
 static uint8_t
-mitsumi_status(const mcd_t *dev)
+mitsumi_status(mcd_t *dev)
 {
     uint8_t status = 0;
 
     if (dev->tray_open)
         status |= STAT_OPEN;
-    if (mitsumi_cdrom_is_ready(dev)) {
+    if (mitsumi_cdrom_is_ready(dev) && (dev->change != 2)) {
         status |= STAT_READY | STAT_SERVO;
         if ((dev->cdrom_dev->cd_status & CD_STATUS_HAS_AUDIO) &&
             !cdrom_has_data(dev->cdrom_dev))
             status |= STAT_DISK_CDDA;
     }
-    if (dev->change)
+    if (dev->change > 0) {
         status |= STAT_CHANGE;
+        dev->change--;
+    }
     if (dev->cdrom_dev && (dev->cdrom_dev->cd_status == CD_STATUS_PLAYING))
         status |= STAT_PLAY_CDDA;
 
@@ -211,7 +211,7 @@ mitsumi_status(const mcd_t *dev)
 static uint8_t
 mitsumi_error_status(const mcd_t *dev, const int sense)
 {
-    uint8_t status = mitsumi_status(dev) | STAT_ERROR;
+    uint8_t status = mitsumi_status((mcd_t*) dev) | STAT_ERROR;
 
     /* Invalid addresses/parameters are command errors.  Media and sector
        format failures are read errors and must not set COMMAND CHECK. */
@@ -229,6 +229,7 @@ mitsumi_abort_read(mcd_t *dev)
         dma_set_drq(dev->dma, 0);
     dev->readcount  = 0;
     dev->buf_count  = 0;
+    dev->real_count = 0;
     dev->buf_idx    = 0;
     dev->readbuflen = 0;
     dev->data       = 0;
@@ -278,9 +279,10 @@ mitsumi_cdrom_insert(void *priv)
 
     mitsumi_abort_read(dev);
     cdrom_stop(dev->cdrom_dev);
-    dev->change    = 1;
+    dev->change    = (mitsumi_cdrom_is_ready(dev)) ? 2 : 1;
     dev->tray_open = !mitsumi_cdrom_is_ready(dev);
     dev->stat      = mitsumi_status(dev);
+    dev->change    = (mitsumi_cdrom_is_ready(dev)) ? 2 : 1;
     dev->cmdbuf_count = 0;
     picintc(1 << dev->irq);
 }
@@ -396,7 +398,7 @@ mitsumi_cdrom_read_sector(mcd_t *dev, int first)
 
     dev->data    = 0;
 
-    if (!mitsumi_cdrom_is_ready(dev))
+    if (!mitsumi_cdrom_is_ready(dev) || (dev->change > 0))
         return -1;
 
     if (dev->drvmode == DRV_MODE_CDDA) {
@@ -439,7 +441,7 @@ mitsumi_cdrom_read_sector(mcd_t *dev, int first)
     if (dev->cdrom_dev->seek_pos > dev->cdrom_dev->cdrom_capacity) {
         return -2;
     }
-    ret = cdrom_readsector_raw(dev->cdrom_dev, dev->buf, dev->cdrom_dev->seek_pos, 0, (dev->smode == 2) ? 3 : 2, (dev->mode & 0x80) ? 0xF8 : 0x10, (int *) &dev->readbuflen, 0);
+    ret = cdrom_readsector_raw(dev->cdrom_dev, dev->buf, dev->cdrom_dev->seek_pos, 0, (dev->smode == 2) ? 3 : 2, (dev->mode & 0x40) ? 0xF8 : 0x10, (int *) &dev->readbuflen, 0);
 
     mitsumi_cdrom_log("Mitsumi read sector @ %u, ret = %d, readlen = %u, blocklen = %u\n",
                        dev->cdrom_dev->seek_pos, ret, dev->readbuflen, mitsumi_dma_length(dev));
@@ -450,20 +452,14 @@ mitsumi_cdrom_read_sector(mcd_t *dev, int first)
                    (bin2bcd((next_msf >> 8) & 0xff) << 8) |
                    bin2bcd(next_msf & 0xff);
     dev->buf_idx   = 0;
-    if (dev->mode & 0x80) {
-        if (!(dev->mode & MODE_DATA)) {
-            // Skip the main header.
-            offset = 16;
-        }
-    }
 
-    available      = MIN(dev->readbuflen, RAW_SECTOR_SIZE);
-    offset         = MIN(offset, available);
-    dev->buf_idx   = offset;
-    available     -= offset;
-    if (!(dev->mode & 0x80))
+    available       = MIN(dev->readbuflen, RAW_SECTOR_SIZE);
+    dev->buf_idx    = offset;
+    available      -= offset;
+    if (!(dev->mode & MODE_DATA))
         available = MIN(available, COOKED_SECTOR_SIZE);
-    dev->buf_count = MIN(mitsumi_dma_length(dev), available);
+    dev->real_count = available;
+    dev->buf_count  = MIN(mitsumi_dma_length(dev), available);
     if (dev->buf_count == 0)
         return -3;
 
@@ -559,20 +555,29 @@ mitsumi_dma_callback(void *priv)
     int result;
 
     if (!dev->buf_count) {
-        result = mitsumi_cdrom_read_sector(dev, 0);
-        if (result <= 0) {
-            if (result < 0) {
-                dev->cur_sense = abs(result);
-                dev->stat      = mitsumi_error_status(dev, dev->cur_sense);
-                mitsumi_abort_read(dev);
-                mitsumi_set_irq(dev, IRQ_ERROR);
-            } else {
-                mitsumi_abort_read(dev);
+        const int buf_len = mitsumi_dma_length(dev);
+        if (dev->real_count > buf_len) {
+            dev->real_count -= buf_len;
+            memcpy(dev->buf, &(dev->buf[buf_len]), dev->real_count);
+            dev->buf_idx     = 0;
+            dev->buf_count   = MIN(dev->real_count, buf_len);
+            mitsumi_cdrom_log("Mitsum CD-ROM: [DMA] Moved the next %i bytes into the buffer.\n", dev->buf_count);
+        } else {
+            result = mitsumi_cdrom_read_sector(dev, 0);
+            if (result <= 0) {
+                if (result < 0) {
+                    dev->cur_sense = abs(result);
+                    dev->stat      = mitsumi_error_status(dev, dev->cur_sense);
+                    mitsumi_abort_read(dev);
+                    mitsumi_set_irq(dev, IRQ_ERROR);
+                } else {
+                    mitsumi_abort_read(dev);
+                }
+                return;
             }
-            return;
+            if (dev->enable_dma)
+                dma_set_drq(dev->dma, 1);
         }
-        if (dev->enable_dma)
-            dma_set_drq(dev->dma, 1);
     }
 
     result = mitsumi_dma_transfer(dev);
@@ -615,11 +620,6 @@ mitsumi_dma_callback(void *priv)
         dev->stat      = mitsumi_error_status(dev, dev->cur_sense);
         mitsumi_abort_read(dev);
         mitsumi_set_irq(dev, IRQ_ERROR);
-    } else if (result < 0) {
-        dev->cur_sense = abs(result);
-        dev->stat      = mitsumi_error_status(dev, dev->cur_sense);
-        mitsumi_abort_read(dev);
-        mitsumi_set_irq(dev, IRQ_ERROR);
     }
 }
 
@@ -654,18 +654,28 @@ mitsumi_cdrom_in(uint16_t port, void *priv)
                 dev->buf_count--;
                 if (!dev->buf_count) {
                     mitsumi_set_irq(dev, IRQ_DATACOMP);
-                    /*
-                       Do PIO transfers on a timer, fixes the Windows 9x driver in
-                       IRQ mode.
-                     */
-                    if (dev->readcount > 0) {
-                        timer_set_delay_u64(&dev->pio_timer,
-                                            ((dev->cmd == CMD_READ2X) ? MITSUMI_2X_SECTOR_TIME_US :
-                                                                             MITSUMI_1X_SECTOR_TIME_US) * TIMER_USEC);
-                        mitsumi_cdrom_log("Mitsumi PIO timer started at sector %u.\n", dev->cdrom_dev->seek_pos);
+                    const int buf_len = mitsumi_dma_length(dev);
+                    if (dev->real_count > buf_len) {
+                        dev->real_count -= buf_len;
+                        memcpy(dev->buf, &(dev->buf[buf_len]), dev->real_count);
+                        dev->buf_idx     = 0;
+                        dev->buf_count   = MIN(dev->real_count, buf_len);
+                        mitsumi_set_irq(dev, IRQ_DATAREADY);
+                        mitsumi_cdrom_log("Mitsum CD-ROM: [PIO] Moved the next %i bytes into the buffer.\n", dev->buf_count);
                     } else {
-                        mitsumi_cdrom_log("Mitsumi PIO read complete at sector %u.\n", dev->cdrom_dev->seek_pos);
-                        dev->cur_toc_track = INT32_MIN;
+                        /*
+                           Do PIO transfers on a timer, fixes the Windows 9x driver in
+                           IRQ mode.
+                         */
+                        if (dev->readcount > 0) {
+                            timer_set_delay_u64(&dev->pio_timer,
+                                                ((dev->cmd == CMD_READ2X) ? MITSUMI_2X_SECTOR_TIME_US :
+                                                                                 MITSUMI_1X_SECTOR_TIME_US) * TIMER_USEC);
+                            mitsumi_cdrom_log("Mitsumi PIO timer started at sector %u.\n", dev->cdrom_dev->seek_pos);
+                        } else {
+                            mitsumi_cdrom_log("Mitsumi PIO read complete at sector %u.\n", dev->cdrom_dev->seek_pos);
+                            dev->cur_toc_track = INT32_MIN;
+                        }
                     }
                 }
                 return ret;
@@ -755,7 +765,6 @@ static void
 mitsumi_cdrom_out(uint16_t port, uint8_t val, void *priv)
 {
     mcd_t   *dev      = (mcd_t *) priv;
-    int      read_res = -1;
 
     mitsumi_cdrom_log("Mitsumi CD-ROM OUT=%03x, val=%02x\n", port, val);
     switch (port & 3) {
@@ -779,6 +788,8 @@ mitsumi_cdrom_out(uint16_t port, uint8_t val, void *priv)
                         break;
                     case CMD_SET_VOL:
                         switch (dev->cmdrd_count) {
+                            default:
+                                break;
                             case 3:
                                 dev->cdrom_vols.att0 = val;
                                 break;
@@ -848,7 +859,7 @@ mitsumi_cdrom_out(uint16_t port, uint8_t val, void *priv)
                     case CMD_READ1X:
                     case CMD_READ2X:
                         switch (dev->cmdrd_count) {
-                            case 0:
+                            case 0: {
                                 dev->readcount |= val;
                                 dev->audio_end_msf |= val;
                                 if (!dev->readcount && (dev->enable_dma || dev->early_status)) {
@@ -860,7 +871,7 @@ mitsumi_cdrom_out(uint16_t port, uint8_t val, void *priv)
                                     /* Set the end MSF to 99:59.74. */
                                     dev->audio_end_msf = 0x00995974;
                                 }
-                                read_res = mitsumi_cdrom_read_sector(dev, 1);
+                                const int read_res = mitsumi_cdrom_read_sector(dev, 1);
                                 if (dev->enable_dma && (read_res == 1)) {
                                     dev->dma_retries = 0;
                                     dma_set_drq(dev->dma, 1);
@@ -878,7 +889,7 @@ mitsumi_cdrom_out(uint16_t port, uint8_t val, void *priv)
                                                  mitsumi_error_status(dev, dev->cur_sense) :
                                                  mitsumi_status(dev);
                                 break;
-                            case 1:
+                            } case 1:
                                 dev->readcount |= (val << 8);
                                 dev->audio_end_msf |= val << 8;
                                 break;
@@ -966,7 +977,6 @@ mitsumi_cdrom_out(uint16_t port, uint8_t val, void *priv)
                     }
                     break;
                 case CMD_GET_STAT:
-                    dev->change = 0;
                     dev->stat   = mitsumi_status(dev);
                     dev->cmdbuf[0] = dev->stat;
                     break;
@@ -1005,7 +1015,7 @@ mitsumi_cdrom_out(uint16_t port, uint8_t val, void *priv)
                     if (dev->tray_open) {
                         dev->tray_open = 0;
                         cdrom_reload(dev->cdrom_dev->id);
-                        dev->change = 1;
+                        dev->change = (mitsumi_cdrom_is_ready(dev)) ? 2 : 1;
                     }
                     dev->stat = mitsumi_status(dev);
                     dev->cmdbuf[0] = dev->stat;
@@ -1067,6 +1077,8 @@ mitsumi_get_volume(void *priv, int channel)
     mcd_t   *dev      = (mcd_t *) priv;
 
     switch (channel & 3) {
+        default:
+            break;
         case 0:
             return dev->cdrom_vols.att0;
         case 1:
