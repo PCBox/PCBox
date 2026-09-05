@@ -196,6 +196,12 @@ typedef struct riva128_t
 		int fifo_access;
 		uint32_t surf_config;
 
+		/* The method PGRAPH last refused, latched for the RM to pick
+		   up and emulate in software.  cur_* track the method being
+		   executed right now so the trap can be built from it. */
+		uint32_t trapped_addr, trapped_data, trapped_instance;
+		uint32_t cur_addr, cur_data, cur_instance;
+
 		uint16_t lin_start_x, lin_end_x, lin_start_y, lin_end_y;
 		uint32_t lin_color;
 
@@ -1099,12 +1105,26 @@ riva128_pgraph_invalid_interrupt(int num, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
 
-	riva128->pgraph.intr_1 |= (1 << num);
-	if (riva128->pgraph.intr_en_0 & 1)
-		riva128->pgraph.intr_0 |= (1 << 0);
+	/* A method PGRAPH has no hardware for is not necessarily an error:
+	   the RM implements the context/patchcord methods (0x200, 0x204, ...)
+	   in software and expects the trap.  It reads NV_PGRAPH_TRAPPED_ADDR
+	   /_DATA/_INSTANCE to find out what to emulate and does nothing at
+	   all if they read back as zero, so latch them here.  Don't overwrite
+	   a trap the RM hasn't collected yet. */
+	if (!(riva128->pgraph.intr_0 & 1)) {
+		riva128->pgraph.trapped_addr = riva128->pgraph.cur_addr;
+		riva128->pgraph.trapped_data = riva128->pgraph.cur_data;
+		riva128->pgraph.trapped_instance = riva128->pgraph.cur_instance;
+	}
 
-	if (riva128->pgraph.intr_en_1 & (1u << num))
-		riva128_pmc_recompute_intr(1, riva128);
+	riva128->pgraph.intr_1 |= (1 << num);
+	riva128->pgraph.intr_0 |= (1 << 0);
+
+	/* nv3rm.vxd leaves NV_PGRAPH_INTR_EN_1 at zero and enables only
+	   INTR_EN_0, so gating delivery on INTR_EN_1 loses every trap.
+	   riva128_pmc_recompute_intr() already masks INTR_0 against
+	   INTR_EN_0. */
+	riva128_pmc_recompute_intr(1, riva128);
 }
 
 uint32_t
@@ -1155,6 +1175,16 @@ riva128_pgraph_read(uint32_t addr, void *p)
 		return riva128->pgraph.fifo_access;
 	case 0x4006a8:
 		return riva128->pgraph.surf_config;
+	case 0x4006b0:
+		/* NV_PGRAPH_STATUS: the RM spins on this until PGRAPH goes
+		   idle, and everything here completes synchronously. */
+		return 0;
+	case 0x4006b4:
+		return riva128->pgraph.trapped_addr;
+	case 0x4006b8:
+		return riva128->pgraph.trapped_data;
+	case 0x4006bc:
+		return riva128->pgraph.trapped_instance;
 	}
 	return 0;
 }
@@ -1170,13 +1200,13 @@ riva128_pgraph_write(uint32_t addr, uint32_t val, void *p)
 		break;
 	case 0x400100:
 		riva128->pgraph.intr_0 &= ~val;
-		pci_clear_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state);
+		/* Recompute rather than dropping the line outright - PFIFO,
+		   PTIMER or another PGRAPH source may still be pending. */
+		riva128_pmc_recompute_intr(1, riva128);
 		break;
 	case 0x400104:
 		riva128->pgraph.intr_1 &= ~val;
-		/* if (!riva128->pgraph.intr_1)
-			riva128->pgraph.intr_0 &= ~1; */
-		pci_clear_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state);
+		riva128_pmc_recompute_intr(1, riva128);
 		break;
 	case 0x400140:
 		riva128->pgraph.intr_en_0 = val & 0x11111111;
@@ -1737,6 +1767,14 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 	svga_t *svga = &riva128->svga;
 
 	uint8_t objclass = (ctx >> 16) & 0x1f;
+
+	/* NV_PGRAPH_TRAPPED_ADDR is channel << 24 | class << 16 | method;
+	   riva128_pgraph_invalid_interrupt() latches this if the method
+	   turns out to have no hardware behind it. */
+	riva128->pgraph.cur_addr = (((riva128->pgraph.ctx_user >> 24) & 0x7f) << 24)
+			| (objclass << 16) | (method & 0x7ff);
+	riva128->pgraph.cur_data = param;
+	riva128->pgraph.cur_instance = ctx & 0xffff;
 
 	if(objclass != 0x1c && objclass != 0x05) pclog("[RIVA 128] PGRAPH execute grobj0 %08x grobj1 %08x grobj2 %08x objclass %02x method %04x param %08x\n", graphobj0, graphobj1, graphobj2, objclass, method, param);
 
