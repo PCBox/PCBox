@@ -38,6 +38,8 @@ add_library(dev OBJECT
     inboard386.c
     intel_ich2_gpio.c
     intel_ich2_trap.c
+    ibm_xma.c
+    mcamem.c
     isamem.c
     isarom.c
     isartc.c
