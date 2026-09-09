@@ -254,7 +254,8 @@ typedef struct riva128_t
 		uint16_t itm_pitch;
 		uint32_t itm_offset;
 
-		uint16_t sifc_vtx_x, sifc_vtx_y, sifc_vtx_w_out, sifc_vtx_h_out, sifc_cur_x, sifc_cur_y;
+		uint16_t sifc_vtx_x, sifc_vtx_y, sifc_vtx_w_out, sifc_vtx_h_out;
+		uint64_t sifc_cur_x, sifc_cur_y;
 		uint32_t sifc_dx_du, sifc_dy_dv;
 
 		int m2mf_pending;
@@ -1777,6 +1778,57 @@ riva128_pgraph_write_pixel(uint32_t graphobj0, uint16_t x, uint16_t y,
     if((graphobj0 >> 23) & 1) riva128_pgraph_write_pixel_to_buffer(graphobj0, x, y, color, a, 3, riva128);
 }
 
+static int
+riva128_pgraph_sifc_put_pixel(uint32_t graphobj0, uint32_t color, void *p)
+{
+	riva128_t *riva128 = (riva128_t *)p;
+	const uint32_t frac_one = 1u << 20;
+	const uint32_t frac_mask = frac_one - 1;
+	const uint32_t dst_x0 = riva128->pgraph.sifc_vtx_x;
+	const uint32_t dst_y0 = riva128->pgraph.sifc_vtx_y;
+	const uint32_t dst_x1 = dst_x0 + riva128->pgraph.sifc_vtx_w_out;
+	const uint32_t dst_y1 = dst_y0 + riva128->pgraph.sifc_vtx_h_out;
+	const uint64_t cur_x = riva128->pgraph.sifc_cur_x;
+	const uint64_t cur_y = riva128->pgraph.sifc_cur_y;
+	const uint64_t next_x = cur_x + riva128->pgraph.sifc_dx_du;
+	const uint64_t next_y = cur_y + riva128->pgraph.sifc_dy_dv;
+	uint32_t write_x0 = (uint32_t)((cur_x + frac_mask) >> 20);
+	uint32_t write_y0 = (uint32_t)((cur_y + frac_mask) >> 20);
+	uint32_t write_x1 = (uint32_t)((next_x + frac_mask) >> 20);
+	uint32_t write_y1 = (uint32_t)((next_y + frac_mask) >> 20);
+
+	if (!riva128->pgraph.sifc_dx_du || !riva128->pgraph.sifc_dy_dv ||
+			!riva128->pgraph.sifc_vtx_w_out || !riva128->pgraph.sifc_vtx_h_out)
+		return 1;
+
+	if (write_x0 < dst_x0)
+		write_x0 = dst_x0;
+	if (write_y0 < dst_y0)
+		write_y0 = dst_y0;
+	if (write_x1 > dst_x1)
+		write_x1 = dst_x1;
+	if (write_y1 > dst_y1)
+		write_y1 = dst_y1;
+
+	if ((write_x0 < write_x1) && (write_y0 < write_y1)) {
+		uint32_t expanded = riva128_pgraph_to_a1r10g10b10(
+				riva128_pgraph_expand_color(graphobj0, color, riva128));
+
+		for (uint32_t y = write_y0; y < write_y1; y++) {
+			for (uint32_t x = write_x0; x < write_x1; x++)
+				riva128_pgraph_write_pixel(graphobj0, x, y, expanded, 0xff, riva128);
+		}
+	}
+
+	riva128->pgraph.sifc_cur_x = next_x;
+	if (riva128->pgraph.sifc_cur_x >= ((uint64_t)dst_x1 << 20)) {
+		riva128->pgraph.sifc_cur_x = (uint64_t)dst_x0 << 20;
+		riva128->pgraph.sifc_cur_y = next_y;
+	}
+
+	return riva128->pgraph.sifc_cur_y >= ((uint64_t)dst_y1 << 20);
+}
+
 void
 riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		uint32_t graphobj0, uint32_t graphobj1, uint32_t graphobj2,
@@ -2791,103 +2843,28 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		if(method >= 0x400 && method < 0xb00)
 		{
 			pclog("[RIVA 128] SIFC x %08x y %08x w %08x h %08x dxdu %08x dydv %08x\n", riva128->pgraph.sifc_vtx_x, riva128->pgraph.sifc_vtx_y, riva128->pgraph.sifc_vtx_w_out, riva128->pgraph.sifc_vtx_h_out, riva128->pgraph.sifc_dx_du, riva128->pgraph.sifc_dy_dv);
-			int final_x = 0;
-			int final_y = 0;
-			int bytes_per_pixel = 1;
-			for(int y = 0; y < riva128->pgraph.sifc_dy_dv; y++)
+			switch(graphobj0 & 7)
 			{
-				for(int x = 0; x < riva128->pgraph.sifc_dx_du; x++)
-				{
-					final_x = riva128->pgraph.sifc_cur_x;
-					final_y = riva128->pgraph.sifc_cur_y;
-					switch(graphobj0 & 7)
-					{
-						case 3:
-							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
-									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param & 0xff, riva128)),
-									0xff, riva128);
-							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
-							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
-							{
-								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
-								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
-								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
-									goto method_end;	
-							};
-							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
-									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 8) & 0xff, riva128)),
-									0xff, riva128);
-							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
-							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
-							{
-								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
-								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
-								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
-									goto method_end;
-							}
-							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
-									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 16) & 0xff, riva128)),
-									0xff, riva128);
-							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
-							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
-							{
-								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
-								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
-								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
-									goto method_end;	
-							}
-							riva128_pgraph_write_pixel(graphobj0, final_x + x, final_y + y,
-									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, (param >> 24) & 0xff, riva128)),
-									0xff, riva128);
-							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
-							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
-							{
-								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
-								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
-								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
-									goto method_end;	
-							}
-							break;
-						case 0: case 4:
-							riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.sifc_cur_x + x, riva128->pgraph.sifc_cur_y + y,
-									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param & 0xffff, riva128)),
-									0xff, riva128);
-							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
-							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
-							{
-								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
-								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
-								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
-									goto method_end;	
-							}
-							riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.sifc_cur_x + x, riva128->pgraph.sifc_cur_y + y,
-									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param >> 16, riva128)),
-									0xff, riva128);
-							bytes_per_pixel = 2;
-							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
-							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
-							{
-								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
-								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
-								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
-									goto method_end;	
-							}
-							break;
-						case 1: case 2:
-							riva128_pgraph_write_pixel(graphobj0, riva128->pgraph.sifc_cur_x + x, riva128->pgraph.sifc_cur_y + y,
-									riva128_pgraph_to_a1r10g10b10(riva128_pgraph_expand_color(graphobj0, param, riva128)),
-									0xff, riva128);
-							riva128->pgraph.sifc_cur_x += riva128->pgraph.sifc_dx_du;
-							if(riva128->pgraph.sifc_cur_x >= (riva128->pgraph.sifc_vtx_x + riva128->pgraph.sifc_vtx_w_out))
-							{
-								riva128->pgraph.sifc_cur_x = riva128->pgraph.sifc_vtx_x;
-								riva128->pgraph.sifc_cur_y += riva128->pgraph.sifc_dy_dv;
-								if(riva128->pgraph.sifc_cur_y >= (riva128->pgraph.sifc_vtx_y + riva128->pgraph.sifc_vtx_h_out))
-									goto method_end;
-							}
-							break;
-					}
-				}
+				case 3:
+					if (riva128_pgraph_sifc_put_pixel(graphobj0, param & 0xff, riva128))
+						goto method_end;
+					if (riva128_pgraph_sifc_put_pixel(graphobj0, (param >> 8) & 0xff, riva128))
+						goto method_end;
+					if (riva128_pgraph_sifc_put_pixel(graphobj0, (param >> 16) & 0xff, riva128))
+						goto method_end;
+					if (riva128_pgraph_sifc_put_pixel(graphobj0, (param >> 24) & 0xff, riva128))
+						goto method_end;
+					break;
+				case 0: case 4:
+					if (riva128_pgraph_sifc_put_pixel(graphobj0, param & 0xffff, riva128))
+						goto method_end;
+					if (riva128_pgraph_sifc_put_pixel(graphobj0, param >> 16, riva128))
+						goto method_end;
+					break;
+				case 1: case 2:
+					if (riva128_pgraph_sifc_put_pixel(graphobj0, param, riva128))
+						goto method_end;
+					break;
 			}
 		}
 		else switch(method) {
@@ -2899,20 +2876,20 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			}
 			case 0x308:
 			{
-				//TODO fractional bits
-				riva128->pgraph.sifc_dx_du = param >> 20;
+				riva128->pgraph.sifc_dx_du = param;
 				break;
 			}
 			case 0x30c:
 			{
-				//TODO fractional bits
-				riva128->pgraph.sifc_dy_dv = param >> 20;
+				riva128->pgraph.sifc_dy_dv = param;
 				break;
 			}
 			case 0x310:
 			{
-				riva128->pgraph.sifc_vtx_x = riva128->pgraph.sifc_cur_x = param & 0xffff;
-				riva128->pgraph.sifc_vtx_y = riva128->pgraph.sifc_cur_y = (param >> 16) & 0xffff;
+				riva128->pgraph.sifc_vtx_x = param & 0xffff;
+				riva128->pgraph.sifc_vtx_y = (param >> 16) & 0xffff;
+				riva128->pgraph.sifc_cur_x = (uint64_t)riva128->pgraph.sifc_vtx_x << 20;
+				riva128->pgraph.sifc_cur_y = (uint64_t)riva128->pgraph.sifc_vtx_y << 20;
 				break;
 			}
 		}
