@@ -125,9 +125,9 @@ typedef struct riva128_t
 		int caches_reassign;
 
 		struct {
-			uint32_t dmaput;
-			uint32_t dmaget;
-		} channels[16];
+			uint32_t ctx[8];
+			int valid;
+		} channels[32];
 
 		struct {
 			int chanid;
@@ -179,6 +179,8 @@ typedef struct riva128_t
 
 		uint32_t ctx_switch_a, ctx_control;
 		uint32_t ctx_user;
+		uint32_t ctx_user_active, ctx_user_pending;
+		int ctx_switch_pending;
 		uint32_t ctx_cache[8];
 
 		uint32_t pattern_mono_color_rgb[2];
@@ -265,6 +267,7 @@ typedef struct riva128_t
 	{
 		uint32_t intr, intr_en;
 		uint32_t src_ctx;
+		uint32_t regs[0x900 / 4];
 	} pdma;
 	
 
@@ -687,6 +690,64 @@ uint32_t riva128_pfifo_free(void *p)
 	return free;
 }
 
+static uint8_t
+riva128_pfifo_channel_index(uint32_t chanid)
+{
+	return chanid & 0x1f;
+}
+
+static void
+riva128_pfifo_save_channel(riva128_t *riva128, uint32_t chanid)
+{
+	uint8_t channel = riva128_pfifo_channel_index(chanid);
+	uint32_t ramfc_addr = riva128->pfifo.ramfc_addr + (channel * 0x20);
+	int i;
+
+	for (i = 0; i < 8; i++) {
+		uint32_t ctx = riva128->pfifo.caches[1].ctx[i];
+		riva128->pfifo.channels[channel].ctx[i] = ctx;
+		riva128_ramin_write_l(ramfc_addr + (i << 2), ctx, riva128);
+	}
+	riva128->pfifo.channels[channel].valid = 1;
+}
+
+static void
+riva128_pfifo_restore_channel(riva128_t *riva128, uint32_t chanid)
+{
+	uint8_t channel = riva128_pfifo_channel_index(chanid);
+	uint32_t ramfc_addr = riva128->pfifo.ramfc_addr + (channel * 0x20);
+	int i;
+
+	riva128->pfifo.caches[1].chanid = chanid & 0x7f;
+
+	for (i = 0; i < 8; i++) {
+		uint32_t ctx;
+
+		if (riva128->pfifo.channels[channel].valid)
+			ctx = riva128->pfifo.channels[channel].ctx[i];
+		else
+			ctx = riva128_ramin_read_l(ramfc_addr + (i << 2),
+					riva128);
+
+		riva128->pfifo.caches[1].ctx[i] = ctx;
+		riva128->pfifo.channels[channel].ctx[i] = ctx;
+	}
+
+	riva128->pfifo.channels[channel].valid = 1;
+}
+
+static void
+riva128_pfifo_switch_channel(riva128_t *riva128, uint32_t chanid)
+{
+	uint32_t old_chanid = riva128->pfifo.caches[1].chanid;
+
+	if ((old_chanid & 0x7f) == (chanid & 0x7f))
+		return;
+
+	riva128_pfifo_save_channel(riva128, old_chanid);
+	riva128_pfifo_restore_channel(riva128, chanid);
+}
+
 uint32_t
 riva128_pfifo_read(uint32_t addr, void *p)
 {
@@ -902,7 +963,7 @@ riva128_pfifo_write(uint32_t addr, uint32_t val, void *p)
 		riva128->pfifo.caches[1].push_enabled = val & 1;
 		break;
 	case 0x003204:
-		riva128->pfifo.caches[1].chanid = val;
+		riva128->pfifo.caches[1].chanid = val & 0x7f;
 		break;
 	case 0x003210:
 		riva128->pfifo.caches[1].put = val & 0x7c;
@@ -1204,6 +1265,11 @@ riva128_pgraph_write(uint32_t addr, uint32_t val, void *p)
 		riva128->pgraph.debug_0 = val;
 		break;
 	case 0x400100:
+		if ((val & (1 << 4)) && riva128->pgraph.ctx_switch_pending) {
+			riva128->pgraph.ctx_user_active =
+					riva128->pgraph.ctx_user_pending;
+			riva128->pgraph.ctx_switch_pending = 0;
+		}
 		riva128->pgraph.intr_0 &= ~val;
 		/* Recompute rather than dropping the line outright - PFIFO,
 		   PTIMER or another PGRAPH source may still be pending. */
@@ -1226,6 +1292,10 @@ riva128_pgraph_write(uint32_t addr, uint32_t val, void *p)
 		break;
 	case 0x400194:
 		riva128->pgraph.ctx_user = val;
+		if (!riva128->pgraph.ctx_switch_pending
+				&& (!riva128->pgraph.intr_0
+				|| (((val >> 24) & 0x7f) == 0x7f)))
+			riva128->pgraph.ctx_user_active = val;
 		break;
 	case 0x400624:
 		riva128->pgraph.rop = val & 0xff;
@@ -1295,6 +1365,9 @@ riva128_pdma_read(uint32_t addr, void *p)
 		case 0x401400:
 			return riva128->pdma.src_ctx;
 	}
+	if ((addr >= 0x401000) && (addr < 0x401900))
+		return riva128->pdma.regs[(addr - 0x401000) >> 2];
+
 	return 0;
 }
 
@@ -1303,12 +1376,15 @@ riva128_pdma_write(uint32_t addr, uint32_t val, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
 	pclog("RIVA 128 PDMA write %08x %08x\n", addr, val);
+	if ((addr >= 0x401000) && (addr < 0x401900))
+		riva128->pdma.regs[(addr - 0x401000) >> 2] = val;
+
 	switch(addr) {
 		case 0x401100:
 			riva128->pdma.intr &= ~val;
 			pci_clear_irq(riva128->pci_slot, PCI_INTA, &riva128->irq_state);
 			break;
-		case 0x400140:
+		case 0x401140:
 			riva128->pdma.intr_en = val & 0x11111111;
 			riva128_pmc_recompute_intr(1, riva128);
 			break;
@@ -2994,7 +3070,8 @@ riva128_pgraph_command_submit(uint16_t method, uint8_t chanid, int subchanid,
 	if (!riva128->pgraph.fifo_access || (riva128->pgraph.intr_0 & (1 << 4)))
 		return 0;
 
-	uint8_t current_chanid = (riva128->pgraph.ctx_user >> 24) & 0x7f;
+	uint8_t current_chanid =
+			(riva128->pgraph.ctx_user_active >> 24) & 0x7f;
 	uint32_t ctx_user = (ctx & 0x001f0000) | (subchanid << 13)
 			| (chanid << 24);
 	riva128->pgraph.ctx_user = ctx_user;
@@ -3003,9 +3080,12 @@ riva128_pgraph_command_submit(uint16_t method, uint8_t chanid, int subchanid,
 		/* The RM must restore the channel before this method executes.
 		   Keep the method queued: executing it now lets the restore
 		   overwrite its effects (notably the surface colour format). */
+		riva128->pgraph.ctx_user_pending = ctx_user;
+		riva128->pgraph.ctx_switch_pending = 1;
 		riva128_pgraph_interrupt(4, riva128);
 		return 0;
 	}
+	riva128->pgraph.ctx_user_active = ctx_user;
 
 	uint16_t instance_addr = ctx & 0xffff;
 
@@ -3209,8 +3289,9 @@ riva128_user_write(uint32_t addr, uint32_t val, void *p)
 					!= riva128->pfifo.caches[1].get)) {
 			ranout = 1;
 			err |= 2 << 28;
+		} else {
+			riva128_pfifo_switch_channel(riva128, chanid);
 		}
-		/* TODO: channel switch. */
 		pclog("[RIVA 128] PFIFO CHANNEL SWITCH\n");
 	}
 
