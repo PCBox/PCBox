@@ -26,6 +26,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <math.h>
 #include <wchar.h>
 #include <86box/86box.h>
 #include "../cpu/cpu.h"
@@ -261,6 +262,12 @@ typedef struct riva128_t
 		uint32_t sifc_dx_du, sifc_dy_dv;
 
 		int m2mf_pending;
+
+		struct {
+			uint32_t vertex[32][2], z[16];
+			uint32_t valid, format, filter, fog, config, alpha;
+			uint32_t xy, uv, zeta, color, fog_tri, rhw;
+		} d3d;
 	} pgraph;
 	
 	struct
@@ -1212,11 +1219,41 @@ riva128_pgraph_invalid_interrupt(int num, void *p)
 	riva128_pmc_recompute_intr(1, riva128);
 }
 
+static uint32_t *
+riva128_pgraph_d3d_register(riva128_t *riva128, uint32_t addr)
+{
+	if (addr & 3)
+		return NULL;
+	if (addr >= 0x400400 && addr < 0x400500)
+		return &riva128->pgraph.d3d.vertex[(addr - 0x400400) >> 3][(addr >> 2) & 1];
+	if (addr >= 0x400580 && addr < 0x4005c0)
+		return &riva128->pgraph.d3d.z[(addr - 0x400580) >> 2];
+	switch (addr) {
+	case 0x400508: return &riva128->pgraph.d3d.valid;
+	case 0x40050c: return &riva128->pgraph.d3d.format;
+	case 0x400510: return &riva128->pgraph.d3d.fog;
+	case 0x40054c: return &riva128->pgraph.d3d.filter;
+	case 0x4005c0: return &riva128->pgraph.d3d.xy;
+	case 0x4005c4: return &riva128->pgraph.d3d.uv;
+	case 0x4005c8: return &riva128->pgraph.d3d.zeta;
+	case 0x4005cc: return &riva128->pgraph.d3d.color;
+	case 0x4005d0: return &riva128->pgraph.d3d.fog_tri;
+	case 0x4005d4: return &riva128->pgraph.d3d.rhw;
+	case 0x400644: return &riva128->pgraph.d3d.config;
+	case 0x4006c8: return &riva128->pgraph.d3d.alpha;
+	case 0x401800: return &riva128->pdma.regs[0x800 >> 2];
+	default: return NULL;
+	}
+}
+
 uint32_t
 riva128_pgraph_read(uint32_t addr, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
 	//pclog("RIVA 128 PGRAPH read %08x\n", addr);
+	uint32_t *reg = riva128_pgraph_d3d_register(riva128, addr);
+	if (reg)
+		return *reg;
 	switch(addr) {
 	case 0x400080:
 		return riva128->pgraph.debug_0;
@@ -1279,6 +1316,11 @@ riva128_pgraph_write(uint32_t addr, uint32_t val, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
 	//pclog("[RIVA 128] PGRAPH write %08x data %08x\n", addr, val);
+	uint32_t *reg = riva128_pgraph_d3d_register(riva128, addr);
+	if (reg) {
+		*reg = val;
+		return;
+	}
 	switch(addr) {
 	case 0x400080:
 		riva128->pgraph.debug_0 = val;
@@ -1938,6 +1980,419 @@ riva128_pgraph_sifc_put_pixel(uint32_t graphobj0, uint32_t color, void *p)
 	}
 
 	return riva128->pgraph.sifc_cur_y >= ((uint64_t)dst_y1 << 20);
+}
+
+static double
+riva128_d3d_float(uint32_t value)
+{
+	float f;
+	memcpy(&f, &value, sizeof(f));
+	return f;
+}
+
+static uint16_t
+riva128_d3d_fixed(uint32_t value, int scale)
+{
+	double f = riva128_d3d_float(value) * (1u << scale);
+	if (!isfinite(f))
+		return (value >> 31) ? 0x8000 : 0x7fff;
+	if (f >= 32767.0)
+		return 0x7fff;
+	if (f <= -32768.0)
+		return 0x8000;
+	return (uint16_t)(int16_t)f;
+}
+
+static int
+riva128_d3d_compare(unsigned func, unsigned a, unsigned b)
+{
+	switch (func) {
+	case 1: return 0;
+	case 2: return a < b;
+	case 3: return a == b;
+	case 0:
+	case 4: return a <= b;
+	case 5: return a > b;
+	case 6: return a != b;
+	case 7: return a >= b;
+	default: return 1;
+	}
+}
+
+static int
+riva128_d3d_write_enabled(unsigned mode, int alpha, int depth)
+{
+	switch (mode) {
+	case 1: return alpha;
+	case 2: return alpha && depth;
+	case 3: return depth;
+	case 4: return 1;
+	default: return 0;
+	}
+}
+
+static unsigned
+riva128_d3d_wrap(int coordinate, unsigned size, unsigned mode)
+{
+	if (mode == 3) {
+		if (coordinate < 0)
+			return 0;
+		if ((unsigned)coordinate >= size)
+			return size - 1;
+	} else if (mode == 2 && (coordinate & size))
+		coordinate = ~coordinate;
+	return coordinate & (size - 1);
+}
+
+static uint16_t
+riva128_d3d_texture_read(riva128_t *riva128, uint32_t instance, uint32_t offset)
+{
+	uint32_t flags = riva128_ramin_read_l(instance, riva128);
+	uint32_t limit = riva128_ramin_read_l(instance + 4, riva128);
+	uint32_t address = offset + (flags & 0xfff);
+	uint16_t pixel = 0;
+	if (offset >= limit)
+		return 0;
+	if ((flags >> 24) & 3) {
+		uint32_t pte = riva128_ramin_read_l(instance + 8 + ((address >> 12) * 4), riva128);
+		address = (pte & 0xfffff000) | (address & 0xfff);
+		dma_bm_read(address, (uint8_t *)&pixel, 2, 2);
+	} else {
+		address += riva128_ramin_read_l(instance + 8, riva128) & 0xfffff000;
+		pixel = riva128->svga.vram[address & riva128->vram_mask];
+		pixel |= riva128->svga.vram[(address + 1) & riva128->vram_mask] << 8;
+	}
+	return pixel;
+}
+
+static uint32_t
+riva128_d3d_texel(riva128_t *riva128, uint32_t instance, int x, int y)
+{
+	uint32_t format = riva128->pgraph.d3d.format;
+	unsigned logsize = (format >> 28) & 15;
+	unsigned size = 1u << logsize;
+	unsigned u = riva128_d3d_wrap(x, size, (riva128->pgraph.d3d.config >> 4) & 3);
+	unsigned v = riva128_d3d_wrap(y, size, (riva128->pgraph.d3d.config >> 6) & 3);
+	uint32_t address = 0;
+	for (unsigned bit = 0; bit < logsize; bit++) {
+		address |= ((u >> bit) & 1) << (bit * 2);
+		address |= ((v >> bit) & 1) << (bit * 2 + 1);
+	}
+	uint16_t pixel = riva128_d3d_texture_read(riva128, instance,
+			riva128->pdma.regs[0x800 >> 2] + address * 2);
+	unsigned a = 255, r, g, b;
+	switch ((format >> 20) & 3) {
+	case 0:
+	case 1:
+		a = (format & (1 << 20)) || (pixel & 0x8000) ? 255 : 0;
+		r = ((pixel >> 10) & 31) * 255 / 31;
+		g = ((pixel >> 5) & 31) * 255 / 31;
+		b = (pixel & 31) * 255 / 31;
+		break;
+	case 2:
+		a = (pixel >> 12) * 17;
+		r = ((pixel >> 8) & 15) * 17;
+		g = ((pixel >> 4) & 15) * 17;
+		b = (pixel & 15) * 17;
+		break;
+	default:
+		r = (pixel >> 11) * 255 / 31;
+		g = ((pixel >> 5) & 63) * 255 / 63;
+		b = (pixel & 31) * 255 / 31;
+		break;
+	}
+	if ((format & 0x10000) && !(pixel & (format & 0xffff)))
+		a = 0;
+	return (a << 24) | (r << 16) | (g << 8) | b;
+}
+
+static uint32_t
+riva128_d3d_texture(riva128_t *riva128, uint32_t instance, double u, double v)
+{
+	int x = (int)floor(u), y = (int)floor(v);
+	uint32_t c00 = riva128_d3d_texel(riva128, instance, x, y);
+	if ((riva128->pgraph.d3d.config & 3) != 2)
+		return c00;
+	uint32_t c10 = riva128_d3d_texel(riva128, instance, x + 1, y);
+	uint32_t c01 = riva128_d3d_texel(riva128, instance, x, y + 1);
+	uint32_t c11 = riva128_d3d_texel(riva128, instance, x + 1, y + 1);
+	double fx = u - x, fy = v - y;
+	uint32_t result = 0;
+	for (int shift = 0; shift < 32; shift += 8) {
+		double a = ((c00 >> shift) & 255) * (1 - fx) + ((c10 >> shift) & 255) * fx;
+		double b = ((c01 >> shift) & 255) * (1 - fx) + ((c11 >> shift) & 255) * fx;
+		result |= (uint32_t)(a * (1 - fy) + b * fy) << shift;
+	}
+	return result;
+}
+
+static void
+riva128_d3d_pixel(riva128_t *riva128, uint32_t graphobj0, int x, int y,
+		uint32_t source, uint16_t z)
+{
+	uint32_t config = riva128->pgraph.d3d.config;
+	svga_t *svga = &riva128->svga;
+	unsigned source_mode = (config >> 8) & 15;
+	if (source_mode == 2)
+		source ^= 0xffffff;
+	if (source_mode == 3)
+		source ^= 0xff000000;
+	if (source_mode == 6)
+		source |= 0xff000000;
+	int alpha = riva128_d3d_compare((riva128->pgraph.d3d.alpha >> 8) & 15,
+			source >> 24, riva128->pgraph.d3d.alpha & 255);
+	uint32_t za = (riva128->pgraph.surf_offset[3] +
+			y * riva128->pgraph.surf_pitch[3] + x * 2) & riva128->vram_mask;
+	int depth = 1;
+	if (graphobj0 & 0x1000) {
+		uint16_t old_z = ((uint16_t *)svga->vram)[za >> 1];
+		depth = riva128_d3d_compare((config >> 16) & 15, z, old_z);
+		if (riva128_d3d_write_enabled((config >> 20) & 7, alpha, depth)) {
+			((uint16_t *)svga->vram)[za >> 1] = z;
+			svga->changedvram[za >> 12] = changeframecount;
+		}
+	}
+	if (!riva128_d3d_write_enabled((config >> 24) & 7, alpha, depth))
+		return;
+	for (int buffer = 0; buffer < 4; buffer++) {
+		if (!(graphobj0 & (1u << (20 + buffer))) || ((graphobj0 & 0x1000) && buffer == 3))
+			continue;
+		unsigned format = (riva128->pgraph.surf_config >> (buffer * 4)) & 3;
+		if (format != RIVA128_PGRAPH_SURF_FORMAT_X1R5G5B5 &&
+				format != RIVA128_PGRAPH_SURF_FORMAT_X8R8G8B8)
+			continue;
+		unsigned bytes = format == RIVA128_PGRAPH_SURF_FORMAT_X8R8G8B8 ? 4 : 2;
+		uint32_t address = (riva128->pgraph.surf_offset[buffer] +
+				y * riva128->pgraph.surf_pitch[buffer] + x * bytes) & riva128->vram_mask;
+		uint32_t dst = riva128_read_pixel_from_buffer(graphobj0, x, y, buffer, riva128);
+		uint32_t result = 0;
+		for (int channel = 0; channel < 3; channel++) {
+			unsigned s = (source >> (channel * 8)) & 255;
+			unsigned d = bytes == 4 ? (dst >> (channel * 8)) & 255 :
+					((dst >> (channel * 5)) & 31) * 255 / 31;
+			unsigned c;
+			if (config & (1u << 28))
+				c = s + d > 255 ? 255 : s + d;
+			else {
+				unsigned factor = (config & (1u << 29)) ? d >> 4 : source >> 28;
+				if (config & (1u << 31)) s = 0;
+				if (config & (1u << 30)) d = 0;
+				c = factor == 15 ? s : (s * factor + d * (16 - factor)) >> 4;
+			}
+			result |= bytes == 4 ? c << (channel * 8) : (c >> 3) << (channel * 5);
+		}
+		if (bytes == 4)
+			((uint32_t *)svga->vram)[address >> 2] = result;
+		else
+			((uint16_t *)svga->vram)[address >> 1] = result;
+		svga->changedvram[address >> 12] = changeframecount;
+	}
+}
+
+typedef struct riva128_d3d_vertex_t {
+	double x, y, z, w, u, v, fog, color[4];
+} riva128_d3d_vertex_t;
+
+static riva128_d3d_vertex_t
+riva128_d3d_vertex(riva128_t *riva128, unsigned index)
+{
+	uint32_t x = riva128->pgraph.d3d.vertex[index][0];
+	uint32_t y = riva128->pgraph.d3d.vertex[index][1];
+	uint32_t m = riva128->pgraph.d3d.vertex[index + 16][0];
+	uint32_t c = riva128->pgraph.d3d.vertex[index + 16][1];
+	uint32_t z = riva128->pgraph.d3d.z[index];
+	riva128_d3d_vertex_t v;
+	v.x = (int16_t)x / 16.0;
+	v.y = (int16_t)y / 16.0;
+	v.u = (int16_t)(x >> 16) / 16.0;
+	v.v = (int16_t)(y >> 16) / 16.0;
+	v.z = ((z & 0xffff) | ((m >> 25) << 16) | ((c >> 31) << 23)) / 256.0;
+	v.w = riva128_d3d_float((m & 0x1ffffff) << 6);
+	v.fog = (z >> 16) & 255;
+	v.color[0] = c & 255;
+	v.color[1] = (c >> 8) & 255;
+	v.color[2] = (c >> 16) & 255;
+	v.color[3] = ((c >> 24) & 127) * 255.0 / 127.0;
+	return v;
+}
+
+static double
+riva128_d3d_edge(riva128_d3d_vertex_t a, riva128_d3d_vertex_t b, double x, double y)
+{
+	return (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+}
+
+static int
+riva128_d3d_top_left(riva128_d3d_vertex_t a, riva128_d3d_vertex_t b)
+{
+	return b.y < a.y || (b.y == a.y && b.x > a.x);
+}
+
+static void
+riva128_d3d_triangle(riva128_t *riva128, uint32_t graphobj0, uint32_t graphobj1, unsigned indices)
+{
+	unsigned i0 = indices & 15, i1 = (indices >> 4) & 15, i2 = (indices >> 8) & 15;
+	uint32_t valid = (1u << i0) | (1u << i1) | (1u << i2);
+	if (i0 == i1 || i1 == i2 || i0 == i2 || (riva128->pgraph.d3d.valid & valid) != valid)
+		return;
+	riva128_d3d_vertex_t a = riva128_d3d_vertex(riva128, i0);
+	riva128_d3d_vertex_t b = riva128_d3d_vertex(riva128, i1);
+	riva128_d3d_vertex_t c = riva128_d3d_vertex(riva128, i2);
+	if (!isfinite(a.w) || !isfinite(b.w) || !isfinite(c.w) || a.w <= 0 || b.w <= 0 || c.w <= 0)
+		return;
+	double area = riva128_d3d_edge(a, b, c.x, c.y);
+	unsigned cull = (riva128->pgraph.d3d.config >> 12) & 3;
+	if (area == 0 || (cull == 2 && area < 0) || (cull == 3 && area > 0))
+		return;
+	if (area < 0) {
+		riva128_d3d_vertex_t swap = b;
+		b = c;
+		c = swap;
+		area = -area;
+	}
+	int x0 = (int)ceil(fmin(a.x, fmin(b.x, c.x)));
+	int y0 = (int)ceil(fmin(a.y, fmin(b.y, c.y)));
+	int x1 = (int)ceil(fmax(a.x, fmax(b.x, c.x)));
+	int y1 = (int)ceil(fmax(a.y, fmax(b.y, c.y)));
+	if (x0 < 0) x0 = 0;
+	if (y0 < 0) y0 = 0;
+	if (x1 > 2048) x1 = 2048;
+	if (y1 > 2048) y1 = 2048;
+	if (graphobj0 & 0x8000) {
+		int cx = (int16_t)riva128->pgraph.clipx_min;
+		int cy = (int16_t)riva128->pgraph.clipy_min;
+		if (x0 < cx) x0 = cx;
+		if (y0 < cy) y0 = cy;
+		if (x1 > cx + riva128->pgraph.clipw) x1 = cx + riva128->pgraph.clipw;
+		if (y1 > cy + riva128->pgraph.cliph) y1 = cy + riva128->pgraph.cliph;
+	}
+	int ab = riva128_d3d_top_left(a, b);
+	int bc = riva128_d3d_top_left(b, c);
+	int ca = riva128_d3d_top_left(c, a);
+	for (int y = y0; y < y1; y++) {
+		for (int x = x0; x < x1; x++) {
+			double wa = riva128_d3d_edge(b, c, x, y);
+			double wb = riva128_d3d_edge(c, a, x, y);
+			double wc = riva128_d3d_edge(a, b, x, y);
+			if (wa < 0 || (wa == 0 && !bc) || wb < 0 || (wb == 0 && !ca) ||
+					wc < 0 || (wc == 0 && !ab))
+				continue;
+			wa /= area;
+			wb /= area;
+			wc /= area;
+			double w = wa * a.w + wb * b.w + wc * c.w;
+			double u = (wa * a.u * a.w + wb * b.u * b.w + wc * c.u * c.w) / w;
+			double v = (wa * a.v * a.w + wb * b.v * b.w + wc * c.v * c.w) / w;
+			uint32_t texel = riva128_d3d_texture(riva128, (graphobj1 & 0xffff) << 4, u, v);
+			double fog = (wa * a.fog + wb * b.fog + wc * c.fog) / 255.0;
+			uint32_t source = 0;
+			for (int channel = 0; channel < 4; channel++) {
+				double color = wa * a.color[channel] + wb * b.color[channel] + wc * c.color[channel];
+				color *= ((texel >> (channel * 8)) & 255) / 255.0;
+				if (channel < 3)
+					color = color * (1 - fog) + ((riva128->pgraph.d3d.fog >> (channel * 8)) & 255) * fog;
+				if (color < 0) color = 0;
+				if (color > 255) color = 255;
+				source |= (uint32_t)(color + 0.5) << (channel * 8);
+			}
+			double z = wa * a.z + wb * b.z + wc * c.z;
+			if (z < 0) z = 0;
+			if (z > 65535) z = 65535;
+			riva128_d3d_pixel(riva128, graphobj0, x, y, source, (uint16_t)z);
+		}
+	}
+}
+
+static int
+riva128_d3d_method(riva128_t *riva128, uint16_t method, uint32_t param,
+		uint32_t graphobj0, uint32_t graphobj1)
+{
+	if (method == 0 || method == 0x104)
+		return 1;
+	switch (method) {
+	case 0x304:
+		riva128->pdma.regs[0x800 >> 2] = param;
+		riva128->pgraph.d3d.valid |= 1u << 23;
+		return 1;
+	case 0x308:
+		if ((param & ~0xff31ffffu) || (param >> 28) > 11 || ((param >> 24) & 15) > 11)
+			return 0;
+		riva128->pgraph.d3d.format = param;
+		riva128->pgraph.d3d.valid |= 1u << 24;
+		return 1;
+	case 0x30c:
+		riva128->pgraph.d3d.filter = param;
+		riva128->pgraph.d3d.valid |= 1u << 25;
+		return 1;
+	case 0x310:
+		riva128->pgraph.d3d.fog = param & 0xffffff;
+		riva128->pgraph.d3d.valid |= 1u << 27;
+		return 1;
+	case 0x314:
+		riva128->pgraph.d3d.config = param & 0xf77fbdf3;
+		riva128->pgraph.d3d.valid |= 1u << 26;
+		return 1;
+	case 0x318:
+		riva128->pgraph.d3d.alpha = param & 0xfff;
+		return 1;
+	}
+	if (method < 0x1000 || method >= 0x2000 || (method & 3))
+		return 0;
+	unsigned index = riva128->pgraph.d3d.fog_tri & 15;
+	unsigned size = (riva128->pgraph.d3d.format >> 28) & 15;
+	if ((method & 31) == 0) {
+		riva128->pgraph.d3d.fog_tri = param;
+		riva128->pgraph.d3d.valid = (riva128->pgraph.d3d.valid & ~0x7f0000u) | 0x10000;
+		return 1;
+	}
+	riva128->pgraph.d3d.valid &= ~(1u << index);
+	switch (method & 31) {
+	case 4:
+		riva128->pgraph.d3d.color = (riva128->pgraph.d3d.color & 0x80000000) |
+				(param & 0xffffff) | ((param >> 1) & 0x7f000000);
+		riva128->pgraph.d3d.valid |= 1u << 17;
+		break;
+	case 8:
+		riva128->pgraph.d3d.xy = (riva128->pgraph.d3d.xy & 0xffff0000) | riva128_d3d_fixed(param, 4);
+		riva128->pgraph.d3d.valid |= 1u << 21;
+		break;
+	case 12:
+		riva128->pgraph.d3d.xy = (riva128->pgraph.d3d.xy & 0xffff) | ((uint32_t)riva128_d3d_fixed(param, 4) << 16);
+		riva128->pgraph.d3d.valid |= 1u << 20;
+		break;
+	case 16: {
+		double f = riva128_d3d_float(param);
+		uint32_t z = (!(f > 0) ? 0 : f >= 1 ? 0xffffff : (uint32_t)(f * 16777216.0)) ^ 0xffffff;
+		riva128->pgraph.d3d.zeta = z & 0xffff;
+		riva128->pgraph.d3d.rhw = (riva128->pgraph.d3d.rhw & 0x1ffffff) | ((z & 0x7f0000) << 9);
+		riva128->pgraph.d3d.color = (riva128->pgraph.d3d.color & 0x7fffffff) | ((z & 0x800000) << 8);
+		riva128->pgraph.d3d.valid |= 1u << 19;
+		break;
+	}
+	case 20:
+		riva128->pgraph.d3d.rhw = (riva128->pgraph.d3d.rhw & 0xfe000000) | ((param >> 6) & 0x1ffffff);
+		riva128->pgraph.d3d.valid |= 1u << 18;
+		break;
+	case 24:
+		riva128->pgraph.d3d.uv = (riva128->pgraph.d3d.uv & 0xffff0000) | riva128_d3d_fixed(param, size + 4);
+		riva128->pgraph.d3d.valid |= 1u << 22;
+		break;
+	case 28:
+		riva128->pgraph.d3d.uv = (riva128->pgraph.d3d.uv & 0xffff) | ((uint32_t)riva128_d3d_fixed(param, size + 4) << 16);
+		riva128->pgraph.d3d.vertex[index][0] = (riva128->pgraph.d3d.xy & 0xffff) | (riva128->pgraph.d3d.uv << 16);
+		riva128->pgraph.d3d.vertex[index][1] = (riva128->pgraph.d3d.xy >> 16) | (riva128->pgraph.d3d.uv & 0xffff0000);
+		riva128->pgraph.d3d.vertex[index + 16][0] = riva128->pgraph.d3d.rhw;
+		riva128->pgraph.d3d.vertex[index + 16][1] = riva128->pgraph.d3d.color;
+		riva128->pgraph.d3d.z[index] = riva128->pgraph.d3d.zeta | ((riva128->pgraph.d3d.fog_tri >> 24) << 16);
+		if ((riva128->pgraph.d3d.valid & 0x7f0000) == 0x7f0000) {
+			riva128->pgraph.d3d.valid &= ~0x7f0000u;
+			riva128->pgraph.d3d.valid |= 1u << index;
+			riva128_d3d_triangle(riva128, graphobj0, graphobj1, riva128->pgraph.d3d.fog_tri);
+			riva128_d3d_triangle(riva128, graphobj0, graphobj1, riva128->pgraph.d3d.fog_tri >> 12);
+		}
+		break;
+	}
+	return 1;
 }
 
 void
@@ -3008,6 +3463,10 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 				break;
 			}
 		}
+		break;
+	case 0x17:
+		if (!riva128_d3d_method(riva128, method, param, graphobj0, graphobj1))
+			riva128_pgraph_invalid_interrupt(0, riva128);
 		break;
 	case 0x1c:
 		switch(method) {
