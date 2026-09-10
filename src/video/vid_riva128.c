@@ -127,6 +127,7 @@ typedef struct riva128_t
 
 		struct {
 			uint32_t ctx[8];
+			uint32_t dma_put, dma_get;
 			int valid;
 		} channels[32];
 
@@ -136,8 +137,16 @@ typedef struct riva128_t
 			int runout;
 			uint32_t get, put;
 			uint8_t dma_ctrl;
+			uint32_t dma_state;
 			uint32_t dma_length;
 			uint32_t dma_addr;
+			uint32_t dma_target;
+			uint32_t dma_tlb_tag;
+			uint32_t dma_tlb_pte;
+			uint32_t dma_pt;
+			uint32_t dma_limit;
+			uint16_t dma_method;
+			uint8_t dma_subchan;
 			uint32_t pull_ctrl;
 			uint32_t pull_state;
 			uint32_t ctx[8];
@@ -706,12 +715,27 @@ riva128_pfifo_save_channel(riva128_t *riva128, uint32_t chanid)
 	uint32_t ramfc_addr = riva128->pfifo.ramfc_addr + (channel * 0x20);
 	int i;
 
+	if (channel < 16 && (riva128->pfifo.chan_mode & (1u << channel))) {
+		riva128_ramin_write_l(ramfc_addr + 0x00,
+				riva128->pfifo.channels[channel].dma_put, riva128);
+		riva128_ramin_write_l(ramfc_addr + 0x04,
+				riva128->pfifo.caches[1].dma_addr, riva128);
+		riva128_ramin_write_l(ramfc_addr + 0x0c,
+				riva128->pfifo.caches[1].dma_state, riva128);
+		riva128->pfifo.channels[channel].dma_get =
+				riva128->pfifo.caches[1].dma_addr;
+		riva128->pfifo.channels[channel].valid = 1;
+		return;
+	}
+
 	for (i = 0; i < 8; i++) {
 		uint32_t ctx = riva128->pfifo.caches[1].ctx[i];
 		riva128->pfifo.channels[channel].ctx[i] = ctx;
 		riva128_ramin_write_l(ramfc_addr + (i << 2), ctx, riva128);
 	}
 	riva128->pfifo.channels[channel].valid = 1;
+	riva128->pfifo.channels[channel].dma_get =
+			riva128->pfifo.caches[1].dma_addr;
 }
 
 static void
@@ -722,6 +746,37 @@ riva128_pfifo_restore_channel(riva128_t *riva128, uint32_t chanid)
 	int i;
 
 	riva128->pfifo.caches[1].chanid = chanid & 0x7f;
+	if (channel < 16 && (riva128->pfifo.chan_mode & (1u << channel))) {
+		uint32_t instance_count;
+
+		if (!riva128->pfifo.channels[channel].valid) {
+			riva128->pfifo.channels[channel].dma_put =
+					riva128_ramin_read_l(ramfc_addr + 0x00, riva128);
+			riva128->pfifo.channels[channel].dma_get =
+					riva128_ramin_read_l(ramfc_addr + 0x04, riva128);
+		}
+		instance_count = riva128_ramin_read_l(ramfc_addr + 0x08, riva128);
+		riva128->pfifo.caches[1].dma_pt = (instance_count & 0xffff) << 4;
+		if (riva128->pfifo.caches[1].dma_pt) {
+			uint32_t flags = riva128_ramin_read_l(
+					riva128->pfifo.caches[1].dma_pt, riva128);
+			riva128->pfifo.caches[1].dma_target = (flags >> 24) & 3;
+			riva128->pfifo.caches[1].dma_limit = riva128_ramin_read_l(
+					riva128->pfifo.caches[1].dma_pt + 4, riva128);
+		}
+		riva128->pfifo.caches[1].dma_addr =
+				riva128->pfifo.channels[channel].dma_get;
+		riva128->pfifo.caches[1].dma_state =
+				riva128_ramin_read_l(ramfc_addr + 0x0c, riva128);
+		riva128->pfifo.caches[1].dma_length =
+				(riva128->pfifo.caches[1].dma_state >> 18) & 0x7ff;
+		riva128->pfifo.caches[1].dma_method =
+				riva128->pfifo.caches[1].dma_state & 0x1ffc;
+		riva128->pfifo.caches[1].dma_subchan =
+				(riva128->pfifo.caches[1].dma_state >> 13) & 7;
+		riva128->pfifo.channels[channel].valid = 1;
+		return;
+	}
 
 	for (i = 0; i < 8; i++) {
 		uint32_t ctx;
@@ -737,6 +792,10 @@ riva128_pfifo_restore_channel(riva128_t *riva128, uint32_t chanid)
 	}
 
 	riva128->pfifo.channels[channel].valid = 1;
+	riva128->pfifo.caches[1].dma_addr =
+			riva128->pfifo.channels[channel].dma_get;
+	riva128->pfifo.caches[1].dma_length = 0;
+	riva128->pfifo.caches[1].dma_state = 0;
 }
 
 static void
@@ -796,6 +855,12 @@ riva128_pfifo_read(uint32_t addr, void *p)
 		return riva128->pfifo.runout_get;
 	case 0x002500:
 		return riva128->pfifo.caches_reassign & 1;
+	case 0x002504:
+		return riva128->pfifo.chan_mode;
+	case 0x002508:
+		return riva128->pfifo.chan_dma;
+	case 0x00250c:
+		return riva128->pfifo.chan_size;
 	case 0x003010:
 		return riva128->pfifo.caches[0].put;
 	case 0x003014: {
@@ -821,7 +886,9 @@ riva128_pfifo_read(uint32_t addr, void *p)
 	case 0x003200:
 		return riva128->pfifo.caches[1].push_enabled;
 	case 0x003204:
-		return riva128->pfifo.caches[1].chanid;
+		return riva128->pfifo.caches[1].chanid |
+				((riva128->pfifo.chan_mode >>
+				  (riva128->pfifo.caches[1].chanid & 15)) & 1) << 8;
 	case 0x003210:
 		return riva128->pfifo.caches[1].put;
 	case 0x003214: {
@@ -837,10 +904,20 @@ riva128_pfifo_read(uint32_t addr, void *p)
 	}
 	case 0x003220:
 		return riva128->pfifo.caches[1].dma_ctrl;
+	case 0x003218:
+		return riva128->pfifo.caches[1].dma_state;
 	case 0x003224:
 		return riva128->pfifo.caches[1].dma_length;
 	case 0x003228:
 		return riva128->pfifo.caches[1].dma_addr;
+	case 0x00322c:
+		return riva128->pfifo.caches[1].dma_target;
+	case 0x003230:
+		return riva128->pfifo.caches[1].dma_tlb_tag;
+	case 0x003234:
+		return riva128->pfifo.caches[1].dma_tlb_pte;
+	case 0x003238:
+		return riva128->pfifo.caches[1].dma_pt;
 	case 0x003240:
 		return riva128->pfifo.caches[1].pull_ctrl;
 	case 0x003250:
@@ -946,6 +1023,15 @@ riva128_pfifo_write(uint32_t addr, uint32_t val, void *p)
 	case 0x002500:
 		riva128->pfifo.caches_reassign = val & 1;
 		break;
+	case 0x002504:
+		riva128->pfifo.chan_mode = val;
+		break;
+	case 0x002508:
+		riva128->pfifo.chan_dma = val;
+		break;
+	case 0x00250c:
+		riva128->pfifo.chan_size = val;
+		break;
 	case 0x003000:
 		riva128->pfifo.caches[0].push_enabled = val & 1;
 		break;
@@ -980,7 +1066,7 @@ riva128_pfifo_write(uint32_t addr, uint32_t val, void *p)
 		riva128->pfifo.caches[1].push_enabled = val & 1;
 		break;
 	case 0x003204:
-		riva128->pfifo.caches[1].chanid = val & 0x7f;
+		riva128->pfifo.caches[1].chanid = val & 0x0f;
 		break;
 	case 0x003210:
 		riva128->pfifo.caches[1].put = val & 0x7c;
@@ -989,11 +1075,26 @@ riva128_pfifo_write(uint32_t addr, uint32_t val, void *p)
 		riva128->pfifo.caches[1].dma_ctrl &= ~0x10;
 		riva128->pfifo.caches[1].dma_ctrl |= val & 1;
 		break;
+	case 0x003218:
+		riva128->pfifo.caches[1].dma_state = val;
+		break;
 	case 0x003224:
 		riva128->pfifo.caches[1].dma_length = val & 0x7ffffc;
 		break;
 	case 0x003228:
 		riva128->pfifo.caches[1].dma_addr = val & 0x7ffffc;
+		break;
+	case 0x00322c:
+		riva128->pfifo.caches[1].dma_target = val;
+		break;
+	case 0x003230:
+		riva128->pfifo.caches[1].dma_tlb_tag = val;
+		break;
+	case 0x003234:
+		riva128->pfifo.caches[1].dma_tlb_pte = val;
+		break;
+	case 0x003238:
+		riva128->pfifo.caches[1].dma_pt = val;
 		break;
 	case 0x003240:
 		if (riva128->pfifo.cache_error)
@@ -3711,25 +3812,148 @@ riva128_do_cache1_puller(void *p)
 					<< 2;
 }
 
+static void
+riva128_pfifo_dma_error(riva128_t *riva128, uint32_t reason)
+{
+	/* DMA_STATE[31:29] contains the pusher error code.  DMA_CTRL bit 4
+	   stops the pusher until the resource manager clears and restarts it. */
+	riva128->pfifo.caches[1].dma_state &= 0x1fffffff;
+	riva128->pfifo.caches[1].dma_state |= (reason & 7) << 29;
+	riva128->pfifo.caches[1].dma_ctrl |= 0x10;
+	riva128->pfifo.caches[1].dma_ctrl &= ~1;
+	riva128_pfifo_interrupt(12, riva128);
+}
+
+static uint32_t
+riva128_pfifo_dma_read(riva128_t *riva128, uint32_t addr)
+{
+	uint32_t val = 0;
+	uint32_t physical = addr;
+	uint32_t target = riva128->pfifo.caches[1].dma_target & 3;
+
+	/* DMA channels store the pushbuffer DMA-object instance in RAMFC.
+	   Its first two words describe target/adjust and limit, followed by
+	   one PTE per 4 KiB page. */
+	if (riva128->pfifo.caches[1].dma_pt) {
+		uint32_t instance = riva128->pfifo.caches[1].dma_pt;
+		uint32_t flags = riva128_ramin_read_l(instance, riva128);
+		uint32_t logical = addr + (flags & 0xfff);
+		uint32_t pte = riva128_ramin_read_l(instance + 8 +
+				((logical >> 12) << 2), riva128);
+		target = (flags >> 24) & 3;
+		physical = (pte & 0xfffff000) | (logical & 0xfff);
+	}
+
+	/* NV3 target zero is framebuffer memory.  The other targets are host
+	   memory; the PCI bus-master helper also gives memory tracing and access
+	   checks to the emulator core. */
+	if (target == 0) {
+		uint8_t *vram = riva128->svga.vram;
+		val = vram[(physical + 0) & riva128->vram_mask]
+			| (uint32_t)vram[(physical + 1) & riva128->vram_mask] << 8
+			| (uint32_t)vram[(physical + 2) & riva128->vram_mask] << 16
+			| (uint32_t)vram[(physical + 3) & riva128->vram_mask] << 24;
+	} else {
+		dma_bm_read(physical, (uint8_t *)&val, sizeof(val), sizeof(val));
+	}
+	return val;
+}
+
+static int
+riva128_pfifo_dma_put_cache(riva128_t *riva128, uint16_t method,
+		uint8_t subchan, uint32_t param)
+{
+	uint32_t put_normal;
+
+	if (!riva128->pfifo.caches[1].push_enabled ||
+			riva128_pfifo_free(riva128) == 0)
+		return 0;
+
+	riva128->pfifo.cache1[riva128->pfifo.caches[1].put >> 2].method = method;
+	riva128->pfifo.cache1[riva128->pfifo.caches[1].put >> 2].subchan = subchan;
+	riva128->pfifo.cache1[riva128->pfifo.caches[1].put >> 2].param = param;
+	put_normal = riva128_pfifo_gray2normal(
+			riva128->pfifo.caches[1].put >> 2);
+	riva128->pfifo.caches[1].put =
+			riva128_pfifo_normal2gray((put_normal + 1) & 31) << 2;
+	return 1;
+}
+
+static void
+riva128_do_dma_pusher(riva128_t *riva128)
+{
+	uint8_t channel = riva128->pfifo.caches[1].chanid & 0x0f;
+	uint32_t *get = &riva128->pfifo.channels[channel].dma_get;
+	uint32_t put = riva128->pfifo.channels[channel].dma_put;
+	unsigned budget = 256;
+
+	if (!(riva128->pfifo.chan_mode & (1u << channel)) ||
+			!(riva128->pfifo.caches[1].dma_ctrl & 1) ||
+			(riva128->pfifo.caches[1].dma_ctrl & 0x10))
+		return;
+
+	/* CACHE1_DMA_GET is the active copy of the channel's GET. */
+	if (riva128->pfifo.caches[1].dma_addr != *get)
+		*get = riva128->pfifo.caches[1].dma_addr;
+
+	while (*get != put && budget--) {
+		uint32_t word;
+
+		if (riva128_pfifo_free(riva128) == 0)
+			break;
+		if (riva128->pfifo.caches[1].dma_pt &&
+				*get + 3 > riva128->pfifo.caches[1].dma_limit) {
+			riva128_pfifo_dma_error(riva128, 6); /* MEM_FAULT */
+			break;
+		}
+
+		word = riva128_pfifo_dma_read(riva128, *get);
+		*get = (*get + 4) & 0x7ffffc;
+		riva128->pfifo.caches[1].dma_addr = *get;
+
+		if (riva128->pfifo.caches[1].dma_length) {
+			if (!riva128_pfifo_dma_put_cache(riva128,
+					riva128->pfifo.caches[1].dma_method,
+					riva128->pfifo.caches[1].dma_subchan, word))
+				break;
+			riva128->pfifo.caches[1].dma_length--;
+			if (riva128->pfifo.caches[1].dma_length)
+				riva128->pfifo.caches[1].dma_method += 4;
+			else
+				riva128->pfifo.caches[1].dma_state = 0;
+			continue;
+		}
+
+		if ((word & 0xe0000003) == 0x20000000) {
+			*get = word & 0x1ffffffc;
+			riva128->pfifo.caches[1].dma_addr = *get;
+			continue;
+		}
+
+		/* NV3's increasing-method packet leaves bits 17:16 and 31:29
+		   clear.  A zero count is malformed rather than an empty packet. */
+		if ((word & 0xe0030003) || !((word >> 18) & 0x7ff)) {
+			riva128_pfifo_dma_error(riva128, 4); /* INVALID_CMD */
+			break;
+		}
+		riva128->pfifo.caches[1].dma_method = word & 0x1ffc;
+		riva128->pfifo.caches[1].dma_subchan = (word >> 13) & 7;
+		riva128->pfifo.caches[1].dma_length = (word >> 18) & 0x7ff;
+		riva128->pfifo.caches[1].dma_state =
+				riva128->pfifo.caches[1].dma_method |
+				(riva128->pfifo.caches[1].dma_subchan << 13) |
+				(riva128->pfifo.caches[1].dma_length << 18);
+	}
+}
+
 void
 riva128_do_gpu_work(void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
-	/* svga_t *svga = &riva128->svga; */
-
-	/* if (riva128->pfifo.caches[1].dma_ctrl & 1) {
-		uint32_t *vram_l = (uint32_t *)svga->vram;
-		for(int i = riva128->pfifo.caches[1].dma_addr;
-				i <= (riva128->pfifo.caches[1].dma_addr
-					+ riva128->pfifo.caches[1].dma_length);
-				i+=4) {
-			uint32_t dma_cmd = vram_l[(i & riva128->vram_mask)
-					>> 2];
-			pclog("[RIVA 128] DMA command %04x\n");
-		}
-	} */
 
 	riva128_do_cache0_puller(riva128);
+	riva128_do_cache1_puller(riva128);
+	riva128_do_dma_pusher(riva128);
 	riva128_do_cache1_puller(riva128);
 }
 
@@ -3737,10 +3961,15 @@ uint32_t
 riva128_user_read(uint32_t addr, void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
-	/* int chanid = (addr >> 16) & 0xf;
-	int subchanid = (addr >> 13) & 0x7; */
+	int chanid = (addr >> 16) & 0x0f;
 	int offset = addr & 0x1ffc;
 
+	if ((riva128->pfifo.chan_mode & (1u << chanid)) && offset == 0x0040)
+		return riva128->pfifo.channels[chanid].dma_put;
+	if ((riva128->pfifo.chan_mode & (1u << chanid)) && offset == 0x0044) {
+		riva128_do_gpu_work(riva128);
+		return riva128->pfifo.channels[chanid].dma_get;
+	}
 	if (offset == 0x0010) {
 		riva128_do_gpu_work(riva128);
 		return riva128_pfifo_free(riva128);
@@ -3756,6 +3985,29 @@ riva128_user_write(uint32_t addr, uint32_t val, void *p)
 	int chanid = (addr >> 16) & 0x7f;
 	int subchanid = (addr >> 13) & 0x7;
 	int offset = addr & 0x1ffc;
+	int dma_channel = chanid < 16 &&
+			(riva128->pfifo.chan_mode & (1u << chanid));
+
+	if (dma_channel && offset == 0x0040) {
+		if (chanid != riva128->pfifo.caches[1].chanid) {
+			if (!riva128->pfifo.caches_reassign ||
+					riva128->pfifo.caches[1].put !=
+					riva128->pfifo.caches[1].get)
+				return;
+			riva128_pfifo_switch_channel(riva128, chanid);
+		} else if (!riva128->pfifo.channels[chanid].valid)
+			riva128_pfifo_restore_channel(riva128, chanid);
+		riva128->pfifo.channels[chanid].dma_put = val & 0x7ffffc;
+		riva128->pfifo.chan_dma |= 1u << chanid;
+		riva128_do_gpu_work(riva128);
+		return;
+	}
+	if (dma_channel && offset == 0x0044) {
+		riva128->pfifo.channels[chanid].dma_get = val & 0x7ffffc;
+		if (chanid == riva128->pfifo.caches[1].chanid)
+			riva128->pfifo.caches[1].dma_addr = val & 0x7ffffc;
+		return;
+	}
 
 	/* Set bit 23 because this is a write */
 	uint32_t err = (addr & 0x7ffffc) | 0x800000;
