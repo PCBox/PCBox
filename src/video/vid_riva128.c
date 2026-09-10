@@ -3932,7 +3932,6 @@ static void
 riva128_recalctimings(svga_t *svga)
 {
 	riva128_t *riva128 = (riva128_t *)svga->priv;
-	static int last_mode = -1;
 
 	svga->memaddr_latch += (svga->crtc[0x19] & 0x1f) << 16;
 	if (svga->crtc[0x25] & 0x01)
@@ -4038,7 +4037,6 @@ riva128_recalctimings(svga_t *svga)
 
 	freq = (freq * v_n) / (v_m << v_p);
 	if((svga->crtc[0x28] & 3) != 0) svga->clock = (cpuclock * (double)(1ull << 32)) / freq;
-	}
 }
 
 static void
