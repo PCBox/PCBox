@@ -92,7 +92,6 @@ static void img_seek(int drive, int track);
 
 
 const uint8_t dmf_r[21] = { 12, 2, 13, 3, 14, 4, 15, 5, 16, 6, 17, 7, 18, 8, 19, 9, 20, 10, 21, 11, 1 };
-const uint8_t fdd144_r[18] = { 1, 10, 2, 11, 3, 12, 4, 13, 5, 14, 6, 15, 7, 16, 8, 17, 9, 18 };
 static const uint8_t xdf_logical_sectors[2][2] = { { 38, 6 }, { 46, 8 } };
 const uint8_t xdf_physical_sectors[2][2] = { { 16, 3 }, { 19, 4 } };
 const uint8_t xdf_gap3_sizes[2][2] = { { 60, 69 }, { 60, 50 } };
@@ -154,7 +153,7 @@ const xdf_sector_t xdf_disk_layout[2][2][38] = {
 static const uint8_t maximum_sectors[8][6] = {
     { 26, 31, 38, 53, 64, 118 }, /*   128 */
     { 15, 19, 23, 32, 38,  73 }, /*   256 */
-    {  7, 10, 12, 17, 22,  41 }, /*   512 */
+    {  7, 11, 12, 17, 22,  41 }, /*   512 */
     {  3,  5,  6,  9, 11,  22 }, /*  1024 */
     {  2,  2,  3,  4,  5,  11 }, /*  2048 */
     {  1,  1,  1,  2,  2,   5 }, /*  4096 */
@@ -250,7 +249,7 @@ const int gap3_sizes[5][8][48] = {
         { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32, 0x0C, 0x00, 0x00, 0x00, 0x36,   /* [2][1] */
           0x32, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
-        { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x58, 0x50, 0x2E, 0x00, 0x00, 0x00, 0x00, 0x00,   /* [2][2] */
+        { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x58, 0x50, 0x28, 0x01, 0x00, 0x00, 0x00, 0x00,   /* [2][2] */
           0x00, 0x00, 0x00, 0x00, 0x00, 0x1C, 0x1C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
         { 0x00, 0x00, 0x00, 0x00, 0xF0, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,   /* [2][3] */
@@ -303,7 +302,7 @@ const int gap3_sizes[5][8][48] = {
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
         { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x92, 0x54,   /* [4][2] */
-          0x38, 0x23, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+          0x38, 0x1E, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
         { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x74, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,   /* [4][3] */
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -499,7 +498,8 @@ format_conditions(int drive)
 {
     const img_t *dev  = img[drive];
     /* Allow bigger sector sizes because of HD_COPY. */
-    int          temp = (fdc_get_format_sectors(img_fdc) == dev->sectors) ||
+    int          temp = (fdc_get_format_sectors(img_fdc) == 3) ||
+                        (fdc_get_format_sectors(img_fdc) == dev->sectors) ||
                         (fdc_get_format_sectors(img_fdc) == (dev->sectors + 1));
 
     temp = temp && (fdc_get_format_n(img_fdc) == dev->sector_size);
@@ -520,7 +520,8 @@ format_track(int drive, int side, const d86f_format_id_t *ids,
     if ((dev == NULL) || (side < 0) || (side >= dev->sides) ||
         (dev->track < 0) || (dev->track >= 256) ||
         ((count != dev->sectors) && (count != (dev->sectors + 1))))
-        return 0;
+        /* If count is 3, return OK - HD-COPY's data rate test format. */
+        return (count == 3) ? 1 : 0;
 
     /*
      * A raw sector dump has nowhere to store CHRN fields.  Keep a faithful
@@ -669,12 +670,8 @@ img_seek(int drive, int track)
                 } else {
                     if (dev->gap3_size < 68)
                         sr = interleave(sector, 1, dev->sectors);
-                    else {
-                        if (dev->sectors == 18)
-                            sr = dev->dmf ? (fdd144_r[sector]) : (sector + 1);
-                        else
-                            sr = dev->dmf ? (dmf_r[sector]) : (sector + 1);
-                    }
+                    else
+                        sr = dev->dmf ? (dmf_r[sector]) : (sector + 1);
                 }
                 if (formatted_count != dev->sectors) {
                     id[0] = track;
@@ -1158,12 +1155,48 @@ jump_if_fdf:
         } else if (size <= (640 * 1024)) { /*DD 640K*/
             dev->sectors = 8;
             dev->tracks  = 80;
-        } else if (size <= (720 * 1024)) { /*DD 720K*/
+        } else if (size <= (648 * 1024)) {
+            dev->sectors = 8;
+            dev->tracks  = 81;
+        } else if (size <= (656 * 1024)) {
+            dev->sectors = 8;
+            dev->tracks  = 82;
+        } else if (size <= (664 * 1024)) {
+            dev->sectors = 8;
+            dev->tracks  = 83;
+        } else if (size <= (672 * 1024)) {
+            dev->sectors = 8;
+            dev->tracks  = 84;
+        } else if (size <= (720 * 1024)) {
             dev->sectors = 9;
             dev->tracks  = 80;
+        } else if (size <= (729 * 1024)) {
+            dev->sectors = 9;
+            dev->tracks  = 81;
+        } else if (size <= (738 * 1024)) {
+            dev->sectors = 9;
+            dev->tracks  = 82;
+        } else if (size <= (747 * 1024)) {
+            dev->sectors = 9;
+            dev->tracks  = 83;
+        } else if (size <= (756 * 1024)) {
+            dev->sectors = 9;
+            dev->tracks  = 84;
         } else if (size <= (800 * 1024)) { /*DD*/
             dev->sectors = 10;
             dev->tracks  = 80;
+        } else if (size <= (810 * 1024)) {
+            dev->sectors = 10;
+            dev->tracks  = 81;
+        } else if (size <= (820 * 1024)) {
+            dev->sectors = 10;
+            dev->tracks  = 82;
+        } else if (size <= (830 * 1024)) {
+            dev->sectors = 10;
+            dev->tracks  = 83;
+        } else if (size <= (840 * 1024)) {
+            dev->sectors = 10;
+            dev->tracks  = 84;
         } else if (size <= (880 * 1024)) { /*DD*/
             dev->sectors = 11;
             dev->tracks  = 80;
@@ -1183,13 +1216,43 @@ jump_if_fdf:
             dev->sectors     = 8;
             dev->tracks      = 77;
             dev->sector_size = 3;
-        } else if (size <= 1474560) { /*HD 1.44MB*/
+        } else if (size <= 1310720) { /*HD 1.3MB*/
+            dev->sectors = 16;
+            dev->tracks  = 80;
+        } else if (size <= (1360 * 1024)) { /*HD 1.36MB*/
+            dev->sectors = 17;
+            dev->tracks  = 80;
+        } else if (size <= (1377 * 1024)) {
+            dev->sectors = 17;
+            dev->tracks  = 81;
+        } else if (size <= (1394 * 1024)) {
+            dev->sectors = 17;
+            dev->tracks  = 82;
+        } else if (size <= (1411 * 1024)) {
+            dev->sectors = 17;
+            dev->tracks  = 83;
+        } else if (size <= (1428 * 1024)) {
+            dev->sectors = 17;
+            dev->tracks  = 84;
+        } else if (size <= (1440 * 1024)) { /*HD 1.44MB*/
             dev->sectors = 18;
             dev->tracks  = 80;
-        } else if (size <= 1556480) { /*HD*/
+        } else if (size <= (1458 * 1024)) {
+            dev->sectors = 18;
+            dev->tracks  = 81;
+        } else if (size <= (1476 * 1024)) {
+            dev->sectors = 18;
+            dev->tracks  = 82;
+        } else if (size <= (1494 * 1024)) {
+            dev->sectors = 18;
+            dev->tracks  = 83;
+        } else if (size <= (1512 * 1024)) {
+            dev->sectors = 18;
+            dev->tracks  = 84;
+        } else if (size <= (1520 * 1024)) { /*HD*/
             dev->sectors = 19;
             dev->tracks  = 80;
-        } else if (size <= 1638400) { /*HD 1024 sector*/
+        } else if (size <= (1600 * 1024)) { /*HD 1024 sector*/
 #ifdef SYNTH_FORMAT
             dev->sectors     = 10;
             dev->sector_size = 3;
@@ -1198,16 +1261,28 @@ jump_if_fdf:
             dev->sectors     = 20;
 #endif
             dev->tracks      = 80;
-        } else if (size <= 1720320) { /*DMF (Windows 95) */
+        } else if (size <= (1620 * 1024)) {
+            dev->sectors = 20;
+            dev->tracks  = 81;
+        } else if (size <= (1640 * 1024)) {
+            dev->sectors = 20;
+            dev->tracks  = 82;
+        } else if (size <= (1660 * 1024)) {
+            dev->sectors = 20;
+            dev->tracks  = 83;
+        } else if (size <= (1680 * 1024)) { /*DMF (Windows 95) */
             dev->sectors = 21;
             dev->tracks  = 80;
-        } else if (size <= 1741824) {
+        } else if (size <= (1701 * 1024)) {
             dev->sectors = 21;
             dev->tracks  = 81;
-        } else if (size <= 1763328) {
+        } else if (size <= (1722 * 1024)) {
             dev->sectors = 21;
             dev->tracks  = 82;
-        } else if (size <= 1802240) { /*HD 1024 sector*/
+        } else if (size <= (1743 * 1024)) {
+            dev->sectors = 21;
+            dev->tracks  = 83;
+        } else if (size <= (1760 * 1024)) { /*HD 1024 sector*/
 #ifdef SYNTH_FORMAT
             dev->sectors     = 11;
             dev->sector_size = 3;
@@ -1216,6 +1291,9 @@ jump_if_fdf:
             dev->sectors     = 22;
 #endif
             dev->tracks      = 80;
+        } else if (size <= (1764 * 1024)) {
+            dev->sectors = 21;
+            dev->tracks  = 84;
         } else if (size == 1884160) { /*XDF (OS/2 Warp)*/
             dev->sectors = 23;
             dev->tracks  = 80;
@@ -1300,13 +1378,11 @@ jump_if_fdf:
             temp_rate       = rates[i];
             dev->disk_flags = holes[i] << 1;
             dev->xdf_type   = (dev->sectors == xdf_sectors[dev->sector_size][i]) ? xdf_types[dev->sector_size][i] : 0;
-            if (((dev->sectors == 18) && (maximum_sectors[dev->sector_size][i] == 17) &&
-                 fdd_is_525(drive)) ||
-                ((bit_rate_300 == 500.0) && (dev->sectors == 21) && (dev->sector_size == 2) && (dev->tracks >= 80) &&
-                 (dev->tracks <= 82) && (dev->sides == 2))) {
+            if ((bit_rate_300 == 500.0) && (dev->sectors == 21) && (dev->sector_size == 2) && (dev->tracks >= 80) &&
+                 (dev->tracks <= 82) && (dev->sides == 2))
                 /* This is a DMF floppy, set the flag so we know to interleave the sectors. */
                 dev->dmf = 1;
-            } else {
+            else {
                 if ((bit_rate_300 == 500.0) && (dev->sectors == 22) && (dev->sector_size == 2) && (dev->tracks >= 80) && (dev->tracks <= 82) && (dev->sides == 2)) {
                     /* This is marked specially because of the track flag (a RPM slow down is needed). */
                     dev->interleave = 2;
