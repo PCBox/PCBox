@@ -711,7 +711,7 @@ static const device_config_t ms6117_config[] = {
                 .files_no      = 1,
                 .local         = 0,
                 .size          = 131072,
-                .files         = { "roms/machines/ms6117/w617v115.BIN", "" }
+                .files         = { "roms/machines/ms6117/w617v115.bin", "" }
             },
             { .files_no = 0 }
         }
@@ -1599,7 +1599,7 @@ static const device_config_t bx6_config[] = {
                 .files_no      = 1,
                 .local         = 0,
                 .size          = 131072,
-                .files         = { "roms/machines/bx6/BX6_CW.bin", "" }
+                .files         = { "roms/machines/bx6/BX6_CW.BIN", "" }
             },
             {
                 .name          = "AwardBIOS v4.51PG - Revision GQ",
@@ -1608,7 +1608,7 @@ static const device_config_t bx6_config[] = {
                 .files_no      = 1,
                 .local         = 0,
                 .size          = 131072,
-                .files         = { "roms/machines/bx6/BX6_GQ.bin", "" }
+                .files         = { "roms/machines/bx6/BX6_GQ.BIN", "" }
             },
             {
                 .name          = "AwardBIOS v4.51PG - Revision JL",
@@ -1617,7 +1617,7 @@ static const device_config_t bx6_config[] = {
                 .files_no      = 1,
                 .local         = 0,
                 .size          = 131072,
-                .files         = { "roms/machines/bx6/BX6_JL.bin", "" }
+                .files         = { "roms/machines/bx6/BX6_JL.BIN", "" }
             },
             {
                 .name          = "AwardBIOS v4.51PG - Revision QS",
