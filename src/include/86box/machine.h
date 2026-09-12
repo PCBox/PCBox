@@ -1289,6 +1289,11 @@ extern int             machine_at_m558_init(const machine_t *);
 /* m_at_sockets7.c */
 /* ALi ALADDiN V */
 extern int             machine_at_p5a_init(const machine_t *);
+#ifdef EMU_DEVICE_H
+extern const device_t  cobalt3k_carmel_device;
+extern const device_t  cobalt3k_pacifica_device;
+#endif
+extern int             machine_at_cobalt3k_init(const machine_t *);
 extern int             machine_at_m579_init(const machine_t *);
 extern int             machine_at_gwlucas_init(const machine_t *);
 extern int             machine_at_5aa_init(const machine_t *);
@@ -1596,6 +1601,13 @@ extern int             machine_xt_m240_init(const machine_t *);
 extern const device_t  pcjr_device;
 #endif
 extern int             machine_pcjr_init(const machine_t *);
+
+/* m_pcjx.c */
+#ifdef EMU_DEVICE_H
+extern const device_t  pcjx_device;
+#endif
+extern int             machine_pcjx_init(const machine_t *);
+extern int             machine_is_pcjx(int m);
 
 /* m_ps1.c */
 #ifdef EMU_DEVICE_H
