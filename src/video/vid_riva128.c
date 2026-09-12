@@ -299,6 +299,7 @@ static video_timings_t timing_riva128 = {VIDEO_PCI, 2, 2, 1, 20, 20, 21};
 static uint8_t riva128_in(uint16_t addr, void *p);
 static void riva128_out(uint16_t addr, uint8_t val, void *p);
 void riva128_do_gpu_work(void *p);
+static FILE *riva128_d3d_trace_fp(void);
 
 static uint8_t 
 riva128_pci_read(int func, int addr, UNUSED(int len), void *p)
@@ -1243,6 +1244,8 @@ riva128_pgraph_invalid_interrupt(int num, void *p)
 		riva128->pgraph.trapped_instance = riva128->pgraph.cur_instance;
 	}
 
+	/* Software methods must finish before the FIFO accepts another command. */
+	riva128->pgraph.fifo_access = 0;
 	riva128->pgraph.intr_1 |= (1 << num);
 	riva128->pgraph.intr_0 |= (1 << 0);
 
@@ -2267,15 +2270,44 @@ riva128_d3d_triangle(riva128_t *riva128, uint32_t graphobj0, uint32_t graphobj1,
 {
 	unsigned i0 = indices & 15, i1 = (indices >> 4) & 15, i2 = (indices >> 8) & 15;
 	uint32_t valid = (1u << i0) | (1u << i1) | (1u << i2);
-	if (i0 == i1 || i1 == i2 || i0 == i2 || (riva128->pgraph.d3d.valid & valid) != valid)
+	if (i0 == i1 || i1 == i2 || i0 == i2 || (riva128->pgraph.d3d.valid & valid) != valid) {
+		FILE *fp = riva128_d3d_trace_fp();
+		if (fp)
+			fprintf(fp, "SKIP valid idx=%03x v=%08x need=%08x\n",
+					indices, riva128->pgraph.d3d.valid, valid);
 		return;
+	}
 	riva128_d3d_vertex_t a = riva128_d3d_vertex(riva128, i0);
 	riva128_d3d_vertex_t b = riva128_d3d_vertex(riva128, i1);
 	riva128_d3d_vertex_t c = riva128_d3d_vertex(riva128, i2);
-	if (!isfinite(a.w) || !isfinite(b.w) || !isfinite(c.w) || a.w <= 0 || b.w <= 0 || c.w <= 0)
+	if (!isfinite(a.w) || !isfinite(b.w) || !isfinite(c.w) || a.w <= 0 || b.w <= 0 || c.w <= 0) {
+		FILE *fp = riva128_d3d_trace_fp();
+		if (fp)
+			fprintf(fp, "SKIP w idx=%03x %.4f %.4f %.4f\n", indices, a.w, b.w, c.w);
 		return;
+	}
 	double area = riva128_d3d_edge(a, b, c.x, c.y);
 	unsigned cull = (riva128->pgraph.d3d.config >> 12) & 3;
+	{
+		FILE *fp = riva128_d3d_trace_fp();
+		static int tcount = 0;
+		if (fp && tcount < 400) {
+			tcount++;
+			fprintf(fp, "TRI idx=%03x g0=%08x g1=%08x cfg=%08x scfg=%08x fmt=%08x "
+					"cull=%u area=%.2f off1=%06x pit1=%04x off0=%06x pit0=%04x\n",
+					indices, graphobj0, graphobj1, riva128->pgraph.d3d.config,
+					riva128->pgraph.surf_config, riva128->pgraph.d3d.format,
+					cull, area, riva128->pgraph.surf_offset[1],
+					riva128->pgraph.surf_pitch[1], riva128->pgraph.surf_offset[0],
+					riva128->pgraph.surf_pitch[0]);
+			fprintf(fp, "  a x=%.2f y=%.2f z=%.1f w=%.4f u=%.3f v=%.3f rgba=%.0f %.0f %.0f %.0f\n",
+					a.x, a.y, a.z, a.w, a.u, a.v, a.color[0], a.color[1], a.color[2], a.color[3]);
+			fprintf(fp, "  b x=%.2f y=%.2f z=%.1f w=%.4f u=%.3f v=%.3f rgba=%.0f %.0f %.0f %.0f\n",
+					b.x, b.y, b.z, b.w, b.u, b.v, b.color[0], b.color[1], b.color[2], b.color[3]);
+			fprintf(fp, "  c x=%.2f y=%.2f z=%.1f w=%.4f u=%.3f v=%.3f rgba=%.0f %.0f %.0f %.0f\n",
+					c.x, c.y, c.z, c.w, c.u, c.v, c.color[0], c.color[1], c.color[2], c.color[3]);
+		}
+	}
 	if (area == 0 || (cull == 2 && area < 0) || (cull == 3 && area > 0))
 		return;
 	if (area < 0) {
@@ -2337,20 +2369,46 @@ riva128_d3d_triangle(riva128_t *riva128, uint32_t graphobj0, uint32_t graphobj1,
 	}
 }
 
+/* TEMPORARY dxdiag Direct3D diagnostic trace (RIVA128_D3D_TRACE=<path>). */
+static FILE *
+riva128_d3d_trace_fp(void)
+{
+	static FILE *fp = NULL;
+	static int init = 0;
+
+	if (!init) {
+		const char *path = getenv("RIVA128_D3D_TRACE");
+		init = 1;
+		if (path && *path)
+			fp = fopen(path, "w");
+	}
+	return fp;
+}
+
 static int
 riva128_d3d_method(riva128_t *riva128, uint16_t method, uint32_t param,
 		uint32_t graphobj0, uint32_t graphobj1)
 {
 	if (method == 0 || method == 0x104)
 		return 1;
+	{
+		FILE *fp = riva128_d3d_trace_fp();
+		if (fp && (method < 0x1000))
+			fprintf(fp, "M %03x %08x g0=%08x g1=%08x\n",
+					method, param, graphobj0, graphobj1);
+	}
 	switch (method) {
 	case 0x304:
 		riva128->pdma.regs[0x800 >> 2] = param;
 		riva128->pgraph.d3d.valid |= 1u << 23;
 		return 1;
 	case 0x308:
-		if ((param & ~0xff31ffffu) || (param >> 28) > 11 || ((param >> 24) & 15) > 11)
+		if ((param & ~0xff31ffffu) || (param >> 28) > 11 || ((param >> 24) & 15) > 11) {
+			FILE *fp = riva128_d3d_trace_fp();
+			if (fp)
+				fprintf(fp, "REJECT 308 %08x\n", param);
 			return 0;
+		}
 		riva128->pgraph.d3d.format = param;
 		riva128->pgraph.d3d.valid |= 1u << 24;
 		return 1;
@@ -2370,11 +2428,21 @@ riva128_d3d_method(riva128_t *riva128, uint16_t method, uint32_t param,
 		riva128->pgraph.d3d.alpha = param & 0xfff;
 		return 1;
 	}
-	if (method < 0x1000 || method >= 0x2000 || (method & 3))
+	if (method < 0x1000 || method >= 0x2000 || (method & 3)) {
+		FILE *fp = riva128_d3d_trace_fp();
+		if (fp)
+			fprintf(fp, "REJECT method %03x %08x g0=%08x g1=%08x\n",
+					method, param, graphobj0, graphobj1);
 		return 0;
+	}
 	unsigned index = riva128->pgraph.d3d.fog_tri & 15;
 	unsigned size = (riva128->pgraph.d3d.format >> 28) & 15;
 	if ((method & 31) == 0) {
+		FILE *fp = riva128_d3d_trace_fp();
+		if (fp)
+			fprintf(fp, "TRIG %03x %08x g0=%08x g1=%08x fmt=%08x\n",
+					method, param, graphobj0, graphobj1,
+					riva128->pgraph.d3d.format);
 		riva128->pgraph.d3d.fog_tri = param;
 		riva128->pgraph.d3d.valid = (riva128->pgraph.d3d.valid & ~0x7f0000u) | 0x10000;
 		return 1;
@@ -3538,6 +3606,22 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 					param & 0x3ffff0;
 			break;
 		}}
+                {
+                        FILE *fp = riva128_d3d_trace_fp();
+                        if (fp)
+                                fprintf(fp, "SURF m%03x p=%08x g0=%08x scfg=%08x "
+                                        "off=%06x,%06x,%06x,%06x pit=%04x,%04x,%04x,%04x\n",
+                                        method, param, graphobj0,
+                                        riva128->pgraph.surf_config,
+                                        riva128->pgraph.surf_offset[0],
+                                        riva128->pgraph.surf_offset[1],
+                                        riva128->pgraph.surf_offset[2],
+                                        riva128->pgraph.surf_offset[3],
+                                        riva128->pgraph.surf_pitch[0],
+                                        riva128->pgraph.surf_pitch[1],
+                                        riva128->pgraph.surf_pitch[2],
+                                        riva128->pgraph.surf_pitch[3]);
+                }
 		break;
 	}
 
