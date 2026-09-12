@@ -46,6 +46,7 @@
 
 #include <86box/chipset.h>
 #include <86box/flash.h>
+#include <86box/machine.h>
 
 typedef struct ali1543_t {
     uint8_t mirq_states[8];
@@ -1318,11 +1319,10 @@ ali7101_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
             break;
 
         case 0xb8:
-#ifdef FUTURE_STUFF
             if (dev->type == 1)
-                flash_e28f0xx_qube3_update(val);
+                flash_e28f0xx_cobalt3k_update(val);
             fallthrough;
-#endif
+
         case 0xb9:
             if (dev->type == 1)
                 dev->pmu_conf[addr] = val;
@@ -1449,7 +1449,10 @@ ali7101_read(int func, int addr, UNUSED(int len), void *priv)
                     ret = acpi_ali_soft_smi_status_read(dev->acpi) ? 0x10 : 0x00;
                     break;
                 case 0x7f:
-                    ret = 0x80;
+                    if (machines[machine].init == machine_at_cobalt3k_init) /* TODO: proper machine table ACPI GPIO plumbing */
+                        ret = machine_get_gpio_acpi_default();
+                    else
+                        ret = 0x80;
                     break;
                 case 0xbc:
                     ret = inb(0x70);
