@@ -796,6 +796,13 @@ riva128_pfifo_read(uint32_t addr, void *p)
 		return riva128->pfifo.runout_get;
 	case 0x002500:
 		return riva128->pfifo.caches_reassign & 1;
+	case 0x003000:
+		/* nv3rm.vxd saves and restores CACHE0 PUSH0/PUSH1 around its
+		   software command submission; both must read back what was
+		   written or the restore silently disables the channel. */
+		return riva128->pfifo.caches[0].push_enabled;
+	case 0x003004:
+		return riva128->pfifo.caches[0].chanid;
 	case 0x003010:
 		return riva128->pfifo.caches[0].put;
 	case 0x003014: {
@@ -1073,17 +1080,18 @@ riva128_pfifo_write(uint32_t addr, uint32_t val, void *p)
 	if ((addr < 0x003300) || (addr > 0x0034ff))
 		return;
 	
+	/* The CACHE1 RAM window is indexed by the raw PUT/GET pointer value,
+	   which is what the command slots in cache1[] are addressed by.  The
+	   Gray code only describes how the pointer registers encode their
+	   value; it must not be applied a second time when writing a slot.
+	   (nv3rm.vxd reads a slot as mmio[CACHE1_RAM + (GET >> 2) * 8].) */
+	unsigned slot = (addr >> 3) & 0x1f;
 	if (addr & 4) {
-		riva128->pfifo.cache1[
-				riva128_pfifo_normal2gray((addr >> 3) & 0x1f)
-			].param = val;
+		riva128->pfifo.cache1[slot].param = val;
 		return;
 	}
-	riva128->pfifo.cache1[
-			riva128_pfifo_normal2gray((addr >> 3) & 0x1f)].method
-					= val & 0x1ffc;
-	riva128->pfifo.cache1[riva128_pfifo_normal2gray((addr >> 3) & 0x1f)
-			].subchan = val >> 13;
+	riva128->pfifo.cache1[slot].method = val & 0x1ffc;
+	riva128->pfifo.cache1[slot].subchan = val >> 13;
 }
 
 void
@@ -1295,6 +1303,10 @@ riva128_pgraph_read(uint32_t addr, void *p)
 		return riva128->pgraph.ctx_switch_a;
 	case 0x400194:
 		return riva128->pgraph.ctx_user;
+	case 0x400624:
+		/* nv3rm.vxd saves and restores the ROP register along with the
+		   rest of the PGRAPH context. */
+		return riva128->pgraph.rop;
 	case 0x40062c:
 		return riva128->pgraph.chroma;
 	case 0x400630:
@@ -1733,7 +1745,7 @@ riva128_translate_rop(uint32_t graphobj0, uint8_t rop)
 	} else if (patch_config_rop == 0x15) {
 		swizzle[0] = 2, swizzle[1] = 1, swizzle[2] = 0;
 	} else {
-        warning("NV3 ROP: Invalid patch configuration %02x!", rop);
+        warning("NV3 ROP: Invalid patch configuration %02x!", patch_config_rop);
 	}
 
 	if (patch_config_rop == 0) {
@@ -2420,17 +2432,12 @@ riva128_d3d_method(riva128_t *riva128, uint16_t method, uint32_t param,
 void
 riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		uint32_t graphobj0, uint32_t graphobj1, uint32_t graphobj2,
-		uint32_t graphobj3, void *p)
+		UNUSED(uint32_t graphobj3), void *p)
 {
 	riva128_t *riva128 = (riva128_t *)p;
 	svga_t *svga = &riva128->svga;
 
 	uint8_t objclass = (ctx >> 16) & 0x1f;
-	if ((method >= 0x300) && (method <= 0x314)
-			&& ((method & 3) == 0))
-		pclog("RIVA 128 PGRAPH method class %02x method %03x param %08x "
-				"ctx %08x obj0 %08x obj1 %08x\n", objclass, method,
-				param, ctx, graphobj0, graphobj1);if(objclass != 0x1c && objclass != 0x05) pclog("[RIVA 128] PGRAPH execute grobj0 %08x grobj1 %08x grobj2 %08x objclass %02x method %04x param %08x\n", graphobj0, graphobj1, graphobj2, objclass, method, param);
 
 	/* NV_PGRAPH_TRAPPED_ADDR is channel << 24 | class << 16 | method;
 	   riva128_pgraph_invalid_interrupt() latches this if the method
@@ -4021,6 +4028,11 @@ riva128_mmio_read_l(uint32_t addr, void *p)
 
 	uint32_t ret = 0;
 
+	/* The VGA/VBE register aliases inside the MMIO window must be decoded
+	   before the block handlers below.  The 0x6813c0 aliases fall inside
+	   the PRAMDAC range, so letting execution fall through would replace
+	   the VGA byte with a bogus PRAMDAC read.  Both riva128_mmio_read() and
+	   riva128_mmio_read_w() already return these aliases directly. */
 	switch(addr) {
 	case 0x6013b4: case 0x6013b5:
 	case 0x6013d4: case 0x6013d5:
@@ -4035,7 +4047,8 @@ riva128_mmio_read_l(uint32_t addr, void *p)
 				| (riva128_in((addr+1) & 0x3ff,p) << 8)
 				| (riva128_in((addr+2) & 0x3ff,p) << 16)
 				| (riva128_in((addr+3) & 0x3ff,p) << 24);
-		break;
+		riva128_do_gpu_work(riva128);
+		return ret;
 	}
 
 	addr &= 0xfffffc;
