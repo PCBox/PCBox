@@ -3649,11 +3649,11 @@ const machine_t machines[] = {
             .max_multi   = 0
         },
         .bus_flags = MACHINE_PS2,
-        .flags     = MACHINE_XTA | MACHINE_VIDEO_FIXED,
+        .flags     = MACHINE_XTA | MACHINE_VIDEO,
         .ram       = {
-            .min  = 256,
+            .min  = 512,
             .max  = 4096,
-            .step = 128
+            .step = 512
         },
         .nvrmask                  = 127,
         .jumpered_ecp_dma         = 0,
@@ -20785,8 +20785,8 @@ const machine_t machines[] = {
             .min_multi   = 3.0,
             .max_multi   = 4.5
         },
-        .bus_flags = (MACHINE_PS2_PCIONLY & ~(MACHINE_BUS_XT_KBD | MACHINE_BUS_AT_KBD | MACHINE_BUS_PS2_PORTS)) | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_SCSI | MACHINE_VIDEO_FIXED | MACHINE_KEYBOARD | MACHINE_NIC_PRI | MACHINE_NIC_SEC | MACHINE_APM | MACHINE_ACPI | MACHINE_USB, /* Machine has internal SCSI: NCR 53C875 (825 seen in one unit) and network: 2x NSC DP83815 */
+        .bus_flags = (MACHINE_PS2_NOISA & ~(MACHINE_BUS_XT_KBD | MACHINE_BUS_AT_KBD | MACHINE_BUS_PS2_PORTS)) | MACHINE_BUS_USB,
+        .flags     = MACHINE_AGP_INTERNAL | MACHINE_IDE_DUAL | MACHINE_SCSI | MACHINE_VIDEO_FIXED | MACHINE_KEYBOARD | MACHINE_NIC_PRI | MACHINE_NIC_SEC | MACHINE_USB, /* Machine has internal SCSI: NCR 53C875 (825 seen in one unit) and network: 2x NSC DP83815 */
         .ram       = {
             .min  = 8192,
             .max  = 1048576,
@@ -20833,8 +20833,8 @@ const machine_t machines[] = {
             .min_multi   = 3.0,
             .max_multi   = 4.5
         },
-        .bus_flags = (MACHINE_PS2_PCIONLY & ~(MACHINE_BUS_XT_KBD | MACHINE_BUS_AT_KBD | MACHINE_BUS_PS2_PORTS)) | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_SCSI | MACHINE_VIDEO_FIXED | MACHINE_KEYBOARD | MACHINE_NIC_PRI | MACHINE_NIC_SEC | MACHINE_APM | MACHINE_ACPI | MACHINE_USB, /* Machine has internal SCSI: NCR 53C875 and network: 2x Intel 82559ER */
+        .bus_flags = (MACHINE_PS2_NOISA & ~(MACHINE_BUS_XT_KBD | MACHINE_BUS_AT_KBD | MACHINE_BUS_PS2_PORTS)) | MACHINE_BUS_USB,
+        .flags     = MACHINE_AGP_INTERNAL | MACHINE_IDE_DUAL | MACHINE_SCSI | MACHINE_VIDEO_FIXED | MACHINE_KEYBOARD | MACHINE_NIC_PRI | MACHINE_NIC_SEC | MACHINE_USB, /* Machine has internal SCSI: NCR 53C875 and network: 2x Intel 82559ER */
         .ram       = {
             .min  = 8192,
             .max  = 1048576,
