@@ -34,6 +34,7 @@ enum {
 
 enum {
     CPU_8088 = 1, /* 808x class CPUs */
+    CPU_80C88,
     CPU_8086,
     CPU_8086_MAZOVIA,
     CPU_V20, /* NEC 808x class CPUs */
@@ -91,6 +92,7 @@ enum {
 
 enum {
     CPU_PKG_8088             = (1 << 0),
+    CPU_PKG_80C88            = (1 << 28),
     CPU_PKG_8088_EUROPC      = (1 << 1),
     CPU_PKG_8088_VTECH       = (1 << 2),
     CPU_PKG_8086             = (1 << 3),
@@ -616,7 +618,12 @@ extern int    cpu_cyrix_alignment; /* Cyrix 5x86/6x86 only has data misalignment
                                       penalties when crossing 8-byte boundaries. */
 extern int    cpu_cpurst_on_sr;    /* SiS 551x and 5571: Issue CPURST on soft reset. */
 
+/* 80C88 only: board-supplied stoppable-clock control. See cpu.c. */
+extern int  cpu_clock_gated;
+extern int (*cpu_clock_stop_query)(void);
+
 extern int is8086;
+extern int is80c88;
 extern int is186;
 extern int is286;
 extern int is386;
