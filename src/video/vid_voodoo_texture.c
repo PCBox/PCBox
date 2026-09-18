@@ -316,11 +316,7 @@ voodoo_use_texture(voodoo_t *voodoo, voodoo_params_t *params, int tmu)
         for (c = 0; c < TEX_CACHE_MAX; c++) {
             voodoo->texture_last_removed++;
             voodoo->texture_last_removed &= (TEX_CACHE_MAX - 1);
-<<<<<<< HEAD
-            if (voodoo_texture_entry_idle(voodoo, &voodoo->texture_cache[tmu][voodoo->texture_last_removed]))
-=======
             if (!voodoo_texture_in_use(voodoo, &voodoo->texture_cache[tmu][voodoo->texture_last_removed]))
->>>>>>> 680bb4b1c68f1cf031d1678a7e181ee4f4c5f558
                 break;
         }
         if (c == TEX_CACHE_MAX)
@@ -611,11 +607,7 @@ flush_texture_cache(voodoo_t *voodoo, uint32_t dirty_addr, int tmu)
                         voodoo_texture_log("  Evict texture %i %08x\n", c, voodoo->texture_cache[tmu][c].base);
 #endif
 
-<<<<<<< HEAD
-                        if (!voodoo_texture_entry_idle(voodoo, &voodoo->texture_cache[tmu][c]))
-=======
                         if (voodoo_texture_in_use(voodoo, &voodoo->texture_cache[tmu][c]))
->>>>>>> 680bb4b1c68f1cf031d1678a7e181ee4f4c5f558
                             wait_for_idle = 1;
 
                         voodoo->texture_cache[tmu][c].base = -1;
