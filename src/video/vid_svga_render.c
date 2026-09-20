@@ -743,6 +743,8 @@ svga_render_2bpp_headland_highres(svga_t *svga)
     }
 }
 
+#include <inttypes.h>
+
 static void
 svga_render_indexed_gfx(svga_t *svga, bool highres, bool combine8bits)
 {
@@ -821,6 +823,8 @@ svga_render_indexed_gfx(svga_t *svga, bool highres, bool combine8bits)
     if (!(svga->changedvram[changed_offset] || svga->changedvram[changed_offset + 1] || svga->fullchange))
         return;
     p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
+    if (p < svga->monitor->target_buffer->line[0])
+        return;
 
     if (svga->render_line_offset) {
         if (svga->render_line_offset > 0) {

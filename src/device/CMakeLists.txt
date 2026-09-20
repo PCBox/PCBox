@@ -56,6 +56,7 @@ add_library(dev OBJECT
     lpt_ditto.c
     mouse.c
     mouse_bus.c
+    mouse_ibm7690_tablet.c
     mouse_microtouch_touchscreen.c
     tco.c
     mouse_ps2.c
