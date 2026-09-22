@@ -30,7 +30,7 @@ add_library(sio OBJECT
     sio_fdc37c67x.c
     sio_fdc37c669.c
     sio_fdc37c93x.c
-    sio_fdc37m60x.c
+    sio_fdc37mx0x.c
     sio_nsc366.c
     sio_it86x1f.c
     sio_it8702.c
