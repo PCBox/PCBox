@@ -2507,11 +2507,12 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 
 	uint8_t objclass = (ctx >> 16) & 0x1f;
 
-	/* NV_PGRAPH_TRAPPED_ADDR is channel << 24 | class << 16 | method;
+	/* NV_PGRAPH_TRAPPED_ADDR includes channel, class, subchannel and method;
 	   riva128_pgraph_invalid_interrupt() latches this if the method
 	   turns out to have no hardware behind it. */
 	riva128->pgraph.cur_addr = (((riva128->pgraph.ctx_user >> 24) & 0x7f) << 24)
-			| (objclass << 16) | (method & 0x7ff);
+			| (objclass << 16) | (riva128->pgraph.ctx_user & 0xe000)
+			| (method & 0x7ff);
 	riva128->pgraph.cur_data = param;
 	riva128->pgraph.cur_instance = ctx & 0xffff;
 
@@ -3693,6 +3694,11 @@ riva128_pgraph_command_submit(uint16_t method, uint8_t chanid, int subchanid,
 		   overwrite its effects (notably the surface colour format). */
 		riva128->pgraph.ctx_user_pending = ctx_user;
 		riva128->pgraph.ctx_switch_pending = 1;
+		/* The RM selects the incoming channel from TRAPPED_ADDR, not
+		   CTX_USER. Latch the command before requesting its restore. */
+		riva128->pgraph.trapped_addr = ctx_user | (method & 0x7ff);
+		riva128->pgraph.trapped_data = param;
+		riva128->pgraph.trapped_instance = ctx & 0xffff;
 		riva128_pgraph_interrupt(4, riva128);
 		return 0;
 	}
