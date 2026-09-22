@@ -43,6 +43,7 @@ add_executable(PCBox
     port_92.c
     ppi.c
     pci.c
+    eisa.c
     mca.c
     usb.c
     device.c

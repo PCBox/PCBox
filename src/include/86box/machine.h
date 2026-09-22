@@ -283,6 +283,7 @@ enum {
     MACHINE_CHIPSET_SARC_RC2016A,
     MACHINE_CHIPSET_SIS_310,
     MACHINE_CHIPSET_SIS_401,
+    MACHINE_CHIPSET_SIS_411,
     MACHINE_CHIPSET_SIS_460,
     MACHINE_CHIPSET_SIS_461,
     MACHINE_CHIPSET_SIS_471,
@@ -863,6 +864,7 @@ extern int             machine_at_dtk486_init(const machine_t *);
 extern int             machine_at_ami471_init(const machine_t *);
 extern int             machine_at_px471_init(const machine_t *);
 extern int             machine_at_tg486g_init(const machine_t *);
+extern int             machine_at_s1437_init(const machine_t *);
 
 /* Symphony SL82C460 */
 extern int             machine_at_vs486f3vl_init(const machine_t *);
@@ -1178,6 +1180,9 @@ extern int             machine_at_zeoswildcat_init(const machine_t *);
 /* m_at_socket7.c */
 /* i430HX */
 extern int             machine_at_acerm3a_init(const machine_t *);
+/* m_at_eisa_pci.c */
+extern int machine_at_54tdp_init(const machine_t *);
+
 extern int             machine_at_p55t2p4_init(const machine_t *);
 #ifdef EMU_DEVICE_H
 extern void            machine_at_p65up5_common_init(const machine_t *, const device_t *northbridge);
@@ -1658,9 +1663,10 @@ extern int             machine_ps2_model_65sx_init(const machine_t *);
 extern int             machine_ps2_model_70_type1_init(const machine_t *);
 extern int             machine_ps2_model_70_type2_init(const machine_t *);
 extern int             machine_ps2_model_70_type3_init(const machine_t *);
-extern int             machine_ps2_model_80_init(const machine_t *);
-extern int             machine_ps2_model_80_axx_init(const machine_t *);
 extern int             machine_ps2_model_70_type4_init(const machine_t *);
+extern int             machine_ps2_model_80_type1_init(const machine_t *);
+extern int             machine_ps2_model_80_type2_init(const machine_t *);
+extern int             machine_ps2_model_80_type3_init(const machine_t *);
 extern int             machine_ps55_model_50t_init(const machine_t*);
 extern int             machine_ps55_model_50v_init(const machine_t*);
 
@@ -1689,6 +1695,7 @@ extern int             machine_v86p_init(const machine_t *);
 /* 8088 */
 #ifdef EMU_DEVICE_H
 extern const device_t  ibmpc_device;
+extern const device_t  at_54tdp_device;
 #endif
 extern int             machine_ibmpc_init(const machine_t *);
 #ifdef EMU_DEVICE_H
