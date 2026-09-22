@@ -18435,7 +18435,7 @@ const machine_t machines[] = {
        no ISA at all, and an AIC-7880 on board. It has no PIIX -- the
        82374SB ESC is the south bridge -- so the EISA bridge pair is not
        an addition to this machine, it is what runs it. */
-    {
+    /*{
         .name              = "[i430HX] AIR 54TDP",
         .internal_name     = "54tdp",
         .type              = MACHINE_TYPE_SOCKET7,
@@ -18481,7 +18481,7 @@ const machine_t machines[] = {
         .snd_device               = NULL,
         .net_device               = NULL,
         .aliases                  = { "Advanced Integration Research 54TDP", "" }
-    },
+    },*/
     /* Has AMIKey H KBC firmware (AMIKey-2). */
     {
         .name              = "[i430HX] ASUS P/I-P55T2P4",
