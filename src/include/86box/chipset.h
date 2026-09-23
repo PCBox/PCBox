@@ -127,6 +127,7 @@ extern const device_t piix4e_device;
 extern const device_t slc90e66_device;
 
 extern const device_t ioapic_device;
+extern const device_t ioapic_ami_device;
 
 /* Intel ICH2 */
 extern const device_t intel_815ep_device;
