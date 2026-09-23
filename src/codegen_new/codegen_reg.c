@@ -204,7 +204,7 @@ struct
     [IREG_temp0d] = { REG_DOUBLE,        (void *) 40,                        REG_FP,      REG_VOLATILE },
     [IREG_temp1d] = { REG_DOUBLE,        (void *) 48,                        REG_FP,      REG_VOLATILE },
 
-    [IREG_temp0dq] = { REG_DQWORD,        (void *) 64,                        REG_FP,      REG_VOLATILE },
+    [IREG_temp0dq] = { REG_DQWORD,        (void *) 80,                        REG_FP,      REG_VOLATILE },
 };
 
 static const uint8_t native_requested_sizes[10][8] = 

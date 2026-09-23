@@ -60,6 +60,13 @@ host_reg_def_t codegen_host_reg_list[CODEGEN_HOST_REGS] = {
     { REG_R15, 0}
 };
 
+/* The Windows x64 frame: 0x38 bytes of block temporaries as before, then
+   XMM6 and XMM7 as the caller left them. 0x68 keeps RSP 16-byte aligned
+   after the eight pushes and the return address. */
+#define CODEGEN_WIN64_FRAME 0x68
+#define CODEGEN_XMM6_SAVE   0x38
+#define CODEGEN_XMM7_SAVE   0x48
+
 host_reg_def_t codegen_host_fp_reg_list[CODEGEN_HOST_FP_REGS] = {
 #    if _WIN64
   /*Windows x86-64 calling convention preserves XMM6-XMM15*/
@@ -412,8 +419,16 @@ codegen_backend_init(void)
     host_x86_XOR32_REG_REG(block, REG_ESI, REG_ESI);
 #    endif
     host_x86_CALL(block, (void *) x86gpf);
-    codegen_exit_rout = &block_write_data[block_pos];
+    codegen_exit_rout = &codeblock[block_current].data[block_pos];
+#ifdef _WIN64
+    /* XMM6 and XMM7 hold guest FPU/MMX values in blocks, and the Windows
+       x64 ABI makes them the caller's: put back what the caller had. */
+    host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM6, REG_RSP, CODEGEN_XMM6_SAVE);
+    host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM7, REG_RSP, CODEGEN_XMM7_SAVE);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
+#else
     host_x86_ADD64_REG_IMM(block, REG_RSP, 0x58);
+#endif
     host_x86_POP(block, REG_R15);
     host_x86_POP(block, REG_R14);
     host_x86_POP(block, REG_R13);
@@ -454,9 +469,13 @@ codegen_backend_prologue(codeblock_t *block)
     host_x86_PUSH(block, REG_R13);
     host_x86_PUSH(block, REG_R14);
     host_x86_PUSH(block, REG_R15);
-    /*Stack offsets 16-31 = integer temps, 32 = FPU TOP diff,
-      40-55 = FP temps, 64-79 = 128-bit temp*/
+#ifdef _WIN64
+    host_x86_SUB64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
+    host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, CODEGEN_XMM6_SAVE, REG_XMM6);
+    host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, CODEGEN_XMM7_SAVE, REG_XMM7);
+#else
     host_x86_SUB64_REG_IMM(block, REG_RSP, 0x58);
+#endif
     host_x86_MOV64_REG_IMM(block, REG_RBP, ((uintptr_t) &cpu_state) + 128);
     if (block->flags & CODEBLOCK_HAS_FPU) {
         host_x86_MOV32_REG_ABS(block, REG_EAX, &cpu_state.TOP);
@@ -470,7 +489,15 @@ codegen_backend_prologue(codeblock_t *block)
 void
 codegen_backend_epilogue(codeblock_t *block)
 {
+#ifdef _WIN64
+    /* XMM6 and XMM7 hold guest FPU/MMX values in blocks, and the Windows
+       x64 ABI makes them the caller's: put back what the caller had. */
+    host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM6, REG_RSP, CODEGEN_XMM6_SAVE);
+    host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM7, REG_RSP, CODEGEN_XMM7_SAVE);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
+#else
     host_x86_ADD64_REG_IMM(block, REG_RSP, 0x58);
+#endif
     host_x86_POP(block, REG_R15);
     host_x86_POP(block, REG_R14);
     host_x86_POP(block, REG_R13);
