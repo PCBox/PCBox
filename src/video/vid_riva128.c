@@ -905,9 +905,8 @@ riva128_pfifo_write(uint32_t addr, uint32_t val, void *p)
 	switch(addr) {
 	case 0x002100: {
 		uint32_t tmp = riva128->pfifo.intr & ~val;
-		if (riva128->pfifo.cache_error)
-			pclog("RIVA 128 PFIFO clear intr %08x cache_error %08x\n",
-					val, riva128->pfifo.cache_error);
+		/*if (riva128->pfifo.cache_error)
+			pclog("RIVA 128 PFIFO clear intr %08x cache_error %08x\n", val, riva128->pfifo.cache_error);*/
 		riva128->pfifo.intr = tmp;
 		riva128_pmc_recompute_intr(1, riva128);
 		if (!(riva128->pfifo.intr & 1))
@@ -1030,19 +1029,19 @@ riva128_pfifo_write(uint32_t addr, uint32_t val, void *p)
 		riva128->pfifo.caches[1].dma_pt = val;
 		break;
 	case 0x003240:
-		if (riva128->pfifo.cache_error)
+		/*if (riva128->pfifo.cache_error)
 			pclog("RIVA 128 PFIFO CACHE1 PULL_CTRL write %08x get %08x put %08x\n",
 					val, riva128->pfifo.caches[1].get,
-					riva128->pfifo.caches[1].put);
+					riva128->pfifo.caches[1].put);*/
 		riva128_pfifo_write_pull_ctrl(riva128, 1, val);
 		break;
 	case 0x003250:
 		riva128->pfifo.caches[1].pull_state = val & 0x10;
 		break;
 	case 0x003270:
-		if (riva128->pfifo.cache_error)
+		/*if (riva128->pfifo.cache_error)
 			pclog("RIVA 128 PFIFO CACHE1 GET write %08x old %08x\n",
-					val, riva128->pfifo.caches[1].get);
+					val, riva128->pfifo.caches[1].get);*/
 		riva128->pfifo.caches[1].get = val & 0x7c;
 		break;
 	case 0x003280:
@@ -1542,6 +1541,10 @@ riva128_pramdac_write(uint32_t addr, uint32_t val, void *p)
 		break;
 	case 0x680600:
         riva128->pramdac.gen_ctrl = val;
+		/* NV_PRAMDAC_GENERAL_CONTROL_BPC: nv3rm.vxd selects 8 bits per
+		   component and uploads full 8-bit palette entries. */
+		svga_set_ramdac_type(svga, (val & (1 << 20)) ? RAMDAC_8BIT
+				: RAMDAC_6BIT);
         break;
 	}
 	svga_recalctimings(&riva128->svga);
@@ -1890,13 +1893,6 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 		src = ((src_exp.r >> 5) << 10) | ((src_exp.g >> 5) << 5) | (src_exp.b >> 5);
 		pat = ((pat_exp.r >> 5) << 10) | ((pat_exp.g >> 5) << 5) | (pat_exp.b >> 5);
 	} else switch(graphobj0 & 7) {
-	case 3: {
-		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
-		src = src_exp.i;
-		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
-		pat = pat_exp.i;
-		break;
-	}
     case 0:
 	{
 		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
@@ -1918,7 +1914,12 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 		pat = pat_exp.i16;
 		break;
 	}
+	/* X16A8Y8 arrives as Y << 2 in every 10-bit channel, so it narrows the
+	   same way as A8R8G8B8: an 8bpp surface gets the palette index back, a
+	   32bpp one gets grey.  Taking the low byte of the packed A1R10G10B10
+	   word instead stored (index * 4) & 0xff for every 8bpp GDI fill. */
 	case 1:
+	case 3:
 	{
 		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
 		src = ((src_exp.r >> 2) << 16) | ((src_exp.g >> 2) << 8) | ((src_exp.b >> 2) & 0xff);
@@ -4109,6 +4110,64 @@ riva128_mclk_poll(void *p)
 	timer_on_auto(&riva128->mtimer, riva128->mtime);
 }
 
+/* NV_PRMCIO (0x601000), NV_PRMVIO (0x0c0000) and NV_PRMDIO (0x681000) alias
+   the VGA registers at their I/O port offsets, and nothing else lives in
+   those windows.  Returns the port a byte of BAR0 aliases, or 0. */
+static uint16_t
+riva128_vga_alias(uint32_t addr)
+{
+	switch(addr) {
+	case 0x6013b4: case 0x6013b5: case 0x6013ba:
+	case 0x6013c0: case 0x6013c1: case 0x6013c2:
+	case 0x6013d4: case 0x6013d5: case 0x6013da:
+
+	case 0x0c03c2: case 0x0c03c3: case 0x0c03c4:
+	case 0x0c03c5: case 0x0c03cc: case 0x0c03ce:
+	case 0x0c03cf:
+
+	case 0x6813c6: case 0x6813c7: case 0x6813c8:
+	case 0x6813c9: case 0x6813ca: case 0x6813cb:
+		return addr & 0x3ff;
+	}
+	return 0;
+}
+
+static int
+riva128_is_vga_window(uint32_t addr)
+{
+	return ((addr & 0xfff000) == 0x601000)
+			|| ((addr & 0xff8000) == 0x0c0000)
+			|| ((addr & 0xfff000) == 0x681000);
+}
+
+/* Wider accesses reach the registers one byte lane at a time.  nv3rm.vxd
+   relies on that: it resets the attribute controller flip-flop by reading
+   NV_PRMCIO_INP0__COLOR (0x6013da) as the dword at 0x6013d8, then programs
+   the attribute controller through 0x6013c0.  Missing either leaves the
+   text mode's blink enable in AR10, which flashes 8bpp pixels. */
+static uint32_t
+riva128_vga_window_read(uint32_t addr, int len, riva128_t *riva128)
+{
+	uint32_t ret = 0;
+
+	for (int i = 0; i < len; i++) {
+		uint16_t port = riva128_vga_alias(addr + i);
+		if (port)
+			ret |= (uint32_t) riva128_in(port, riva128) << (i << 3);
+	}
+	return ret;
+}
+
+static void
+riva128_vga_window_write(uint32_t addr, int len, uint32_t val, riva128_t *riva128)
+{
+	for (int i = 0; i < len; i++) {
+		uint16_t port = riva128_vga_alias(addr + i);
+		if (port)
+			riva128_out(port, (val >> (i << 3)) & 0xff, riva128);
+	}
+}
+
 uint32_t
 riva128_mmio_read_l(uint32_t addr, void *p)
 {
@@ -4118,25 +4177,8 @@ riva128_mmio_read_l(uint32_t addr, void *p)
 
 	uint32_t ret = 0;
 
-	/* The VGA/VBE register aliases inside the MMIO window must be decoded
-	   before the block handlers below.  The 0x6813c0 aliases fall inside
-	   the PRAMDAC range, so letting execution fall through would replace
-	   the VGA byte with a bogus PRAMDAC read.  Both riva128_mmio_read() and
-	   riva128_mmio_read_w() already return these aliases directly. */
-	switch(addr) {
-	case 0x6013b4: case 0x6013b5:
-	case 0x6013d4: case 0x6013d5:
-	case 0x6013da:
-
-	case 0x0c03c2: case 0x0c03c3: case 0x0c03c4:
-	case 0x0c03c5: case 0x0c03cc:
-
-	case 0x6813c6: case 0x6813c7: case 0x6813c8:
-	case 0x6813c9: case 0x6813ca: case 0x6813cb:
-		ret = (riva128_in((addr+0) & 0x3ff,p) << 0)
-				| (riva128_in((addr+1) & 0x3ff,p) << 8)
-				| (riva128_in((addr+2) & 0x3ff,p) << 16)
-				| (riva128_in((addr+3) & 0x3ff,p) << 24);
+	if (riva128_is_vga_window(addr)) {
+		ret = riva128_vga_window_read(addr, 4, riva128);
 		riva128_do_gpu_work(riva128);
 		return ret;
 	}
@@ -4195,18 +4237,8 @@ riva128_mmio_read(uint32_t addr, void *p)
 	if ((addr >= 0x1800) && (addr <= 0x18ff))
 	return riva128_pci_read(0,addr & 0xff,1,p);
 
-	switch(addr) {
-	case 0x6013b4: case 0x6013b5:
-	case 0x6013d4: case 0x6013d5:
-	case 0x6013da:
-
-	case 0x0c03c2: case 0x0c03c3: case 0x0c03c4:
-	case 0x0c03c5: case 0x0c03cc:
-
-	case 0x6813c6: case 0x6813c7: case 0x6813c8:
-	case 0x6813c9: case 0x6813ca: case 0x6813cb:
-		return riva128_in(addr & 0x3ff,p);
-	}
+	if (riva128_is_vga_window(addr))
+		return riva128_vga_window_read(addr, 1, riva128);
 
 	return (riva128_mmio_read_l(addr & 0xffffff, riva128)
 			>> ((addr & 3) << 3)) & 0xff;
@@ -4228,20 +4260,8 @@ riva128_mmio_read_w(uint32_t addr, void *p)
 		return (riva128_pci_read(0,(addr+0) & 0xff,1,p) << 0)
 				| (riva128_pci_read(0,(addr+1) & 0xff,1,p) << 8);
 
-	switch(addr) {
-	case 0x6013b4: case 0x6013b5:
-	case 0x6013d4: case 0x6013d5:
-	case 0x6013da:
-
-	case 0x0c03c2: case 0x0c03c3: case 0x0c03c4:
-	case 0x0c03c5: case 0x0c03cc:
-
-	case 0x6813c6: case 0x6813c7: case 0x6813c8:
-	case 0x6813c9: case 0x6813ca: case 0x6813cb:
-		return (riva128_in((addr+0) & 0x3ff,p) << 0)
-				| (riva128_in((addr+1) & 0x3ff,p) << 8);
-		break;
-	}
+	if (riva128_is_vga_window(addr))
+		return riva128_vga_window_read(addr, 2, riva128);
 
 	return (riva128_mmio_read_l(addr & 0xffffff, riva128)
 			>> ((addr & 3) << 3)) & 0xffff;
@@ -4266,6 +4286,12 @@ riva128_mmio_write_l(uint32_t addr, uint32_t val, void *p)
 		return;
 	}
 
+	if (riva128_is_vga_window(addr)) {
+		riva128_do_gpu_work(riva128);
+		riva128_vga_window_write(addr, 4, val, riva128);
+		return;
+	}
+
 	if ((addr >= 0x000000) && (addr <= 0x000fff))
 		riva128_pmc_write(addr, val, riva128);
 	if ((addr >= 0x002000) && (addr <= 0x003fff))
@@ -4284,23 +4310,6 @@ riva128_mmio_write_l(uint32_t addr, uint32_t val, void *p)
 		riva128_user_write(addr, val, riva128);
 
 	riva128_do_gpu_work(riva128);
-
-	switch(addr) {
-	case 0x6013b4: case 0x6013b5:
-	case 0x6013d4: case 0x6013d5:
-	case 0x6013da:
-
-	case 0x0c03c2: case 0x0c03c3: case 0x0c03c4:
-	case 0x0c03c5: case 0x0c03cc:
-
-	case 0x6813c6: case 0x6813c7: case 0x6813c8:
-	case 0x6813c9: case 0x6813ca: case 0x6813cb:
-		riva128_out(addr & 0xfff, val & 0xff, p);
-		riva128_out((addr+1) & 0xfff, (val>>8) & 0xff, p);
-		riva128_out((addr+2) & 0xfff, (val>>16) & 0xff, p);
-		riva128_out((addr+3) & 0xfff, (val>>24) & 0xff, p);
-		break;
-	}
 }
 
 void
@@ -4310,17 +4319,8 @@ riva128_mmio_write(uint32_t addr, uint8_t val, void *p)
 
 	addr &= 0xffffff;
 
-	switch(addr) {
-	case 0x6013b4: case 0x6013b5:
-	case 0x6013d4: case 0x6013d5:
-	case 0x6013da:
-
-	case 0x0c03c2: case 0x0c03c3: case 0x0c03c4:
-	case 0x0c03c5: case 0x0c03cc:
-
-	case 0x6813c6: case 0x6813c7: case 0x6813c8:
-	case 0x6813c9: case 0x6813ca: case 0x6813cb:
-		riva128_out(addr & 0xfff, val & 0xff, p);
+	if (riva128_is_vga_window(addr)) {
+		riva128_vga_window_write(addr, 1, val, (riva128_t *) p);
 		return;
 	}
 
@@ -4346,6 +4346,12 @@ riva128_mmio_write_w(uint32_t addr, uint16_t val, void *p)
 	}
 
 	addr &= 0xffffff;
+
+	if (riva128_is_vga_window(addr)) {
+		riva128_vga_window_write(addr, 2, val, (riva128_t *) p);
+		return;
+	}
+
 	tmp = riva128_mmio_read_l(addr,p);
 	tmp &= ~(0xffff << ((addr & 3) << 3));
 	tmp |= val << ((addr & 3) << 3);
