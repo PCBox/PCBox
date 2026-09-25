@@ -709,10 +709,8 @@ addwritelookup(uint32_t virt, uint32_t phys)
 uint8_t *
 getpccache_execute(uint32_t a)
 {
-    uint64_t a64 = (uint64_t) a;
-#if (defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64)
+   uint64_t a64 = (uint64_t) a;
     uint8_t *p;
-#endif
     uint32_t a2;
 
     a2 = a;
@@ -723,7 +721,11 @@ getpccache_execute(uint32_t a)
         if (a64 == 0xffffffffffffffffULL)
             return ram;
     }
-    a64 &= rammask;
+    if (mem_a20_reset_vector_bypass &&
+        ((a & 0xfffff000U) == 0xfffff000U))
+        mem_a20_reset_vector_bypass = 0;
+    else
+        a64 &= rammask;
 
     if (_mem_exec[a64 >> MEM_GRANULARITY_BITS]) {
         if (is286) {
@@ -733,17 +735,17 @@ getpccache_execute(uint32_t a)
                 cpu_prefetch_cycles = cpu_mem_prefetch_cycles;
         }
 
-#if (defined __amd64__ || defined _M_X64 || defined __aarch64__ || defined _M_ARM64)
         p = &_mem_exec[a64 >> MEM_GRANULARITY_BITS][(uintptr_t) (a64 & MEM_GRANULARITY_PAGE) - (uintptr_t) (a2 & ~0xfff)];
         return (uint8_t *) (((uintptr_t) p & 0x00000000ffffffffULL) | ((uintptr_t) &_mem_exec[a64 >> MEM_GRANULARITY_BITS][0] & 0xffffffff00000000ULL));
-#else
-        return &_mem_exec[a64 >> MEM_GRANULARITY_BITS][(uintptr_t) (a64 & MEM_GRANULARITY_PAGE) - (uintptr_t) (a2 & ~0xfff)];
-#endif
     }
 
-    mem_log("Bad getpccache %08X%08X\n", (uint32_t) (a64 >> 32), (uint32_t) (a64 & 0xffffffffULL));
+    /* No RAM or ROM behind the page (video memory, a device's buffer): the
+       fetch is an ordinary bus read, which the caller does through the read
+       handlers. The recompiler must not keep a block built from it, since
+       nothing tracks writes to device memory. */
+    cpu_fetch_device = 1;
 
-    return (uint8_t *) &ff_pccache;
+    return NULL;
 }
 
 uint8_t *
