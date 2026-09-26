@@ -429,7 +429,7 @@ load_monitor(int monitor_index)
    loads something else in its place (the first machine, or nothing for a
    card), and saving the configuration then loses what it named. */
 #define CONFIG_UNSUPPORTED_SHOWN 5
-static char config_unsupported_list[CONFIG_UNSUPPORTED_SHOWN + 1][160];
+static ui_unsupported_hardware_t config_unsupported_list[CONFIG_UNSUPPORTED_SHOWN + 1];
 static int  config_unsupported_count   = 0;
 static int  config_unsupported_machine = 0;
 
@@ -437,8 +437,11 @@ static void
 config_unsupported(int kind, const char *name)
 {
     if (config_unsupported_count <= CONFIG_UNSUPPORTED_SHOWN)
-        snprintf(config_unsupported_list[config_unsupported_count], sizeof(config_unsupported_list[0]),
-                 plat_get_string(kind), name);
+    {
+        ui_unsupported_hardware_t *item = &config_unsupported_list[config_unsupported_count];
+        item->kind = kind;
+        snprintf(item->name, sizeof(item->name), "%s", name);
+    }
     config_unsupported_count++;
 }
 
@@ -453,55 +456,14 @@ config_known(int id, int kind, const char *name)
     return id;
 }
 
-/* Append to a message, stopping at the end of the buffer: snprintf returns
-   what it would have written, so its return added up can pass the end. */
-static void
-config_msg_append(char *msg, size_t size, size_t *len, const char *fmt, ...)
-{
-    va_list ap;
-    int     n;
-
-    if (*len >= (size - 1))
-        return;
-
-    va_start(ap, fmt);
-    n = vsnprintf(msg + *len, size - *len, fmt, ap);
-    va_end(ap);
-
-    if (n > 0)
-        *len = ((*len + n) < size) ? (*len + n) : (size - 1);
-}
-
-/* Ask whether to go on loading a configuration naming hardware this build
-   does not have; returns 0 when the user chose not to. */
+/* Defer the warning and decision to the UI after collecting missing names. */
 static int
 config_ask_unsupported(void)
 {
-    char   msg[2048];
-    size_t len = 0;
-
     if (config_unsupported_count == 0)
         return 1;
 
-    msg[0] = '\0';
-    config_msg_append(msg, sizeof(msg), &len, "%s\n\n", plat_get_string(STRING_UNSUPPORTED_TEXT));
-    /* Five are listed, or six rather than "and 1 other": past that, how
-       many more there are. */
-    const int listed = (config_unsupported_count <= (CONFIG_UNSUPPORTED_SHOWN + 1)) ?
-                           config_unsupported_count : CONFIG_UNSUPPORTED_SHOWN;
-    for (int i = 0; i < listed; i++)
-        config_msg_append(msg, sizeof(msg), &len, "%s\n", config_unsupported_list[i]);
-    if (config_unsupported_count > listed) {
-        config_msg_append(msg, sizeof(msg), &len, plat_get_string(STRING_UNSUPPORTED_OTHERS), config_unsupported_count - listed);
-        config_msg_append(msg, sizeof(msg), &len, "\n");
-    }
-    config_msg_append(msg, sizeof(msg), &len, "\n%s\n\n%s",
-                      plat_get_string(!config_unsupported_machine ? STRING_UNSUPPORTED_REMOVE :
-                                      (config_unsupported_count > 1) ? STRING_UNSUPPORTED_REPLACE_REMOVE :
-                                                                       STRING_UNSUPPORTED_REPLACE),
-                      plat_get_string(STRING_UNSUPPORTED_CONTINUE));
-
-    return ui_msgbox_header(MBX_WARNING | MBX_QUESTION_YN, plat_get_string(STRING_UNSUPPORTED_TITLE), msg) == 1;
+    return ui_confirm_unsupported_hardware(config_unsupported_list, config_unsupported_count, config_unsupported_machine);
 }
 
 static void
@@ -2038,7 +2000,8 @@ load_floppy_and_cdrom_drives(void)
         cdrom[c].no_check = ini_section_get_int(cat, temp, 0);
 
         sprintf(temp, "cdrom_%02i_type", c + 1);
-        p = ini_section_get_string(cat, temp, cdrom[c].bus_type == CDROM_BUS_PHILIPS ? "philips_cm205" :
+        p = ini_section_get_string(cat, temp, cdrom[c].bus_type == CDROM_BUS_CM100 ? "philips_cm100" :
+                                       cdrom[c].bus_type == CDROM_BUS_PHILIPS ? "philips_cm205" :
                                        cdrom[c].bus_type == CDROM_BUS_HITACHI ? "hitachi_1503s" :
                                        cdrom[c].bus_type == CDROM_BUS_MKE ? "cr563" : "86cd");
         /* TODO: Configuration migration, remove when no longer needed. */
@@ -2059,7 +2022,10 @@ load_floppy_and_cdrom_drives(void)
         /* Default values, needed for proper operation of the Settings dialog. */
         cdrom[c].mke_channel = cdrom[c].ide_channel = cdrom[c].scsi_device_id = c & 3;
 
-        if (cdrom[c].bus_type == CDROM_BUS_PHILIPS) {
+        if (cdrom[c].bus_type == CDROM_BUS_CM100) {
+            cdrom_set_type(c, cdrom_get_from_internal_name("philips_cm100"));
+            cdrom[c].speed = 1;
+        } else if (cdrom[c].bus_type == CDROM_BUS_PHILIPS) {
             if (strcmp(cdrom_get_internal_name(cdrom[c].type), "philips_cm205ms"))
                 cdrom_set_type(c, cdrom_get_from_internal_name("philips_cm205"));
             cdrom[c].speed = 1;
