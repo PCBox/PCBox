@@ -50,12 +50,14 @@
 #define RIVA128_VENDOR_ID 0x12d2
 #define RIVA128_DEVICE_ID 0x0018
 
-/* NV_PGRAPH_SURFACE format codes.  nv3rm.vxd selects these by depth when it
-   programs the register directly at mode set: it writes 4 (format 0 | valid)
-   for 8bpp, 6 (format 2 | valid) for 16bpp and 7 (format 3 | valid) for
-   32bpp, so format 0 is the 8-bit format, not the 16-bit one. */
-#define RIVA128_PGRAPH_SURF_FORMAT_Y8 0
-#define RIVA128_PGRAPH_SURF_FORMAT_Y16 1
+/* NV_PGRAPH_BPIXEL (0x4006a8) format codes, as nv3_ref.h names them: 0 is
+   16-bit Y (the zeta buffer's format), 1 is 8 bits per pixel.  nv3rm.vxd's
+   PGRAPH init does write 4 (format 0 | valid) at 8bpp, but that is only a
+   placeholder: the channel's surface objects carry (bpp >> 4) + 1, which it
+   restores into the register on every context switch, and the OpenGL ICD
+   draws its 16-bit zeta buffer through a format 0 surface. */
+#define RIVA128_PGRAPH_SURF_FORMAT_Y16 0
+#define RIVA128_PGRAPH_SURF_FORMAT_Y8 1
 #define RIVA128_PGRAPH_SURF_FORMAT_X1R5G5B5 2
 #define RIVA128_PGRAPH_SURF_FORMAT_X8R8G8B8 3
 
@@ -1909,9 +1911,18 @@ riva128_pgraph_write_pixel_to_buffer(uint32_t graphobj0, uint16_t x, uint16_t y,
 	}
 	case 4: {
 		riva128_pgraph_color_t src_exp = riva128_pgraph_expand_color(2, color, riva128);
-		src = svga_lookup_lut_ram(svga, src_exp.i16);
 		riva128_pgraph_color_t pat_exp = riva128_pgraph_expand_color(2, pattern, riva128);
-		pat = pat_exp.i16;
+		if (((riva128->pgraph.surf_config >> (buffer * 4)) & 3)
+				== RIVA128_PGRAPH_SURF_FORMAT_Y16) {
+			/* A16Y16 onto a Y16 surface stores Y as-is - this is how the
+			   OpenGL ICD clears its zeta buffer.  The caller has already
+			   narrowed Y to 10 bits per channel, so widen it back. */
+			src = (src_exp.b << 6) | (src_exp.b >> 4);
+			pat = (pat_exp.b << 6) | (pat_exp.b >> 4);
+		} else {
+			src = svga_lookup_lut_ram(svga, src_exp.i16);
+			pat = pat_exp.i16;
+		}
 		break;
 	}
 	/* X16A8Y8 arrives as Y << 2 in every 10-bit channel, so it narrows the
@@ -2244,7 +2255,10 @@ riva128_d3d_vertex(riva128_t *riva128, unsigned index)
 	v.y = (int16_t)y / 16.0;
 	v.u = (int16_t)(x >> 16) / 16.0;
 	v.v = (int16_t)(y >> 16) / 16.0;
-	v.z = ((z & 0xffff) | ((m >> 25) << 16) | ((c >> 31) << 23)) / 256.0;
+	/* The vertex registers hold Z inverted, but the zeta buffer does not:
+	   the OpenGL ICD clears it to 0xffff for a depth of 1.0, sends SZ
+	   unchanged and compares with LEQUAL. */
+	v.z = (0xffffff - ((z & 0xffff) | ((m >> 25) << 16) | ((c >> 31) << 23))) / 256.0;
 	v.w = riva128_d3d_float((m & 0x1ffffff) << 6);
 	v.fog = (z >> 16) & 255;
 	v.color[0] = c & 255;
@@ -2554,14 +2568,17 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 			riva128_pgraph_invalid_interrupt(0, riva128);
 		break;
 	case 0x05:
+		/* Like every other NV3 point and size, x and width are in the low
+		   half.  The OpenGL ICD sets its 640x120 viewport scissor as
+		   0x00780280. */
 		switch(method) {
 		case 0x300:
-			riva128->pgraph.clipx_min = (param >> 16) & 0xffff;
-			riva128->pgraph.clipy_min = param & 0xffff;
+			riva128->pgraph.clipx_min = param & 0xffff;
+			riva128->pgraph.clipy_min = (param >> 16) & 0xffff;
 			break;
 		case 0x304:
-			riva128->pgraph.clipw = (param >> 16) & 0xffff;
-			riva128->pgraph.cliph = param & 0xffff;
+			riva128->pgraph.clipw = param & 0xffff;
+			riva128->pgraph.cliph = (param >> 16) & 0xffff;
 			break;
 		}
 		break;
@@ -3571,23 +3588,16 @@ riva128_pgraph_execute_command(uint16_t method, uint32_t param, uint32_t ctx,
 		switch(method) {
 		case 0x300: {
 			int surf_num = (graphobj0 >> 16) & 3;
-			uint32_t format = 0;
-			switch(param)
-			{
-				case 0x1010000:
-				format = RIVA128_PGRAPH_SURF_FORMAT_Y8;
-				break;
-				case 0x1010101:
+			/* The hardware tests single bits rather than matching whole
+			   values: 0x01010000 is Y8, 0x01010001 Y16, 0x01000000
+			   X1R5G5B5 and 0x00000001 X8R8G8B8. */
+			uint32_t format = RIVA128_PGRAPH_SURF_FORMAT_Y8;
+			if (param & 1)
 				format = RIVA128_PGRAPH_SURF_FORMAT_Y16;
-				break;
-				case 0x1000000:
+			if (!(param & 0x00010000))
 				format = RIVA128_PGRAPH_SURF_FORMAT_X1R5G5B5;
-				break;
-				case 0x1:
+			if (!(param & 0x01000000))
 				format = RIVA128_PGRAPH_SURF_FORMAT_X8R8G8B8;
-				break;
-
-			}
 			riva128->pgraph.surf_config &= ~(7 << (surf_num << 2));
 			/* bit 2 of the format being set means it's valid: */
 			riva128->pgraph.surf_config |= ((format | 4)
