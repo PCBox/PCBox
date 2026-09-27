@@ -999,29 +999,6 @@ nvr_start(nvr_t *nvr)
         nvr->regs[RTC_FDD_TYPES] = 0x00;
         nvr->regs[RTC_INST_EQUIP] |= 0xc0;
 
-        for (uint8_t i = 0; i <= 1; i++) {
-            if (!fdd_get_type(i))
-                continue; /* No floppy drive. */
-
-            if (fdd_is_525(i)) {
-                if (fdd_is_hd(i))
-                    fdd = 2; /* 1.2 MB */
-                else if (fdd_doublestep_40(i))
-                    fdd = 3; /* 720 KB */
-                else
-                    fdd = 1; /* 360 KB */
-            } else {
-                if (fdd_is_hd(i))
-                    fdd = 4; /* 1.44 MB */
-                else if (fdd_is_double_sided(i))
-                    fdd = 3; /* 720 KB */
-                else
-                    fdd = 1; /* 360 KB */
-            }
-
-            nvr->regs[RTC_FDD_TYPES] |= (fdd << ((1 - i) * 4));
-            nvr->regs[RTC_INST_EQUIP] &= 0x3f; /* At least one drive installed. */
-        }
 
         if ((nvr->regs[RTC_FDD_TYPES] >> 4) && (nvr->regs[RTC_FDD_TYPES] & 0xf))
             nvr->regs[RTC_INST_EQUIP] |= 0x40; /* Two drives installed. */
