@@ -4731,8 +4731,8 @@ riva128_recalctimings(svga_t *svga)
 		nv_m = 1;
 
 	freq = (freq * nv_n) / (nv_m << nv_p);
-	/* Multiply period by 10 to work around timer system limitations: */
-	riva128->nvtime = 10000000.0 / freq;
+	/* Multiply period by 100 to work around timer system limitations and to speed things up: */
+	riva128->nvtime = 100000000.0 / freq;
 	timer_on_auto(&riva128->nvtimer, riva128->nvtime);
 
 	freq = 13500000;
