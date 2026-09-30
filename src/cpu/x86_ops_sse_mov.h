@@ -14,6 +14,7 @@ opMOVUPS_q_xmm_a16(uint32_t fetchdat)
         uint32_t dst[4];
 
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 15);
         dst[0] = readmeml(easeg, cpu_state.eaaddr);
         if (cpu_state.abrt)
             return 1;
@@ -52,6 +53,7 @@ opMOVUPS_q_xmm_a32(uint32_t fetchdat)
         uint32_t dst[4];
 
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 15);
         dst[0] = readmeml(easeg, cpu_state.eaaddr);
         if (cpu_state.abrt)
             return 1;
@@ -89,6 +91,7 @@ opMOVUPS_xmm_q_a16(uint32_t fetchdat)
     } else {
         uint32_t rm[4] = { cpu_state.XMM[cpu_reg].l[0], cpu_state.XMM[cpu_reg].l[1], cpu_state.XMM[cpu_reg].l[2], cpu_state.XMM[cpu_reg].l[3] };
         SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 15);
         writememl(easeg, cpu_state.eaaddr, rm[0]);
         writememl(easeg, cpu_state.eaaddr + 4, rm[1]);
         writememl(easeg, cpu_state.eaaddr + 8, rm[2]);
@@ -117,6 +120,7 @@ opMOVUPS_xmm_q_a32(uint32_t fetchdat)
     } else {
         uint32_t rm[4] = { cpu_state.XMM[cpu_reg].l[0], cpu_state.XMM[cpu_reg].l[1], cpu_state.XMM[cpu_reg].l[2], cpu_state.XMM[cpu_reg].l[3] };
         SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 15);
         writememl(easeg, cpu_state.eaaddr, rm[0]);
         writememl(easeg, cpu_state.eaaddr + 4, rm[1]);
         writememl(easeg, cpu_state.eaaddr + 8, rm[2]);
