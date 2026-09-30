@@ -26,7 +26,7 @@ ropFFREE(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), uint
     int dest_reg = fetchdat & 7;
 
     uop_FP_ENTER(ir);
-    uop_MOV(ir, IREG_tag(dest_reg), TAG_EMPTY);
+    uop_MOV_IMM(ir, IREG_tag(dest_reg), TAG_EMPTY);
 
     return op_pc;
 }
