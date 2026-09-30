@@ -60,12 +60,12 @@ host_reg_def_t codegen_host_reg_list[CODEGEN_HOST_REGS] = {
     { REG_R15, 0}
 };
 
-/* The Windows x64 frame: 0x38 bytes of block temporaries as before, then
-   XMM6 and XMM7 as the caller left them. 0x68 keeps RSP 16-byte aligned
-   after the eight pushes and the return address. */
-#define CODEGEN_WIN64_FRAME 0x68
-#define CODEGEN_XMM6_SAVE   0x38
-#define CODEGEN_XMM7_SAVE   0x48
+/* Keep the full 0x58-byte temporary area, including STACK_TEMP_DQ at 0x40
+   and STACK_TEMP_MXCSR at 0x50, separate from the saved XMM6/XMM7 values.
+   0x78 keeps RSP 16-byte aligned after eight pushes and the return address. */
+#define CODEGEN_WIN64_FRAME 0x78
+#define CODEGEN_XMM6_SAVE   0x58
+#define CODEGEN_XMM7_SAVE   0x68
 
 host_reg_def_t codegen_host_fp_reg_list[CODEGEN_HOST_FP_REGS] = {
 #    if _WIN64
