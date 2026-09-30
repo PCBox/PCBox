@@ -13,13 +13,17 @@ opSQRTPS_xmm_xmm_a16(uint32_t fetchdat)
 
     fetch_ea_16(fetchdat);
     SSE_REG src;
+    SSE_REG result = cpu_state.XMM[cpu_reg];
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     SSE_GETSRC();
-    cpu_state.XMM[cpu_reg].f[0] = f32_sqrt(src.f[0], &status);
-    cpu_state.XMM[cpu_reg].f[1] = f32_sqrt(src.f[1], &status);
-    cpu_state.XMM[cpu_reg].f[2] = f32_sqrt(src.f[2], &status);
-    cpu_state.XMM[cpu_reg].f[3] = f32_sqrt(src.f[3], &status);
+    result.f[0] = f32_sqrt(src.f[0], &status);
+    result.f[1] = f32_sqrt(src.f[1], &status);
+    result.f[2] = f32_sqrt(src.f[2], &status);
+    result.f[3] = f32_sqrt(src.f[3], &status);
 
+    if (softfloat_status_word_to_mxcsr(status))
+        return 1;
+    cpu_state.XMM[cpu_reg] = result;
     return 0;
 }
 
@@ -33,13 +37,17 @@ opSQRTPS_xmm_xmm_a32(uint32_t fetchdat)
 
     fetch_ea_32(fetchdat);
     SSE_REG src;
+    SSE_REG result = cpu_state.XMM[cpu_reg];
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     SSE_GETSRC();
-    cpu_state.XMM[cpu_reg].f[0] = f32_sqrt(src.f[0], &status);
-    cpu_state.XMM[cpu_reg].f[1] = f32_sqrt(src.f[1], &status);
-    cpu_state.XMM[cpu_reg].f[2] = f32_sqrt(src.f[2], &status);
-    cpu_state.XMM[cpu_reg].f[3] = f32_sqrt(src.f[3], &status);
+    result.f[0] = f32_sqrt(src.f[0], &status);
+    result.f[1] = f32_sqrt(src.f[1], &status);
+    result.f[2] = f32_sqrt(src.f[2], &status);
+    result.f[3] = f32_sqrt(src.f[3], &status);
 
+    if (softfloat_status_word_to_mxcsr(status))
+        return 1;
+    cpu_state.XMM[cpu_reg] = result;
     return 0;
 }
 
@@ -50,10 +58,14 @@ opSQRTSS_xmm_xmm_a16(uint32_t fetchdat)
 
     fetch_ea_16(fetchdat);
     SSE_REG src;
+    SSE_REG result = cpu_state.XMM[cpu_reg];
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     SSE_GETSRC32();
-    cpu_state.XMM[cpu_reg].f[0] = f32_sqrt(src.f[0], &status);
+    result.f[0] = f32_sqrt(src.f[0], &status);
 
+    if (softfloat_status_word_to_mxcsr(status))
+        return 1;
+    cpu_state.XMM[cpu_reg] = result;
     return 0;
 }
 
@@ -64,10 +76,14 @@ opSQRTSS_xmm_xmm_a32(uint32_t fetchdat)
 
     fetch_ea_32(fetchdat);
     SSE_REG src;
+    SSE_REG result = cpu_state.XMM[cpu_reg];
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     SSE_GETSRC32();
-    cpu_state.XMM[cpu_reg].f[0] = f32_sqrt(src.f[0], &status);
+    result.f[0] = f32_sqrt(src.f[0], &status);
 
+    if (softfloat_status_word_to_mxcsr(status))
+        return 1;
+    cpu_state.XMM[cpu_reg] = result;
     return 0;
 }
 
@@ -1239,14 +1255,18 @@ opCMPPS_xmm_xmm_a16(uint32_t fetchdat)
 
     fetch_ea_16(fetchdat);
     SSE_REG src;
+    SSE_REG result = cpu_state.XMM[cpu_reg];
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     SSE_GETSRC();
     uint8_t  imm = getbyte();
-    cpu_state.XMM[cpu_reg].l[0] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[0], src.f[0], &status) ? ~0 : 0;
-    cpu_state.XMM[cpu_reg].l[1] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[1], src.f[1], &status) ? ~0 : 0;
-    cpu_state.XMM[cpu_reg].l[2] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[2], src.f[2], &status) ? ~0 : 0;
-    cpu_state.XMM[cpu_reg].l[3] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[3], src.f[3], &status) ? ~0 : 0;
+    result.l[0] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[0], src.f[0], &status) ? ~0 : 0;
+    result.l[1] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[1], src.f[1], &status) ? ~0 : 0;
+    result.l[2] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[2], src.f[2], &status) ? ~0 : 0;
+    result.l[3] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[3], src.f[3], &status) ? ~0 : 0;
 
+    if (softfloat_status_word_to_mxcsr(status))
+        return 1;
+    cpu_state.XMM[cpu_reg] = result;
     return 0;
 }
 
@@ -1260,13 +1280,17 @@ opCMPPS_xmm_xmm_a32(uint32_t fetchdat)
 
     fetch_ea_32(fetchdat);
     SSE_REG src;
+    SSE_REG result = cpu_state.XMM[cpu_reg];
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     SSE_GETSRC();
     uint8_t  imm = getbyte();
-    cpu_state.XMM[cpu_reg].l[0] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[0], src.f[0], &status) ? ~0 : 0;
-    cpu_state.XMM[cpu_reg].l[1] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[1], src.f[1], &status) ? ~0 : 0;
-    cpu_state.XMM[cpu_reg].l[2] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[2], src.f[2], &status) ? ~0 : 0;
-    cpu_state.XMM[cpu_reg].l[3] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[3], src.f[3], &status) ? ~0 : 0;
+    result.l[0] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[0], src.f[0], &status) ? ~0 : 0;
+    result.l[1] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[1], src.f[1], &status) ? ~0 : 0;
+    result.l[2] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[2], src.f[2], &status) ? ~0 : 0;
+    result.l[3] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[3], src.f[3], &status) ? ~0 : 0;
+    if (softfloat_status_word_to_mxcsr(status))
+        return 1;
+    cpu_state.XMM[cpu_reg] = result;
     return 0;
 }
 
@@ -1276,11 +1300,15 @@ opCMPSS_xmm_xmm_a16(uint32_t fetchdat)
     SSE_ENTER();
     fetch_ea_16(fetchdat);
     SSE_REG src;
+    SSE_REG result = cpu_state.XMM[cpu_reg];
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     SSE_GETSRC32();
     uint8_t  imm = getbyte();
-    cpu_state.XMM[cpu_reg].l[0] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[0], src.f[0], &status) ? ~0 : 0;
+    result.l[0] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[0], src.f[0], &status) ? ~0 : 0;
 
+    if (softfloat_status_word_to_mxcsr(status))
+        return 1;
+    cpu_state.XMM[cpu_reg] = result;
     return 0;
 }
 
@@ -1290,11 +1318,15 @@ opCMPSS_xmm_xmm_a32(uint32_t fetchdat)
     SSE_ENTER();
     fetch_ea_32(fetchdat);
     SSE_REG src;
+    SSE_REG result = cpu_state.XMM[cpu_reg];
     struct softfloat_status_t status = mxcsr_to_softfloat_status_word();
     SSE_GETSRC32();
     uint8_t  imm = getbyte();
-    cpu_state.XMM[cpu_reg].l[0] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[0], src.f[0], &status) ? ~0 : 0;
+    result.l[0] = compare32[imm & 7](cpu_state.XMM[cpu_reg].f[0], src.f[0], &status) ? ~0 : 0;
 
+    if (softfloat_status_word_to_mxcsr(status))
+        return 1;
+    cpu_state.XMM[cpu_reg] = result;
     return 0;
 }
 
