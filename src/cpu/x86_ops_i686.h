@@ -83,6 +83,17 @@ sf_fx_save_stor_common(uint32_t fetchdat, int bits)
             x86illegal();
             return cpu_state.abrt;
         }
+        uint32_t restored_mxcsr = cpu_state.mxcsr;
+        if ((cpu_features & CPU_FEATURE_SSE) && (cr4 & CR4_OSFXSR)) {
+            uint32_t mxcsr_mask = (cpu_features & CPU_FEATURE_SSE2) ? 0xffff : 0xffbf;
+            restored_mxcsr = readmeml(easeg, old_eaaddr + 24);
+            if (cpu_state.abrt)
+                return cpu_state.abrt;
+            if (restored_mxcsr & ~mxcsr_mask) {
+                x86gpf(NULL, 0);
+                return cpu_state.abrt;
+            }
+        }
         fpu_state.cwd = readmemw(easeg, cpu_state.eaaddr);
         fpu_state.swd = readmemw(easeg, cpu_state.eaaddr + 2);
         fpu_state.tos = (fpu_state.swd >> 11) & 7;
@@ -129,10 +140,7 @@ sf_fx_save_stor_common(uint32_t fetchdat, int bits)
         }
 
         if ((cpu_features & CPU_FEATURE_SSE) && (cr4 & CR4_OSFXSR)) {
-            if (!(cpu_features & CPU_FEATURE_SSE2))
-                cpu_state.mxcsr = readmeml(easeg, old_eaaddr + 24) & 0xffbf;
-            else
-                cpu_state.mxcsr = readmeml(easeg, old_eaaddr + 24) & 0xffff;
+            cpu_state.mxcsr = restored_mxcsr;
 
             for(int i = 0; i < 8; i++)
             {
@@ -382,6 +390,17 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
             x86illegal();
             return cpu_state.abrt;
         }
+        uint32_t restored_mxcsr = cpu_state.mxcsr;
+        if ((cpu_features & CPU_FEATURE_SSE) && (cr4 & CR4_OSFXSR)) {
+            uint32_t mxcsr_mask = (cpu_features & CPU_FEATURE_SSE2) ? 0xffff : 0xffbf;
+            restored_mxcsr = readmeml(easeg, old_eaaddr + 24);
+            if (cpu_state.abrt)
+                return cpu_state.abrt;
+            if (restored_mxcsr & ~mxcsr_mask) {
+                x86gpf(NULL, 0);
+                return cpu_state.abrt;
+            }
+        }
         fpus = readmemw(easeg, cpu_state.eaaddr + 2);
         x87_set_control_word((readmemw(easeg, cpu_state.eaaddr) & ~FPU_CW_Reserved_Bits) | 0x0040);
         cpu_state.TOP = (fpus >> 11) & 7;
@@ -405,10 +424,7 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
         x87_op_seg = readmemw(easeg, cpu_state.eaaddr + 20);
 
         if ((cpu_features & CPU_FEATURE_SSE) && (cr4 & CR4_OSFXSR)) {
-            if (!(cpu_features & CPU_FEATURE_SSE2))
-                cpu_state.mxcsr = readmeml(easeg, old_eaaddr + 24) & 0xffbf;
-            else
-                cpu_state.mxcsr = readmeml(easeg, old_eaaddr + 24) & 0xffff;
+            cpu_state.mxcsr = restored_mxcsr;
 
             for(int i = 0; i < 8; i++)
             {
