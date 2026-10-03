@@ -3049,7 +3049,7 @@ const machine_t machines[] = {
         .name              = "[8086] IBM Multistation 5550",
         .internal_name     = "ibm5550",
         .type              = MACHINE_TYPE_8086,
-        .chipset           = MACHINE_CHIPSET_DISCRETE,
+        .chipset           = MACHINE_CHIPSET_PROPRIETARY,
         .init              = machine_xt_ibm5550_init,
         .p1_handler        = NULL,
         .gpio_handler      = NULL,
@@ -5832,6 +5832,58 @@ const machine_t machines[] = {
         .gpio                     = 0xffffffff,
         .gpio_acpi                = 0xffffffff,
         .device                   = NULL,
+        .kbd_device               = NULL,
+        .fdc_device               = NULL,
+        .vid_device               = NULL,
+        .snd_device               = NULL,
+        .net_device               = NULL,
+        .aliases                  = { "" }
+    },
+    /* 286 Multistation (non-AT) machine */
+    {
+        .name              = "[Multistation] IBM Multistation 5535-M",
+        .internal_name     = "ibm5535",
+        .type              = MACHINE_TYPE_286,
+        .chipset           = MACHINE_CHIPSET_PROPRIETARY,
+        .init              = machine_xt_ibm5535_init,
+        .p1_handler        = NULL,
+        .gpio_handler      = NULL,
+        .available_flag    = MACHINE_AVAILABLE,
+        .gpio_acpi_handler = NULL,
+        .cpu               = {
+            .package     = CPU_PKG_286,
+            .block       = CPU_BLOCK_NONE,
+            .min_bus     = 10000000,
+            .max_bus     = 10000000,
+            .min_voltage = 0,
+            .max_voltage = 0,
+            .min_multi   = 0,
+            .max_multi   = 0
+        },
+        .bus_flags = MACHINE_PC,
+        .flags     = MACHINE_VIDEO_FIXED | MACHINE_FDC | MACHINE_KEYBOARD | MACHINE_MOUSE,
+        /* The IPL's memory walk hard-codes the low window as 64K-640K and rejects
+           anything less with error 6111, so 1MB (640K low plus the extended 384K)
+           is the smallest configuration. The presence bitmap in the memory
+           configuration register file is 16 bits of 128K. */
+        .ram       = {
+            .min  = 1024,
+            .max  = 2048,
+            .step = 1024
+        },
+        .nvrmask                  = 15,
+        .jumpered_ecp_dma         = 0,
+        .default_jumpered_ecp_dma = -1,
+        .kbc_device               = NULL,
+        .kbc_params               = 0x00000000,
+        .nvr_device               = NULL,
+        .nvr_params               = 0x00000000,
+        .sio_device               = NULL,
+        .sio_params               = 0x00000000,
+        .kbc_p1                   = 0xff,
+        .gpio                     = 0xffffffff,
+        .gpio_acpi                = 0xffffffff,
+        .device                   = &ibm5535_device,
         .kbd_device               = NULL,
         .fdc_device               = NULL,
         .vid_device               = NULL,
@@ -10053,7 +10105,7 @@ const machine_t machines[] = {
             .max_multi   = 0
         },
         .bus_flags = MACHINE_PS2,
-        .flags     = MACHINE_IDE | MACHINE_SOUND | MACHINE_GAMEPORT,
+        .flags     = MACHINE_IDE | MACHINE_SOUND | MACHINE_GAMEPORT, /* Machine has internal video: Paradise WD90C31 (onboard variant not yet emulated) */
         .ram       = {
             .min  = 2048,
             .max  = 32768,
@@ -10589,7 +10641,7 @@ const machine_t machines[] = {
             .max_multi   = 0
         },
         .bus_flags = MACHINE_VLB,
-        .flags     = MACHINE_IDE, /* Machine has IDE with controller: Appian ADI/2 */
+        .flags     = MACHINE_IDE,
         .ram       = {
             .min  = 1024,
             .max  = 65536,
@@ -11516,7 +11568,7 @@ const machine_t machines[] = {
             .min_voltage = 5000,
             .max_voltage = 5000,
             .min_multi   = 0,
-            .max_multi   = 2
+            .max_multi   = 0
         },
         .bus_flags = MACHINE_VLB,
         .flags     = MACHINE_APM,
@@ -14505,7 +14557,7 @@ const machine_t machines[] = {
             .package     = CPU_PKG_SOCKET4,
             .block       = CPU_BLOCK_NONE,
             .min_bus     = 60000000,
-            .max_bus     = 60000000,
+            .max_bus     = 66666667, /* Its retail version from Intel does support 66MHz speed */
             .min_voltage = 5000,
             .max_voltage = 5000,
             .min_multi   = MACHINE_MULTIPLIER_FIXED,
@@ -22476,7 +22528,7 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = NULL,
         .net_device               = NULL,
-        .aliases                  = { "Intel Aurora", "AST Bravo MS-T 6___", "Compaq ProLinea 6___e", "Dell Dimension XPS Pro___", "Gateway MBDSAC02_A_WW", "IBM PC 360 S___ (Type 6598)", "" }
+        .aliases                  = { "Intel Aurora", "AST Bravo MS-T 6150", "Compaq ProLinea 6___e", "Dell Dimension XPS Pro___", "Gateway MBDSAC02_A_WW", "IBM PC 360 S___ (Type 6598)", "" }
     },
     /* 450GX */
     /* This has an AMIKey-2, which is type 'H'. */
@@ -22872,7 +22924,7 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = &cs4236_onboard_device,
         .net_device               = NULL,
-        .aliases                  = { "Intel Venus", "Dell Dimension XPS Pro___n", "Gateway 2000 Venus", "Micron ClientPro XVI", "Micron Millennia Pro 1", "" }
+        .aliases                  = { "Intel Venus", "AST Bravo MS-T 6180", "AST Bravo MS-T 6200", "Dell Dimension XPS Pro___n", "Gateway 2000 G6 FPC", "Micron ClientPro XVI", "Micron Millennia Pro 1", "NEC PowerMate MT 17_0", "NEC PowerMate PM 17_0", "NEC PowerMate Pro2___", "" }
     },
     /* Has the AMIKey-2 ('H') KBC firmware. */
     {
@@ -24642,7 +24694,7 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = NULL,
         .net_device               = NULL,
-        .aliases                  = { "Intel Seattle 2", "Micron MBD001109-xx", "Packard Bell PB872", "NEC Direction SPB", "Quantum3D Quicksilver II", "" }
+        .aliases                  = { "Intel Seattle 2", "Micron MBD001109-xx", "Packard Bell PB872", "Packard Bell Seattle", "" }
     },
     /* Has a Winbond W83977TF Super I/O chip with on-chip KBC with AMIKey-2 (updated 'H') KBC firmware. */
     {
