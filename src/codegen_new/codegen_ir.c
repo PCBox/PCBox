@@ -67,6 +67,9 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
 {
     int jump_target_at_end = -1;
     int c;
+#ifdef CODEGEN_HAS_SSE
+    int sse_entered = 0;
+#endif
 
     if (codegen_unroll_count) {
         int unroll_end;
@@ -94,6 +97,22 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
         uop_t *uop = &ir->uops[c];
 
         //                pclog("uOP %i : %08x\n", c, uop->type);
+
+#ifdef CODEGEN_HAS_SSE
+        /* Coalesce SSE entry checks after loop unrolling, so duplicated
+           iterations are checked too. Keep the first check (and its fault PC)
+           in each straight-line region; calls, memory accesses and joins
+           conservatively end the region. Skip the redundant barrier as well
+           as the check, allowing SSE values to stay in host registers. */
+        if (uop->type & UOP_TYPE_JUMP_DEST)
+            sse_entered = 0;
+        if ((uop->type & UOP_MASK) == (UOP_SSE_ENTER & UOP_MASK)) {
+            if (sse_entered)
+                continue;
+            sse_entered = 1;
+        } else if (uop->type & (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER))
+            sse_entered = 0;
+#endif
 
         if (uop->type & UOP_TYPE_BARRIER)
             codegen_reg_flush_invalidate(ir, block);
