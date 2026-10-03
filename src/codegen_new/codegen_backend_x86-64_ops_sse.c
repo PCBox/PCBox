@@ -509,6 +509,16 @@ host_x86_MOVDQU_XREG_BASE_INDEX(codeblock_t *block, int dst_reg, int base_reg, i
     codegen_addbyte2(block, (base_reg & 7) | ((idx_reg & 7) << 3), 0);
 }
 void
+host_x86_MOVDQU_BASE_INDEX_XREG(codeblock_t *block, int base_reg, int idx_reg, int src_reg)
+{
+    /* Use a zero displacement so RBP/R13 can also be used as the base. */
+    codegen_alloc_bytes(block, 7);
+    codegen_addbyte(block, 0xf3);
+    add_rex_if_needed(block, 0, src_reg, idx_reg, base_reg);
+    codegen_addbyte3(block, 0x0f, 0x7f, 0x44 | ((src_reg & 7) << 3));
+    codegen_addbyte2(block, (base_reg & 7) | ((idx_reg & 7) << 3), 0);
+}
+void
 host_x86_MOVDQU_XREG_BASE_OFFSET(codeblock_t *block, int dst_reg, int base_reg, int offset)
 {
     if (offset >= -128 && offset < 127) {

@@ -1850,9 +1850,47 @@ codegen_MEM_STORE_REG(codeblock_t *block, uop_t *uop)
     int src_size = IREG_GET_SIZE(uop->src_reg_c_real);
 
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
-    if (uop->imm_data)
+    if (uop->imm_data) {
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
+        if (uop->is_a16) {
+            host_x86_AND32_REG_IMM(block, REG_ESI, 0x0000ffff);
+        }
+    }
     if (REG_IS_DQ(src_size)) {
+        uint32_t *done_offset = NULL;
+
+        /* Check if the 16-byte store stays entirely within a single 4KB guest page.
+           If (ESI & 0xFFF) > 4080 (0xFF0), the store crosses into the next page. */
+        if (!uop->is_a16) {
+            host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
+            host_x86_AND32_REG_IMM(block, REG_ECX, 0x00000fff);
+            host_x86_CMP32_REG_IMM(block, REG_ECX, 0x00000ff0);
+            uint32_t *page_cross_offset = host_x86_JA_long(block);
+
+            /* RAM page table lookup */
+            host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
+            host_x86_SHR32_IMM(block, REG_ECX, 12);
+            host_x86_MOV64_REG_IMM(block, REG_RDI, (uintptr_t) writelookup2);
+            host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RDI, REG_RDI, REG_RCX, 3);
+
+            /* Ensure full 64-bit check against invalid lookup entry ((uintptr_t)-1) */
+            host_x86_CMP64_REG_IMM(block, REG_RDI, (uintptr_t) -1);
+            uint32_t *miss_offset = host_x86_JZ_long(block);
+
+            /* Perform direct 128-bit unaligned store to host RAM */
+            host_x86_MOVDQU_BASE_INDEX_XREG(block, REG_RDI, REG_RSI, src_reg);
+
+            /* Skip slow path fallback */
+            codegen_alloc_bytes(block, 5);
+            codegen_addbyte(block, 0xe9);
+            codegen_addlong(block, 0);
+            done_offset = (uint32_t *) &block_write_data[block_pos - 4];
+
+            codegen_set_jump_dest(block, page_cross_offset);
+            codegen_set_jump_dest(block, miss_offset);
+        }
+
+        /* Slow-path fallback: Two 64-bit writes */
         host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ, src_reg);
         host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ);
         host_x86_CALL(block, codegen_mem_store_quad);
@@ -1865,6 +1903,8 @@ codegen_MEM_STORE_REG(codeblock_t *block, uop_t *uop)
         host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
         host_x86_JNZ(block, codegen_exit_rout);
 
+        if (done_offset)
+            codegen_set_jump_dest(block, done_offset);
         return 0;
     }
     if (REG_IS_B(src_size)) {
