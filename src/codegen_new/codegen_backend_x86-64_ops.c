@@ -510,6 +510,15 @@ host_x86_JZ_long(codeblock_t *block)
     codegen_addlong(block, 0);
     return (uint32_t *) &block_write_data[block_pos - 4];
 }
+uint32_t *
+host_x86_JA_long(codeblock_t *block)
+{
+    codegen_alloc_bytes(block, 6);
+    codegen_addbyte(block, 0x0f);
+    codegen_addbyte(block, 0x87); /* 0x0F 0x87 = JA rel32 */
+    codegen_addlong(block, 0);
+    return (uint32_t *) &block_write_data[block_pos - 4];
+}
 
 void
 host_x86_LAHF(codeblock_t *block)

@@ -51,6 +51,7 @@ uint32_t *host_x86_JLE_long(codeblock_t *block);
 uint32_t *host_x86_JO_long(codeblock_t *block);
 uint32_t *host_x86_JS_long(codeblock_t *block);
 uint32_t *host_x86_JZ_long(codeblock_t *block);
+uint32_t *host_x86_JA_long(codeblock_t *block);
 
 void host_x86_LAHF(codeblock_t *block);
 

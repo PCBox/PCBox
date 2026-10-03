@@ -1648,6 +1648,40 @@ codegen_MEM_LOAD_REG(codeblock_t *block, uop_t *uop)
         }
     }
     if (REG_IS_DQ(dest_size)) {
+        uint32_t *done_offset = NULL;
+
+        /* Check if the 16-byte load stays entirely within a single 4KB guest page.
+           If (ESI & 0xFFF) > 4080 (0xFF0), the load crosses into the next page. */
+        if (!uop->is_a16) {
+            host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
+            host_x86_AND32_REG_IMM(block, REG_ECX, 0x00000fff);
+            host_x86_CMP32_REG_IMM(block, REG_ECX, 0x00000ff0);
+            uint32_t *page_cross_offset = host_x86_JA_long(block);
+
+            /* RAM page table lookup */
+            host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
+            host_x86_SHR32_IMM(block, REG_ECX, 12);
+            host_x86_MOV64_REG_IMM(block, REG_RDI, (uintptr_t) readlookup2);
+            host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RDI, REG_RDI, REG_RCX, 3);
+
+            /* Ensure full 64-bit check against invalid lookup entry ((uintptr_t)-1) */
+            host_x86_CMP64_REG_IMM(block, REG_RDI, (uintptr_t) -1);
+            uint32_t *miss_offset = host_x86_JZ_long(block);
+
+            /* Perform direct 128-bit unaligned load from host RAM */
+            host_x86_MOVDQU_XREG_BASE_INDEX(block, dest_reg, REG_RDI, REG_RSI);
+
+            /* Skip slow path fallback */
+            codegen_alloc_bytes(block, 5);
+            codegen_addbyte(block, 0xe9);
+            codegen_addlong(block, 0);
+            done_offset = (uint32_t *) &block_write_data[block_pos - 4];
+
+            codegen_set_jump_dest(block, page_cross_offset);
+            codegen_set_jump_dest(block, miss_offset);
+        }
+
+        /* Slow-path fallback: Two 64-bit reads */
         host_x86_CALL(block, codegen_mem_load_quad);
         host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
         host_x86_JNZ(block, codegen_exit_rout);
@@ -1660,6 +1694,8 @@ codegen_MEM_LOAD_REG(codeblock_t *block, uop_t *uop)
         host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + 8, REG_XMM_TEMP);
         host_x86_MOVDQU_XREG_BASE_OFFSET(block, dest_reg, REG_RSP, STACK_TEMP_DQ);
 
+        if (done_offset)
+            codegen_set_jump_dest(block, done_offset);
         return 0;
     }
     if (REG_IS_B(dest_size)) {
