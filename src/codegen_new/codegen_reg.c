@@ -361,6 +361,14 @@ static void
 codegen_reg_load(host_reg_set_t *reg_set, codeblock_t *block, int c, ir_reg_t ir_reg)
 {
     switch (ireg_data[IREG_GET_REG(ir_reg.reg)].native_size) {
+        case REG_BYTE:
+#ifndef RELEASE_BUILD
+            if (ireg_data[IREG_GET_REG(ir_reg.reg)].type != REG_INTEGER)
+                fatal("codegen_reg_load - REG_BYTE !REG_INTEGER\n");
+#endif
+            codegen_direct_read_8(block, reg_set->reg_list[c].reg, ireg_data[IREG_GET_REG(ir_reg.reg)].p);
+            break;
+
         case REG_WORD:
 #ifndef RELEASE_BUILD
             if (ireg_data[IREG_GET_REG(ir_reg.reg)].type != REG_INTEGER)
@@ -749,10 +757,18 @@ codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_id
     }
 
     if (c == reg_set->nr_regs) {
-        /*No unused registers. Search for an unlocked register with no pending reads*/
+        /* Use an empty slot before spilling a cached value. In particular,
+           independent input loads should be able to fill the register pool. */
         for (c = 0; c < reg_set->nr_regs; c++) {
-            if (host_reg_supports_ir_reg(reg_set, c, ir_reg) && !(reg_set->locked & (1 << c)) && IREG_GET_REG(reg_set->regs[c].reg) != IREG_INVALID && !ir_get_refcount(reg_set->regs[c]))
+            if (host_reg_supports_ir_reg(reg_set, c, ir_reg) && !(reg_set->locked & (1 << c)) && ir_reg_is_invalid(reg_set->regs[c]))
                 break;
+        }
+        if (c == reg_set->nr_regs) {
+            /*No unused registers. Search for an unlocked register with no pending reads*/
+            for (c = 0; c < reg_set->nr_regs; c++) {
+                if (host_reg_supports_ir_reg(reg_set, c, ir_reg) && !(reg_set->locked & (1 << c)) && !ir_get_refcount(reg_set->regs[c]))
+                    break;
+            }
         }
         if (c == reg_set->nr_regs) {
             /*Search for any unlocked register*/
@@ -924,6 +940,80 @@ codegen_reg_rename(codeblock_t *block, ir_reg_t src, ir_reg_t dst)
         }
     }
 }
+
+#ifdef CODEGEN_BACKEND_HAS_MEM_REGS
+int
+codegen_reg_get_dirty_host_reg(int reg)
+{
+    for (int c = 0; c < host_reg_set.nr_regs; c++) {
+        if (IREG_GET_REG(host_reg_set.regs[c].reg) == reg) {
+            /* A conditional update still needs writeback at the next exit. */
+            host_reg_set.dirty[c] = 1;
+            return host_reg_set.reg_list[c].reg;
+        }
+    }
+    return -1;
+}
+
+void
+codegen_reg_flush_mem_dest(codeblock_t *block, ir_reg_t dest_reg)
+{
+    if (ir_reg_is_invalid(dest_reg))
+        return;
+
+    host_reg_set_t *reg_set = get_reg_set(dest_reg);
+
+    /* Allocation replaces the old destination's version before the load runs.
+       Keep its architectural value available if the load faults. */
+    for (int c = 0; c < reg_set->nr_regs; c++) {
+        if (IREG_GET_REG(reg_set->regs[c].reg) == IREG_GET_REG(dest_reg.reg) && reg_set->dirty[c])
+            codegen_reg_writeback(reg_set, block, c, 0);
+    }
+}
+
+void
+codegen_reg_flush_conditional(codeblock_t *block, ir_reg_t dest_reg)
+{
+    host_reg_set_t *reg_sets[] = { &host_reg_set, &host_fp_reg_set };
+
+    for (int set = 0; set < 2; set++) {
+        host_reg_set_t *reg_set = reg_sets[set];
+
+        for (int c = 0; c < reg_set->nr_regs; c++) {
+            ir_reg_t reg = reg_set->regs[c];
+
+            if (ir_reg_is_invalid(reg) || IREG_GET_REG(reg.reg) == IREG_GET_REG(dest_reg.reg) || !reg_set->dirty[c])
+                continue;
+            codegen_reg_writeback(reg_set, block, c, 0);
+            /* This store only runs on the slow or fault path. The successful
+               inline path still owes it, so retain the allocator's dirty bit. */
+            reg_set->dirty[c] = 1;
+        }
+    }
+}
+
+void
+codegen_reg_reload_mem(codeblock_t *block, ir_reg_t dest_reg)
+{
+    host_reg_set_t *reg_sets[] = { &host_reg_set, &host_fp_reg_set };
+
+    /* Helpers can update guest state (notably cycles), as well as clobber
+       host SIMD registers. Both paths must rejoin with the same allocation. */
+    for (int set = 0; set < 2; set++) {
+        host_reg_set_t *reg_set = reg_sets[set];
+
+        for (int c = 0; c < reg_set->nr_regs; c++) {
+            ir_reg_t reg = reg_set->regs[c];
+
+            if (ir_reg_is_invalid(reg) || IREG_GET_REG(reg.reg) == IREG_GET_REG(dest_reg.reg))
+                continue;
+            if (ireg_data[IREG_GET_REG(reg.reg)].is_volatile && !ir_get_refcount(reg))
+                continue;
+            codegen_reg_load(reg_set, block, c, reg);
+        }
+    }
+}
+#endif
 
 void
 codegen_reg_flush(UNUSED(ir_data_t *ir), codeblock_t *block)

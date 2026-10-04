@@ -27,7 +27,7 @@
 #    define STACK_ARG2        (8)
 #    define STACK_ARG3        (12)
 #    define STACK_TEMP_DQ     (64)
-#    define STACK_TEMP_MXCSR  (80)
+#    define STACK_TEMP_MXCSR  (96)
 
 #    define HOST_REG_GET(reg) ((IREG_GET_SIZE(reg) == IREG_SIZE_BH) ? (IREG_GET_REG((reg) &3) | 4) : (IREG_GET_REG(reg) & 15))
 
@@ -293,6 +293,10 @@ codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
         const int saved_eax_offset = 24;
 #    endif
 
+        /* These helpers run inside an arithmetic uop, without a register
+           barrier. Preserve the allocator's caller-saved integer registers. */
+        host_x86_PUSH(block, REG_R10);
+        host_x86_PUSH(block, REG_R11);
         host_x86_PUSH(block, REG_RAX);
         host_x86_PUSH(block, REG_RDX);
         host_x86_SUB64_REG_IMM(block, REG_RSP, local_size);
@@ -309,8 +313,10 @@ codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
         host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, result_offset, REG_EAX);
         host_x86_MOV32_REG_BASE_OFFSET(block, REG_EDX, REG_RSP, saved_edx_offset);
         host_x86_MOV32_REG_BASE_OFFSET(block, REG_EAX, REG_RSP, saved_eax_offset);
+        host_x86_MOV64_REG_BASE_OFFSET(block, REG_R11, REG_RSP, local_size + 16);
+        host_x86_MOV64_REG_BASE_OFFSET(block, REG_R10, REG_RSP, local_size + 24);
         host_x86_MOV32_REG_BASE_OFFSET(block, dest_reg, REG_RSP, result_offset);
-        host_x86_ADD64_REG_IMM(block, REG_RSP, local_size + 16);
+        host_x86_ADD64_REG_IMM(block, REG_RSP, local_size + 32);
     }
 #    ifdef RECOMPILER_DEBUG
     else
@@ -1453,6 +1459,9 @@ codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
     host_x86_MOV32_REG_ABS(block, REG_ECX, &cr0);
     host_x86_TEST32_REG_IMM(block, REG_ECX, 0x4);
     branch_offset = host_x86_JZ_long(block);
+    /* Successful checks leave cached values live. Exceptions need the guest
+       state written back before the handler, including earlier SIMD results. */
+    codegen_reg_flush_conditional(block, invalid_ir_reg);
     host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
     host_x86_CALL(block, x86illegal);
     host_x86_JMP(block, codegen_exit_rout);
@@ -1461,6 +1470,7 @@ codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
     host_x86_MOV32_REG_ABS(block, REG_ECX, &cr4);
     host_x86_TEST32_REG_IMM(block, REG_ECX, CR4_OSFXSR);
     branch_offset = host_x86_JNZ_long(block);
+    codegen_reg_flush_conditional(block, invalid_ir_reg);
     host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
     host_x86_CALL(block, x86illegal);
     host_x86_JMP(block, codegen_exit_rout);
@@ -1469,6 +1479,7 @@ codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
     host_x86_MOV32_REG_ABS(block, REG_ECX, &cr0);
     host_x86_TEST32_REG_IMM(block, REG_ECX, 0x8);
     branch_offset = host_x86_JZ_long(block);
+    codegen_reg_flush_conditional(block, invalid_ir_reg);
     host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
 #    if _WIN64
     host_x86_MOV32_REG_IMM(block, REG_ECX, 7);
@@ -1477,6 +1488,21 @@ codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
 #    endif
     host_x86_CALL(block, x86_int);
     host_x86_JMP(block, codegen_exit_rout);
+    *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
+
+    return 0;
+}
+
+static int
+codegen_CHECK_ALIGN(codeblock_t *block, uop_t *uop)
+{
+    uint32_t *branch_offset;
+
+    host_x86_TEST32_REG_IMM(block, uop->src_reg_a_real, 15);
+    branch_offset = host_x86_JZ_long(block);
+    codegen_reg_flush_conditional(block, invalid_ir_reg);
+    host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
+    host_x86_JMP(block, codegen_gpf_rout);
     *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
 
     return 0;
@@ -1601,6 +1627,145 @@ codegen_LOAD_SEG(codeblock_t *block, uop_t *uop)
     return 0;
 }
 
+/* ESI stays the linear address until the slow path calls a helper;
+   ECX/XMM0 keep the existing data ABI (including high-byte register moves).
+   Only the reserved RDI/R8 scratch registers are used for the lookup. */
+static uint32_t *
+codegen_MEM_SCALAR_LOOKUP(codeblock_t *block, uintptr_t *lookup, int size, uint32_t **unaligned)
+{
+    host_x86_MOV32_REG_REG(block, REG_EDI, REG_ESI);
+    host_x86_SHR32_IMM(block, REG_EDI, 12);
+    host_x86_MOV64_REG_IMM(block, REG_R8, (uintptr_t) lookup);
+    host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RDI, REG_R8, REG_RDI, 3);
+    host_x86_CMP64_REG_IMM(block, REG_RDI, (uint32_t) -1);
+    uint32_t *miss = host_x86_JZ_long(block);
+    *unaligned = NULL;
+    if (size > 1) {
+        /* Aligned accesses cannot cross a page. Keep their fall-through path
+           to one alignment test; handle unaligned RAM hits out of line. */
+        host_x86_TEST32_REG_IMM(block, REG_ESI, size - 1);
+        *unaligned = host_x86_JNZ_long(block);
+    }
+    return miss;
+}
+
+static void
+codegen_MEM_SLOW_ENTER(codeblock_t *block, uop_t *uop)
+{
+    /* Dynamic x87 writeback uses ECX. Keep the helper's address and data
+       intact while materializing the guest state on this path only. */
+    host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG0, REG_ESI);
+    host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG1, REG_ECX);
+    codegen_reg_flush_conditional(block, uop->dest_reg_a);
+    host_x86_MOV32_REG_BASE_OFFSET(block, REG_ESI, REG_RSP, STACK_ARG0);
+    host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG1);
+}
+
+static void
+codegen_MEM_SLOW_LEAVE(codeblock_t *block, uop_t *uop)
+{
+    /* Reloading a dynamic x87 stack value also uses ECX, which may now
+       contain a scalar load result. XMM0 is reserved for the helper result. */
+    host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG0, REG_ECX);
+    codegen_reg_reload_mem(block, uop->dest_reg_a);
+    host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG0);
+}
+
+static void
+codegen_MEM_SCALAR_SLOW_PATH(codeblock_t *block, uop_t *uop, int size,
+                             uint32_t *unaligned, uint32_t *miss, void *access, void *helper)
+{
+    /* Use patchable long branches: an emitter can cross allocator chunks. */
+    codegen_alloc_bytes(block, 5);
+    codegen_addbyte(block, 0xe9);
+    codegen_addlong(block, 0);
+    uint32_t *done = (uint32_t *) &block_write_data[block_pos - 4];
+
+    if (unaligned) {
+        codegen_set_jump_dest(block, unaligned);
+        /* RDI still holds the valid RAM mapping. Only a crossing access
+           needs the helper to translate/check the second page. */
+        host_x86_MOV32_REG_REG(block, REG_R8, REG_ESI);
+        host_x86_AND32_REG_IMM(block, REG_R8, 0xfff);
+        host_x86_CMP32_REG_IMM(block, REG_R8, 0x1000 - size);
+        uint32_t *page_cross = host_x86_JA_long(block);
+
+        if (timing_misaligned) {
+            /* Charge the same penalty as mem.c, once and only on RAM hits.
+               Cyrix word/dword accesses pay at eight-byte boundaries only. */
+            uint32_t *no_penalty = NULL;
+            if (cpu_cyrix_alignment && size < 8) {
+                host_x86_AND32_REG_IMM(block, REG_R8, 7);
+                host_x86_CMP32_REG_IMM(block, REG_R8, 8 - size);
+                no_penalty = host_x86_JBE_long(block);
+            }
+            int cycles_reg = codegen_reg_get_dirty_host_reg(IREG_cycles);
+            if (cycles_reg >= 0)
+                host_x86_SUB32_REG_IMM(block, cycles_reg, timing_misaligned);
+            else {
+                host_x86_MOV32_REG_ABS(block, REG_R8, &cycles);
+                host_x86_SUB32_REG_IMM(block, REG_R8, timing_misaligned);
+                host_x86_MOV32_ABS_REG(block, &cycles, REG_R8);
+            }
+            if (no_penalty)
+                codegen_set_jump_dest(block, no_penalty);
+        }
+        host_x86_JMP(block, access);
+        codegen_set_jump_dest(block, page_cross);
+    }
+    codegen_set_jump_dest(block, miss);
+    codegen_MEM_SLOW_ENTER(block, uop);
+    host_x86_CALL(block, helper);
+    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
+    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_SLOW_LEAVE(block, uop);
+    codegen_set_jump_dest(block, done);
+}
+
+static void
+codegen_MEM_LOAD_SCALAR(codeblock_t *block, uop_t *uop, int size, int is_float, void *helper)
+{
+    uint32_t *unaligned;
+    uint32_t *miss = codegen_MEM_SCALAR_LOOKUP(block, readlookup2, size, &unaligned);
+    void *access = &block_write_data[block_pos];
+
+    if (size == 1)
+        host_x86_MOVZX_BASE_INDEX_32_8(block, REG_ECX, REG_RDI, REG_RSI);
+    else if (size == 2)
+        host_x86_MOVZX_BASE_INDEX_32_16(block, REG_ECX, REG_RDI, REG_RSI);
+    else if (size == 4 && !is_float)
+        host_x86_MOV32_REG_BASE_INDEX(block, REG_ECX, REG_RDI, REG_RSI);
+    else if (size == 4)
+        host_x86_CVTSS2SD_XREG_BASE_INDEX(block, REG_XMM_TEMP, REG_RDI, REG_RSI);
+    else
+        host_x86_MOVQ_XREG_BASE_INDEX(block, REG_XMM_TEMP, REG_RDI, REG_RSI);
+
+    codegen_MEM_SCALAR_SLOW_PATH(block, uop, size, unaligned, miss, access, helper);
+}
+
+static void
+codegen_MEM_STORE_SCALAR(codeblock_t *block, uop_t *uop, int size, int is_float, void *helper)
+{
+    /* Code pages and device memory have no direct write mapping, so they
+       still pass through the helper for dirty tracking and device effects. */
+    uint32_t *unaligned;
+    uint32_t *miss = codegen_MEM_SCALAR_LOOKUP(block, writelookup2, size, &unaligned);
+    void *access = &block_write_data[block_pos];
+
+    if (size == 1)
+        host_x86_MOV8_BASE_INDEX_REG(block, REG_RDI, REG_RSI, REG_ECX);
+    else if (size == 2)
+        host_x86_MOV16_BASE_INDEX_REG(block, REG_RDI, REG_RSI, REG_ECX);
+    else if (size == 4 && !is_float)
+        host_x86_MOV32_BASE_INDEX_REG(block, REG_RDI, REG_RSI, REG_ECX);
+    else if (size == 4)
+        host_x86_MOVD_BASE_INDEX_XREG(block, REG_RDI, REG_RSI, REG_XMM_TEMP);
+    else
+        host_x86_MOVQ_BASE_INDEX_XREG(block, REG_RDI, REG_RSI, REG_XMM_TEMP);
+
+    codegen_MEM_SCALAR_SLOW_PATH(block, uop, size, unaligned, miss, access, helper);
+}
+
 static int
 codegen_MEM_LOAD_ABS(codeblock_t *block, uop_t *uop)
 {
@@ -1610,18 +1775,16 @@ codegen_MEM_LOAD_ABS(codeblock_t *block, uop_t *uop)
 
     host_x86_LEA_REG_IMM(block, REG_ESI, seg_reg, uop->imm_data);
     if (REG_IS_B(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_byte);
+        codegen_MEM_LOAD_SCALAR(block, uop, 1, 0, codegen_mem_load_byte);
     } else if (REG_IS_W(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_word);
+        codegen_MEM_LOAD_SCALAR(block, uop, 2, 0, codegen_mem_load_word);
     } else if (REG_IS_L(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_long);
+        codegen_MEM_LOAD_SCALAR(block, uop, 4, 0, codegen_mem_load_long);
     }
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("MEM_LOAD_ABS - %02x\n", uop->dest_reg_a_real);
 #    endif
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
     if (REG_IS_B(dest_size)) {
         host_x86_MOV8_REG_REG(block, dest_reg, REG_ECX);
     } else if (REG_IS_W(dest_size)) {
@@ -1648,6 +1811,41 @@ codegen_MEM_LOAD_REG(codeblock_t *block, uop_t *uop)
         }
     }
     if (REG_IS_DQ(dest_size)) {
+        uint32_t *done_offset = NULL;
+
+        /* Check if the 16-byte load stays entirely within a single 4KB guest page.
+           If (ESI & 0xFFF) > 4080 (0xFF0), the load crosses into the next page. */
+        if (!uop->is_a16) {
+            host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
+            host_x86_AND32_REG_IMM(block, REG_ECX, 0x00000fff);
+            host_x86_CMP32_REG_IMM(block, REG_ECX, 0x00000ff0);
+            uint32_t *page_cross_offset = host_x86_JA_long(block);
+
+            /* RAM page table lookup */
+            host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
+            host_x86_SHR32_IMM(block, REG_ECX, 12);
+            host_x86_MOV64_REG_IMM(block, REG_RDI, (uintptr_t) readlookup2);
+            host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RDI, REG_RDI, REG_RCX, 3);
+
+            /* Ensure full 64-bit check against invalid lookup entry ((uintptr_t)-1) */
+            host_x86_CMP64_REG_IMM(block, REG_RDI, (uintptr_t) -1);
+            uint32_t *miss_offset = host_x86_JZ_long(block);
+
+            /* Perform direct 128-bit unaligned load from host RAM */
+            host_x86_MOVDQU_XREG_BASE_INDEX(block, dest_reg, REG_RDI, REG_RSI);
+
+            /* Skip slow path fallback */
+            codegen_alloc_bytes(block, 5);
+            codegen_addbyte(block, 0xe9);
+            codegen_addlong(block, 0);
+            done_offset = (uint32_t *) &block_write_data[block_pos - 4];
+
+            codegen_set_jump_dest(block, page_cross_offset);
+            codegen_set_jump_dest(block, miss_offset);
+        }
+
+        /* Slow-path fallback: Two 64-bit reads */
+        codegen_MEM_SLOW_ENTER(block, uop);
         host_x86_CALL(block, codegen_mem_load_quad);
         host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
         host_x86_JNZ(block, codegen_exit_rout);
@@ -1658,25 +1856,26 @@ codegen_MEM_LOAD_REG(codeblock_t *block, uop_t *uop)
         host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
         host_x86_JNZ(block, codegen_exit_rout);
         host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + 8, REG_XMM_TEMP);
+        codegen_MEM_SLOW_LEAVE(block, uop);
         host_x86_MOVDQU_XREG_BASE_OFFSET(block, dest_reg, REG_RSP, STACK_TEMP_DQ);
 
+        if (done_offset)
+            codegen_set_jump_dest(block, done_offset);
         return 0;
     }
     if (REG_IS_B(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_byte);
+        codegen_MEM_LOAD_SCALAR(block, uop, 1, 0, codegen_mem_load_byte);
     } else if (REG_IS_W(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_word);
+        codegen_MEM_LOAD_SCALAR(block, uop, 2, 0, codegen_mem_load_word);
     } else if (REG_IS_L(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_long);
+        codegen_MEM_LOAD_SCALAR(block, uop, 4, 0, codegen_mem_load_long);
     } else if (REG_IS_Q(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_quad);
+        codegen_MEM_LOAD_SCALAR(block, uop, 8, 0, codegen_mem_load_quad);
     }
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("MEM_LOAD_REG - %02x\n", uop->dest_reg_a_real);
 #    endif
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
     if (REG_IS_B(dest_size)) {
         host_x86_MOV8_REG_REG(block, dest_reg, REG_ECX);
     } else if (REG_IS_W(dest_size)) {
@@ -1704,9 +1903,7 @@ codegen_MEM_LOAD_SINGLE(codeblock_t *block, uop_t *uop)
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     if (uop->imm_data)
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
-    host_x86_CALL(block, codegen_mem_load_single);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_LOAD_SCALAR(block, uop, 4, 1, codegen_mem_load_single);
     host_x86_MOVQ_XREG_XREG(block, dest_reg, REG_XMM_TEMP);
 
     return 0;
@@ -1726,9 +1923,7 @@ codegen_MEM_LOAD_DOUBLE(codeblock_t *block, uop_t *uop)
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     if (uop->imm_data)
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
-    host_x86_CALL(block, codegen_mem_load_double);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_LOAD_SCALAR(block, uop, 8, 1, codegen_mem_load_double);
     host_x86_MOVQ_XREG_XREG(block, dest_reg, REG_XMM_TEMP);
 
     return 0;
@@ -1744,21 +1939,18 @@ codegen_MEM_STORE_ABS(codeblock_t *block, uop_t *uop)
     host_x86_LEA_REG_IMM(block, REG_ESI, seg_reg, uop->imm_data);
     if (REG_IS_B(src_size)) {
         host_x86_MOV8_REG_REG(block, REG_ECX, src_reg);
-        host_x86_CALL(block, codegen_mem_store_byte);
+        codegen_MEM_STORE_SCALAR(block, uop, 1, 0, codegen_mem_store_byte);
     } else if (REG_IS_W(src_size)) {
         host_x86_MOV16_REG_REG(block, REG_ECX, src_reg);
-        host_x86_CALL(block, codegen_mem_store_word);
+        codegen_MEM_STORE_SCALAR(block, uop, 2, 0, codegen_mem_store_word);
     } else if (REG_IS_L(src_size)) {
         host_x86_MOV32_REG_REG(block, REG_ECX, src_reg);
-        host_x86_CALL(block, codegen_mem_store_long);
+        codegen_MEM_STORE_SCALAR(block, uop, 4, 0, codegen_mem_store_long);
     }
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("MEM_STORE_ABS - %02x\n", uop->src_reg_b_real);
 #    endif
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
-
     return 0;
 }
 
@@ -1770,9 +1962,7 @@ codegen_MEM_STORE_IMM_8(codeblock_t *block, uop_t *uop)
 
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     host_x86_MOV8_REG_IMM(block, REG_ECX, uop->imm_data);
-    host_x86_CALL(block, codegen_mem_store_byte);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_STORE_SCALAR(block, uop, 1, 0, codegen_mem_store_byte);
 
     return 0;
 }
@@ -1784,9 +1974,7 @@ codegen_MEM_STORE_IMM_16(codeblock_t *block, uop_t *uop)
 
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     host_x86_MOV16_REG_IMM(block, REG_ECX, uop->imm_data);
-    host_x86_CALL(block, codegen_mem_store_word);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_STORE_SCALAR(block, uop, 2, 0, codegen_mem_store_word);
 
     return 0;
 }
@@ -1798,9 +1986,7 @@ codegen_MEM_STORE_IMM_32(codeblock_t *block, uop_t *uop)
 
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     host_x86_MOV32_REG_IMM(block, REG_ECX, uop->imm_data);
-    host_x86_CALL(block, codegen_mem_store_long);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_STORE_SCALAR(block, uop, 4, 0, codegen_mem_store_long);
 
     return 0;
 }
@@ -1814,9 +2000,48 @@ codegen_MEM_STORE_REG(codeblock_t *block, uop_t *uop)
     int src_size = IREG_GET_SIZE(uop->src_reg_c_real);
 
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
-    if (uop->imm_data)
+    if (uop->imm_data) {
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
+        if (uop->is_a16) {
+            host_x86_AND32_REG_IMM(block, REG_ESI, 0x0000ffff);
+        }
+    }
     if (REG_IS_DQ(src_size)) {
+        uint32_t *done_offset = NULL;
+
+        /* Check if the 16-byte store stays entirely within a single 4KB guest page.
+           If (ESI & 0xFFF) > 4080 (0xFF0), the store crosses into the next page. */
+        if (!uop->is_a16) {
+            host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
+            host_x86_AND32_REG_IMM(block, REG_ECX, 0x00000fff);
+            host_x86_CMP32_REG_IMM(block, REG_ECX, 0x00000ff0);
+            uint32_t *page_cross_offset = host_x86_JA_long(block);
+
+            /* RAM page table lookup */
+            host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
+            host_x86_SHR32_IMM(block, REG_ECX, 12);
+            host_x86_MOV64_REG_IMM(block, REG_RDI, (uintptr_t) writelookup2);
+            host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RDI, REG_RDI, REG_RCX, 3);
+
+            /* Ensure full 64-bit check against invalid lookup entry ((uintptr_t)-1) */
+            host_x86_CMP64_REG_IMM(block, REG_RDI, (uintptr_t) -1);
+            uint32_t *miss_offset = host_x86_JZ_long(block);
+
+            /* Perform direct 128-bit unaligned store to host RAM */
+            host_x86_MOVDQU_BASE_INDEX_XREG(block, REG_RDI, REG_RSI, src_reg);
+
+            /* Skip slow path fallback */
+            codegen_alloc_bytes(block, 5);
+            codegen_addbyte(block, 0xe9);
+            codegen_addlong(block, 0);
+            done_offset = (uint32_t *) &block_write_data[block_pos - 4];
+
+            codegen_set_jump_dest(block, page_cross_offset);
+            codegen_set_jump_dest(block, miss_offset);
+        }
+
+        /* Slow-path fallback: Two 64-bit writes */
+        codegen_MEM_SLOW_ENTER(block, uop);
         host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ, src_reg);
         host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ);
         host_x86_CALL(block, codegen_mem_store_quad);
@@ -1829,28 +2054,28 @@ codegen_MEM_STORE_REG(codeblock_t *block, uop_t *uop)
         host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
         host_x86_JNZ(block, codegen_exit_rout);
 
+        codegen_MEM_SLOW_LEAVE(block, uop);
+        if (done_offset)
+            codegen_set_jump_dest(block, done_offset);
         return 0;
     }
     if (REG_IS_B(src_size)) {
         host_x86_MOV8_REG_REG(block, REG_ECX, src_reg);
-        host_x86_CALL(block, codegen_mem_store_byte);
+        codegen_MEM_STORE_SCALAR(block, uop, 1, 0, codegen_mem_store_byte);
     } else if (REG_IS_W(src_size)) {
         host_x86_MOV16_REG_REG(block, REG_ECX, src_reg);
-        host_x86_CALL(block, codegen_mem_store_word);
+        codegen_MEM_STORE_SCALAR(block, uop, 2, 0, codegen_mem_store_word);
     } else if (REG_IS_L(src_size)) {
         host_x86_MOV32_REG_REG(block, REG_ECX, src_reg);
-        host_x86_CALL(block, codegen_mem_store_long);
+        codegen_MEM_STORE_SCALAR(block, uop, 4, 0, codegen_mem_store_long);
     } else if (REG_IS_Q(src_size)) {
         host_x86_MOVQ_XREG_XREG(block, REG_XMM_TEMP, src_reg);
-        host_x86_CALL(block, codegen_mem_store_quad);
+        codegen_MEM_STORE_SCALAR(block, uop, 8, 0, codegen_mem_store_quad);
     }
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("MEM_STORE_REG - %02x\n", uop->src_reg_b_real);
 #    endif
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
-
     return 0;
 }
 
@@ -1870,9 +2095,7 @@ codegen_MEM_STORE_SINGLE(codeblock_t *block, uop_t *uop)
     if (uop->imm_data)
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
     host_x86_CVTSD2SS_XREG_XREG(block, REG_XMM_TEMP, src_reg);
-    host_x86_CALL(block, codegen_mem_store_single);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_STORE_SCALAR(block, uop, 4, 1, codegen_mem_store_single);
 
     return 0;
 }
@@ -1892,9 +2115,7 @@ codegen_MEM_STORE_DOUBLE(codeblock_t *block, uop_t *uop)
     if (uop->imm_data)
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
     host_x86_MOVQ_XREG_XREG(block, REG_XMM_TEMP, src_reg);
-    host_x86_CALL(block, codegen_mem_store_double);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_STORE_SCALAR(block, uop, 8, 1, codegen_mem_store_double);
 
     return 0;
 }
@@ -5115,6 +5336,10 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_SSE_ENTER &
         UOP_MASK]
     = codegen_SSE_ENTER,
+
+    [UOP_CHECK_ALIGN &
+        UOP_MASK]
+    = codegen_CHECK_ALIGN,
 
     [UOP_NOP_BARRIER &
         UOP_MASK]

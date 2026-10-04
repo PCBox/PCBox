@@ -57,15 +57,19 @@ host_reg_def_t codegen_host_reg_list[CODEGEN_HOST_REGS] = {
     { REG_EBX, 0},
     { REG_EDX, 0},
     { REG_R14, 0},
-    { REG_R15, 0}
+    { REG_R15, 0},
+    /* R13 is already saved by the block prologue. R8/R9 remain scratch;
+       R10/R11 are usable between calls and are saved by internal helpers. */
+    { REG_R13, 0},
+    { REG_R10, HOST_REG_FLAG_VOLATILE },
+    { REG_R11, HOST_REG_FLAG_VOLATILE }
 };
 
-/* Keep the full 0x58-byte temporary area, including STACK_TEMP_DQ at 0x40
-   and STACK_TEMP_MXCSR at 0x50, separate from the saved XMM6/XMM7 values.
-   0x78 keeps RSP 16-byte aligned after eight pushes and the return address. */
-#define CODEGEN_WIN64_FRAME 0x78
-#define CODEGEN_XMM6_SAVE   0x58
-#define CODEGEN_XMM7_SAVE   0x68
+/* Keep the 128-bit IR spill at 0x50 separate from the memory scratch at 0x40,
+   MXCSR scratch at 0x60, and saved XMM6/XMM7. Both frames align helper calls. */
+#define CODEGEN_WIN64_FRAME 0x88
+#define CODEGEN_XMM6_SAVE   0x68
+#define CODEGEN_XMM7_SAVE   0x78
 
 host_reg_def_t codegen_host_fp_reg_list[CODEGEN_HOST_FP_REGS] = {
 #    if _WIN64
@@ -215,13 +219,17 @@ build_load_routine(codeblock_t *block, int size, int is_float)
     *branch_offset = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 1;
     if (size != 1)
         *misaligned_offset = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) misaligned_offset) - 1;
+    /* Paired 64-bit accesses reuse their address registers after the first
+       helper call, before the allocator reloads the complete guest state. */
+    host_x86_PUSH(block, REG_R10);
+    host_x86_PUSH(block, REG_R11);
     host_x86_PUSH(block, REG_RAX);
     host_x86_PUSH(block, REG_RDX);
 #    if _WIN64
     host_x86_SUB64_REG_IMM(block, REG_RSP, 0x28);
     // host_x86_MOV32_REG_REG(block, REG_ECX, uop->imm_data);
 #    else
-    /* Align RSP to 16: entry RSP%16=8 (after CALL from JIT block), two PUSHes
+    /* Align RSP to 16: entry RSP%16=8 (after CALL from JIT block), four PUSHes
        leave it at 8; subtract 8 more to satisfy the SysV ABI before calling C. */
     host_x86_SUB64_REG_IMM(block, REG_RSP, 0x8);
     host_x86_MOV32_REG_REG(block, REG_EDI, REG_ECX);
@@ -250,6 +258,8 @@ build_load_routine(codeblock_t *block, int size, int is_float)
 #    endif
     host_x86_POP(block, REG_RDX);
     host_x86_POP(block, REG_RAX);
+    host_x86_POP(block, REG_R11);
+    host_x86_POP(block, REG_R10);
     host_x86_MOVZX_REG_ABS_32_8(block, REG_ESI, &cpu_state.abrt);
     host_x86_RET(block);
 }
@@ -309,6 +319,8 @@ build_store_routine(codeblock_t *block, int size, int is_float)
     *branch_offset = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 1;
     if (size != 1)
         *misaligned_offset = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) misaligned_offset) - 1;
+    host_x86_PUSH(block, REG_R10);
+    host_x86_PUSH(block, REG_R11);
     host_x86_PUSH(block, REG_RAX);
     host_x86_PUSH(block, REG_RDX);
 #    if _WIN64
@@ -345,6 +357,8 @@ build_store_routine(codeblock_t *block, int size, int is_float)
 #    endif
     host_x86_POP(block, REG_RDX);
     host_x86_POP(block, REG_RAX);
+    host_x86_POP(block, REG_R11);
+    host_x86_POP(block, REG_R10);
     host_x86_MOVZX_REG_ABS_32_8(block, REG_ESI, &cpu_state.abrt);
     host_x86_RET(block);
 }
@@ -419,7 +433,9 @@ codegen_backend_init(void)
     host_x86_XOR32_REG_REG(block, REG_ESI, REG_ESI);
 #    endif
     host_x86_CALL(block, (void *) x86gpf);
-    codegen_exit_rout = &codeblock[block_current].data[block_pos];
+    /* Helper emission can spill into a new allocator chunk. block_pos is
+       relative to that chunk, not to the first chunk in block->data. */
+    codegen_exit_rout = &block_write_data[block_pos];
 #ifdef _WIN64
     /* XMM6 and XMM7 hold guest FPU/MMX values in blocks, and the Windows
        x64 ABI makes them the caller's: put back what the caller had. */
@@ -427,7 +443,7 @@ codegen_backend_init(void)
     host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM7, REG_RSP, CODEGEN_XMM7_SAVE);
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
 #else
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x58);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x68);
 #endif
     host_x86_POP(block, REG_R15);
     host_x86_POP(block, REG_R14);
@@ -474,7 +490,7 @@ codegen_backend_prologue(codeblock_t *block)
     host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, CODEGEN_XMM6_SAVE, REG_XMM6);
     host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, CODEGEN_XMM7_SAVE, REG_XMM7);
 #else
-    host_x86_SUB64_REG_IMM(block, REG_RSP, 0x58);
+    host_x86_SUB64_REG_IMM(block, REG_RSP, 0x68);
 #endif
     host_x86_MOV64_REG_IMM(block, REG_RBP, ((uintptr_t) &cpu_state) + 128);
     if (block->flags & CODEBLOCK_HAS_FPU) {
@@ -496,7 +512,7 @@ codegen_backend_epilogue(codeblock_t *block)
     host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM7, REG_RSP, CODEGEN_XMM7_SAVE);
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
 #else
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x58);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x68);
 #endif
     host_x86_POP(block, REG_R15);
     host_x86_POP(block, REG_R14);

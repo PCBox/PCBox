@@ -186,7 +186,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
         /*16-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
-/*10*/  X86_MOVUPS_R_D, X86_MOVUPS_D_R, X86_MOVLPS_R_Q, X86_MOVLPS_Q_R, X86_UNPCKLPS,   X86_UNPCKHPS,   X86_MOVHPS_R_Q, X86_MOVHPS_Q_R, NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*10*/  X86_MOVUPS_R_D, X86_MOVUPS_D_R, X86_MOVLPS_R_Q, X86_MOVLPS_Q_R, X86_UNPCKLPS,   X86_UNPCKHPS,   X86_MOVHPS_R_Q, X86_MOVHPS_Q_R, ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,
 /*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           X86_MOVAPS_R_D, X86_MOVAPS_D_R, X86_CVTPI2PS,   X86_MOVAPS_D_R, X86_CVTTPS2PI,  X86_CVTPS2PI,   X86_UCOMISS,    X86_COMISS,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
@@ -212,7 +212,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
         /*32-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
-/*10*/  X86_MOVUPS_R_D, X86_MOVUPS_D_R, X86_MOVLPS_R_Q, X86_MOVLPS_Q_R, X86_UNPCKLPS,   X86_UNPCKHPS,   X86_MOVHPS_R_Q, X86_MOVHPS_Q_R, NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*10*/  X86_MOVUPS_R_D, X86_MOVUPS_D_R, X86_MOVLPS_R_Q, X86_MOVLPS_Q_R, X86_UNPCKLPS,   X86_UNPCKHPS,   X86_MOVHPS_R_Q, X86_MOVHPS_Q_R, ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,
 /*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           X86_MOVAPS_R_D, X86_MOVAPS_D_R, X86_CVTPI2PS,   X86_MOVAPS_D_R, X86_CVTTPS2PI,  X86_CVTPS2PI,   X86_UCOMISS,    X86_COMISS,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
@@ -242,7 +242,7 @@ RecompOpFn recomp_opcodes_0f_no_mmx[512] = {
         /*16-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
-/*10*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*10*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,
 /*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
@@ -264,7 +264,7 @@ RecompOpFn recomp_opcodes_0f_no_mmx[512] = {
         /*32-bit data*/
 /*      00              01              02              03              04              05              06              07              08              09              0a              0b              0c              0d              0e              0f*/
 /*00*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ARM64_ROP_PREFETCH, ARM64_ROP_FEMMS, NULL,
-/*10*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*10*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,    ropHINT_NOP,
 /*20*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*30*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 

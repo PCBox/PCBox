@@ -818,6 +818,44 @@ ropSTD(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED
 }
 
 uint32_t
+ropHINT_NOP(codeblock_t *block, UNUSED(ir_data_t *ir), uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    const unsigned int index = (opcode | op_32) & 0x3ff;
+    const unsigned int mod = (fetchdat >> 6) & 3;
+    unsigned int rm = fetchdat & 7;
+    int len = 1; /* ModRM */
+
+    /* These shared recompiler tables also serve CPUs where 0F 18..1F is
+       illegal. Only replace the interpreter's HINT_NOP handler, including
+       its accepted register forms, rather than inferring support from SSE. */
+    if (x86_dynarec_opcodes_0f[index] != dynarec_ops_pentium3_0f[index])
+        return 0;
+
+    /* The hint never accesses its operand. Decode only its length; emitting
+       an effective-address calculation would add needless register traffic.
+       Timing is accumulated by codegen_generate_call before this handler. */
+    if (mod != 3) {
+        if (op_32 & 0x200) {
+            if (rm == 4) {
+                len++; /* SIB */
+                rm = (fetchdat >> 8) & 7;
+            }
+            if (mod == 2 || (mod == 0 && rm == 5))
+                len += 4;
+        } else if (mod == 2 || (mod == 0 && rm == 6))
+            len += 2;
+        if (mod == 1)
+            len++;
+    }
+
+    /* Include ignored displacement bytes, also for NO_IMMEDIATES blocks,
+       so page validation and self-modifying-code tracking cover the whole
+       instruction. The interpreter fetches these bytes during compilation. */
+    codegen_mark_code_present(block, cs + op_pc, len);
+    return op_pc + len;
+}
+
+uint32_t
 ropPREFETCH(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     if ((fetchdat & 0xc0) == 0xc0)
