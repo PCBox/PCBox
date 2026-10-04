@@ -451,8 +451,9 @@ void codegen_reg_reset(void);
 void codegen_reg_flush(struct ir_data_t *ir, codeblock_t *block);
 /*Memory slow paths write back state without changing the RAM-hit allocation.*/
 void codegen_reg_flush_mem_dest(codeblock_t *block, ir_reg_t dest_reg);
-void codegen_reg_flush_mem(codeblock_t *block, ir_reg_t dest_reg);
 void codegen_reg_reload_mem(codeblock_t *block, ir_reg_t dest_reg);
+/*Conditional slow/fault paths write back state without changing allocation.*/
+void codegen_reg_flush_conditional(codeblock_t *block, ir_reg_t dest_reg);
 /*Write back and evict all registers*/
 void codegen_reg_flush_invalidate(struct ir_data_t *ir, codeblock_t *block);
 

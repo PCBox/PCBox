@@ -1453,6 +1453,9 @@ codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
     host_x86_MOV32_REG_ABS(block, REG_ECX, &cr0);
     host_x86_TEST32_REG_IMM(block, REG_ECX, 0x4);
     branch_offset = host_x86_JZ_long(block);
+    /* Successful checks leave cached values live. Exceptions need the guest
+       state written back before the handler, including earlier SIMD results. */
+    codegen_reg_flush_conditional(block, invalid_ir_reg);
     host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
     host_x86_CALL(block, x86illegal);
     host_x86_JMP(block, codegen_exit_rout);
@@ -1461,6 +1464,7 @@ codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
     host_x86_MOV32_REG_ABS(block, REG_ECX, &cr4);
     host_x86_TEST32_REG_IMM(block, REG_ECX, CR4_OSFXSR);
     branch_offset = host_x86_JNZ_long(block);
+    codegen_reg_flush_conditional(block, invalid_ir_reg);
     host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
     host_x86_CALL(block, x86illegal);
     host_x86_JMP(block, codegen_exit_rout);
@@ -1469,6 +1473,7 @@ codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
     host_x86_MOV32_REG_ABS(block, REG_ECX, &cr0);
     host_x86_TEST32_REG_IMM(block, REG_ECX, 0x8);
     branch_offset = host_x86_JZ_long(block);
+    codegen_reg_flush_conditional(block, invalid_ir_reg);
     host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
 #    if _WIN64
     host_x86_MOV32_REG_IMM(block, REG_ECX, 7);
@@ -1477,6 +1482,21 @@ codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
 #    endif
     host_x86_CALL(block, x86_int);
     host_x86_JMP(block, codegen_exit_rout);
+    *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
+
+    return 0;
+}
+
+static int
+codegen_CHECK_ALIGN(codeblock_t *block, uop_t *uop)
+{
+    uint32_t *branch_offset;
+
+    host_x86_TEST32_REG_IMM(block, uop->src_reg_a_real, 15);
+    branch_offset = host_x86_JZ_long(block);
+    codegen_reg_flush_conditional(block, invalid_ir_reg);
+    host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
+    host_x86_JMP(block, codegen_gpf_rout);
     *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
 
     return 0;
@@ -1630,7 +1650,7 @@ codegen_MEM_SLOW_ENTER(codeblock_t *block, uop_t *uop)
        intact while materializing the guest state on this path only. */
     host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG0, REG_ESI);
     host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG1, REG_ECX);
-    codegen_reg_flush_mem(block, uop->dest_reg_a);
+    codegen_reg_flush_conditional(block, uop->dest_reg_a);
     host_x86_MOV32_REG_BASE_OFFSET(block, REG_ESI, REG_RSP, STACK_ARG0);
     host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG1);
 }
@@ -5277,6 +5297,10 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_SSE_ENTER &
         UOP_MASK]
     = codegen_SSE_ENTER,
+
+    [UOP_CHECK_ALIGN &
+        UOP_MASK]
+    = codegen_CHECK_ALIGN,
 
     [UOP_NOP_BARRIER &
         UOP_MASK]

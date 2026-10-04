@@ -102,19 +102,34 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
         /* Coalesce SSE entry checks after loop unrolling, so duplicated
            iterations are checked too. Keep the first check (and its fault PC)
            in each straight-line region; calls, memory accesses and joins
-           conservatively end the region. Skip the redundant barrier as well
-           as the check, allowing SSE values to stay in host registers. */
+           conservatively end the region (memory helpers can reach devices).
+           Successful inline alignment checks do not change SSE control state.
+           Skip the redundant barrier as well as the check, allowing SSE
+           values to stay in host registers. */
         if (uop->type & UOP_TYPE_JUMP_DEST)
             sse_entered = 0;
         if ((uop->type & UOP_MASK) == (UOP_SSE_ENTER & UOP_MASK)) {
             if (sse_entered)
                 continue;
             sse_entered = 1;
-        } else if (uop->type & (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER))
+        } else if ((uop->type & (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER))
+#ifdef CODEGEN_BACKEND_HAS_SSE_REGS
+                   && (uop->type & UOP_MASK) != (UOP_CHECK_ALIGN & UOP_MASK)
+#endif
+        )
             sse_entered = 0;
 #endif
 
-        if (uop->type & UOP_TYPE_BARRIER)
+        /* Keep the IR barriers for fault-state liveness. Inline SSE checks
+           emit their writeback only on the exception path. Joins still flush
+           before the branch target so both paths use the backing state. */
+        if ((uop->type & UOP_TYPE_BARRIER)
+#ifdef CODEGEN_BACKEND_HAS_SSE_REGS
+            && ((uop->type & UOP_TYPE_JUMP_DEST)
+                || ((uop->type & UOP_MASK) != (UOP_SSE_ENTER & UOP_MASK)
+                    && (uop->type & UOP_MASK) != (UOP_CHECK_ALIGN & UOP_MASK)))
+#endif
+        )
             codegen_reg_flush_invalidate(ir, block);
 
         if (uop->type & UOP_TYPE_JUMP_DEST) {

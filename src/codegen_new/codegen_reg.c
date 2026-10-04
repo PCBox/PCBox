@@ -951,7 +951,7 @@ codegen_reg_flush_mem_dest(codeblock_t *block, ir_reg_t dest_reg)
 }
 
 void
-codegen_reg_flush_mem(codeblock_t *block, ir_reg_t dest_reg)
+codegen_reg_flush_conditional(codeblock_t *block, ir_reg_t dest_reg)
 {
     host_reg_set_t *reg_sets[] = { &host_reg_set, &host_fp_reg_set };
 
@@ -964,7 +964,8 @@ codegen_reg_flush_mem(codeblock_t *block, ir_reg_t dest_reg)
             if (ir_reg_is_invalid(reg) || IREG_GET_REG(reg.reg) == IREG_GET_REG(dest_reg.reg) || !reg_set->dirty[c])
                 continue;
             codegen_reg_writeback(reg_set, block, c, 0);
-            /* This store only runs on a miss. The RAM path still owes it. */
+            /* This store only runs on the slow or fault path. The successful
+               inline path still owes it, so retain the allocator's dirty bit. */
             reg_set->dirty[c] = 1;
         }
     }
