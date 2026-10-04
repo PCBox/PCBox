@@ -293,6 +293,10 @@ codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
         const int saved_eax_offset = 24;
 #    endif
 
+        /* These helpers run inside an arithmetic uop, without a register
+           barrier. Preserve the allocator's caller-saved integer registers. */
+        host_x86_PUSH(block, REG_R10);
+        host_x86_PUSH(block, REG_R11);
         host_x86_PUSH(block, REG_RAX);
         host_x86_PUSH(block, REG_RDX);
         host_x86_SUB64_REG_IMM(block, REG_RSP, local_size);
@@ -309,8 +313,10 @@ codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
         host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, result_offset, REG_EAX);
         host_x86_MOV32_REG_BASE_OFFSET(block, REG_EDX, REG_RSP, saved_edx_offset);
         host_x86_MOV32_REG_BASE_OFFSET(block, REG_EAX, REG_RSP, saved_eax_offset);
+        host_x86_MOV64_REG_BASE_OFFSET(block, REG_R11, REG_RSP, local_size + 16);
+        host_x86_MOV64_REG_BASE_OFFSET(block, REG_R10, REG_RSP, local_size + 24);
         host_x86_MOV32_REG_BASE_OFFSET(block, dest_reg, REG_RSP, result_offset);
-        host_x86_ADD64_REG_IMM(block, REG_RSP, local_size + 16);
+        host_x86_ADD64_REG_IMM(block, REG_RSP, local_size + 32);
     }
 #    ifdef RECOMPILER_DEBUG
     else

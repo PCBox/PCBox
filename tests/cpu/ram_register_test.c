@@ -48,6 +48,7 @@ static unsigned next_chunk, cases, helper_calls, fault_on_call, padding;
 static uint32_t observed_eax, observed_xmm[4], aborted, expected_oldpc;
 static unsigned exception, memory_control;
 static cpu_state_t fault_state;
+static uint64_t saved_r13;
 #ifdef _WIN64
 static const uint32_t xmm_sentinel[8] = {
     0x11223344, 0x55667788, 0x99aabbcc, 0xddeeff00,
@@ -129,12 +130,14 @@ access_memory(uint32_t addr, uint64_t value, unsigned size, int store)
         memcpy(&value, memory + addr, size);
     }
     /* A real C callback may freely destroy these registers. */
-    __asm__ volatile("pxor %%xmm1, %%xmm1\n\t"
+    __asm__ volatile("mov $0x13579bdf, %%r10d\n\t"
+                     "mov $0x2468ace0, %%r11d\n\t"
+                     "pxor %%xmm1, %%xmm1\n\t"
                      "pxor %%xmm2, %%xmm2\n\t"
                      "pxor %%xmm3, %%xmm3\n\t"
                      "pxor %%xmm4, %%xmm4\n\t"
                      "pxor %%xmm5, %%xmm5"
-                     : : : "xmm1", "xmm2", "xmm3", "xmm4", "xmm5");
+                     : : : "r10", "r11", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5");
 #ifndef _WIN32
     __asm__ volatile("pxor %%xmm6, %%xmm6\n\tpxor %%xmm7, %%xmm7"
                      : : : "xmm6", "xmm7");
@@ -153,6 +156,30 @@ void writememql(uint32_t addr, uint64_t value) { access_memory(addr, value, 8, 1
 
 #define UOP_TEST_OBSERVE 0x1f
 #define UOP_TEST_PADDING 0x1e
+#define UOP_TEST_DIV_HELPER 0x1d
+
+static uint32_t
+clobber_div_helper(uint32_t a, uint32_t b, uint32_t c)
+{
+    __asm__ volatile("mov $0x13579bdf, %%r10d\n\tmov $0x2468ace0, %%r11d"
+                     : : : "r10", "r11");
+    return a ^ b ^ c;
+}
+
+static void
+clobber_call_helper(void)
+{
+    for (int i = 0; i < 8; i++)
+        cpu_state.regs[i].l += 0x100;
+    __asm__ volatile("mov $0x13579bdf, %%r10d\n\tmov $0x2468ace0, %%r11d"
+                     : : : "r10", "r11");
+}
+
+static int
+test_div_helper(codeblock_t *block, uop_t *uop)
+{
+    return codegen_DIV_HELPER(block, uop, clobber_div_helper);
+}
 
 static int
 observe_state(codeblock_t *block, uop_t *uop)
@@ -182,6 +209,8 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_MOV & UOP_MASK] = codegen_MOV,
     [UOP_MOV_IMM & UOP_MASK] = codegen_MOV_IMM,
     [UOP_ADD_IMM & UOP_MASK] = codegen_ADD_IMM,
+    [UOP_ADD & UOP_MASK] = codegen_ADD,
+    [UOP_ADD_LSHIFT & UOP_MASK] = codegen_ADD_LSHIFT,
     [UOP_PADDD & UOP_MASK] = codegen_PADDD,
     [UOP_FADD & UOP_MASK] = codegen_FADD,
     [UOP_MEM_LOAD_REG & UOP_MASK] = codegen_MEM_LOAD_REG,
@@ -198,6 +227,8 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_SSE_ENTER & UOP_MASK] = codegen_SSE_ENTER,
     [UOP_CHECK_ALIGN & UOP_MASK] = codegen_CHECK_ALIGN,
     [UOP_CMP_IMM_JZ_DEST & UOP_MASK] = codegen_CMP_IMM_JZ_DEST,
+    [UOP_CALL_FUNC & UOP_MASK] = codegen_CALL_FUNC,
+    [UOP_TEST_DIV_HELPER] = test_div_helper,
     [UOP_TEST_OBSERVE] = observe_state,
     [UOP_TEST_PADDING] = pad_code,
 };
@@ -549,6 +580,131 @@ run_sse_join(int taken, int alignment)
         CHECK(cpu_state.XMM[0].l[lane] == (uint32_t) (taken ? 14 : 28));
 }
 
+static void
+run_integer_registers(int rotation, int mode, int dest)
+{
+    uint32_t expected[8];
+    int allocations[8];
+    unsigned used = 0;
+
+    cases++;
+    memset(&cpu_state, 0, sizeof(cpu_state));
+    memset(&test_block, 0, sizeof(test_block));
+    memset(memory, 0xa5, sizeof(memory));
+    memset(readlookup2, 0xff, sizeof(readlookup2));
+    memset(writelookup2, 0xff, sizeof(writelookup2));
+    next_chunk = helper_calls = aborted = 0;
+    expected_oldpc = 0x1234;
+    fault_on_call = mode == 3 || mode == 6 ? 1 : mode == 7 || mode == 10 ? 2 : 0;
+    for (int i = 0; i < 8; i++) {
+        expected[i] = i >= 6 ? 32 : 0x12345670 + i * 0x100;
+        cpu_state.regs[i].l = expected[i] - i - 1;
+    }
+    for (int lane = 0; lane < 4; lane++)
+        cpu_state.XMM[0].l[lane] = 0x11223344 + lane;
+    if (mode == 1 || mode == 4 || mode == 8)
+        readlookup2[0] = writelookup2[0] = (uintptr_t) memory;
+
+    start_code();
+    build_loadstore_routines(&test_block);
+    codegen_exit_rout = start_code();
+    host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &aborted);
+    host_x86_MOV32_BASE_OFFSET_IMM(&test_block, REG_RDI, 0, 1);
+    codegen_backend_epilogue(&test_block);
+
+    codegen_reg_reset();
+    ir_data_t *ir = codegen_ir_init();
+    /* Independent loads must fill all eight slots, keeping each dirty value
+       live for the reads after the memory access or helper call. */
+    for (int i = 0; i < 8; i++) {
+        int reg = (i + rotation) & 7;
+        allocations[i] = ir->wr_pos;
+        uop_ADD_IMM(ir, reg, reg, reg + 1);
+    }
+    uop_MOV_IMM(ir, IREG_oldpc, expected_oldpc);
+    if (mode >= 1 && mode <= 10) {
+        /* With rotation zero these two address components occupy R10/R11.
+           A 128-bit miss must retain both across the first 64-bit helper. */
+        if (mode >= 8)
+            uop_MEM_STORE_REG(ir, IREG_ESI, IREG_EDI, IREG_XMM(0));
+        else
+            uop_MEM_LOAD_REG(ir, mode <= 3 ? IREG_EAX : IREG_XMM(0), IREG_ESI, IREG_EDI);
+        if (mode <= 2)
+            expected[0] = 0xa5a5a5a5;
+    } else if (mode == 11) {
+        uop_CALL_FUNC(ir, clobber_call_helper);
+        for (int i = 0; i < 8; i++)
+            expected[i] += 0x100;
+    } else if (mode == 12) {
+        uop_gen_reg_dst_src3(UOP_TYPE_PARAMS_REGS | UOP_TEST_DIV_HELPER, ir,
+                            dest, dest, IREG_EDX, IREG_EDI);
+        expected[dest] = expected[dest] ^ expected[2] ^ expected[7];
+    } else if (mode >= 13 && mode <= 15) {
+        int reg = mode == 13 ? IREG_AL : mode == 14 ? IREG_AH : IREG_AX;
+        uop_ADD_IMM(ir, reg, reg, 0x21);
+        if (mode == 13)
+            expected[0] = (expected[0] & ~0xffu) | ((expected[0] + 0x21) & 0xff);
+        else if (mode == 14)
+            expected[0] = (expected[0] & ~0xff00u) | ((expected[0] + 0x2100) & 0xff00);
+        else
+            expected[0] = (expected[0] & ~0xffffu) | ((expected[0] + 0x21) & 0xffff);
+    } else if (mode >= 16) {
+        /* R13 is the sixth allocated slot. Exercise its special base encoding
+           for zero displacement, nonzero displacement and scaled indices. */
+        int base = (rotation + 5) & 7;
+        uint32_t value = expected[base];
+        if (mode == 18) {
+            uop_ADD_LSHIFT(ir, IREG_temp0, base, IREG_EDI, 3);
+            value += expected[7] << 3;
+        } else {
+            uop_ADD_IMM(ir, IREG_temp0, base, mode == 16 ? 0 : 128);
+            value += mode == 16 ? 0 : 128;
+        }
+        uop_ADD(ir, IREG_EAX, IREG_EAX, IREG_temp0);
+        expected[0] += value;
+    }
+    for (int i = 0; i < 8; i++)
+        uop_ADD_IMM(ir, i, i, 100 + i);
+    uint8_t *entry = start_code();
+    codegen_ir_compile(ir, &test_block);
+    for (int i = 0; i < 8; i++) {
+        int host = HOST_REG_GET(ir->uops[allocations[i]].dest_reg_a_real);
+        CHECK(!(used & (1u << host)));
+        used |= 1u << host;
+    }
+    CHECK((used & ((1u << REG_R13) | (1u << REG_R10) | (1u << REG_R11)))
+          == ((1u << REG_R13) | (1u << REG_R10) | (1u << REG_R11)));
+
+    /* R13 belongs to our caller on both ABIs, including fault exits. */
+    uint8_t *wrapper = start_code();
+    codegen_backend_prologue(&test_block);
+    host_x86_MOV64_REG_IMM(&test_block, REG_R13, UINT64_C(0x1122334455667788));
+    host_x86_CALL(&test_block, entry);
+    host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &saved_r13);
+    host_x86_MOV64_BASE_OFFSET_REG(&test_block, REG_RDI, 0, REG_R13);
+    codegen_backend_epilogue(&test_block);
+#ifdef _WIN32
+    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
+#else
+    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
+#endif
+    ((void (*)(void)) wrapper)();
+    CHECK(saved_r13 == UINT64_C(0x1122334455667788));
+    CHECK(aborted == !!fault_on_call);
+    CHECK(helper_calls == (fault_on_call ? fault_on_call : mode == 2 ? 1 : mode == 5 || mode == 9 ? 2 : 0));
+    for (int i = 0; i < 8; i++)
+        CHECK(cpu_state.regs[i].l == expected[i] + (fault_on_call ? 0 : 100 + i));
+    if (mode >= 4 && mode <= 7)
+        for (int lane = 0; lane < 4; lane++)
+            CHECK(cpu_state.XMM[0].l[lane] == (fault_on_call ? (uint32_t) (0x11223344 + lane) : 0xa5a5a5a5));
+    if (mode >= 8 && mode <= 10) {
+        uint32_t written[4];
+        memcpy(written, memory + 64, sizeof(written));
+        for (int lane = 0; lane < 4; lane++)
+            CHECK(written[lane] == (mode == 10 && lane >= 2 ? 0xa5a5a5a5 : (uint32_t) (0x11223344 + lane)));
+    }
+}
+
 int
 main(void)
 {
@@ -611,6 +767,10 @@ main(void)
     for (int taken = 0; taken < 2; taken++)
         for (int alignment = 0; alignment < 2; alignment++)
             run_sse_join(taken, alignment);
+    for (int rotation = 0; rotation < 8; rotation++)
+        for (int mode = 0; mode < 19; mode++)
+            for (int dest = 0; dest < (mode == 12 ? 8 : 1); dest++)
+                run_integer_registers(rotation, mode, dest);
 #ifdef _WIN32
     CHECK(VirtualFree(code_memory, 0, MEM_RELEASE));
 #else

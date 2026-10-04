@@ -57,7 +57,12 @@ host_reg_def_t codegen_host_reg_list[CODEGEN_HOST_REGS] = {
     { REG_EBX, 0},
     { REG_EDX, 0},
     { REG_R14, 0},
-    { REG_R15, 0}
+    { REG_R15, 0},
+    /* R13 is already saved by the block prologue. R8/R9 remain scratch;
+       R10/R11 are usable between calls and are saved by internal helpers. */
+    { REG_R13, 0},
+    { REG_R10, HOST_REG_FLAG_VOLATILE },
+    { REG_R11, HOST_REG_FLAG_VOLATILE }
 };
 
 /* Keep the 128-bit IR spill at 0x50 separate from the memory scratch at 0x40,
@@ -214,13 +219,17 @@ build_load_routine(codeblock_t *block, int size, int is_float)
     *branch_offset = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 1;
     if (size != 1)
         *misaligned_offset = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) misaligned_offset) - 1;
+    /* Paired 64-bit accesses reuse their address registers after the first
+       helper call, before the allocator reloads the complete guest state. */
+    host_x86_PUSH(block, REG_R10);
+    host_x86_PUSH(block, REG_R11);
     host_x86_PUSH(block, REG_RAX);
     host_x86_PUSH(block, REG_RDX);
 #    if _WIN64
     host_x86_SUB64_REG_IMM(block, REG_RSP, 0x28);
     // host_x86_MOV32_REG_REG(block, REG_ECX, uop->imm_data);
 #    else
-    /* Align RSP to 16: entry RSP%16=8 (after CALL from JIT block), two PUSHes
+    /* Align RSP to 16: entry RSP%16=8 (after CALL from JIT block), four PUSHes
        leave it at 8; subtract 8 more to satisfy the SysV ABI before calling C. */
     host_x86_SUB64_REG_IMM(block, REG_RSP, 0x8);
     host_x86_MOV32_REG_REG(block, REG_EDI, REG_ECX);
@@ -249,6 +258,8 @@ build_load_routine(codeblock_t *block, int size, int is_float)
 #    endif
     host_x86_POP(block, REG_RDX);
     host_x86_POP(block, REG_RAX);
+    host_x86_POP(block, REG_R11);
+    host_x86_POP(block, REG_R10);
     host_x86_MOVZX_REG_ABS_32_8(block, REG_ESI, &cpu_state.abrt);
     host_x86_RET(block);
 }
@@ -308,6 +319,8 @@ build_store_routine(codeblock_t *block, int size, int is_float)
     *branch_offset = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 1;
     if (size != 1)
         *misaligned_offset = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) misaligned_offset) - 1;
+    host_x86_PUSH(block, REG_R10);
+    host_x86_PUSH(block, REG_R11);
     host_x86_PUSH(block, REG_RAX);
     host_x86_PUSH(block, REG_RDX);
 #    if _WIN64
@@ -344,6 +357,8 @@ build_store_routine(codeblock_t *block, int size, int is_float)
 #    endif
     host_x86_POP(block, REG_RDX);
     host_x86_POP(block, REG_RAX);
+    host_x86_POP(block, REG_R11);
+    host_x86_POP(block, REG_R10);
     host_x86_MOVZX_REG_ABS_32_8(block, REG_ESI, &cpu_state.abrt);
     host_x86_RET(block);
 }

@@ -540,26 +540,39 @@ host_x86_LEA_REG_IMM(codeblock_t *block, int dst_reg, int src_reg, uint32_t offs
         codegen_addbyte2(block, 0x8d, 0x80 | ((dst_reg & 7) << 3) | (src_reg & 7)); /*LEA dst_reg, [offset+src_reg]*/
         codegen_addlong(block, offset);
     } else {
-        codegen_alloc_bytes(block, 3);
+        int displacement = (src_reg & 7) == REG_RBP;
+
+        /* RBP/R13 require a displacement even when it is zero. */
+        codegen_alloc_bytes(block, 3 + displacement);
         add_rex_if_needed(block, 0, dst_reg, 0, src_reg);
-        codegen_addbyte2(block, 0x8d, 0x00 | ((dst_reg & 7) << 3) | (src_reg & 7)); /*LEA dst_reg, [src_reg]*/
+        codegen_addbyte2(block, 0x8d, (displacement ? 0x40 : 0) | ((dst_reg & 7) << 3) | (src_reg & 7)); /*LEA dst_reg, [src_reg]*/
+        if (displacement)
+            codegen_addbyte(block, 0);
     }
 }
 void
 host_x86_LEA_REG_REG(codeblock_t *block, int dst_reg, int src_reg_a, int src_reg_b)
 {
-    codegen_alloc_bytes(block, 4);
+    int displacement = (src_reg_a & 7) == REG_RBP;
+
+    codegen_alloc_bytes(block, 4 + displacement);
     add_rex_if_needed(block, 0, dst_reg, src_reg_b, src_reg_a);
-    codegen_addbyte3(block, 0x8d, 0x04 | ((dst_reg & 7) << 3), /*LEA dst_reg, [Rsrc_reg_a + Rsrc_reg_b]*/
+    codegen_addbyte3(block, 0x8d, (displacement ? 0x44 : 0x04) | ((dst_reg & 7) << 3), /*LEA dst_reg, [Rsrc_reg_a + Rsrc_reg_b]*/
                      ((src_reg_b & 7) << 3) | (src_reg_a & 7));
+    if (displacement)
+        codegen_addbyte(block, 0);
 }
 void
 host_x86_LEA_REG_REG_SHIFT(codeblock_t *block, int dst_reg, int src_reg_a, int src_reg_b, int shift)
 {
-    codegen_alloc_bytes(block, 4);
+    int displacement = (src_reg_a & 7) == REG_RBP;
+
+    codegen_alloc_bytes(block, 4 + displacement);
     add_rex_if_needed(block, 0, dst_reg, src_reg_b, src_reg_a);
-    codegen_addbyte3(block, 0x8d, 0x04 | ((dst_reg & 7) << 3), /*LEA dst_reg, [Rsrc_reg_a + Rsrc_reg_b * (1 << shift)]*/
+    codegen_addbyte3(block, 0x8d, (displacement ? 0x44 : 0x04) | ((dst_reg & 7) << 3), /*LEA dst_reg, [Rsrc_reg_a + Rsrc_reg_b * (1 << shift)]*/
                      (shift << 6) | ((src_reg_b & 7) << 3) | (src_reg_a & 7));
+    if (displacement)
+        codegen_addbyte(block, 0);
 }
 
 void

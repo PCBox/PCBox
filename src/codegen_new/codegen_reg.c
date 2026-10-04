@@ -757,10 +757,18 @@ codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_id
     }
 
     if (c == reg_set->nr_regs) {
-        /*No unused registers. Search for an unlocked register with no pending reads*/
+        /* Use an empty slot before spilling a cached value. In particular,
+           independent input loads should be able to fill the register pool. */
         for (c = 0; c < reg_set->nr_regs; c++) {
-            if (host_reg_supports_ir_reg(reg_set, c, ir_reg) && !(reg_set->locked & (1 << c)) && IREG_GET_REG(reg_set->regs[c].reg) != IREG_INVALID && !ir_get_refcount(reg_set->regs[c]))
+            if (host_reg_supports_ir_reg(reg_set, c, ir_reg) && !(reg_set->locked & (1 << c)) && ir_reg_is_invalid(reg_set->regs[c]))
                 break;
+        }
+        if (c == reg_set->nr_regs) {
+            /*No unused registers. Search for an unlocked register with no pending reads*/
+            for (c = 0; c < reg_set->nr_regs; c++) {
+                if (host_reg_supports_ir_reg(reg_set, c, ir_reg) && !(reg_set->locked & (1 << c)) && !ir_get_refcount(reg_set->regs[c]))
+                    break;
+            }
         }
         if (c == reg_set->nr_regs) {
             /*Search for any unlocked register*/
