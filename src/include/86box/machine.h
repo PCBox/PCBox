@@ -1423,6 +1423,7 @@ extern int             machine_at_dualfortress_init(const machine_t *);
 extern const device_t  lx6_device;
 #endif
 extern int             machine_at_lx6_init(const machine_t *);
+extern int             machine_at_bravomst6233_init(const machine_t *);
 extern int             machine_at_optiplexgxa_init(const machine_t *);
 #ifdef EMU_DEVICE_H
 extern const device_t  al440lx_device;
@@ -1586,6 +1587,7 @@ extern const device_t  em440_device;
 extern int             machine_at_em440_init(const machine_t *);
 
 /* i440ZX */
+extern int             machine_at_bl440zx_init(const machine_t *);
 extern int             machine_at_63a1_init(const machine_t *);
 
 /* i815EP */
