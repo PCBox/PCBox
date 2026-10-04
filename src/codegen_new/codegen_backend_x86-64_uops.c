@@ -1601,6 +1601,88 @@ codegen_LOAD_SEG(codeblock_t *block, uop_t *uop)
     return 0;
 }
 
+/* Scalar RAM hits use the same lookup and alignment rules as the shared
+   helpers. ESI stays the linear address until the slow path calls a helper;
+   ECX/XMM0 keep the existing data ABI (including high-byte register moves).
+   Only the reserved RDI/R8 scratch registers are used for the lookup. */
+static uint32_t *
+codegen_MEM_SCALAR_LOOKUP(codeblock_t *block, uintptr_t *lookup, int size, uint32_t **misaligned)
+{
+    *misaligned = NULL;
+    if (size > 1) {
+        /* Keeping naturally aligned accesses also guarantees page containment.
+           Unaligned accesses retain all of the existing slow-path behavior. */
+        host_x86_TEST32_REG_IMM(block, REG_ESI, size - 1);
+        *misaligned = host_x86_JNZ_long(block);
+    }
+    host_x86_MOV32_REG_REG(block, REG_EDI, REG_ESI);
+    host_x86_SHR32_IMM(block, REG_EDI, 12);
+    host_x86_MOV64_REG_IMM(block, REG_R8, (uintptr_t) lookup);
+    host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RDI, REG_R8, REG_RDI, 3);
+    host_x86_CMP64_REG_IMM(block, REG_RDI, (uint32_t) -1);
+    return host_x86_JZ_long(block);
+}
+
+static void
+codegen_MEM_SCALAR_SLOW_PATH(codeblock_t *block, uint32_t *misaligned, uint32_t *miss, void *helper)
+{
+    /* Use patchable long branches: an emitter can cross allocator chunks. */
+    codegen_alloc_bytes(block, 5);
+    codegen_addbyte(block, 0xe9);
+    codegen_addlong(block, 0);
+    uint32_t *done = (uint32_t *) &block_write_data[block_pos - 4];
+
+    if (misaligned)
+        codegen_set_jump_dest(block, misaligned);
+    codegen_set_jump_dest(block, miss);
+    host_x86_CALL(block, helper);
+    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
+    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_set_jump_dest(block, done);
+}
+
+static void
+codegen_MEM_LOAD_SCALAR(codeblock_t *block, int size, int is_float, void *helper)
+{
+    uint32_t *misaligned;
+    uint32_t *miss = codegen_MEM_SCALAR_LOOKUP(block, readlookup2, size, &misaligned);
+
+    if (size == 1)
+        host_x86_MOVZX_BASE_INDEX_32_8(block, REG_ECX, REG_RDI, REG_RSI);
+    else if (size == 2)
+        host_x86_MOVZX_BASE_INDEX_32_16(block, REG_ECX, REG_RDI, REG_RSI);
+    else if (size == 4 && !is_float)
+        host_x86_MOV32_REG_BASE_INDEX(block, REG_ECX, REG_RDI, REG_RSI);
+    else if (size == 4)
+        host_x86_CVTSS2SD_XREG_BASE_INDEX(block, REG_XMM_TEMP, REG_RDI, REG_RSI);
+    else
+        host_x86_MOVQ_XREG_BASE_INDEX(block, REG_XMM_TEMP, REG_RDI, REG_RSI);
+
+    codegen_MEM_SCALAR_SLOW_PATH(block, misaligned, miss, helper);
+}
+
+static void
+codegen_MEM_STORE_SCALAR(codeblock_t *block, int size, int is_float, void *helper)
+{
+    /* Code pages and device memory have no direct write mapping, so they
+       still pass through the helper for dirty tracking and device effects. */
+    uint32_t *misaligned;
+    uint32_t *miss = codegen_MEM_SCALAR_LOOKUP(block, writelookup2, size, &misaligned);
+
+    if (size == 1)
+        host_x86_MOV8_BASE_INDEX_REG(block, REG_RDI, REG_RSI, REG_ECX);
+    else if (size == 2)
+        host_x86_MOV16_BASE_INDEX_REG(block, REG_RDI, REG_RSI, REG_ECX);
+    else if (size == 4 && !is_float)
+        host_x86_MOV32_BASE_INDEX_REG(block, REG_RDI, REG_RSI, REG_ECX);
+    else if (size == 4)
+        host_x86_MOVD_BASE_INDEX_XREG(block, REG_RDI, REG_RSI, REG_XMM_TEMP);
+    else
+        host_x86_MOVQ_BASE_INDEX_XREG(block, REG_RDI, REG_RSI, REG_XMM_TEMP);
+
+    codegen_MEM_SCALAR_SLOW_PATH(block, misaligned, miss, helper);
+}
+
 static int
 codegen_MEM_LOAD_ABS(codeblock_t *block, uop_t *uop)
 {
@@ -1610,18 +1692,16 @@ codegen_MEM_LOAD_ABS(codeblock_t *block, uop_t *uop)
 
     host_x86_LEA_REG_IMM(block, REG_ESI, seg_reg, uop->imm_data);
     if (REG_IS_B(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_byte);
+        codegen_MEM_LOAD_SCALAR(block, 1, 0, codegen_mem_load_byte);
     } else if (REG_IS_W(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_word);
+        codegen_MEM_LOAD_SCALAR(block, 2, 0, codegen_mem_load_word);
     } else if (REG_IS_L(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_long);
+        codegen_MEM_LOAD_SCALAR(block, 4, 0, codegen_mem_load_long);
     }
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("MEM_LOAD_ABS - %02x\n", uop->dest_reg_a_real);
 #    endif
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
     if (REG_IS_B(dest_size)) {
         host_x86_MOV8_REG_REG(block, dest_reg, REG_ECX);
     } else if (REG_IS_W(dest_size)) {
@@ -1699,20 +1779,18 @@ codegen_MEM_LOAD_REG(codeblock_t *block, uop_t *uop)
         return 0;
     }
     if (REG_IS_B(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_byte);
+        codegen_MEM_LOAD_SCALAR(block, 1, 0, codegen_mem_load_byte);
     } else if (REG_IS_W(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_word);
+        codegen_MEM_LOAD_SCALAR(block, 2, 0, codegen_mem_load_word);
     } else if (REG_IS_L(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_long);
+        codegen_MEM_LOAD_SCALAR(block, 4, 0, codegen_mem_load_long);
     } else if (REG_IS_Q(dest_size)) {
-        host_x86_CALL(block, codegen_mem_load_quad);
+        codegen_MEM_LOAD_SCALAR(block, 8, 0, codegen_mem_load_quad);
     }
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("MEM_LOAD_REG - %02x\n", uop->dest_reg_a_real);
 #    endif
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
     if (REG_IS_B(dest_size)) {
         host_x86_MOV8_REG_REG(block, dest_reg, REG_ECX);
     } else if (REG_IS_W(dest_size)) {
@@ -1740,9 +1818,7 @@ codegen_MEM_LOAD_SINGLE(codeblock_t *block, uop_t *uop)
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     if (uop->imm_data)
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
-    host_x86_CALL(block, codegen_mem_load_single);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_LOAD_SCALAR(block, 4, 1, codegen_mem_load_single);
     host_x86_MOVQ_XREG_XREG(block, dest_reg, REG_XMM_TEMP);
 
     return 0;
@@ -1762,9 +1838,7 @@ codegen_MEM_LOAD_DOUBLE(codeblock_t *block, uop_t *uop)
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     if (uop->imm_data)
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
-    host_x86_CALL(block, codegen_mem_load_double);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_LOAD_SCALAR(block, 8, 1, codegen_mem_load_double);
     host_x86_MOVQ_XREG_XREG(block, dest_reg, REG_XMM_TEMP);
 
     return 0;
@@ -1780,21 +1854,18 @@ codegen_MEM_STORE_ABS(codeblock_t *block, uop_t *uop)
     host_x86_LEA_REG_IMM(block, REG_ESI, seg_reg, uop->imm_data);
     if (REG_IS_B(src_size)) {
         host_x86_MOV8_REG_REG(block, REG_ECX, src_reg);
-        host_x86_CALL(block, codegen_mem_store_byte);
+        codegen_MEM_STORE_SCALAR(block, 1, 0, codegen_mem_store_byte);
     } else if (REG_IS_W(src_size)) {
         host_x86_MOV16_REG_REG(block, REG_ECX, src_reg);
-        host_x86_CALL(block, codegen_mem_store_word);
+        codegen_MEM_STORE_SCALAR(block, 2, 0, codegen_mem_store_word);
     } else if (REG_IS_L(src_size)) {
         host_x86_MOV32_REG_REG(block, REG_ECX, src_reg);
-        host_x86_CALL(block, codegen_mem_store_long);
+        codegen_MEM_STORE_SCALAR(block, 4, 0, codegen_mem_store_long);
     }
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("MEM_STORE_ABS - %02x\n", uop->src_reg_b_real);
 #    endif
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
-
     return 0;
 }
 
@@ -1806,9 +1877,7 @@ codegen_MEM_STORE_IMM_8(codeblock_t *block, uop_t *uop)
 
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     host_x86_MOV8_REG_IMM(block, REG_ECX, uop->imm_data);
-    host_x86_CALL(block, codegen_mem_store_byte);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_STORE_SCALAR(block, 1, 0, codegen_mem_store_byte);
 
     return 0;
 }
@@ -1820,9 +1889,7 @@ codegen_MEM_STORE_IMM_16(codeblock_t *block, uop_t *uop)
 
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     host_x86_MOV16_REG_IMM(block, REG_ECX, uop->imm_data);
-    host_x86_CALL(block, codegen_mem_store_word);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_STORE_SCALAR(block, 2, 0, codegen_mem_store_word);
 
     return 0;
 }
@@ -1834,9 +1901,7 @@ codegen_MEM_STORE_IMM_32(codeblock_t *block, uop_t *uop)
 
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     host_x86_MOV32_REG_IMM(block, REG_ECX, uop->imm_data);
-    host_x86_CALL(block, codegen_mem_store_long);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_STORE_SCALAR(block, 4, 0, codegen_mem_store_long);
 
     return 0;
 }
@@ -1909,24 +1974,21 @@ codegen_MEM_STORE_REG(codeblock_t *block, uop_t *uop)
     }
     if (REG_IS_B(src_size)) {
         host_x86_MOV8_REG_REG(block, REG_ECX, src_reg);
-        host_x86_CALL(block, codegen_mem_store_byte);
+        codegen_MEM_STORE_SCALAR(block, 1, 0, codegen_mem_store_byte);
     } else if (REG_IS_W(src_size)) {
         host_x86_MOV16_REG_REG(block, REG_ECX, src_reg);
-        host_x86_CALL(block, codegen_mem_store_word);
+        codegen_MEM_STORE_SCALAR(block, 2, 0, codegen_mem_store_word);
     } else if (REG_IS_L(src_size)) {
         host_x86_MOV32_REG_REG(block, REG_ECX, src_reg);
-        host_x86_CALL(block, codegen_mem_store_long);
+        codegen_MEM_STORE_SCALAR(block, 4, 0, codegen_mem_store_long);
     } else if (REG_IS_Q(src_size)) {
         host_x86_MOVQ_XREG_XREG(block, REG_XMM_TEMP, src_reg);
-        host_x86_CALL(block, codegen_mem_store_quad);
+        codegen_MEM_STORE_SCALAR(block, 8, 0, codegen_mem_store_quad);
     }
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("MEM_STORE_REG - %02x\n", uop->src_reg_b_real);
 #    endif
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
-
     return 0;
 }
 
@@ -1946,9 +2008,7 @@ codegen_MEM_STORE_SINGLE(codeblock_t *block, uop_t *uop)
     if (uop->imm_data)
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
     host_x86_CVTSD2SS_XREG_XREG(block, REG_XMM_TEMP, src_reg);
-    host_x86_CALL(block, codegen_mem_store_single);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_STORE_SCALAR(block, 4, 1, codegen_mem_store_single);
 
     return 0;
 }
@@ -1968,9 +2028,7 @@ codegen_MEM_STORE_DOUBLE(codeblock_t *block, uop_t *uop)
     if (uop->imm_data)
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
     host_x86_MOVQ_XREG_XREG(block, REG_XMM_TEMP, src_reg);
-    host_x86_CALL(block, codegen_mem_store_double);
-    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-    host_x86_JNZ(block, codegen_exit_rout);
+    codegen_MEM_STORE_SCALAR(block, 8, 1, codegen_mem_store_double);
 
     return 0;
 }
