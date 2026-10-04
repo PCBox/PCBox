@@ -1,3 +1,22 @@
+if(ARCH STREQUAL "x86_64" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    # Available to CLion without enabling the full test suite; normal builds
+    # do not build or run benchmarks. Match the emulator's optimization flags.
+    add_executable(cpu_microbench EXCLUDE_FROM_ALL cpu_microbench.c
+        ../../src/codegen_new/codegen_backend_x86-64_ops.c
+        ../../src/codegen_new/codegen_backend_x86-64_ops_sse.c)
+    set_target_properties(cpu_microbench PROPERTIES WIN32_EXECUTABLE FALSE MACOSX_BUNDLE FALSE)
+    target_compile_definitions(cpu_microbench PRIVATE USE_DYNAREC USE_NEW_DYNAREC
+        CPU_BENCH_BUILD="$<CONFIG>")
+    target_include_directories(cpu_microbench PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/include ${PROJECT_SOURCE_DIR}/src/cpu
+        ${PROJECT_BINARY_DIR}/src/include)
+    target_compile_options(cpu_microbench PRIVATE -ffunction-sections -fdata-sections
+        $<$<PLATFORM_ID:Windows>:-fno-asynchronous-unwind-tables>)
+    target_link_options(cpu_microbench PRIVATE
+        $<$<PLATFORM_ID:Darwin>:-Wl,-dead_strip>
+        $<$<NOT:$<PLATFORM_ID:Darwin>>:-Wl,--gc-sections>)
+endif()
+
 if(BUILD_TESTING AND ARCH STREQUAL "x86_64")
     add_executable(codegen_profile_report_test codegen_profile_report_test.c
         ../../src/codegen_new/codegen_profile.c)
@@ -17,6 +36,21 @@ if(BUILD_TESTING AND ARCH STREQUAL "x86_64")
     add_test(NAME sse_entry_test COMMAND sse_entry_test)
 
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        add_executable(hint_nop_test hint_nop_test.c
+            ../../src/codegen_new/codegen_ops_misc.c
+            ../../src/codegen_new/codegen_ops_helpers.c
+            ../../src/codegen_new/codegen_block.c)
+        target_compile_definitions(hint_nop_test PRIVATE USE_DYNAREC USE_NEW_DYNAREC)
+        target_include_directories(hint_nop_test PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/include ${PROJECT_SOURCE_DIR}/src/cpu
+            ${PROJECT_SOURCE_DIR}/src/codegen_new ${PROJECT_BINARY_DIR}/src/include)
+        target_compile_options(hint_nop_test PRIVATE -ffunction-sections -fdata-sections
+            $<$<PLATFORM_ID:Windows>:-fno-asynchronous-unwind-tables>)
+        target_link_options(hint_nop_test PRIVATE
+            $<$<PLATFORM_ID:Darwin>:-Wl,-dead_strip>
+            $<$<NOT:$<PLATFORM_ID:Darwin>>:-Wl,--gc-sections>)
+        add_test(NAME hint_nop_test COMMAND hint_nop_test)
+
         add_executable(ram_register_test ram_register_test.c
             ../../src/codegen_new/codegen_backend_x86-64_ops.c
             ../../src/codegen_new/codegen_backend_x86-64_ops_sse.c)
