@@ -942,6 +942,19 @@ codegen_reg_rename(codeblock_t *block, ir_reg_t src, ir_reg_t dst)
 }
 
 #ifdef CODEGEN_BACKEND_HAS_MEM_REGS
+int
+codegen_reg_get_dirty_host_reg(int reg)
+{
+    for (int c = 0; c < host_reg_set.nr_regs; c++) {
+        if (IREG_GET_REG(host_reg_set.regs[c].reg) == reg) {
+            /* A conditional update still needs writeback at the next exit. */
+            host_reg_set.dirty[c] = 1;
+            return host_reg_set.reg_list[c].reg;
+        }
+    }
+    return -1;
+}
+
 void
 codegen_reg_flush_mem_dest(codeblock_t *block, ir_reg_t dest_reg)
 {

@@ -1627,26 +1627,26 @@ codegen_LOAD_SEG(codeblock_t *block, uop_t *uop)
     return 0;
 }
 
-/* Scalar RAM hits use the same lookup and alignment rules as the shared
-   helpers. ESI stays the linear address until the slow path calls a helper;
+/* ESI stays the linear address until the slow path calls a helper;
    ECX/XMM0 keep the existing data ABI (including high-byte register moves).
    Only the reserved RDI/R8 scratch registers are used for the lookup. */
 static uint32_t *
-codegen_MEM_SCALAR_LOOKUP(codeblock_t *block, uintptr_t *lookup, int size, uint32_t **misaligned)
+codegen_MEM_SCALAR_LOOKUP(codeblock_t *block, uintptr_t *lookup, int size, uint32_t **unaligned)
 {
-    *misaligned = NULL;
-    if (size > 1) {
-        /* Keeping naturally aligned accesses also guarantees page containment.
-           Unaligned accesses retain all of the existing slow-path behavior. */
-        host_x86_TEST32_REG_IMM(block, REG_ESI, size - 1);
-        *misaligned = host_x86_JNZ_long(block);
-    }
     host_x86_MOV32_REG_REG(block, REG_EDI, REG_ESI);
     host_x86_SHR32_IMM(block, REG_EDI, 12);
     host_x86_MOV64_REG_IMM(block, REG_R8, (uintptr_t) lookup);
     host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RDI, REG_R8, REG_RDI, 3);
     host_x86_CMP64_REG_IMM(block, REG_RDI, (uint32_t) -1);
-    return host_x86_JZ_long(block);
+    uint32_t *miss = host_x86_JZ_long(block);
+    *unaligned = NULL;
+    if (size > 1) {
+        /* Aligned accesses cannot cross a page. Keep their fall-through path
+           to one alignment test; handle unaligned RAM hits out of line. */
+        host_x86_TEST32_REG_IMM(block, REG_ESI, size - 1);
+        *unaligned = host_x86_JNZ_long(block);
+    }
+    return miss;
 }
 
 static void
@@ -1672,7 +1672,8 @@ codegen_MEM_SLOW_LEAVE(codeblock_t *block, uop_t *uop)
 }
 
 static void
-codegen_MEM_SCALAR_SLOW_PATH(codeblock_t *block, uop_t *uop, uint32_t *misaligned, uint32_t *miss, void *helper)
+codegen_MEM_SCALAR_SLOW_PATH(codeblock_t *block, uop_t *uop, int size,
+                             uint32_t *unaligned, uint32_t *miss, void *access, void *helper)
 {
     /* Use patchable long branches: an emitter can cross allocator chunks. */
     codegen_alloc_bytes(block, 5);
@@ -1680,8 +1681,38 @@ codegen_MEM_SCALAR_SLOW_PATH(codeblock_t *block, uop_t *uop, uint32_t *misaligne
     codegen_addlong(block, 0);
     uint32_t *done = (uint32_t *) &block_write_data[block_pos - 4];
 
-    if (misaligned)
-        codegen_set_jump_dest(block, misaligned);
+    if (unaligned) {
+        codegen_set_jump_dest(block, unaligned);
+        /* RDI still holds the valid RAM mapping. Only a crossing access
+           needs the helper to translate/check the second page. */
+        host_x86_MOV32_REG_REG(block, REG_R8, REG_ESI);
+        host_x86_AND32_REG_IMM(block, REG_R8, 0xfff);
+        host_x86_CMP32_REG_IMM(block, REG_R8, 0x1000 - size);
+        uint32_t *page_cross = host_x86_JA_long(block);
+
+        if (timing_misaligned) {
+            /* Charge the same penalty as mem.c, once and only on RAM hits.
+               Cyrix word/dword accesses pay at eight-byte boundaries only. */
+            uint32_t *no_penalty = NULL;
+            if (cpu_cyrix_alignment && size < 8) {
+                host_x86_AND32_REG_IMM(block, REG_R8, 7);
+                host_x86_CMP32_REG_IMM(block, REG_R8, 8 - size);
+                no_penalty = host_x86_JBE_long(block);
+            }
+            int cycles_reg = codegen_reg_get_dirty_host_reg(IREG_cycles);
+            if (cycles_reg >= 0)
+                host_x86_SUB32_REG_IMM(block, cycles_reg, timing_misaligned);
+            else {
+                host_x86_MOV32_REG_ABS(block, REG_R8, &cycles);
+                host_x86_SUB32_REG_IMM(block, REG_R8, timing_misaligned);
+                host_x86_MOV32_ABS_REG(block, &cycles, REG_R8);
+            }
+            if (no_penalty)
+                codegen_set_jump_dest(block, no_penalty);
+        }
+        host_x86_JMP(block, access);
+        codegen_set_jump_dest(block, page_cross);
+    }
     codegen_set_jump_dest(block, miss);
     codegen_MEM_SLOW_ENTER(block, uop);
     host_x86_CALL(block, helper);
@@ -1694,8 +1725,9 @@ codegen_MEM_SCALAR_SLOW_PATH(codeblock_t *block, uop_t *uop, uint32_t *misaligne
 static void
 codegen_MEM_LOAD_SCALAR(codeblock_t *block, uop_t *uop, int size, int is_float, void *helper)
 {
-    uint32_t *misaligned;
-    uint32_t *miss = codegen_MEM_SCALAR_LOOKUP(block, readlookup2, size, &misaligned);
+    uint32_t *unaligned;
+    uint32_t *miss = codegen_MEM_SCALAR_LOOKUP(block, readlookup2, size, &unaligned);
+    void *access = &block_write_data[block_pos];
 
     if (size == 1)
         host_x86_MOVZX_BASE_INDEX_32_8(block, REG_ECX, REG_RDI, REG_RSI);
@@ -1708,7 +1740,7 @@ codegen_MEM_LOAD_SCALAR(codeblock_t *block, uop_t *uop, int size, int is_float, 
     else
         host_x86_MOVQ_XREG_BASE_INDEX(block, REG_XMM_TEMP, REG_RDI, REG_RSI);
 
-    codegen_MEM_SCALAR_SLOW_PATH(block, uop, misaligned, miss, helper);
+    codegen_MEM_SCALAR_SLOW_PATH(block, uop, size, unaligned, miss, access, helper);
 }
 
 static void
@@ -1716,8 +1748,9 @@ codegen_MEM_STORE_SCALAR(codeblock_t *block, uop_t *uop, int size, int is_float,
 {
     /* Code pages and device memory have no direct write mapping, so they
        still pass through the helper for dirty tracking and device effects. */
-    uint32_t *misaligned;
-    uint32_t *miss = codegen_MEM_SCALAR_LOOKUP(block, writelookup2, size, &misaligned);
+    uint32_t *unaligned;
+    uint32_t *miss = codegen_MEM_SCALAR_LOOKUP(block, writelookup2, size, &unaligned);
+    void *access = &block_write_data[block_pos];
 
     if (size == 1)
         host_x86_MOV8_BASE_INDEX_REG(block, REG_RDI, REG_RSI, REG_ECX);
@@ -1730,7 +1763,7 @@ codegen_MEM_STORE_SCALAR(codeblock_t *block, uop_t *uop, int size, int is_float,
     else
         host_x86_MOVQ_BASE_INDEX_XREG(block, REG_RDI, REG_RSI, REG_XMM_TEMP);
 
-    codegen_MEM_SCALAR_SLOW_PATH(block, uop, misaligned, miss, helper);
+    codegen_MEM_SCALAR_SLOW_PATH(block, uop, size, unaligned, miss, access, helper);
 }
 
 static int

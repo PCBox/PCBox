@@ -32,6 +32,7 @@ extern const uOpFn uop_handlers[];
 
 cpu_state_t cpu_state;
 uint32_t cr4;
+int timing_misaligned, cpu_cyrix_alignment;
 uintptr_t readlookup2[2097152], writelookup2[1048576];
 uint8_t *ram, *block_write_data;
 int block_pos, cpu_block_end;
@@ -49,6 +50,7 @@ static uint8_t memory[8192];
 static unsigned next_chunk, cases, helper_calls, fault_on_call, padding;
 static uint32_t observed_eax, observed_xmm[4], aborted, expected_oldpc;
 static unsigned exception, memory_control;
+static unsigned cycle_mode;
 static cpu_state_t fault_state;
 static uint64_t saved_r13;
 #ifdef _WIN64
@@ -130,6 +132,9 @@ access_memory(uint32_t addr, uint64_t value, unsigned size, int store)
     CHECK(cpu_state.oldpc == expected_oldpc);
     CHECK(addr + size <= sizeof(memory));
     cycles -= 5;
+    if ((addr & (size - 1)) &&
+        (!cpu_cyrix_alignment || size == 8 || (addr & 7) > 8 - size))
+        cycles -= timing_misaligned;
     /* Model a device callback changing control state. The next SSE instruction
        must still check it, even after a successful memory helper return. */
     if (memory_control == 1)
@@ -219,6 +224,16 @@ observe_state(codeblock_t *block, uop_t *uop)
 static int
 pad_code(codeblock_t *block, uop_t *uop)
 {
+    /* Exercise penalties with cycles dirty, clean, or absent from the cache. */
+    if (cycle_mode) {
+        for (int c = 0; c < host_reg_set.nr_regs; c++) {
+            if (IREG_GET_REG(host_reg_set.regs[c].reg) == IREG_cycles) {
+                codegen_reg_writeback(&host_reg_set, block, c, 0);
+                if (cycle_mode == 1)
+                    host_reg_set.regs[c] = invalid_ir_reg;
+            }
+        }
+    }
     for (uint32_t c = 0; c < uop->imm_data; c++)
         host_x86_NOP(block);
     return 0;
@@ -253,7 +268,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
 };
 
 static void
-run_case(int store, int size, int mapped, int unaligned, unsigned fault, int high_byte, int alias, int dynamic_top, int form)
+run_case(int store, int size, int mapped, uint32_t address, unsigned fault, int high_byte, int alias, int dynamic_top, int form)
 {
     cases++;
     memset(&cpu_state, 0, sizeof(cpu_state));
@@ -265,7 +280,6 @@ run_case(int store, int size, int mapped, int unaligned, unsigned fault, int hig
     observed_eax = 0xffffffff;
     fault_on_call = fault;
     expected_oldpc = 0x1234;
-    uint32_t address = (unaligned ? 4093 : 64);
     EAX = address - 16;
     EBX = 0x12345670;
     cycles = 1000;
@@ -383,10 +397,13 @@ run_case(int store, int size, int mapped, int unaligned, unsigned fault, int hig
     CHECK(memcmp(saved_xmm, xmm_sentinel, sizeof(saved_xmm)) == 0);
 #endif
 
-    int slow = !mapped || (unaligned && size > 1);
+    int slow = !mapped || (address & 0xfff) + size > 4096;
+    int penalty = (address & (size - 1)) &&
+                  (!cpu_cyrix_alignment || size >= 8 || (address & 7) > 8 - size)
+                      ? timing_misaligned : 0;
     CHECK(aborted == !!fault);
     CHECK(helper_calls == (slow ? (fault ? fault : size == 16 ? 2u : 1u) : 0));
-    CHECK(cycles == (fault ? 997 : 995) - (int) helper_calls * 5);
+    CHECK(cycles == (fault ? 997 : 995) - (int) helper_calls * 5 - penalty);
     if (fault) {
         CHECK(cpu_state.oldpc == expected_oldpc);
         CHECK(EAX == address);
@@ -775,31 +792,53 @@ main(void)
                     if (form == FORM_IMM && !store) continue;
                     if (form == FORM_SINGLE && size != 4) continue;
                     if (form == FORM_DOUBLE && size != 8) continue;
-                    run_case(store, size, 1, 0, 0, 0, 0, top, form);
-                    run_case(store, size, 0, 0, 0, 0, 0, top, form);
-                    run_case(store, size, 0, 0, 1, 0, 0, top, form);
-                    run_case(store, size, 1, 1, 0, 0, 0, top, form);
+                    run_case(store, size, 1, 64, 0, 0, 0, top, form);
+                    run_case(store, size, 0, 64, 0, 0, 0, top, form);
+                    run_case(store, size, 0, 64, 1, 0, 0, top, form);
+                    run_case(store, size, 1, 4093, 0, 0, 0, top, form);
+                    if (size <= 8) {
+                        /* Cover every alignment, both sides of the page edge,
+                           lookup misses and faults, with each timing model. */
+                        for (int timing = 0; timing < 3; timing++) {
+                            timing_misaligned = timing ? 3 : 0;
+                            cpu_cyrix_alignment = timing == 2;
+                            for (cycle_mode = 0; cycle_mode < 3; cycle_mode++) {
+                                for (uint32_t addr = 4088; addr <= 4103; addr++) {
+                                    int crossing = (addr & 0xfff) + size > 4096;
+                                    run_case(store, size, 1, addr, 0, 0, 0, top, form);
+                                    run_case(store, size, 0, addr, 0, 0, 0, top, form);
+                                    run_case(store, size, crossing, addr, 1, 0, 0, top, form);
+                                }
+                            }
+                        }
+                        cycle_mode = timing_misaligned = cpu_cyrix_alignment = 0;
+                    }
                     if (size == 16)
-                        run_case(store, size, 0, 1, 2, 0, 0, top, form);
+                        run_case(store, size, 0, 4093, 2, 0, 0, top, form);
                 }
             }
-            run_case(store, 1, 1, 0, 0, 1, 0, top, FORM_REG);
-            run_case(store, 1, 0, 0, 0, 1, 0, top, FORM_REG);
+            run_case(store, 1, 1, 64, 0, 1, 0, top, FORM_REG);
+            run_case(store, 1, 0, 64, 0, 1, 0, top, FORM_REG);
         }
-        run_case(0, 4, 1, 0, 0, 0, 1, top, FORM_REG);
-        run_case(0, 4, 0, 0, 0, 0, 1, top, FORM_REG);
-        run_case(0, 4, 0, 0, 1, 0, 1, top, FORM_REG);
+        run_case(0, 4, 1, 64, 0, 0, 1, top, FORM_REG);
+        run_case(0, 4, 0, 64, 0, 0, 1, top, FORM_REG);
+        run_case(0, 4, 0, 64, 1, 0, 1, top, FORM_REG);
     }
     /* Try every byte offset: an instruction that reserves one byte too few
        can consume the space needed to jump to the next allocator chunk. */
     for (padding = 0; padding < BLOCK_MAX; padding++) {
-        run_case(0, 4, 1, 0, 0, 0, 0, 1, FORM_REG);
-        run_case(0, 4, 0, 0, 1, 0, 0, 1, FORM_REG);
-        run_case(1, 16, 0, 1, 0, 0, 0, 1, FORM_REG);
-        run_case(0, 16, 0, 1, 2, 0, 0, 1, FORM_REG);
-        run_case(0, 4, 1, 0, 0, 0, 0, 1, FORM_SINGLE);
-        run_case(0, 4, 0, 0, 0, 0, 0, 1, FORM_SINGLE);
-        run_case(0, 4, 0, 0, 1, 0, 0, 1, FORM_SINGLE);
+        run_case(0, 4, 1, 64, 0, 0, 0, 1, FORM_REG);
+        run_case(0, 4, 0, 64, 1, 0, 0, 1, FORM_REG);
+        run_case(1, 16, 0, 4093, 0, 0, 0, 1, FORM_REG);
+        run_case(0, 16, 0, 4093, 2, 0, 0, 1, FORM_REG);
+        run_case(0, 4, 1, 64, 0, 0, 0, 1, FORM_SINGLE);
+        run_case(0, 4, 0, 64, 0, 0, 0, 1, FORM_SINGLE);
+        run_case(0, 4, 0, 64, 1, 0, 0, 1, FORM_SINGLE);
+        timing_misaligned = 3;
+        run_case(0, 8, 1, 4087, 0, 0, 0, 1, FORM_DOUBLE);
+        run_case(1, 4, 1, 4089, 0, 0, 0, 1, FORM_REG);
+        run_case(0, 4, 1, 4095, 1, 0, 0, 1, FORM_REG);
+        timing_misaligned = 0;
     }
     padding = 0;
     for (int top = 0; top < 2; top++) {
