@@ -31,6 +31,7 @@ extern const uOpFn uop_handlers[];
 } while (0)
 
 cpu_state_t cpu_state;
+uint32_t cr4;
 uintptr_t readlookup2[2097152], writelookup2[1048576];
 uint8_t *ram, *block_write_data;
 int block_pos, cpu_block_end;
@@ -44,7 +45,9 @@ static struct mem_block_t chunks[CODE_SIZE / CHUNK_SIZE];
 static uint8_t *code_memory;
 static uint8_t memory[8192];
 static unsigned next_chunk, cases, helper_calls, fault_on_call, padding;
-static uint32_t observed_eax, aborted, expected_oldpc;
+static uint32_t observed_eax, observed_xmm[4], aborted, expected_oldpc;
+static unsigned exception, memory_control;
+static cpu_state_t fault_state;
 #ifdef _WIN64
 static const uint32_t xmm_sentinel[8] = {
     0x11223344, 0x55667788, 0x99aabbcc, 0xddeeff00,
@@ -62,6 +65,21 @@ fatal(const char *fmt, ...)
     va_end(ap);
     exit(1);
 }
+
+static void
+record_exception(unsigned vector)
+{
+    CHECK(exception == 0);
+    exception = vector;
+    fault_state = cpu_state;
+    /* A fault exit must not run another writeback over handler changes. */
+    EAX = 0xdeadbeef;
+    cycles = -100;
+}
+
+void x86illegal(void) { record_exception(6); }
+void x86_int(int vector) { record_exception(vector); }
+static void alignment_fault(void) { record_exception(13); }
 
 struct mem_block_t *
 codegen_allocator_allocate(struct mem_block_t *parent, int nr)
@@ -92,6 +110,14 @@ access_memory(uint32_t addr, uint64_t value, unsigned size, int store)
     CHECK(cpu_state.oldpc == expected_oldpc);
     CHECK(addr + size <= sizeof(memory));
     cycles -= 5;
+    /* Model a device callback changing control state. The next SSE instruction
+       must still check it, even after a successful memory helper return. */
+    if (memory_control == 1)
+        cr0 |= 8;
+    else if (memory_control == 2)
+        cr4 &= ~CR4_OSFXSR;
+    else if (memory_control == 3)
+        cr0 |= 4;
     if (helper_calls == fault_on_call) {
         cpu_state.abrt = 1;
         return 0;
@@ -136,6 +162,11 @@ observe_state(codeblock_t *block, uop_t *uop)
     host_x86_MOV32_REG_ABS(block, REG_ECX, &EAX);
     host_x86_MOV64_REG_IMM(block, REG_RDI, (uintptr_t) &observed_eax);
     host_x86_MOV32_BASE_OFFSET_REG(block, REG_RDI, 0, REG_ECX);
+    for (int i = 0; i < 4; i++) {
+        host_x86_MOV32_REG_ABS(block, REG_ECX, &cpu_state.XMM[i].l[0]);
+        host_x86_MOV64_REG_IMM(block, REG_RDI, (uintptr_t) &observed_xmm[i]);
+        host_x86_MOV32_BASE_OFFSET_REG(block, REG_RDI, 0, REG_ECX);
+    }
     return 0;
 }
 
@@ -164,6 +195,9 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_MEM_LOAD_DOUBLE & UOP_MASK] = codegen_MEM_LOAD_DOUBLE,
     [UOP_MEM_STORE_SINGLE & UOP_MASK] = codegen_MEM_STORE_SINGLE,
     [UOP_MEM_STORE_DOUBLE & UOP_MASK] = codegen_MEM_STORE_DOUBLE,
+    [UOP_SSE_ENTER & UOP_MASK] = codegen_SSE_ENTER,
+    [UOP_CHECK_ALIGN & UOP_MASK] = codegen_CHECK_ALIGN,
+    [UOP_CMP_IMM_JZ_DEST & UOP_MASK] = codegen_CMP_IMM_JZ_DEST,
     [UOP_TEST_OBSERVE] = observe_state,
     [UOP_TEST_PADDING] = pad_code,
 };
@@ -357,6 +391,164 @@ run_case(int store, int size, int mapped, int unaligned, unsigned fault, int hig
             CHECK(cpu_state.XMM[5].l[lane] == (uint32_t) ((26 + lane) * 4));
 }
 
+static void
+run_sse_case(unsigned control, unsigned misalignment, int dynamic_top, unsigned memory_mode)
+{
+    cases++;
+    memset(&cpu_state, 0, sizeof(cpu_state));
+    memset(&test_block, 0, sizeof(test_block));
+    memset(memory, 0xa5, sizeof(memory));
+    memset(readlookup2, 0xff, sizeof(readlookup2));
+    next_chunk = helper_calls = aborted = exception = 0;
+    fault_on_call = 0;
+    memory_control = memory_mode >= 3 ? memory_mode - 2 : 0;
+    expected_oldpc = 0x1234;
+    observed_eax = 0xffffffff;
+    EAX = 32;
+    cycles = 1000;
+    cr0 = (control & 1 ? 4 : 0) | (control & 4 ? 8 : 0);
+    cr4 = control & 2 ? 0 : CR4_OSFXSR;
+    cpu_state.ST[0] = 1.5;
+    for (int i = 0; i < 8; i++)
+        for (int lane = 0; lane < 4; lane++)
+            cpu_state.XMM[i].l[lane] = 10 + i * 4 + lane;
+    if (memory_mode == 1)
+        readlookup2[0] = (uintptr_t) memory;
+
+    start_code();
+    build_loadstore_routines(&test_block);
+    codegen_gpf_rout = start_code();
+    host_x86_CALL(&test_block, alignment_fault);
+    codegen_exit_rout = &block_write_data[block_pos];
+    host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &aborted);
+    host_x86_MOV32_BASE_OFFSET_IMM(&test_block, REG_RDI, 0, 1);
+    codegen_backend_epilogue(&test_block);
+
+    codegen_reg_reset();
+    ir_data_t *ir = codegen_ir_init();
+    test_block.flags = CODEBLOCK_HAS_FPU | (dynamic_top ? 0 : CODEBLOCK_STATIC_TOP);
+    test_block.TOP = 0;
+    uop_FADD(ir, IREG_ST(0), IREG_ST(0), IREG_ST(0));
+    uop_MOV(ir, IREG_temp0_DQ, IREG_XMM(4));
+    uop_PADDD(ir, IREG_temp0_DQ, IREG_temp0_DQ, IREG_temp0_DQ);
+    for (int i = 0; i < 4; i++)
+        uop_PADDD(ir, IREG_XMM(i), IREG_XMM(i), IREG_XMM(i));
+    uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, -3);
+    uop_ADD_IMM(ir, IREG_EAX, IREG_EAX, 16);
+    uop_MOV_IMM(ir, IREG_eaaddr, 64 + misalignment);
+    /* This value is overwritten after the checks. Fault liveness must retain
+       it even though the success path never reads it. */
+    uop_MOV_IMM(ir, IREG_EDI, 0x12345678);
+    uop_MOV_IMM(ir, IREG_oldpc, 0x1111);
+    cpu_state.oldpc = expected_oldpc;
+    uop_gen_imm(UOP_TEST_PADDING, ir, padding);
+    uop_SSE_ENTER(ir);
+    uop_CHECK_ALIGN(ir);
+    uop_gen(UOP_TEST_OBSERVE, ir);
+    if (memory_mode) {
+        uop_MOV_IMM(ir, IREG_oldpc, expected_oldpc);
+        uop_MEM_LOAD_REG(ir, IREG_XMM(6), IREG_DS_base, IREG_eaaddr);
+    }
+    cpu_state.oldpc = expected_oldpc + 4;
+    uop_SSE_ENTER(ir);
+    uop_CHECK_ALIGN(ir);
+    uop_MOV_IMM(ir, IREG_EDI, 0x87654321);
+    uop_ADD_IMM(ir, IREG_EAX, IREG_EAX, 1);
+    uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, -2);
+    for (int i = 0; i < 4; i++)
+        uop_PADDD(ir, IREG_XMM(i), IREG_XMM(i), IREG_XMM(i));
+    uop_FADD(ir, IREG_ST(0), IREG_ST(0), IREG_ST(0));
+    uop_MOV(ir, IREG_XMM(5), IREG_temp0_DQ);
+    uint8_t *entry = start_code();
+    codegen_ir_compile(ir, &test_block);
+
+    if (dynamic_top) {
+        cpu_state.ST[3] = cpu_state.ST[0];
+        cpu_state.TOP = 3;
+    }
+    cpu_state.oldpc = 0;
+#ifdef _WIN32
+    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
+#else
+    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
+#endif
+    ((void (*)(void)) entry)();
+
+    unsigned vector = control & 3 ? 6 : control & 4 ? 7 : misalignment ? 13
+                      : memory_mode == 3 ? 7 : memory_mode >= 4 ? 6 : 0;
+    unsigned calls = control || misalignment || memory_mode < 2 ? 0 : 2;
+    CHECK(exception == vector && aborted == !!vector);
+    CHECK(helper_calls == calls);
+    CHECK(observed_eax == (control || misalignment ? 0xffffffff : 32));
+    if (!control && !misalignment) {
+        /* Register pressure may spill some values, but a successful guard
+           must not force every dirty SIMD value back to guest state. */
+        int retained = 0;
+        for (int i = 0; i < 4; i++)
+            retained |= observed_xmm[i] == (uint32_t) (10 + i * 4);
+        CHECK(retained);
+    }
+    const cpu_state_t *state = vector ? &fault_state : &cpu_state;
+    CHECK(state->regs[0].l == (vector ? 48 : 49));
+    CHECK(state->regs[7].l == (vector ? 0x12345678 : 0x87654321));
+    CHECK(state->_cycles == (vector ? 997 : 995) - (int) calls * 5);
+    CHECK(state->ST[dynamic_top ? 3 : 0] == (vector ? 3.0 : 6.0));
+    for (int i = 0; i < 4; i++)
+        for (int lane = 0; lane < 4; lane++)
+            CHECK(state->XMM[i].l[lane] == (uint32_t) ((10 + i * 4 + lane) * (vector ? 2 : 4)));
+    if (vector) {
+        CHECK(state->oldpc == expected_oldpc + (calls ? 4 : 0));
+        CHECK(EAX == 0xdeadbeef && cycles == -100);
+    } else {
+        for (int lane = 0; lane < 4; lane++)
+            CHECK(cpu_state.XMM[5].l[lane] == (uint32_t) ((26 + lane) * 2));
+    }
+    memory_control = 0;
+}
+
+static void
+run_sse_join(int taken, int alignment)
+{
+    cases++;
+    memset(&cpu_state, 0, sizeof(cpu_state));
+    memset(&test_block, 0, sizeof(test_block));
+    next_chunk = exception = 0;
+    EAX = 1;
+    EBX = !taken;
+    cr4 = CR4_OSFXSR;
+    for (int lane = 0; lane < 4; lane++)
+        cpu_state.XMM[0].l[lane] = 7;
+    codegen_exit_rout = start_code();
+    codegen_backend_epilogue(&test_block);
+    codegen_gpf_rout = codegen_exit_rout;
+
+    codegen_reg_reset();
+    ir_data_t *ir = codegen_ir_init();
+    uop_MOV_IMM(ir, IREG_eaaddr, 64);
+    int branch = uop_CMP_IMM_JZ_DEST(ir, IREG_EBX, 0);
+    uop_ADD_IMM(ir, IREG_EAX, IREG_EAX, 10);
+    uop_PADDD(ir, IREG_XMM(0), IREG_XMM(0), IREG_XMM(0));
+    uop_set_jump_dest(ir, branch);
+    if (alignment)
+        uop_CHECK_ALIGN(ir);
+    else
+        uop_SSE_ENTER(ir);
+    uop_ADD_IMM(ir, IREG_EAX, IREG_EAX, 1);
+    uop_PADDD(ir, IREG_XMM(0), IREG_XMM(0), IREG_XMM(0));
+    uint8_t *entry = start_code();
+    codegen_ir_compile(ir, &test_block);
+#ifdef _WIN32
+    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
+#else
+    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
+#endif
+    ((void (*)(void)) entry)();
+    CHECK(exception == 0);
+    CHECK(EAX == (taken ? 2 : 12));
+    for (int lane = 0; lane < 4; lane++)
+        CHECK(cpu_state.XMM[0].l[lane] == (uint32_t) (taken ? 14 : 28));
+}
+
 int
 main(void)
 {
@@ -390,18 +582,40 @@ main(void)
         run_case(0, 4, 0, 0, 0, 0, 1, top, FORM_REG);
         run_case(0, 4, 0, 0, 1, 0, 1, top, FORM_REG);
     }
-    /* Move the lookup, writeback and reload branches across allocator chunks. */
-    for (padding = 0; padding < BLOCK_MAX; padding += 31) {
+    /* Try every byte offset: an instruction that reserves one byte too few
+       can consume the space needed to jump to the next allocator chunk. */
+    for (padding = 0; padding < BLOCK_MAX; padding++) {
         run_case(0, 4, 1, 0, 0, 0, 0, 1, FORM_REG);
         run_case(0, 4, 0, 0, 1, 0, 0, 1, FORM_REG);
         run_case(1, 16, 0, 1, 0, 0, 0, 1, FORM_REG);
         run_case(0, 16, 0, 1, 2, 0, 0, 1, FORM_REG);
+        run_case(0, 4, 1, 0, 0, 0, 0, 1, FORM_SINGLE);
+        run_case(0, 4, 0, 0, 0, 0, 0, 1, FORM_SINGLE);
+        run_case(0, 4, 0, 0, 1, 0, 0, 1, FORM_SINGLE);
     }
+    padding = 0;
+    for (int top = 0; top < 2; top++) {
+        for (unsigned control = 0; control < 8; control++)
+            for (unsigned alignment = 0; alignment < 16; alignment++)
+                run_sse_case(control, alignment, top, 0);
+        for (unsigned mode = 1; mode <= 5; mode++)
+            run_sse_case(0, 0, top, mode);
+    }
+    for (padding = 0; padding < BLOCK_MAX; padding++) {
+        run_sse_case(0, 0, 1, 0);
+        run_sse_case(1, 0, 1, 0);
+        run_sse_case(2, 0, 1, 0);
+        run_sse_case(4, 0, 1, 0);
+        run_sse_case(0, 1, 1, 0);
+    }
+    for (int taken = 0; taken < 2; taken++)
+        for (int alignment = 0; alignment < 2; alignment++)
+            run_sse_join(taken, alignment);
 #ifdef _WIN32
     CHECK(VirtualFree(code_memory, 0, MEM_RELEASE));
 #else
     CHECK(munmap(code_memory, CODE_SIZE) == 0);
 #endif
-    printf("RAM register preservation tests passed (%u cases)\n", cases);
+    printf("RAM and SSE register preservation tests passed (%u cases)\n", cases);
     return 0;
 }

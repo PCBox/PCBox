@@ -28,7 +28,7 @@ static codeblock_t test_block;
 codeblock_t *codeblock = &test_block;
 
 /* Register allocation is exercised separately by ram_register_test. */
-void codegen_reg_flush_mem(codeblock_t *block, ir_reg_t reg) { (void)block; (void)reg; }
+void codegen_reg_flush_conditional(codeblock_t *block, ir_reg_t reg) { (void)block; (void)reg; }
 void codegen_reg_reload_mem(codeblock_t *block, ir_reg_t reg) { (void)block; (void)reg; }
 
 enum { CODE_SIZE = 65536, CHUNK_SIZE = 4096 };

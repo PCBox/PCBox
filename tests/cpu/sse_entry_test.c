@@ -123,14 +123,14 @@ int main(void)
         compile(ir);
         CHECK(entries == 1 && entry_pcs[0] == (uint32_t)(0x100 + run * 0x100));
         CHECK(arithmetic == 3);
-        CHECK(full_flushes == 2); /* First check and final block writeback. */
+        CHECK(full_flushes == 1); /* Only the final block writeback. */
     }
 
-    /* Helpers/fallbacks may change control state. Memory and alignment checks
-       retain their existing synchronization and also end the checked region. */
+    /* Helpers/fallbacks may change control state. Memory helpers can reach
+       devices, so memory accesses also end the checked region. */
     const uint32_t barriers[] = {
         UOP_CALL_FUNC, UOP_CALL_FUNC_RESULT, UOP_CALL_INSTRUCTION_FUNC,
-        UOP_MEM_LOAD_REG, UOP_CHECK_ALIGN
+        UOP_MEM_LOAD_REG
     };
     for (unsigned i = 0; i < sizeof(barriers) / sizeof(barriers[0]); i++) {
         ir = start_block();
@@ -141,9 +141,24 @@ int main(void)
         compile(ir);
         CHECK(entries == 2 && entry_pcs[0] == 0x100 && entry_pcs[1] == 0x200);
         CHECK(arithmetic == 3);
-        CHECK(full_flushes == ((barriers[i] & UOP_TYPE_BARRIER) ? 4 : 3));
+        CHECK(full_flushes == ((barriers[i] & UOP_TYPE_BARRIER) ? 2 : 1));
         CHECK(order_flushes == ((barriers[i] & UOP_TYPE_ORDER_BARRIER) && !(barriers[i] & UOP_TYPE_MEM) ? 1 : 0));
     }
+
+    /* Inline alignment tests retain the entry check, address and fault PC.
+       They must not cause an unconditional register flush. */
+    ir = start_block();
+    add_sse(ir, 0x100);
+    cpu_state.oldpc = 0x110;
+    uop_CHECK_ALIGN(ir);
+    CHECK((ir->uops[ir->wr_pos - 1].type & UOP_MASK) == (UOP_CHECK_ALIGN & UOP_MASK));
+    CHECK(ir->uops[ir->wr_pos - 1].src_reg_a.reg == IREG_eaaddr);
+    CHECK(ir->uops[ir->wr_pos - 1].imm_data == 0x110);
+    add_sse(ir, 0x120);
+    codegen_ir_set_unroll(3, 0, 0);
+    compile(ir);
+    CHECK(entries == 1 && entry_pcs[0] == 0x100);
+    CHECK(arithmetic == 6 && full_flushes == 1 && order_flushes == 0);
 
     /* A branch can bypass the check in the fallthrough path. The destination
        must retain its own check, and the branch fixup must still be emitted. */
@@ -156,6 +171,7 @@ int main(void)
     compile(ir);
     CHECK(entries == 2 && entry_pcs[1] == 0x200);
     CHECK(patched_jumps == 1);
+    CHECK(full_flushes == 2); /* Join synchronization and final writeback. */
 
     /* A join on an ordinary instruction must also invalidate the prior check. */
     ir = start_block();
@@ -175,7 +191,7 @@ int main(void)
     codegen_ir_set_unroll(3, 0, 0);
     compile(ir);
     CHECK(entries == 1 && entry_pcs[0] == 0x100);
-    CHECK(arithmetic == 6 && full_flushes == 2);
+    CHECK(arithmetic == 6 && full_flushes == 1);
 
     /* Unrolling must not reuse a pre-loop check after a helper in a previous
        iteration. Each copy retains its first check after that helper. */
