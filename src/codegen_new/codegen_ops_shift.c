@@ -1101,7 +1101,7 @@ ropSHRD_16_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32
             uop_OR(ir, IREG_16(dest_reg), IREG_temp0_W, IREG_temp1_W);
         }
         uop_MOV_IMM(ir, IREG_flags_op2, imm);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHR16);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHRD16);
         uop_MOVZX(ir, IREG_flags_res, IREG_16(dest_reg));
     } else {
         codegen_check_seg_write(block, ir, target_seg);
@@ -1121,7 +1121,7 @@ ropSHRD_16_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32
         uop_MOVZX(ir, IREG_flags_op1, IREG_temp2_W);
         uop_MOVZX(ir, IREG_flags_res, IREG_temp0_W);
         uop_MOV_IMM(ir, IREG_flags_op2, imm);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHR16);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHRD16);
     }
 
     return op_pc + 2;
@@ -1158,7 +1158,7 @@ ropSHRD_32_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32
             uop_OR(ir, IREG_32(dest_reg), IREG_temp0, IREG_temp1);
         }
         uop_MOV_IMM(ir, IREG_flags_op2, imm);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHR32);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHRD32);
         uop_MOV(ir, IREG_flags_res, IREG_32(dest_reg));
     } else {
         codegen_check_seg_write(block, ir, target_seg);
@@ -1176,7 +1176,7 @@ ropSHRD_32_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32
         uop_MOV(ir, IREG_flags_op1, IREG_temp2);
         uop_MOV(ir, IREG_flags_res, IREG_temp0);
         uop_MOV_IMM(ir, IREG_flags_op2, imm);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHR32);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHRD32);
     }
 
     return op_pc + 2;
@@ -1213,7 +1213,7 @@ ropSHLD_16_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_SHR(ir, IREG_temp0, IREG_temp0, IREG_temp3);
         uop_MOV(ir, IREG_16(dest_reg), IREG_temp0_W);
         uop_MOV(ir, IREG_flags_op2, IREG_temp2);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHL16);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHLD16);
         uop_MOVZX(ir, IREG_flags_res, IREG_16(dest_reg));
     } else {
         x86seg *target_seg;
@@ -1235,7 +1235,7 @@ ropSHLD_16_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_MOVZX(ir, IREG_flags_op1, IREG_temp0_W);
         uop_MOVZX(ir, IREG_flags_res, IREG_temp1_W);
         uop_MOV(ir, IREG_flags_op2, IREG_temp2);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHL16);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHLD16);
     }
 
     /*The interpreter materializes SHLD/SHRD flags (flags_op ends up
@@ -1270,7 +1270,7 @@ ropSHLD_32_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_SHL(ir, IREG_temp0, IREG_32(dest_reg), IREG_temp2);
         uop_OR(ir, IREG_32(dest_reg), IREG_temp0, IREG_temp1);
         uop_MOV(ir, IREG_flags_op2, IREG_temp2);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHL32);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHLD32);
         uop_MOV(ir, IREG_flags_res, IREG_32(dest_reg));
     } else {
         x86seg *target_seg;
@@ -1290,7 +1290,7 @@ ropSHLD_32_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_MOV(ir, IREG_flags_op1, IREG_temp0);
         uop_MOV(ir, IREG_flags_res, IREG_temp1);
         uop_MOV(ir, IREG_flags_op2, IREG_temp2);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHL32);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHLD32);
     }
 
     /*See ropSHLD_16_CL - compile-time flags_op doesn't match the runtime state*/
@@ -1324,7 +1324,7 @@ ropSHRD_16_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_SHR(ir, IREG_temp0, IREG_temp0, IREG_temp2);
         uop_MOV(ir, IREG_16(dest_reg), IREG_temp0_W);
         uop_MOV(ir, IREG_flags_op2, IREG_temp2);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHR16);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHRD16);
         uop_MOVZX(ir, IREG_flags_res, IREG_16(dest_reg));
     } else {
         x86seg *target_seg;
@@ -1344,7 +1344,7 @@ ropSHRD_16_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_MOVZX(ir, IREG_flags_op1, IREG_temp0_W);
         uop_MOVZX(ir, IREG_flags_res, IREG_temp1_W);
         uop_MOV(ir, IREG_flags_op2, IREG_temp2);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHR16);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHRD16);
     }
 
     /*See ropSHLD_16_CL - compile-time flags_op doesn't match the runtime state*/
@@ -1377,7 +1377,7 @@ ropSHRD_32_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_SHR(ir, IREG_temp0, IREG_32(dest_reg), IREG_temp2);
         uop_OR(ir, IREG_32(dest_reg), IREG_temp0, IREG_temp1);
         uop_MOV(ir, IREG_flags_op2, IREG_temp2);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHR32);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHRD32);
         uop_MOV(ir, IREG_flags_res, IREG_32(dest_reg));
     } else {
         x86seg *target_seg;
@@ -1397,7 +1397,7 @@ ropSHRD_32_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_MOV(ir, IREG_flags_op1, IREG_temp0);
         uop_MOV(ir, IREG_flags_res, IREG_temp1);
         uop_MOV(ir, IREG_flags_op2, IREG_temp2);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHR32);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHRD32);
     }
 
     /*See ropSHLD_16_CL - compile-time flags_op doesn't match the runtime state*/
