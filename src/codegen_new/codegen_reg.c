@@ -361,6 +361,14 @@ static void
 codegen_reg_load(host_reg_set_t *reg_set, codeblock_t *block, int c, ir_reg_t ir_reg)
 {
     switch (ireg_data[IREG_GET_REG(ir_reg.reg)].native_size) {
+        case REG_BYTE:
+#ifndef RELEASE_BUILD
+            if (ireg_data[IREG_GET_REG(ir_reg.reg)].type != REG_INTEGER)
+                fatal("codegen_reg_load - REG_BYTE !REG_INTEGER\n");
+#endif
+            codegen_direct_read_8(block, reg_set->reg_list[c].reg, ireg_data[IREG_GET_REG(ir_reg.reg)].p);
+            break;
+
         case REG_WORD:
 #ifndef RELEASE_BUILD
             if (ireg_data[IREG_GET_REG(ir_reg.reg)].type != REG_INTEGER)
@@ -924,6 +932,66 @@ codegen_reg_rename(codeblock_t *block, ir_reg_t src, ir_reg_t dst)
         }
     }
 }
+
+#ifdef CODEGEN_BACKEND_HAS_MEM_REGS
+void
+codegen_reg_flush_mem_dest(codeblock_t *block, ir_reg_t dest_reg)
+{
+    if (ir_reg_is_invalid(dest_reg))
+        return;
+
+    host_reg_set_t *reg_set = get_reg_set(dest_reg);
+
+    /* Allocation replaces the old destination's version before the load runs.
+       Keep its architectural value available if the load faults. */
+    for (int c = 0; c < reg_set->nr_regs; c++) {
+        if (IREG_GET_REG(reg_set->regs[c].reg) == IREG_GET_REG(dest_reg.reg) && reg_set->dirty[c])
+            codegen_reg_writeback(reg_set, block, c, 0);
+    }
+}
+
+void
+codegen_reg_flush_mem(codeblock_t *block, ir_reg_t dest_reg)
+{
+    host_reg_set_t *reg_sets[] = { &host_reg_set, &host_fp_reg_set };
+
+    for (int set = 0; set < 2; set++) {
+        host_reg_set_t *reg_set = reg_sets[set];
+
+        for (int c = 0; c < reg_set->nr_regs; c++) {
+            ir_reg_t reg = reg_set->regs[c];
+
+            if (ir_reg_is_invalid(reg) || IREG_GET_REG(reg.reg) == IREG_GET_REG(dest_reg.reg) || !reg_set->dirty[c])
+                continue;
+            codegen_reg_writeback(reg_set, block, c, 0);
+            /* This store only runs on a miss. The RAM path still owes it. */
+            reg_set->dirty[c] = 1;
+        }
+    }
+}
+
+void
+codegen_reg_reload_mem(codeblock_t *block, ir_reg_t dest_reg)
+{
+    host_reg_set_t *reg_sets[] = { &host_reg_set, &host_fp_reg_set };
+
+    /* Helpers can update guest state (notably cycles), as well as clobber
+       host SIMD registers. Both paths must rejoin with the same allocation. */
+    for (int set = 0; set < 2; set++) {
+        host_reg_set_t *reg_set = reg_sets[set];
+
+        for (int c = 0; c < reg_set->nr_regs; c++) {
+            ir_reg_t reg = reg_set->regs[c];
+
+            if (ir_reg_is_invalid(reg) || IREG_GET_REG(reg.reg) == IREG_GET_REG(dest_reg.reg))
+                continue;
+            if (ireg_data[IREG_GET_REG(reg.reg)].is_volatile && !ir_get_refcount(reg))
+                continue;
+            codegen_reg_load(reg_set, block, c, reg);
+        }
+    }
+}
+#endif
 
 void
 codegen_reg_flush(UNUSED(ir_data_t *ir), codeblock_t *block)

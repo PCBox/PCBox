@@ -158,8 +158,14 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
                 }
             }
 
-            if (uop->type & UOP_TYPE_ORDER_BARRIER)
-                codegen_reg_flush(ir, block);
+            if (uop->type & UOP_TYPE_ORDER_BARRIER) {
+#ifdef CODEGEN_BACKEND_HAS_MEM_REGS
+                if (uop->type & UOP_TYPE_MEM)
+                    codegen_reg_flush_mem_dest(block, uop->dest_reg_a);
+                else
+#endif
+                    codegen_reg_flush(ir, block);
+            }
 
             if (uop->type & UOP_TYPE_PARAMS_REGS) {
                 if (uop->dest_reg_a.reg != IREG_INVALID) {

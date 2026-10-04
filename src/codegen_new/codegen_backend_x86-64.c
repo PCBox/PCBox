@@ -60,12 +60,11 @@ host_reg_def_t codegen_host_reg_list[CODEGEN_HOST_REGS] = {
     { REG_R15, 0}
 };
 
-/* Keep the full 0x58-byte temporary area, including STACK_TEMP_DQ at 0x40
-   and STACK_TEMP_MXCSR at 0x50, separate from the saved XMM6/XMM7 values.
-   0x78 keeps RSP 16-byte aligned after eight pushes and the return address. */
-#define CODEGEN_WIN64_FRAME 0x78
-#define CODEGEN_XMM6_SAVE   0x58
-#define CODEGEN_XMM7_SAVE   0x68
+/* Keep the 128-bit IR spill at 0x50 separate from the memory scratch at 0x40,
+   MXCSR scratch at 0x60, and saved XMM6/XMM7. Both frames align helper calls. */
+#define CODEGEN_WIN64_FRAME 0x88
+#define CODEGEN_XMM6_SAVE   0x68
+#define CODEGEN_XMM7_SAVE   0x78
 
 host_reg_def_t codegen_host_fp_reg_list[CODEGEN_HOST_FP_REGS] = {
 #    if _WIN64
@@ -427,7 +426,7 @@ codegen_backend_init(void)
     host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM7, REG_RSP, CODEGEN_XMM7_SAVE);
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
 #else
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x58);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x68);
 #endif
     host_x86_POP(block, REG_R15);
     host_x86_POP(block, REG_R14);
@@ -474,7 +473,7 @@ codegen_backend_prologue(codeblock_t *block)
     host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, CODEGEN_XMM6_SAVE, REG_XMM6);
     host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, CODEGEN_XMM7_SAVE, REG_XMM7);
 #else
-    host_x86_SUB64_REG_IMM(block, REG_RSP, 0x58);
+    host_x86_SUB64_REG_IMM(block, REG_RSP, 0x68);
 #endif
     host_x86_MOV64_REG_IMM(block, REG_RBP, ((uintptr_t) &cpu_state) + 128);
     if (block->flags & CODEBLOCK_HAS_FPU) {
@@ -496,7 +495,7 @@ codegen_backend_epilogue(codeblock_t *block)
     host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM7, REG_RSP, CODEGEN_XMM7_SAVE);
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
 #else
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x58);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x68);
 #endif
     host_x86_POP(block, REG_R15);
     host_x86_POP(block, REG_R14);

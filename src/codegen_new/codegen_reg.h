@@ -449,6 +449,10 @@ struct ir_data_t;
 void codegen_reg_reset(void);
 /*Write back all dirty registers*/
 void codegen_reg_flush(struct ir_data_t *ir, codeblock_t *block);
+/*Memory slow paths write back state without changing the RAM-hit allocation.*/
+void codegen_reg_flush_mem_dest(codeblock_t *block, ir_reg_t dest_reg);
+void codegen_reg_flush_mem(codeblock_t *block, ir_reg_t dest_reg);
+void codegen_reg_reload_mem(codeblock_t *block, ir_reg_t dest_reg);
 /*Write back and evict all registers*/
 void codegen_reg_flush_invalidate(struct ir_data_t *ir, codeblock_t *block);
 
