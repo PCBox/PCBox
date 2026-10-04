@@ -1213,7 +1213,7 @@ ropSHLD_16_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_SHR(ir, IREG_temp0, IREG_temp0, IREG_temp3);
         uop_MOV(ir, IREG_16(dest_reg), IREG_temp0_W);
         uop_MOV(ir, IREG_flags_op2, IREG_temp2);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHLD16);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHL16);
         uop_MOVZX(ir, IREG_flags_res, IREG_16(dest_reg));
     } else {
         x86seg *target_seg;
@@ -1235,7 +1235,7 @@ ropSHLD_16_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_MOVZX(ir, IREG_flags_op1, IREG_temp0_W);
         uop_MOVZX(ir, IREG_flags_res, IREG_temp1_W);
         uop_MOV(ir, IREG_flags_op2, IREG_temp2);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHLD16);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHL16);
     }
 
     /*The interpreter materializes SHLD/SHRD flags (flags_op ends up
@@ -1270,7 +1270,7 @@ ropSHLD_32_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_SHL(ir, IREG_temp0, IREG_32(dest_reg), IREG_temp2);
         uop_OR(ir, IREG_32(dest_reg), IREG_temp0, IREG_temp1);
         uop_MOV(ir, IREG_flags_op2, IREG_temp2);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHLD32);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHL32);
         uop_MOV(ir, IREG_flags_res, IREG_32(dest_reg));
     } else {
         x86seg *target_seg;
@@ -1290,7 +1290,7 @@ ropSHLD_32_CL(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
         uop_MOV(ir, IREG_flags_op1, IREG_temp0);
         uop_MOV(ir, IREG_flags_res, IREG_temp1);
         uop_MOV(ir, IREG_flags_op2, IREG_temp2);
-        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHLD32);
+        uop_MOV_IMM(ir, IREG_flags_op, FLAGS_SHL32);
     }
 
     /*See ropSHLD_16_CL - compile-time flags_op doesn't match the runtime state*/
