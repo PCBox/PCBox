@@ -952,7 +952,7 @@ opD3_l_a32(uint32_t fetchdat)
         seteaw(tempw);                                                    \
         if (cpu_state.abrt)                                               \
             return 1;                                                     \
-        set_flags_shift(FLAGS_SHLD16, orig, count, tempw);                 \
+        set_flags_shift(FLAGS_SHL16, orig, count, tempw);                 \
     }
 
 #define SHLD_l()                                                                \
@@ -965,7 +965,7 @@ opD3_l_a32(uint32_t fetchdat)
         seteal(templ);                                                          \
         if (cpu_state.abrt)                                                     \
             return 1;                                                           \
-        set_flags_shift(FLAGS_SHLD32, orig, count, templ);                       \
+        set_flags_shift(FLAGS_SHL32, orig, count, templ);                       \
     }
 
 #define SHRD_w()                                           \
