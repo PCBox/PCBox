@@ -37,6 +37,8 @@ uint8_t *ram, *block_write_data;
 int block_pos, cpu_block_end;
 static codeblock_t test_block;
 codeblock_t *codeblock = &test_block;
+uint16_t *codeblock_hash;
+int block_current;
 
 enum { CODE_SIZE = 262144, CHUNK_SIZE = 4096 };
 enum { FORM_REG, FORM_ABS, FORM_IMM, FORM_SINGLE, FORM_DOUBLE };
@@ -81,6 +83,23 @@ record_exception(unsigned vector)
 void x86illegal(void) { record_exception(6); }
 void x86_int(int vector) { record_exception(vector); }
 static void alignment_fault(void) { record_exception(13); }
+void x86gpf(char *message, uint16_t error)
+{
+    CHECK(message == NULL && error == 0);
+    record_exception(13);
+}
+
+/* Backend initialization allocates metadata here; executable chunks still
+   come from the fixture allocator below, with gaps between chunks. */
+void *plat_mmap(size_t size, uint8_t executable, uint8_t *large)
+{
+    CHECK(!executable);
+    *large = 0;
+    void *memory = calloc(1, size);
+    CHECK(memory != NULL);
+    return memory;
+}
+void pclog(const char *fmt, ...) { (void) fmt; }
 
 struct mem_block_t *
 codegen_allocator_allocate(struct mem_block_t *parent, int nr)
@@ -705,6 +724,38 @@ run_integer_registers(int rotation, int mode, int dest)
     }
 }
 
+static void
+run_backend_init(void)
+{
+    /* Other cases construct their own exit routines, so they cannot catch
+       an incorrect entry pointer recorded by the real backend initializer. */
+    next_chunk = 0;
+    codegen_backend_init();
+    CHECK((uintptr_t) codegen_exit_rout > (uintptr_t) codegen_gpf_rout);
+#ifdef _WIN64
+    CHECK(next_chunk > 1); /* Win64 helpers outgrow the 0x3c0-byte chunk. */
+#endif
+    free(codeblock);
+    free(codeblock_hash);
+    codeblock = &test_block;
+    codeblock_hash = NULL;
+
+    for (int gpf = 0; gpf < 2; gpf++) {
+        cases++;
+        exception = 0;
+        uint8_t *entry = start_code();
+        codegen_backend_prologue(&test_block);
+        host_x86_JMP(&test_block, gpf ? codegen_gpf_rout : codegen_exit_rout);
+#ifdef _WIN32
+        CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
+#else
+        __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
+#endif
+        ((void (*)(void)) entry)();
+        CHECK(exception == (gpf ? 13 : 0));
+    }
+}
+
 int
 main(void)
 {
@@ -715,6 +766,7 @@ main(void)
     code_memory = mmap(NULL, CODE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     CHECK(code_memory != MAP_FAILED);
 #endif
+    run_backend_init();
     for (int top = 0; top < 2; top++) {
         for (int store = 0; store < 2; store++) {
             for (int form = FORM_REG; form <= FORM_DOUBLE; form++) {

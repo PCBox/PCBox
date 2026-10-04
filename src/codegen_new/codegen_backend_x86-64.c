@@ -433,7 +433,9 @@ codegen_backend_init(void)
     host_x86_XOR32_REG_REG(block, REG_ESI, REG_ESI);
 #    endif
     host_x86_CALL(block, (void *) x86gpf);
-    codegen_exit_rout = &codeblock[block_current].data[block_pos];
+    /* Helper emission can spill into a new allocator chunk. block_pos is
+       relative to that chunk, not to the first chunk in block->data. */
+    codegen_exit_rout = &block_write_data[block_pos];
 #ifdef _WIN64
     /* XMM6 and XMM7 hold guest FPU/MMX values in blocks, and the Windows
        x64 ABI makes them the caller's: put back what the caller had. */
