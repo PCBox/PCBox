@@ -190,7 +190,8 @@ host_x86_CVTSS2SD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 void
 host_x86_CVTSS2SD_XREG_BASE_INDEX(codeblock_t *block, int dst_reg, int base_reg, int idx_reg)
 {
-    codegen_alloc_bytes(block, 4);
+    /* Include the SIB byte so the next chunk's linking jump still fits. */
+    codegen_alloc_bytes(block, 5);
     codegen_addbyte4(block, 0xf3, 0x0f, 0x5a, 0x04 | (dst_reg << 3)); /*CVTSS2SD XMMx, [base_reg + idx_reg]*/
     codegen_addbyte(block, base_reg | (idx_reg << 3));
 }
