@@ -43,6 +43,10 @@ void *codegen_mem_store_long;
 void *codegen_mem_store_quad;
 void *codegen_mem_store_single;
 void *codegen_mem_store_double;
+void *codegen_mem_load_slow[2][4];
+void *codegen_mem_store_slow[2][4];
+void *codegen_mem_load_callback[4];
+void *codegen_mem_store_callback[4];
 
 void *codegen_gpf_rout;
 void *codegen_exit_rout;
@@ -205,6 +209,94 @@ detect_host_cpu_features(void)
 }
 
 static void
+build_load_call(codeblock_t *block, int size, int is_float, void *callback, int stack_adjust)
+{
+    host_x86_PUSH(block, REG_R10);
+    host_x86_PUSH(block, REG_R11);
+    host_x86_PUSH(block, REG_RAX);
+    host_x86_PUSH(block, REG_RDX);
+    /* stack_adjust includes Win64 shadow space and, for a standalone
+       helper, the extra eight bytes required after its incoming CALL. */
+    if (stack_adjust)
+        host_x86_SUB64_REG_IMM(block, REG_RSP, stack_adjust);
+#    if !_WIN64
+    host_x86_MOV32_REG_REG(block, REG_EDI, REG_ECX);
+#    endif
+    host_x86_CALL(block, callback);
+    if (size == 1 && !is_float) {
+        host_x86_MOVZX_REG_32_8(block, REG_ECX, REG_EAX);
+    } else if (size == 2 && !is_float) {
+        host_x86_MOVZX_REG_32_16(block, REG_ECX, REG_EAX);
+    } else if (size == 4 && !is_float) {
+        host_x86_MOV32_REG_REG(block, REG_ECX, REG_EAX);
+    } else if (size == 4 && is_float) {
+        host_x86_MOVD_XREG_REG(block, REG_XMM_TEMP, REG_EAX);
+        host_x86_CVTSS2SD_XREG_XREG(block, REG_XMM_TEMP, REG_XMM_TEMP);
+    } else if (size == 8) {
+        host_x86_MOVQ_XREG_REG(block, REG_XMM_TEMP, REG_RAX);
+    }
+    if (stack_adjust)
+        host_x86_ADD64_REG_IMM(block, REG_RSP, stack_adjust);
+    host_x86_POP(block, REG_RDX);
+    host_x86_POP(block, REG_RAX);
+    host_x86_POP(block, REG_R11);
+    host_x86_POP(block, REG_R10);
+    host_x86_MOVZX_REG_ABS_32_8(block, REG_ESI, &cpu_state.abrt);
+}
+
+static void
+build_store_call(codeblock_t *block, int size, int is_float, void *callback, int stack_adjust)
+{
+    host_x86_PUSH(block, REG_R10);
+    host_x86_PUSH(block, REG_R11);
+    host_x86_PUSH(block, REG_RAX);
+    host_x86_PUSH(block, REG_RDX);
+    if (stack_adjust)
+        host_x86_SUB64_REG_IMM(block, REG_RSP, stack_adjust);
+#    if _WIN64
+    if (size == 4 && is_float)
+        host_x86_MOVD_REG_XREG(block, REG_EDX, REG_XMM_TEMP); // data
+    else if (size == 8)
+        host_x86_MOVQ_REG_XREG(block, REG_RDX, REG_XMM_TEMP); // data
+    else
+        host_x86_MOV32_REG_REG(block, REG_EDX, REG_ECX); // data
+    host_x86_MOV32_REG_REG(block, REG_ECX, REG_EDI);     // address
+#    else
+    if (size == 4 && is_float)
+        host_x86_MOVD_REG_XREG(block, REG_ESI, REG_XMM_TEMP); // data
+    else if (size == 8)
+        host_x86_MOVQ_REG_XREG(block, REG_RSI, REG_XMM_TEMP); // data
+    else
+        host_x86_MOV32_REG_REG(block, REG_ESI, REG_ECX); // data
+#    endif
+    host_x86_CALL(block, callback);
+    if (stack_adjust)
+        host_x86_ADD64_REG_IMM(block, REG_RSP, stack_adjust);
+    host_x86_POP(block, REG_RDX);
+    host_x86_POP(block, REG_RAX);
+    host_x86_POP(block, REG_R11);
+    host_x86_POP(block, REG_R10);
+    host_x86_MOVZX_REG_ABS_32_8(block, REG_ESI, &cpu_state.abrt);
+}
+
+/* Emit the existing memory C-call ABI without a second generated CALL/RET.
+   The caller has an aligned RSP and supplies ESI plus ECX/XMM0 store data. */
+void
+codegen_backend_mem_call(codeblock_t *block, int size, int is_float, int store, void *callback)
+{
+#    if _WIN64
+    const int stack_adjust = 0x20;
+#    else
+    const int stack_adjust = 0;
+#    endif
+    host_x86_MOV32_REG_REG(block, store ? REG_EDI : REG_ECX, REG_ESI);
+    if (store)
+        build_store_call(block, size, is_float, callback, stack_adjust);
+    else
+        build_load_call(block, size, is_float, callback, stack_adjust);
+}
+
+static void
 build_load_routine(codeblock_t *block, int size, int is_float)
 {
     uint8_t *branch_offset;
@@ -260,46 +352,16 @@ build_load_routine(codeblock_t *block, int size, int is_float)
         *misaligned_offset = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) misaligned_offset) - 1;
     /* Paired 64-bit accesses reuse their address registers after the first
        helper call, before the allocator reloads the complete guest state. */
-    host_x86_PUSH(block, REG_R10);
-    host_x86_PUSH(block, REG_R11);
-    host_x86_PUSH(block, REG_RAX);
-    host_x86_PUSH(block, REG_RDX);
+    codegen_mem_load_slow[is_float][size == 1 ? 0 : size == 2 ? 1 : size == 4 ? 2 : 3] = &block_write_data[block_pos];
+    int index = size == 1 ? 0 : size == 2 ? 1 : size == 4 ? 2 : 3;
+    void *callback = size == 1 ? (void *) readmembl : size == 2 ? (void *) readmemwl
+                     : size == 4 ? (void *) readmemll : (void *) readmemql;
+    codegen_mem_load_callback[index] = callback;
 #    if _WIN64
-    host_x86_SUB64_REG_IMM(block, REG_RSP, 0x28);
-    // host_x86_MOV32_REG_REG(block, REG_ECX, uop->imm_data);
+    build_load_call(block, size, is_float, callback, 0x28);
 #    else
-    /* Align RSP to 16: entry RSP%16=8 (after CALL from JIT block), four PUSHes
-       leave it at 8; subtract 8 more to satisfy the SysV ABI before calling C. */
-    host_x86_SUB64_REG_IMM(block, REG_RSP, 0x8);
-    host_x86_MOV32_REG_REG(block, REG_EDI, REG_ECX);
+    build_load_call(block, size, is_float, callback, 0x8);
 #    endif
-    if (size == 1 && !is_float) {
-        host_x86_CALL(block, (void *) readmembl);
-        host_x86_MOVZX_REG_32_8(block, REG_ECX, REG_EAX);
-    } else if (size == 2 && !is_float) {
-        host_x86_CALL(block, (void *) readmemwl);
-        host_x86_MOVZX_REG_32_16(block, REG_ECX, REG_EAX);
-    } else if (size == 4 && !is_float) {
-        host_x86_CALL(block, (void *) readmemll);
-        host_x86_MOV32_REG_REG(block, REG_ECX, REG_EAX);
-    } else if (size == 4 && is_float) {
-        host_x86_CALL(block, (void *) readmemll);
-        host_x86_MOVD_XREG_REG(block, REG_XMM_TEMP, REG_EAX);
-        host_x86_CVTSS2SD_XREG_XREG(block, REG_XMM_TEMP, REG_XMM_TEMP);
-    } else if (size == 8) {
-        host_x86_CALL(block, (void *) readmemql);
-        host_x86_MOVQ_XREG_REG(block, REG_XMM_TEMP, REG_RAX);
-    }
-#    if _WIN64
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x28);
-#    else
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x8);
-#    endif
-    host_x86_POP(block, REG_RDX);
-    host_x86_POP(block, REG_RAX);
-    host_x86_POP(block, REG_R11);
-    host_x86_POP(block, REG_R10);
-    host_x86_MOVZX_REG_ABS_32_8(block, REG_ESI, &cpu_state.abrt);
     host_x86_RET(block);
 }
 
@@ -358,47 +420,16 @@ build_store_routine(codeblock_t *block, int size, int is_float)
     *branch_offset = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 1;
     if (size != 1)
         *misaligned_offset = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) misaligned_offset) - 1;
-    host_x86_PUSH(block, REG_R10);
-    host_x86_PUSH(block, REG_R11);
-    host_x86_PUSH(block, REG_RAX);
-    host_x86_PUSH(block, REG_RDX);
+    codegen_mem_store_slow[is_float][size == 1 ? 0 : size == 2 ? 1 : size == 4 ? 2 : 3] = &block_write_data[block_pos];
+    int index = size == 1 ? 0 : size == 2 ? 1 : size == 4 ? 2 : 3;
+    void *callback = size == 1 ? (void *) writemembl : size == 2 ? (void *) writememwl
+                     : size == 4 ? (void *) writememll : (void *) writememql;
+    codegen_mem_store_callback[index] = callback;
 #    if _WIN64
-    host_x86_SUB64_REG_IMM(block, REG_RSP, 0x28);
-    if (size == 4 && is_float)
-        host_x86_MOVD_REG_XREG(block, REG_EDX, REG_XMM_TEMP); // data
-    else if (size == 8)
-        host_x86_MOVQ_REG_XREG(block, REG_RDX, REG_XMM_TEMP); // data
-    else
-        host_x86_MOV32_REG_REG(block, REG_EDX, REG_ECX); // data
-    host_x86_MOV32_REG_REG(block, REG_ECX, REG_EDI);     // address
+    build_store_call(block, size, is_float, callback, 0x28);
 #    else
-    host_x86_SUB64_REG_IMM(block, REG_RSP, 0x8);
-    // host_x86_MOV32_REG_REG(block, REG_EDI, REG_ECX);  //address
-    if (size == 4 && is_float)
-        host_x86_MOVD_REG_XREG(block, REG_ESI, REG_XMM_TEMP); // data
-    else if (size == 8)
-        host_x86_MOVQ_REG_XREG(block, REG_RSI, REG_XMM_TEMP); // data
-    else
-        host_x86_MOV32_REG_REG(block, REG_ESI, REG_ECX); // data
+    build_store_call(block, size, is_float, callback, 0x8);
 #    endif
-    if (size == 1)
-        host_x86_CALL(block, (void *) writemembl);
-    else if (size == 2)
-        host_x86_CALL(block, (void *) writememwl);
-    else if (size == 4)
-        host_x86_CALL(block, (void *) writememll);
-    else if (size == 8)
-        host_x86_CALL(block, (void *) writememql);
-#    if _WIN64
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x28);
-#    else
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x8);
-#    endif
-    host_x86_POP(block, REG_RDX);
-    host_x86_POP(block, REG_RAX);
-    host_x86_POP(block, REG_R11);
-    host_x86_POP(block, REG_R10);
-    host_x86_MOVZX_REG_ABS_32_8(block, REG_ESI, &cpu_state.abrt);
     host_x86_RET(block);
 }
 

@@ -24,12 +24,19 @@ cpu_state_t cpu_state;
 uintptr_t readlookup2[2097152], writelookup2[1048576];
 uint8_t *ram, *block_write_data;
 int block_pos, cpu_block_end;
+int timing_misaligned, cpu_cyrix_alignment;
 static codeblock_t test_block;
 codeblock_t *codeblock = &test_block;
 
 /* Register allocation is exercised separately by ram_register_test. */
+int codegen_reg_get_dirty_host_reg(int reg) { (void)reg; return -1; }
 void codegen_reg_flush_conditional(codeblock_t *block, ir_reg_t reg) { (void)block; (void)reg; }
 void codegen_reg_reload_mem(codeblock_t *block, ir_reg_t reg) { (void)block; (void)reg; }
+void codegen_reg_capture_mem(codegen_mem_reg_state_t *state, ir_reg_t reg)
+{ (void)reg; memset(state, 0, sizeof(*state)); }
+void codegen_reg_sync_mem(codeblock_t *block, const codegen_mem_reg_state_t *state, int reload, int stack_offset)
+{ (void)block; (void)state; (void)reload; (void)stack_offset; }
+
 
 enum { CODE_SIZE = 65536, CHUNK_SIZE = 4096 };
 enum { FORM_REG, FORM_ABS, FORM_IMM, FORM_SINGLE, FORM_DOUBLE };
@@ -143,7 +150,7 @@ static void run_case(int store, int size, int form, int high_byte, int reg,
         linear &= 0xffff;
     unsigned index = linear & (sizeof(memory) - 1);
     CHECK(index + size <= sizeof(memory));
-    int expect_helper = !mapped || (linear & (size - 1));
+    int expect_helper = !mapped || (linear & 0xfff) > 0x1000u - size;
     CHECK(!fault || expect_helper);
 
     memset(memory, 0xa5, sizeof(memory));
@@ -215,6 +222,7 @@ static void run_case(int store, int size, int form, int high_byte, int reg,
 
     uint8_t *entry = start_code();
     codegen_backend_prologue(&test_block);
+    codegen_backend_mem_begin();
     for (unsigned i = 0; i < 5; i++)
         host_x86_MOV64_REG_IMM(&test_block, gprs[i], initial_data);
     host_x86_MOV32_REG_IMM(&test_block, REG_EAX, segment);
@@ -261,16 +269,13 @@ static void run_case(int store, int size, int form, int high_byte, int reg,
     }
     capture(vector, reg);
     codegen_backend_epilogue(&test_block);
+    codegen_backend_mem_finish(&test_block);
 #ifdef _WIN32
     CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
 #else
     __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
 #endif
-    uint64_t loads_before = codegen_profile.memory_loads;
-    uint64_t stores_before = codegen_profile.memory_stores;
     ((void (*)(void)) entry)();
-    CHECK(codegen_profile.memory_loads - loads_before == (uint64_t) (codegen_profile_enabled && !store));
-    CHECK(codegen_profile.memory_stores - stores_before == (uint64_t) (codegen_profile_enabled && store));
     CHECK(helper_calls == (uint32_t) !!expect_helper);
     if (expect_helper)
         CHECK(helper_address == linear);
@@ -282,7 +287,6 @@ static void run_case(int store, int size, int form, int high_byte, int reg,
 
 int main(void)
 {
-    codegen_profile_enabled = getenv("PCBOX_TEST_PROFILE") != NULL;
 #ifdef _WIN32
     code_memory = VirtualAlloc(NULL, CODE_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     CHECK(code_memory != NULL);

@@ -22,6 +22,7 @@
 #include "../../src/codegen_new/codegen_reg.c"
 extern const uOpFn uop_handlers[];
 #include "../../src/codegen_new/codegen_ir.c"
+#include "../../src/codegen_new/codegen_ops_mov.h"
 
 #define CHECK(condition) do { \
     if (!(condition)) { \
@@ -40,6 +41,9 @@ static codeblock_t test_block;
 codeblock_t *codeblock = &test_block;
 uint16_t *codeblock_hash;
 int block_current;
+x86seg *op_ea_seg;
+int op_ssegs, codegen_flat_ds, codegen_flat_ss;
+uint16_t cpu_cur_status;
 
 enum { CODE_SIZE = 262144, CHUNK_SIZE = 4096 };
 enum { FORM_REG, FORM_ABS, FORM_IMM, FORM_SINGLE, FORM_DOUBLE };
@@ -69,6 +73,123 @@ fatal(const char *fmt, ...)
     vfprintf(stderr, fmt, ap);
     va_end(ap);
     exit(1);
+}
+
+/* Independent reference: the original all-earlier-sites search. Check every
+   real block below, including faults, pressure, TOP and chunk crossings. */
+static void
+check_slow_owners(const codeblock_t *block)
+{
+    int owners[UOP_NR_MAX], users[UOP_NR_MAX] = { 0 };
+    for (int i = 0; i < mem_slow_count; i++) {
+        const mem_slow_site_t *site = &mem_slow_sites[i];
+        owners[i] = i;
+        for (int j = 0; j < i; j++) {
+            const mem_slow_site_t *other = &mem_slow_sites[j];
+            if (site->size == 16 || (!(block->flags & CODEBLOCK_STATIC_TOP)
+                && (site->state.write_uses_top || site->state.reload_uses_top)))
+                break;
+            if (site->helper == other->helper && site->size == other->size
+                && site->cycles_reg == other->cycles_reg && site->sse_invalidate == other->sse_invalidate
+                && site->state.write_mask == other->state.write_mask
+                && site->state.reload_mask == other->state.reload_mask
+                && !memcmp(site->state.regs, other->state.regs, sizeof(site->state.regs))) {
+                owners[i] = owners[j];
+                break;
+            }
+        }
+        users[owners[i]]++;
+        CHECK(site->owner == owners[i]);
+    }
+    for (int i = 0; i < mem_slow_count; i++)
+        CHECK(mem_slow_sites[i].users == users[i]);
+}
+
+static void
+checked_ir_compile(ir_data_t *ir, codeblock_t *block)
+{
+    codegen_ir_compile(ir, block);
+    check_slow_owners(block);
+}
+#define codegen_ir_compile checked_ir_compile
+
+static void
+run_slow_index(void)
+{
+    /* Different keys, repeated owners, maximum site count, and fresh blocks
+       after a populated index. Synthetic keys are compared, never emitted. */
+    const int counts[] = { 0, 1, 15, 16, 17, 64, UOP_NR_MAX, 17, 1, 0 };
+    for (unsigned run = 0; run < sizeof(counts) / sizeof(counts[0]); run++) {
+        for (int repeated = 0; repeated < 2; repeated++) {
+            cases++;
+            codegen_backend_mem_begin();
+            mem_slow_count = counts[run];
+            test_block.flags = CODEBLOCK_STATIC_TOP;
+            for (int i = 0; i < mem_slow_count; i++) {
+                int key = repeated ? i % 23 : i;
+                mem_slow_site_t *site = &mem_slow_sites[i];
+                *site = (mem_slow_site_t) { .owner = i, .size = 1 << (key % 5),
+                    .helper = (void *) (uintptr_t) (1 + key % 3),
+                    .cycles_reg = key % 9 - 1, .sse_invalidate = key & 1 };
+                site->state.write_mask = key;
+                site->state.reload_mask = key >> 2;
+                site->state.regs[key % sizeof(site->state.regs)] = key % 255;
+            }
+            codegen_MEM_FIND_OWNERS(&test_block);
+            check_slow_owners(&test_block);
+        }
+    }
+    /* Force a full bucket collision chain, including a duplicate at its end.
+       Different writeback masks must never share, even with identical hashes
+       modulo table size. The last register byte also participates in the key. */
+    cases++;
+    codegen_backend_mem_begin();
+    mem_slow_count = 32;
+    test_block.flags = CODEBLOCK_STATIC_TOP;
+    unsigned mask = 0;
+    for (int i = 0; i < 31; i++) {
+        mem_slow_site_t *site = &mem_slow_sites[i];
+        *site = (mem_slow_site_t) { .owner = i, .size = 4, .cycles_reg = -1 };
+        do {
+            CHECK(mask <= UINT16_MAX);
+            site->state.write_mask = mask++;
+        } while ((codegen_MEM_STUB_HASH(site) & 63) != 63);
+    }
+    mem_slow_sites[31] = mem_slow_sites[30];
+    mem_slow_sites[31].owner = 31;
+    codegen_MEM_FIND_OWNERS(&test_block);
+    check_slow_owners(&test_block);
+    CHECK(mem_slow_sites[31].owner == 30);
+
+    /* Exercise each equality-key component independently, both before and
+       after switching to the index. Paired and dynamic-TOP states stay private. */
+    for (int dynamic = 0; dynamic < 2; dynamic++) {
+        cases++;
+        codegen_backend_mem_begin();
+        mem_slow_count = 64;
+        test_block.flags = dynamic ? CODEBLOCK_HAS_FPU : CODEBLOCK_STATIC_TOP;
+        for (int i = 0; i < mem_slow_count; i++) {
+            int key = i % 32;
+            mem_slow_site_t *site = &mem_slow_sites[i];
+            *site = (mem_slow_site_t) { .owner = i, .size = 4, .cycles_reg = -1 };
+            if (key == 1) site->helper = (void *) (uintptr_t) 1;
+            if (key == 2) site->size = 2;
+            if (key == 3) site->cycles_reg = 3;
+            if (key == 4) site->sse_invalidate = 1;
+            if (key == 5) site->state.write_mask = 1;
+            if (key == 6) site->state.reload_mask = 1;
+            if (key >= 7 && key < 22) site->state.regs[key - 7] = 1;
+            if (key == 22) site->size = 16;
+            if (key == 23) {
+                site->state.regs[8] = IREG_ST(0);
+                site->state.write_mask = site->state.reload_mask = 1 << 8;
+                site->state.write_uses_top = site->state.reload_uses_top = 1;
+            }
+        }
+        codegen_MEM_FIND_OWNERS(&test_block);
+        check_slow_owners(&test_block);
+    }
+    codegen_backend_mem_begin();
 }
 
 static void
@@ -102,6 +223,26 @@ void *plat_mmap(size_t size, uint8_t executable, uint8_t *large)
     return memory;
 }
 void pclog(const char *fmt, ...) { (void) fmt; }
+
+/* MOVS cases supply valid segments; exercise the real instruction translator,
+   allocator and memory paths without linking the entire instruction decoder. */
+void codegen_check_seg_read(codeblock_t *block, ir_data_t *ir, x86seg *seg)
+{
+    (void) block; (void) ir; (void) seg;
+    CHECK(!(cr0 & 1));
+}
+void codegen_check_seg_write(codeblock_t *block, ir_data_t *ir, x86seg *seg)
+{
+    codegen_check_seg_read(block, ir, seg);
+}
+x86seg *codegen_generate_ea(ir_data_t *ir, x86seg *seg, uint32_t fetchdat, int ssegs,
+                          uint32_t *pc, uint32_t op32, int offset)
+{
+    (void) ir; (void) seg; (void) fetchdat; (void) ssegs;
+    (void) pc; (void) op32; (void) offset;
+    fatal("unexpected generic effective-address decoder call\n");
+    return NULL;
+}
 
 struct mem_block_t *
 codegen_allocator_allocate(struct mem_block_t *parent, int nr)
@@ -143,6 +284,13 @@ access_memory(uint32_t addr, uint64_t value, unsigned size, int store)
         cr4 &= ~CR4_OSFXSR;
     else if (memory_control == 3)
         cr0 |= 4;
+    else if (memory_control == 4) {
+        /* Guest-state mutations matter even in ABI-preserved host registers. */
+        EBP += 3;
+        cpu_state.ST[cpu_state.TOP] += 0.25;
+        for (int lane = 0; lane < 4; lane++)
+            cpu_state.XMM[7].l[lane] += 5;
+    }
     if (helper_calls == fault_on_call) {
         cpu_state.abrt = 1;
         return 0;
@@ -243,6 +391,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_MOV & UOP_MASK] = codegen_MOV,
     [UOP_MOV_IMM & UOP_MASK] = codegen_MOV_IMM,
     [UOP_ADD_IMM & UOP_MASK] = codegen_ADD_IMM,
+    [UOP_AND_IMM & UOP_MASK] = codegen_AND_IMM,
     [UOP_ADD & UOP_MASK] = codegen_ADD,
     [UOP_ADD_LSHIFT & UOP_MASK] = codegen_ADD_LSHIFT,
     [UOP_PADDD & UOP_MASK] = codegen_PADDD,
@@ -574,6 +723,80 @@ run_sse_case(unsigned control, unsigned misalignment, int dynamic_top, unsigned 
 }
 
 static void
+run_sse_recheck(int size, int store, unsigned control, unsigned fault)
+{
+    cases++;
+    memset(&cpu_state, 0, sizeof(cpu_state));
+    memset(&test_block, 0, sizeof(test_block));
+    memset(memory, 0xa5, sizeof(memory));
+    memset(readlookup2, 0xff, sizeof(readlookup2));
+    memset(writelookup2, 0xff, sizeof(writelookup2));
+    next_chunk = helper_calls = aborted = exception = 0;
+    fault_on_call = fault;
+    memory_control = control;
+    expected_oldpc = 0x1234;
+    cycles = 1000;
+    cr0 = 0;
+    cr4 = CR4_OSFXSR;
+    readlookup2[1] = writelookup2[1] = (uintptr_t) memory;
+
+    start_code();
+    build_loadstore_routines(&test_block);
+    codegen_exit_rout = start_code();
+    host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &aborted);
+    host_x86_MOV32_BASE_OFFSET_IMM(&test_block, REG_RDI, 0, 1);
+    codegen_backend_epilogue(&test_block);
+
+    codegen_reg_reset();
+    ir_data_t *ir = codegen_ir_init();
+    int reg = size == 16 ? IREG_XMM(6) : size == 8 ? IREG_MM(0)
+              : size == 4 ? IREG_EDX : size == 2 ? IREG_DX : IREG_DL;
+    cpu_state.oldpc = 0x1230;
+    uop_SSE_ENTER(ir);
+    uop_MOV_IMM(ir, IREG_oldpc, expected_oldpc);
+    /* A later RAM hit must not clear the pending check from an earlier
+       helper. Exercise both scalar and split 128-bit load/store helpers. */
+    for (int page = 0; page < 2; page++) {
+        uop_MOV_IMM(ir, IREG_eaaddr, page * 4096 + 64);
+        if (store)
+            uop_MEM_STORE_REG(ir, IREG_DS_base, IREG_eaaddr, reg);
+        else
+            uop_MEM_LOAD_REG(ir, reg, IREG_DS_base, IREG_eaaddr);
+    }
+    uop_ADD_IMM(ir, IREG_EAX, IREG_EAX, 1);
+    cpu_state.oldpc = 0x1238;
+    uop_SSE_ENTER(ir);
+    uop_ADD_IMM(ir, IREG_EAX, IREG_EAX, 1);
+    uint8_t *entry = start_code();
+    codegen_ir_compile(ir, &test_block);
+#ifdef _WIN32
+    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
+#else
+    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
+#endif
+    ((void (*)(void)) entry)();
+    unsigned calls = fault ? fault : size == 16 ? 2 : 1;
+    unsigned vector = fault || !control ? 0 : control == 1 ? 7 : 6;
+    CHECK(helper_calls == calls && exception == vector);
+    CHECK(aborted == !!(fault || vector));
+    const cpu_state_t *state = vector ? &fault_state : &cpu_state;
+    CHECK(state->regs[0].l == (fault ? 0 : vector ? 1 : 2));
+    CHECK(state->_cycles == 1000 - (int) calls * 5);
+    CHECK(state->oldpc == (vector ? 0x1238 : expected_oldpc));
+
+    /* Run the same block again with SSE disabled on entry. The stack slot
+       left by a previous invocation must never bypass the first check. */
+    exception = aborted = helper_calls = 0;
+    cpu_state.abrt = 0;
+    cr0 = 8;
+    cr4 = CR4_OSFXSR;
+    ((void (*)(void)) entry)();
+    CHECK(exception == 7 && aborted && !helper_calls);
+    CHECK(fault_state.oldpc == 0x1230);
+    memory_control = fault_on_call = 0;
+}
+
+static void
 run_sse_join(int taken, int alignment)
 {
     cases++;
@@ -582,6 +805,7 @@ run_sse_join(int taken, int alignment)
     next_chunk = exception = 0;
     EAX = 1;
     EBX = !taken;
+    cr0 = 0;
     cr4 = CR4_OSFXSR;
     for (int lane = 0; lane < 4; lane++)
         cpu_state.XMM[0].l[lane] = 7;
@@ -773,9 +997,279 @@ run_backend_init(void)
     }
 }
 
+static void
+run_memory_sequence(int kind, unsigned fault, unsigned pad, int dynamic_top, int first_inline)
+{
+    cases++;
+    memset(&cpu_state, 0, sizeof(cpu_state));
+    memset(&test_block, 0, sizeof(test_block));
+    memset(readlookup2, 0xff, sizeof(readlookup2));
+    memset(writelookup2, 0xff, sizeof(writelookup2));
+    memset(memory, 0xa5, sizeof(memory));
+    next_chunk = helper_calls = aborted = 0;
+    fault_on_call = fault;
+    expected_oldpc = 0x1234;
+    memory_control = 4;
+    cycles = 1000;
+    EBP = 10;
+    cpu_state.ST[0] = 1.5;
+    cpu_state.ST[1] = 2.25;
+    for (int r = 0; r < 8; r++)
+        for (int lane = 0; lane < 4; lane++)
+            cpu_state.XMM[r].l[lane] = 10 + r + lane;
+    double value = 1.25;
+    if (kind == 2) {
+        memcpy(memory + 64, &value, 8);
+        memcpy(memory + 4096, &value, 8);
+    }
+    if (first_inline)
+        readlookup2[0] = writelookup2[0] = (uintptr_t) memory;
+
+    start_code();
+    build_loadstore_routines(&test_block);
+    codegen_exit_rout = start_code();
+    host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &aborted);
+    host_x86_MOV32_BASE_OFFSET_IMM(&test_block, REG_RDI, 0, 1);
+    codegen_backend_epilogue(&test_block);
+
+    codegen_reg_reset();
+    ir_data_t *ir = codegen_ir_init();
+    test_block.flags = CODEBLOCK_HAS_FPU | (dynamic_top ? 0 : CODEBLOCK_STATIC_TOP);
+    uop_MOV_IMM(ir, IREG_EAX, 64);
+    uop_MOV_IMM(ir, IREG_EBX, 0x12345678);
+    uop_MOV_IMM(ir, IREG_oldpc, expected_oldpc);
+    uop_ADD_IMM(ir, IREG_EBP, IREG_EBP, 1);
+    uop_FADD(ir, IREG_ST(0), IREG_ST(0), IREG_ST(0));
+    for (int r = 1; r < 8; r++)
+        uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
+    uop_MOV(ir, IREG_temp0_DQ, IREG_XMM(5));
+    uop_MOV(ir, IREG_temp0, IREG_EBX);
+    uop_gen_imm(UOP_TEST_PADDING, ir, pad);
+    for (int i = 0; i < 32; i++) {
+        if (first_inline && i == 1)
+            uop_MOV_IMM(ir, IREG_EAX, 4096);
+        if (kind == 0)
+            uop_MEM_LOAD_REG(ir, IREG_BX, IREG_DS_base, IREG_EAX);
+        else if (kind == 1)
+            uop_MEM_STORE_REG(ir, IREG_DS_base, IREG_EAX, IREG_EBX);
+        else if (kind == 2)
+            uop_MEM_LOAD_DOUBLE(ir, IREG_ST(1), IREG_DS_base, IREG_EAX);
+        else if (kind == 3)
+            uop_MEM_LOAD_REG(ir, IREG_XMM(0), IREG_DS_base, IREG_EAX);
+        else
+            uop_MEM_STORE_REG(ir, IREG_DS_base, IREG_EAX, IREG_XMM(0));
+        /* This temporary is live at early sites but dead at final emission. */
+        if (i == 15) {
+            uop_MOV(ir, IREG_XMM(6), IREG_temp0_DQ);
+            uop_MOV(ir, IREG_EDX, IREG_temp0);
+        }
+    }
+    uop_ADD_IMM(ir, IREG_EBP, IREG_EBP, 1);
+    uop_FADD(ir, IREG_ST(0), IREG_ST(0), IREG_ST(0));
+    for (int r = 1; r < 8; r++)
+        uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
+    uint8_t *entry = start_code();
+    codegen_ir_compile(ir, &test_block);
+    CHECK(next_chunk > 4);
+    cpu_state.TOP = dynamic_top ? 3 : 0;
+    cpu_state.ST[3] = 1.5;
+    cpu_state.ST[4] = 2.25;
+#ifdef _WIN32
+    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
+#else
+    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
+#endif
+    ((void (*)(void)) entry)();
+    unsigned calls = fault ? fault : (32 - first_inline) * (kind >= 3 ? 2 : 1);
+    CHECK(helper_calls == calls && aborted == !!fault);
+    CHECK(cycles == 1000 - (int) calls * 5);
+    CHECK(EBP == 11 + calls * 3 + !fault);
+    CHECK(cpu_state.ST[dynamic_top ? 3 : 0] == (3.0 + calls * 0.25) * (fault ? 1 : 2));
+    unsigned completed = fault ? first_inline + (fault - 1) / (kind >= 3 ? 2 : 1) : 32;
+    if (completed >= 16)
+        CHECK(EDX == 0x12345678);
+    if (kind == 0)
+        CHECK(EBX == (completed ? 0x1234a5a5 : 0x12345678));
+    if (kind == 2)
+        CHECK(cpu_state.ST[dynamic_top ? 4 : 1] == (completed ? 1.25 : 2.25));
+    if (kind == 4) {
+        uint32_t source[] = { 10, 11, 12, 13 };
+        uint8_t expected[16];
+        memset(expected, 0xa5, sizeof(expected));
+        unsigned written = completed ? 16 : fault > 1 ? 8 : 0;
+        memcpy(expected, source, written);
+        CHECK(!memcmp(memory + 64, expected, sizeof(expected)));
+    }
+    for (int lane = 0; lane < 4; lane++) {
+        CHECK(cpu_state.XMM[7].l[lane] == ((17u + lane) * 2 + calls * 5) * (fault ? 1 : 2));
+        if (kind == 3)
+            CHECK(cpu_state.XMM[0].l[lane] == (completed ? 0xa5a5a5a5 : 10u + lane));
+        if (completed >= 16)
+            CHECK(cpu_state.XMM[6].l[lane] == (15u + lane) * (fault ? 2 : 4));
+    }
+    memory_control = fault_on_call = 0;
+}
+
+static void
+run_movs(int size, int a32, int backward, int wrap, unsigned mapped, unsigned fault)
+{
+    cases++;
+    memset(&cpu_state, 0, sizeof(cpu_state));
+    memset(&test_block, 0, sizeof(test_block));
+    memset(memory, 0xa5, sizeof(memory));
+    memset(readlookup2, 0xff, sizeof(readlookup2));
+    memset(writelookup2, 0xff, sizeof(writelookup2));
+    next_chunk = helper_calls = aborted = memory_control = 0;
+    fault_on_call = fault;
+    expected_oldpc = cpu_state.oldpc = 0x1234;
+    cpu_state.flags = 0x8d7 | (backward ? D_FLAG : 0);
+    uint16_t initial_flags = cpu_state.flags;
+    /* DF belongs to execution state, not the translation-time context. */
+    cpu_state.flags ^= D_FLAG;
+    cycles = 1000;
+    EAX = 0x87654321;
+    ECX = EDX = 0x11223344;
+    /* Segment bases put both wrap boundaries into the small synthetic RAM.
+       a16 must ignore, and preserve, the nonzero upper halves of ESI/EDI. */
+    uint32_t edge = backward ? 0 : (a32 ? UINT32_MAX : 0xffff);
+    uint32_t source_index = wrap == 1 ? edge : 128;
+    uint32_t dest_index = wrap == 2 ? edge : 256;
+    uint32_t source = a32 ? source_index : 0x12340000 | source_index;
+    uint32_t dest = a32 ? dest_index : 0x56780000 | dest_index;
+    cpu_state.seg_ds.base = 64 - source_index;
+    cpu_state.seg_es.base = 4160 - dest_index;
+    op_ea_seg = &cpu_state.seg_ds;
+    memcpy(memory + 64, &EAX, size);
+    if (mapped & 1) readlookup2[0] = (uintptr_t) memory;
+    if (mapped & 2) writelookup2[1] = (uintptr_t) memory;
+
+    start_code();
+    build_loadstore_routines(&test_block);
+    codegen_exit_rout = start_code();
+    host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &aborted);
+    host_x86_MOV32_BASE_OFFSET_IMM(&test_block, REG_RDI, 0, 1);
+    codegen_backend_epilogue(&test_block);
+    codegen_reg_reset();
+    ir_data_t *ir = codegen_ir_init();
+    /* Make the indices and cycles dirty before the instruction and consume
+       both indices afterward, covering writeback and reload around the call. */
+    uop_MOV_IMM(ir, IREG_ESI, source);
+    uop_MOV_IMM(ir, IREG_EDI, dest);
+    uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, -3);
+    uint32_t next_pc = size == 1 ? ropMOVS_b(&test_block, ir, 0xa4, 0, a32 ? 0x200 : 0, 0x1235)
+                     : size == 2 ? ropMOVS_w(&test_block, ir, 0xa5, 0, a32 ? 0x200 : 0, 0x1235)
+                                 : ropMOVS_l(&test_block, ir, 0xa5, 0, a32 ? 0x300 : 0x100, 0x1235);
+    CHECK(next_pc == 0x1235);
+    uop_MOV(ir, IREG_ECX, IREG_ESI);
+    uop_MOV(ir, IREG_EDX, IREG_EDI);
+    uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, -2);
+    uint8_t *entry = start_code();
+    codegen_ir_compile(ir, &test_block);
+    cpu_state.flags = initial_flags;
+#ifdef _WIN32
+    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
+#else
+    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
+#endif
+    ((void (*)(void)) entry)();
+    unsigned calls = fault ? fault : !(mapped & 1) + !(mapped & 2);
+    CHECK(helper_calls == calls && aborted == !!fault && cpu_state.abrt == !!fault);
+    CHECK(cpu_state.oldpc == expected_oldpc && cpu_state.flags == initial_flags);
+    CHECK(EAX == 0x87654321);
+    CHECK(cycles == (fault ? 997 : 995) - (int) calls * 5);
+    int step = backward ? -size : size;
+    uint32_t expected_source = fault ? source : a32 ? source + step : (source & 0xffff0000) | (uint16_t) (source + step);
+    uint32_t expected_dest = fault ? dest : a32 ? dest + step : (dest & 0xffff0000) | (uint16_t) (dest + step);
+    CHECK(ESI == expected_source && EDI == expected_dest);
+    CHECK(ECX == (fault ? 0x11223344 : expected_source));
+    CHECK(EDX == (fault ? 0x11223344 : expected_dest));
+    for (int i = -1; i <= size; i++) {
+        CHECK(memory[64 + i] == (i >= 0 && i < size ? ((uint8_t *) &EAX)[i] : 0xa5));
+        CHECK(memory[4160 + i] == (!fault && i >= 0 && i < size ? memory[64 + i] : 0xa5));
+    }
+    fault_on_call = 0;
+}
+
+static void
+run_indexed_sequence(unsigned fault, int mapped)
+{
+    cases++;
+    memset(&cpu_state, 0, sizeof(cpu_state));
+    memset(&test_block, 0, sizeof(test_block));
+    memset(readlookup2, 0xff, sizeof(readlookup2));
+    memset(writelookup2, 0xff, sizeof(writelookup2));
+    memset(memory, 0xa5, sizeof(memory));
+    if (mapped) writelookup2[0] = (uintptr_t) memory;
+    next_chunk = helper_calls = aborted = memory_control = 0;
+    fault_on_call = fault;
+    expected_oldpc = cpu_state.oldpc = 0x1234;
+    cycles = 1000;
+    uint32_t expected[8];
+    for (int r = 0; r < 8; r++) expected[r] = cpu_state.regs[r].l = 100 + r;
+    uint64_t quad = cpu_state.MM[0].q = UINT64_C(0x12345678abcdef90);
+    uint32_t expected_xmm[8][4];
+    for (int r = 0; r < 8; r++)
+        for (int lane = 0; lane < 4; lane++) expected_xmm[r][lane] = cpu_state.XMM[r].l[lane] = 10 + r + lane;
+    start_code();
+    build_loadstore_routines(&test_block);
+    codegen_exit_rout = start_code();
+    host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &aborted);
+    host_x86_MOV32_BASE_OFFSET_IMM(&test_block, REG_RDI, 0, 1);
+    codegen_backend_epilogue(&test_block);
+    codegen_reg_reset();
+    ir_data_t *ir = codegen_ir_init();
+    test_block.flags = CODEBLOCK_STATIC_TOP;
+    uop_MOV_IMM(ir, IREG_eaaddr, 64);
+    uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, -1);
+    for (unsigned i = 0; i < 64; i++) {
+        unsigned r = ((i + 1) * 2654435761u) >> 29;
+        uop_ADD_IMM(ir, IREG_32(r), IREG_32(r), i + 1);
+        uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
+        uop_MEM_STORE_REG(ir, IREG_DS_base, IREG_eaaddr,
+                          i % 3 == 0 ? IREG_16(r) : i % 3 == 1 ? IREG_32(r) : IREG_MM(0));
+    }
+    for (int r = 0; r < 8; r++) {
+        uop_ADD_IMM(ir, IREG_32(r), IREG_32(r), 1);
+        uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
+    }
+    uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, -1);
+    uint8_t *entry = start_code();
+    codegen_ir_compile(ir, &test_block);
+    int owners = 0;
+    for (int i = 0; i < mem_slow_count; i++) owners += mem_slow_sites[i].owner == i;
+    CHECK(owners > MEM_SLOW_LINEAR_SITES && next_chunk > 4);
+#ifdef _WIN32
+    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
+#else
+    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
+#endif
+    ((void (*)(void)) entry)();
+    uint8_t stored[8];
+    memset(stored, 0xa5, sizeof(stored));
+    for (unsigned i = 0; i < (fault ? fault : 64); i++) {
+        unsigned r = ((i + 1) * 2654435761u) >> 29;
+        expected[r] += i + 1;
+        for (int lane = 0; lane < 4; lane++) expected_xmm[r][lane] *= 2;
+        if (!fault || i + 1 < fault)
+            memcpy(stored, i % 3 == 2 ? (void *) &quad : (void *) &expected[r], 2 << (i % 3));
+    }
+    if (!fault) for (int r = 0; r < 8; r++) expected[r]++;
+    if (!fault) for (int r = 0; r < 8; r++)
+        for (int lane = 0; lane < 4; lane++) expected_xmm[r][lane] *= 2;
+    CHECK(!memcmp(cpu_state.regs, expected, sizeof(expected)));
+    CHECK(!memcmp(cpu_state.XMM, expected_xmm, sizeof(expected_xmm)));
+    CHECK(!memcmp(memory + 64, stored, sizeof(stored)));
+    CHECK(memory[63] == 0xa5 && memory[72] == 0xa5 && cpu_state.MM[0].q == quad);
+    CHECK(helper_calls == (fault ? fault : mapped ? 0 : 64));
+    CHECK(aborted == !!fault && cpu_state.abrt == !!fault);
+    CHECK(cpu_state.oldpc == expected_oldpc && cycles == 999 - !fault - 5 * (int) helper_calls);
+    fault_on_call = 0;
+}
+
 int
 main(void)
 {
+    run_slow_index();
 #ifdef _WIN32
     code_memory = VirtualAlloc(NULL, CODE_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     CHECK(code_memory != NULL);
@@ -784,6 +1278,28 @@ main(void)
     CHECK(code_memory != MAP_FAILED);
 #endif
     run_backend_init();
+    run_indexed_sequence(0, 1);
+    for (unsigned fault = 0; fault <= 64; fault++) run_indexed_sequence(fault, 0);
+    for (int size = 1; size <= 4; size *= 2)
+        for (int a32 = 0; a32 < 2; a32++)
+            for (int backward = 0; backward < 2; backward++)
+                for (int wrap = 0; wrap < 3; wrap++)
+                    for (unsigned mapped = 0; mapped < 4; mapped++)
+                        for (unsigned fault = 0; fault <= !(mapped & 1) + !(mapped & 2); fault++)
+                            run_movs(size, a32, backward, wrap, mapped, fault);
+    for (int top = 0; top < 2; top++) {
+        for (int kind = 0; kind < 5; kind++) {
+            for (unsigned pad = 0; pad < BLOCK_MAX; pad += 31) {
+                run_memory_sequence(kind, 0, pad, top, 0);
+                run_memory_sequence(kind, 1, pad, top, 0);
+                run_memory_sequence(kind, 2, pad, top, 0);
+                run_memory_sequence(kind, kind >= 3 ? 64 : 32, pad, top, 0);
+                /* A successful inline load must remain dirty, and its new value
+                   becomes the old destination if the following helper faults. */
+                run_memory_sequence(kind, 1, pad, top, 1);
+            }
+        }
+    }
     for (int top = 0; top < 2; top++) {
         for (int store = 0; store < 2; store++) {
             for (int form = FORM_REG; form <= FORM_DOUBLE; form++) {
@@ -854,7 +1370,17 @@ main(void)
         run_sse_case(2, 0, 1, 0);
         run_sse_case(4, 0, 1, 0);
         run_sse_case(0, 1, 1, 0);
+        run_sse_case(0, 0, 1, 1);
+        run_sse_case(0, 0, 1, 3);
+        run_sse_case(0, 0, 1, 4);
+        run_sse_case(0, 0, 1, 5);
     }
+    padding = 0;
+    for (int size = 1; size <= 16; size *= 2)
+        for (int store = 0; store < 2; store++)
+            for (unsigned control = 0; control < 4; control++)
+                for (unsigned fault = 0; fault <= (size == 16 ? 2 : 1); fault++)
+                    run_sse_recheck(size, store, control, fault);
     for (int taken = 0; taken < 2; taken++)
         for (int alignment = 0; alignment < 2; alignment++)
             run_sse_join(taken, alignment);

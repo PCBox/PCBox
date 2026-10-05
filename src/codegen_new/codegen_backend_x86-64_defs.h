@@ -71,5 +71,12 @@ extern void *codegen_mem_store_quad;
 extern void *codegen_mem_store_single;
 extern void *codegen_mem_store_double;
 
+/* C fallback entries after the shared helpers' RAM lookup. Inputs are ECX
+   (load address) or EDI (store address), with the usual store data ABI. */
+extern void *codegen_mem_load_slow[2][4];
+extern void *codegen_mem_store_slow[2][4];
+extern void *codegen_mem_load_callback[4];
+extern void *codegen_mem_store_callback[4];
+
 extern void *codegen_gpf_rout;
 extern void *codegen_exit_rout;

@@ -899,8 +899,36 @@ ropSTOS_l(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint
 }
 
 /*
+ * MOVS helpers - update both indices only after the load and store succeed.
+ * One call gives the allocator a single synchronization point for both updates.
+ * Keep a16 word/dword updates separate until their regressions in long blocks
+ * using memory helpers are resolved.
+ */
+static inline void
+movs_adj_a32(int size)
+{
+    int step = (cpu_state.flags & D_FLAG) ? -size : size;
+    /* Keep two scalar accesses: GCC otherwise combines these into a wider
+       SIMD load/store, which can stall after the allocator writes ESI and EDI
+       separately. Volatile applies only to these accesses, with no CPU fence. */
+    volatile uint32_t *dest = &EDI;
+    volatile uint32_t *source = &ESI;
+    *dest += step;
+    *source += step;
+}
+
+static void
+movs_adj_b_a16(void) { int step = (cpu_state.flags & D_FLAG) ? -1 : 1; DI += step; SI += step; }
+static void
+movs_adj_b_a32(void) { movs_adj_a32(1); }
+static void
+movs_adj_w_a32(void) { movs_adj_a32(2); }
+static void
+movs_adj_l_a32(void) { movs_adj_a32(4); }
+
+/*
  * MOVS - Move String
- * Moves AL/AX/EAX from [seg:SI/ESI] to [es:DI/EDI], then adjusts SI/ESI and DI/EDI by ±size based on DF.
+ * Copies a byte/word/dword from [seg:SI/ESI] to [es:DI/EDI], then adjusts both indices based on DF.
  */
 uint32_t
 ropMOVS_b(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), uint32_t op_32, uint32_t op_pc)
@@ -915,15 +943,13 @@ ropMOVS_b(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint
     if (op_32 & 0x200) {
         uop_MEM_LOAD_REG(ir, IREG_temp0_B, seg_base_src, IREG_ESI);
         uop_MEM_STORE_REG(ir, seg_base_dst, IREG_EDI, IREG_temp0_B);
-        uop_CALL_FUNC(ir, stos_adj_b_a32);
-        uop_CALL_FUNC(ir, lods_adj_b_a32);
+        uop_CALL_FUNC(ir, movs_adj_b_a32);
     } else {
         uop_AND_IMM(ir, IREG_temp1, IREG_ESI, 0xffff);
         uop_AND_IMM(ir, IREG_eaaddr, IREG_EDI, 0xffff);
         uop_MEM_LOAD_REG(ir, IREG_temp0_B, seg_base_src, IREG_temp1);
         uop_MEM_STORE_REG(ir, seg_base_dst, IREG_eaaddr, IREG_temp0_B);
-        uop_CALL_FUNC(ir, stos_adj_b_a16);
-        uop_CALL_FUNC(ir, lods_adj_b_a16);
+        uop_CALL_FUNC(ir, movs_adj_b_a16);
     }
 
     return op_pc;
@@ -942,8 +968,7 @@ ropMOVS_w(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint
     if (op_32 & 0x200) {
         uop_MEM_LOAD_REG(ir, IREG_temp0_W, seg_base_src, IREG_ESI);
         uop_MEM_STORE_REG(ir, seg_base_dst, IREG_EDI, IREG_temp0_W);
-        uop_CALL_FUNC(ir, stos_adj_w_a32);
-        uop_CALL_FUNC(ir, lods_adj_w_a32);
+        uop_CALL_FUNC(ir, movs_adj_w_a32);
     } else {
         uop_AND_IMM(ir, IREG_temp1, IREG_ESI, 0xffff);
         uop_AND_IMM(ir, IREG_eaaddr, IREG_EDI, 0xffff);
@@ -969,8 +994,7 @@ ropMOVS_l(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint
     if (op_32 & 0x200) {
         uop_MEM_LOAD_REG(ir, IREG_temp0, seg_base_src, IREG_ESI);
         uop_MEM_STORE_REG(ir, seg_base_dst, IREG_EDI, IREG_temp0);
-        uop_CALL_FUNC(ir, stos_adj_l_a32);
-        uop_CALL_FUNC(ir, lods_adj_l_a32);
+        uop_CALL_FUNC(ir, movs_adj_l_a32);
     } else {
         uop_AND_IMM(ir, IREG_temp1, IREG_ESI, 0xffff);
         uop_AND_IMM(ir, IREG_eaaddr, IREG_EDI, 0xffff);

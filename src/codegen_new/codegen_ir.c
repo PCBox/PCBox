@@ -68,7 +68,8 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
     int jump_target_at_end = -1;
     int c;
 #ifdef CODEGEN_HAS_SSE
-    int sse_entered = 0;
+    enum { SSE_UNCHECKED, SSE_CHECKED, SSE_AFTER_MEMORY };
+    int sse_entered = SSE_UNCHECKED;
 #endif
 
     if (codegen_unroll_count) {
@@ -92,6 +93,9 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
     block_write_data = codeblock_allocator_get_ptr(block->head_mem_block);
     block_pos        = 0;
     codegen_backend_prologue(block);
+#ifdef CODEGEN_BACKEND_HAS_MEM_STUBS
+    codegen_backend_mem_begin();
+#endif
 
     for (c = 0; c < ir->wr_pos; c++) {
         uop_t *uop = &ir->uops[c];
@@ -101,23 +105,42 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
 #ifdef CODEGEN_HAS_SSE
         /* Coalesce SSE entry checks after loop unrolling, so duplicated
            iterations are checked too. Keep the first check (and its fault PC)
-           in each straight-line region; calls, memory accesses and joins
-           conservatively end the region (memory helpers can reach devices).
+           in each straight-line region; calls and joins end the region.
+           Memory helpers can reach devices: capable backends record whether
+           a helper ran, so RAM hits only need a cheap conditional recheck.
            Successful inline alignment checks do not change SSE control state.
            Skip the redundant barrier as well as the check, allowing SSE
            values to stay in host registers. */
         if (uop->type & UOP_TYPE_JUMP_DEST)
-            sse_entered = 0;
+            sse_entered = SSE_UNCHECKED;
+#ifdef CODEGEN_BACKEND_HAS_SSE_RECHECK
+        uop->type &= ~UOP_TYPE_SSE_INVALIDATE;
+#endif
         if ((uop->type & UOP_MASK) == (UOP_SSE_ENTER & UOP_MASK)) {
-            if (sse_entered)
+            if (sse_entered == SSE_CHECKED)
                 continue;
-            sse_entered = 1;
+#ifdef CODEGEN_BACKEND_HAS_SSE_RECHECK
+            if (sse_entered == SSE_AFTER_MEMORY) {
+                /* SSE_ENTER has no register operands or branch bookkeeping.
+                   Keep its IR barrier for fault liveness, but emit the guard
+                   without flushing the successful RAM path's allocation. */
+                codegen_backend_sse_recheck(block, uop);
+                sse_entered = SSE_CHECKED;
+                continue;
+            }
+#endif
+            sse_entered = SSE_CHECKED;
+#ifdef CODEGEN_BACKEND_HAS_SSE_RECHECK
+        } else if ((uop->type & UOP_TYPE_MEM) && sse_entered != SSE_UNCHECKED) {
+            uop->type |= UOP_TYPE_SSE_INVALIDATE;
+            sse_entered = SSE_AFTER_MEMORY;
+#endif
         } else if ((uop->type & (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER))
 #ifdef CODEGEN_BACKEND_HAS_SSE_REGS
                    && (uop->type & UOP_MASK) != (UOP_CHECK_ALIGN & UOP_MASK)
 #endif
         )
-            sse_entered = 0;
+            sse_entered = SSE_UNCHECKED;
 #endif
 
         /* Keep the IR barriers for fault-state liveness. Inline SSE checks
@@ -232,6 +255,9 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
     }
 
     codegen_backend_epilogue(block);
+#ifdef CODEGEN_BACKEND_HAS_MEM_STUBS
+    codegen_backend_mem_finish(block);
+#endif
     block_write_data = NULL;
 #if 0
     if (has_ea)

@@ -27,7 +27,7 @@ int max_version_refcount;
 
 static uint8_t code_buffer[1];
 static uint32_t entry_pcs[32];
-static int entries, arithmetic, full_flushes, order_flushes, patched_jumps;
+static int entries, rechecks, arithmetic, full_flushes, order_flushes, patched_jumps;
 
 void fatal(const char *fmt, ...)
 {
@@ -41,6 +41,8 @@ void fatal(const char *fmt, ...)
 uint8_t *codeblock_allocator_get_ptr(struct mem_block_t *block) { (void)block; return code_buffer; }
 void codegen_backend_prologue(codeblock_t *block) { (void)block; }
 void codegen_backend_epilogue(codeblock_t *block) { (void)block; }
+void codegen_backend_mem_begin(void) { }
+void codegen_backend_mem_finish(codeblock_t *block) { (void)block; }
 void codegen_set_jump_dest(codeblock_t *block, void *p) { (void)block; (void)p; patched_jumps++; }
 void codegen_reg_mark_as_required(void) { }
 void codegen_reg_process_dead_list(ir_data_t *ir) { (void)ir; }
@@ -73,6 +75,12 @@ static int record_uop(codeblock_t *block, uop_t *uop)
     return 0;
 }
 
+void codegen_backend_sse_recheck(codeblock_t *block, uop_t *uop)
+{
+    rechecks++;
+    record_uop(block, uop);
+}
+
 const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_SSE_ENTER & UOP_MASK] = record_uop,
     [UOP_ADDPS & UOP_MASK] = record_uop,
@@ -87,7 +95,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
 
 static ir_data_t *start_block(void)
 {
-    entries = arithmetic = full_flushes = order_flushes = patched_jumps = 0;
+    entries = rechecks = arithmetic = full_flushes = order_flushes = patched_jumps = 0;
     memset(reg_last_version, 0, sizeof(reg_last_version));
     memset(reg_version, 0, sizeof(reg_version));
     dirty_ir_regs[0] = dirty_ir_regs[1] = 0;
@@ -126,8 +134,8 @@ int main(void)
         CHECK(full_flushes == 1); /* Only the final block writeback. */
     }
 
-    /* Helpers/fallbacks may change control state. Memory helpers can reach
-       devices, so memory accesses also end the checked region. */
+    /* Memory callbacks can change control state. Their following SSE check
+       is conditional on helper execution, preserving the RAM-hit region. */
     const uint32_t barriers[] = {
         UOP_CALL_FUNC, UOP_CALL_FUNC_RESULT, UOP_CALL_INSTRUCTION_FUNC,
         UOP_MEM_LOAD_REG
@@ -140,6 +148,7 @@ int main(void)
         add_sse(ir, 0x203);
         compile(ir);
         CHECK(entries == 2 && entry_pcs[0] == 0x100 && entry_pcs[1] == 0x200);
+        CHECK(rechecks == !!(barriers[i] & UOP_TYPE_MEM));
         CHECK(arithmetic == 3);
         CHECK(full_flushes == ((barriers[i] & UOP_TYPE_BARRIER) ? 2 : 1));
         CHECK(order_flushes == ((barriers[i] & UOP_TYPE_ORDER_BARRIER) && !(barriers[i] & UOP_TYPE_MEM) ? 1 : 0));

@@ -16,6 +16,16 @@ void codegen_backend_epilogue(codeblock_t *block);
 struct ir_data_t;
 struct uop_t;
 
+#ifdef CODEGEN_BACKEND_HAS_MEM_STUBS
+void codegen_backend_mem_begin(void);
+void codegen_backend_mem_finish(codeblock_t *block);
+void codegen_backend_mem_call(codeblock_t *block, int size, int is_float, int store, void *callback);
+#endif
+
+#ifdef CODEGEN_BACKEND_HAS_SSE_RECHECK
+void codegen_backend_sse_recheck(codeblock_t *block, struct uop_t *uop);
+#endif
+
 struct ir_data_t *codegen_get_ir_data(void);
 
 typedef int (*uOpFn)(codeblock_t *codeblock, struct uop_t *uop);

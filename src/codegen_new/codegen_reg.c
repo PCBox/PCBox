@@ -34,6 +34,9 @@ typedef struct host_reg_set_t {
 static host_reg_set_t host_reg_set;
 static host_reg_set_t host_fp_reg_set;
 static int            host_int_regs_low_only;
+#ifdef CODEGEN_BACKEND_HAS_MEM_REGS
+static uint16_t       mem_dest_write_mask;
+#endif
 
 uint64_t dirty_ir_regs[2] = { 0, 0 };
 
@@ -273,6 +276,9 @@ codegen_check_regs(void)
 void
 codegen_reg_reset(void)
 {
+#ifdef CODEGEN_BACKEND_HAS_MEM_REGS
+    mem_dest_write_mask = 0;
+#endif
     int c;
 
     host_reg_set.regs        = _host_regs;
@@ -476,13 +482,10 @@ codegen_reg_load(host_reg_set_t *reg_set, codeblock_t *block, int c, ir_reg_t ir
 }
 
 static void
-codegen_reg_writeback(host_reg_set_t *reg_set, codeblock_t *block, int c, int invalidate)
+codegen_reg_writeback_value(host_reg_set_t *reg_set, codeblock_t *block, int c)
 {
     int   ir_reg = IREG_GET_REG(reg_set->regs[c].reg);
     void *p      = ireg_data[ir_reg].p;
-
-    if (!reg_version[ir_reg][reg_set->regs[c].version].refcount && ireg_data[ir_reg].is_volatile)
-        return;
 
     switch (ireg_data[ir_reg].native_size) {
         case REG_BYTE:
@@ -595,7 +598,15 @@ codegen_reg_writeback(host_reg_set_t *reg_set, codeblock_t *block, int c, int in
         default:
             fatal("codegen_reg_flush - native_size=%i\n", ireg_data[ir_reg].native_size);
     }
+}
 
+static void
+codegen_reg_writeback(host_reg_set_t *reg_set, codeblock_t *block, int c, int invalidate)
+{
+    ir_reg_t reg = reg_set->regs[c];
+    if (!ir_get_refcount(reg) && ireg_data[IREG_GET_REG(reg.reg)].is_volatile)
+        return;
+    codegen_reg_writeback_value(reg_set, block, c);
     if (invalidate)
         reg_set->regs[c] = invalid_ir_reg;
     reg_set->dirty[c] = 0;
@@ -942,6 +953,90 @@ codegen_reg_rename(codeblock_t *block, ir_reg_t src, ir_reg_t dst)
 }
 
 #ifdef CODEGEN_BACKEND_HAS_MEM_REGS
+void
+codegen_reg_capture_mem(codegen_mem_reg_state_t *state, ir_reg_t dest_reg)
+{
+    host_reg_set_t *sets[] = { &host_reg_set, &host_fp_reg_set };
+    *state = (codegen_mem_reg_state_t) { 0 };
+    for (int set = 0, n = 0; set < 2; set++) {
+        host_reg_set_t *regs = sets[set];
+        for (int c = 0; c < regs->nr_regs; c++, n++) {
+            ir_reg_t reg = regs->regs[c];
+            if (ir_reg_is_invalid(reg))
+                continue;
+            int index = IREG_GET_REG(reg.reg);
+            if (index == IREG_GET_REG(dest_reg.reg)) {
+                /* The physical register still holds the old destination.
+                   Allocation changed its version, not its value. */
+                if (mem_dest_write_mask & (1u << n)) {
+                    state->regs[n] = index;
+                    state->write_mask |= 1u << n;
+                    state->write_uses_top |= ireg_data[index].native_size >= REG_FPU_ST_BYTE;
+                }
+                continue;
+            }
+            if (ireg_data[index].is_volatile && !ir_get_refcount(reg))
+                continue;
+            state->regs[n] = index;
+            state->reload_mask |= 1u << n;
+            if (regs->dirty[c])
+                state->write_mask |= 1u << n;
+            int top = ireg_data[index].native_size >= REG_FPU_ST_BYTE;
+            state->reload_uses_top |= top;
+            state->write_uses_top |= top && regs->dirty[c];
+        }
+    }
+}
+
+void
+codegen_reg_sync_mem(codeblock_t *block, const codegen_mem_reg_state_t *state, int reload, int stack_offset)
+{
+    /* A local register set prevents deferred emission from touching the live
+       allocator or consulting its final versions/refcounts/dirty bits. */
+    ir_reg_t reg;
+    host_reg_set_t regs = { .regs = &reg };
+    unsigned mask = reload ? state->reload_mask : state->write_mask;
+    for (int n = 0; n < CODEGEN_HOST_REGS + CODEGEN_HOST_FP_REGS; n++) {
+        if (!(mask & (1u << n)))
+            continue;
+        reg = (ir_reg_t) { .reg = state->regs[n] };
+        regs.reg_list = n < CODEGEN_HOST_REGS ? &codegen_host_reg_list[n]
+                                            : &codegen_host_fp_reg_list[n - CODEGEN_HOST_REGS];
+        /* Shared stubs have a return address and alignment slot below the
+           block frame. Only IR temporaries use stack backing; architectural
+           state still uses the same absolute/RBP-relative addresses. */
+        if (stack_offset && (uintptr_t) ireg_data[reg.reg].p < 256) {
+            int offset = (intptr_t) ireg_data[reg.reg].p + stack_offset;
+            int host = regs.reg_list->reg;
+            switch (ireg_data[reg.reg].native_size) {
+                case REG_DWORD:
+                    if (reload) codegen_direct_read_32_stack(block, host, offset);
+                    else codegen_direct_write_32_stack(block, offset, host);
+                    break;
+                case REG_QWORD:
+                    if (reload) codegen_direct_read_64_stack(block, host, offset);
+                    else codegen_direct_write_64_stack(block, offset, host);
+                    break;
+                case REG_DOUBLE:
+                    if (reload) codegen_direct_read_double_stack(block, host, offset);
+                    else codegen_direct_write_double_stack(block, offset, host);
+                    break;
+                case REG_DQWORD:
+                    if (reload) codegen_direct_read_128_stack(block, host, offset);
+                    else codegen_direct_write_128_stack(block, offset, host);
+                    break;
+                default:
+                    fatal("Unexpected memory-stub spill type\n");
+            }
+            continue;
+        }
+        if (reload)
+            codegen_reg_load(&regs, block, 0, reg);
+        else
+            codegen_reg_writeback_value(&regs, block, 0);
+    }
+}
+
 int
 codegen_reg_get_dirty_host_reg(int reg)
 {
@@ -958,16 +1053,25 @@ codegen_reg_get_dirty_host_reg(int reg)
 void
 codegen_reg_flush_mem_dest(codeblock_t *block, ir_reg_t dest_reg)
 {
+    mem_dest_write_mask = 0;
     if (ir_reg_is_invalid(dest_reg))
         return;
 
     host_reg_set_t *reg_set = get_reg_set(dest_reg);
 
-    /* Allocation replaces the old destination's version before the load runs.
-       Keep its architectural value available if the load faults. */
+    /* A reusable destination is not overwritten until the load succeeds.
+       Defer its old architectural value's writeback to the fault-capable
+       helper path. Unsupported host encodings can cause allocation to move
+       the value, so retain eager writeback for those. Never clear dirty bits
+       for a conditional write: the inline path still owes its final value. */
     for (int c = 0; c < reg_set->nr_regs; c++) {
-        if (IREG_GET_REG(reg_set->regs[c].reg) == IREG_GET_REG(dest_reg.reg) && reg_set->dirty[c])
-            codegen_reg_writeback(reg_set, block, c, 0);
+        if (IREG_GET_REG(reg_set->regs[c].reg) == IREG_GET_REG(dest_reg.reg) && reg_set->dirty[c]) {
+            if (host_reg_supports_ir_reg(reg_set, c, dest_reg)
+                && !ireg_data[IREG_GET_REG(dest_reg.reg)].is_volatile)
+                mem_dest_write_mask |= 1u << (c + (reg_set == &host_fp_reg_set ? CODEGEN_HOST_REGS : 0));
+            else
+                codegen_reg_writeback(reg_set, block, c, 0);
+        }
     }
 }
 
@@ -982,7 +1086,9 @@ codegen_reg_flush_conditional(codeblock_t *block, ir_reg_t dest_reg)
         for (int c = 0; c < reg_set->nr_regs; c++) {
             ir_reg_t reg = reg_set->regs[c];
 
-            if (ir_reg_is_invalid(reg) || IREG_GET_REG(reg.reg) == IREG_GET_REG(dest_reg.reg) || !reg_set->dirty[c])
+            int old_dest = mem_dest_write_mask & (1u << (c + (set ? CODEGEN_HOST_REGS : 0)));
+            if (ir_reg_is_invalid(reg) || !reg_set->dirty[c]
+                || (IREG_GET_REG(reg.reg) == IREG_GET_REG(dest_reg.reg) && !old_dest))
                 continue;
             codegen_reg_writeback(reg_set, block, c, 0);
             /* This store only runs on the slow or fault path. The successful
