@@ -141,10 +141,17 @@ codegen_check_seg_write(UNUSED(codeblock_t *block), ir_data_t *ir, x86seg *seg)
 static x86seg *
 codegen_generate_ea_16_long(ir_data_t *ir, x86seg *op_ea_seg, uint32_t fetchdat, int op_ssegs, uint32_t *op_pc)
 {
+    codeblock_t *block  = ir->block;
     uint32_t old_pc = (*op_pc) + 1;
     if (!cpu_mod && cpu_rm == 6) {
-        uint16_t addr = (fetchdat >> 8) & 0xffff;
-        uop_MOV_IMM(ir, IREG_eaaddr, addr);
+        if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
+            LOAD_IMMEDIATE_FROM_RAM_16(block, ir, IREG_temp0_W, cs + (*op_pc) + 1);
+            uop_MOVZX(ir, IREG_eaaddr, IREG_temp0_W);
+        }
+        else {
+            uint16_t addr = (fetchdat >> 8) & 0xffff;
+            uop_MOV_IMM(ir, IREG_eaaddr, addr);
+        }
         (*op_pc) += 2;
     } else {
         int base_reg;
@@ -183,13 +190,27 @@ codegen_generate_ea_16_long(ir_data_t *ir, x86seg *op_ea_seg, uint32_t fetchdat,
 
         switch (cpu_mod) {
             case 1:
-                offset = (int) (int8_t) ((fetchdat >> 8) & 0xff);
-                uop_ADD_IMM(ir, IREG_eaaddr, IREG_eaaddr, offset);
+                if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
+                    LOAD_IMMEDIATE_FROM_RAM_8(block, ir, IREG_temp0_B, cs + (*op_pc) + 1);
+                    uop_MOVSX(ir, IREG_temp0, IREG_temp0_B);
+                    uop_ADD(ir, IREG_eaaddr, IREG_eaaddr, IREG_temp0);
+                }
+                else {
+                    offset = (int) (int8_t) ((fetchdat >> 8) & 0xff);
+                    uop_ADD_IMM(ir, IREG_eaaddr, IREG_eaaddr, offset);
+                }
                 (*op_pc)++;
                 break;
             case 2:
-                offset = (fetchdat >> 8) & 0xffff;
-                uop_ADD_IMM(ir, IREG_eaaddr, IREG_eaaddr, offset);
+                if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
+                    LOAD_IMMEDIATE_FROM_RAM_16(block, ir, IREG_temp0_W, cs + (*op_pc) + 1);
+                    uop_MOVSX(ir, IREG_temp0, IREG_temp0_W);
+                    uop_ADD(ir, IREG_eaaddr, IREG_eaaddr, IREG_temp0);
+                }
+                else {
+                    offset = (fetchdat >> 8) & 0xffff;
+                    uop_ADD_IMM(ir, IREG_eaaddr, IREG_eaaddr, offset);
+                }
                 (*op_pc) += 2;
                 break;
 
