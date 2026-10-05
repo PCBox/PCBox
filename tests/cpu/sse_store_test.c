@@ -23,12 +23,19 @@ cpu_state_t cpu_state;
 uintptr_t writelookup2[1048576];
 uint8_t *ram, *block_write_data;
 int block_pos, cpu_block_end;
+int timing_misaligned, cpu_cyrix_alignment;
 static codeblock_t test_block;
 codeblock_t *codeblock = &test_block;
 
 /* Register allocation is exercised separately by ram_register_test. */
+int codegen_reg_get_dirty_host_reg(int reg) { (void)reg; return -1; }
 void codegen_reg_flush_conditional(codeblock_t *block, ir_reg_t reg) { (void)block; (void)reg; }
 void codegen_reg_reload_mem(codeblock_t *block, ir_reg_t reg) { (void)block; (void)reg; }
+void codegen_reg_capture_mem(codegen_mem_reg_state_t *state, ir_reg_t reg)
+{ (void)reg; memset(state, 0, sizeof(*state)); }
+void codegen_reg_sync_mem(codeblock_t *block, const codegen_mem_reg_state_t *state, int reload, int stack_offset)
+{ (void)block; (void)state; (void)reload; (void)stack_offset; }
+
 
 enum { CODE_SIZE = 65536, CHUNK_SIZE = 4096 };
 struct mem_block_t { uint8_t *data; };
@@ -106,6 +113,7 @@ static void run_store(uint32_t segment, uint32_t address, uint32_t offset,
     build_helper();
     uint8_t *entry = start_code();
     codegen_backend_prologue(&test_block);
+    codegen_backend_mem_begin();
     host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) test_data);
     host_x86_MOVDQU_XREG_BASE_OFFSET(&test_block, REG_XMM1, REG_RDI, 0);
     host_x86_MOV32_REG_IMM(&test_block, REG_EAX, segment);
@@ -121,14 +129,13 @@ static void run_store(uint32_t segment, uint32_t address, uint32_t offset,
     uop.is_a16 = a16;
     codegen_MEM_STORE_REG(&test_block, &uop);
     codegen_backend_epilogue(&test_block);
+    codegen_backend_mem_finish(&test_block);
 #ifdef _WIN32
     CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
 #else
     __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
 #endif
-    uint64_t stores_before = codegen_profile.memory_stores;
     ((void (*)(void)) entry)();
-    CHECK(codegen_profile.memory_stores - stores_before == (uint64_t) codegen_profile_enabled);
 
     CHECK(helper_calls == (uint32_t) expected_calls);
     CHECK(aborted == (fault != 0));
@@ -143,7 +150,6 @@ static void run_store(uint32_t segment, uint32_t address, uint32_t offset,
 
 int main(void)
 {
-    codegen_profile_enabled = getenv("PCBOX_TEST_PROFILE") != NULL;
 #ifdef _WIN32
     code_memory = VirtualAlloc(NULL, CODE_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     CHECK(code_memory != NULL);

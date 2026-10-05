@@ -446,6 +446,19 @@ ir_reg_is_invalid(ir_reg_t ir_reg)
 
 struct ir_data_t;
 
+#ifdef CODEGEN_BACKEND_HAS_MEM_REGS
+/* Resolve liveness at the memory site, before later allocations consume it.
+   IR versions do not affect these backing-state transfers. */
+typedef struct codegen_mem_reg_state_t {
+    uint8_t regs[CODEGEN_HOST_REGS + CODEGEN_HOST_FP_REGS];
+    uint16_t write_mask, reload_mask;
+    uint8_t write_uses_top, reload_uses_top;
+} codegen_mem_reg_state_t;
+
+void codegen_reg_capture_mem(codegen_mem_reg_state_t *state, ir_reg_t dest_reg);
+void codegen_reg_sync_mem(codeblock_t *block, const codegen_mem_reg_state_t *state, int reload, int stack_offset);
+#endif
+
 void codegen_reg_reset(void);
 /*Write back all dirty registers*/
 void codegen_reg_flush(struct ir_data_t *ir, codeblock_t *block);

@@ -32,6 +32,7 @@ extern const uOpFn uop_handlers[];
 } while (0)
 
 cpu_state_t cpu_state;
+int timing_misaligned, cpu_cyrix_alignment;
 uint32_t cr4, pccache = UINT32_MAX;
 uint8_t *ram, *pccache2;
 int cpu_block_end;
