@@ -66,10 +66,9 @@ host_reg_def_t codegen_host_reg_list[CODEGEN_HOST_REGS] = {
 };
 
 /* Keep the 128-bit IR spill at 0x50 separate from the memory scratch at 0x40,
-   MXCSR scratch at 0x60, and saved XMM6/XMM7. Both frames align helper calls. */
-#define CODEGEN_WIN64_FRAME 0x88
-#define CODEGEN_XMM6_SAVE   0x68
-#define CODEGEN_XMM7_SAVE   0x78
+   MXCSR scratch at 0x60, and saved XMM6-XMM15. Both frames align helper calls. */
+#define CODEGEN_WIN64_FRAME 0x108
+#define CODEGEN_XMM6_SAVE   0x68 /*XMM6-XMM15 are saved at 16 byte intervals from here*/
 
 host_reg_def_t codegen_host_fp_reg_list[CODEGEN_HOST_FP_REGS] = {
 #    if _WIN64
@@ -85,8 +84,48 @@ host_reg_def_t codegen_host_fp_reg_list[CODEGEN_HOST_FP_REGS] = {
     { REG_XMM2, HOST_REG_FLAG_VOLATILE},
     { REG_XMM3, HOST_REG_FLAG_VOLATILE},
     { REG_XMM4, HOST_REG_FLAG_VOLATILE},
-    { REG_XMM5, HOST_REG_FLAG_VOLATILE}
+    { REG_XMM5, HOST_REG_FLAG_VOLATILE},
+  /*XMM8-XMM15 need a REX prefix, so only fall back to them once XMM1-XMM7
+    are in use*/
+#    if _WIN64
+    { REG_XMM8,  0                     },
+    { REG_XMM9,  0                     },
+    { REG_XMM10, 0                     },
+    { REG_XMM11, 0                     },
+    { REG_XMM12, 0                     },
+    { REG_XMM13, 0                     },
+    { REG_XMM14, 0                     },
+    { REG_XMM15, 0                     }
+#    else
+    { REG_XMM8,  HOST_REG_FLAG_VOLATILE },
+    { REG_XMM9,  HOST_REG_FLAG_VOLATILE },
+    { REG_XMM10, HOST_REG_FLAG_VOLATILE },
+    { REG_XMM11, HOST_REG_FLAG_VOLATILE },
+    { REG_XMM12, HOST_REG_FLAG_VOLATILE },
+    { REG_XMM13, HOST_REG_FLAG_VOLATILE },
+    { REG_XMM14, HOST_REG_FLAG_VOLATILE },
+    { REG_XMM15, HOST_REG_FLAG_VOLATILE }
+#    endif
 };
+
+#ifdef _WIN64
+/* Blocks hold guest FPU/MMX/SSE values in XMM6-XMM15, and the Windows x64
+   ABI makes them the caller's. */
+static void
+codegen_win64_save_xmm(codeblock_t *block)
+{
+    for (int reg = REG_XMM6; reg <= REG_XMM15; reg++)
+        host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, CODEGEN_XMM6_SAVE + (reg - REG_XMM6) * 16, reg);
+}
+
+/* Put back what the caller had. */
+static void
+codegen_win64_restore_xmm(codeblock_t *block)
+{
+    for (int reg = REG_XMM6; reg <= REG_XMM15; reg++)
+        host_x86_MOVDQU_XREG_BASE_OFFSET(block, reg, REG_RSP, CODEGEN_XMM6_SAVE + (reg - REG_XMM6) * 16);
+}
+#endif
 
 static void
 host_cpuid(uint32_t leaf, uint32_t subleaf, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx)
@@ -437,10 +476,7 @@ codegen_backend_init(void)
        relative to that chunk, not to the first chunk in block->data. */
     codegen_exit_rout = &block_write_data[block_pos];
 #ifdef _WIN64
-    /* XMM6 and XMM7 hold guest FPU/MMX values in blocks, and the Windows
-       x64 ABI makes them the caller's: put back what the caller had. */
-    host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM6, REG_RSP, CODEGEN_XMM6_SAVE);
-    host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM7, REG_RSP, CODEGEN_XMM7_SAVE);
+    codegen_win64_restore_xmm(block);
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
 #else
     host_x86_ADD64_REG_IMM(block, REG_RSP, 0x68);
@@ -487,8 +523,7 @@ codegen_backend_prologue(codeblock_t *block)
     host_x86_PUSH(block, REG_R15);
 #ifdef _WIN64
     host_x86_SUB64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
-    host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, CODEGEN_XMM6_SAVE, REG_XMM6);
-    host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, CODEGEN_XMM7_SAVE, REG_XMM7);
+    codegen_win64_save_xmm(block);
 #else
     host_x86_SUB64_REG_IMM(block, REG_RSP, 0x68);
 #endif
@@ -506,10 +541,7 @@ void
 codegen_backend_epilogue(codeblock_t *block)
 {
 #ifdef _WIN64
-    /* XMM6 and XMM7 hold guest FPU/MMX values in blocks, and the Windows
-       x64 ABI makes them the caller's: put back what the caller had. */
-    host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM6, REG_RSP, CODEGEN_XMM6_SAVE);
-    host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM7, REG_RSP, CODEGEN_XMM7_SAVE);
+    codegen_win64_restore_xmm(block);
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
 #else
     host_x86_ADD64_REG_IMM(block, REG_RSP, 0x68);
