@@ -28,6 +28,7 @@
 extern const uOpFn uop_handlers[];
 #include "../../src/codegen_new/codegen_ir.c"
 #include "../../src/codegen_new/codegen_ops_jump.h"
+#include "../../src/codegen_new/codegen_ops_mov.h"
 
 #ifndef CPU_BENCH_BUILD
 #    define CPU_BENCH_BUILD "standalone"
@@ -35,7 +36,7 @@ extern const uOpFn uop_handlers[];
 enum { CODE_SIZE = 1024 * 1024, CHUNK_SIZE = 4096, RAM_SIZE = 16 * 1024 * 1024,
        MAX_CASES = 1024, MAX_SAMPLES = 99 };
 enum { MEMORY, INTEGER_ADD, MMX_ADD, SSE_INTEGER, SSE_ADD, SSE_MUL, SSE_ENTRY, EMPTY,
-       INTEGER_XOR, INTEGER_MUL, INTEGER_SHIFT, SSE_SCALAR_ADD, SSE_SHUFFLE, JMP_LOOP };
+       INTEGER_XOR, INTEGER_MUL, INTEGER_SHIFT, SSE_SCALAR_ADD, SSE_SHUFFLE, JMP_LOOP, MOVS };
 enum { REG_FORM, ABS_FORM, IMM_FORM, SINGLE_FORM, DOUBLE_FORM };
 
 typedef struct {
@@ -44,10 +45,12 @@ typedef struct {
     uint32_t address, working_set;
     int lookup_miss, gpr_pressure, simd_pressure, dynamic_top, loop_body;
     unsigned stride, body_ops;
+    int address32, backward;
 } bench_case_t;
 
 cpu_state_t cpu_state;
 uint32_t cr4;
+uint16_t cpu_cur_status;
 int timing_misaligned = 3, cpu_cyrix_alignment;
 uintptr_t readlookup2[2097152], writelookup2[1048576];
 uint8_t *ram;
@@ -82,6 +85,26 @@ void fatal(const char *fmt, ...)
     exit(1);
 }
 #define CHECK(c) do { if (!(c)) fatal("line %d: %s\n", __LINE__, #c); } while (0)
+
+/* MOVS cases use valid segments and the production instruction translator;
+   the surrounding instruction decoder is outside this fixture. */
+void codegen_check_seg_read(codeblock_t *block, ir_data_t *ir, x86seg *seg)
+{
+    (void) block; (void) ir; (void) seg;
+    CHECK(!(cr0 & 1));
+}
+void codegen_check_seg_write(codeblock_t *block, ir_data_t *ir, x86seg *seg)
+{
+    codegen_check_seg_read(block, ir, seg);
+}
+x86seg *codegen_generate_ea(ir_data_t *ir, x86seg *seg, uint32_t fetchdat, int ssegs,
+                          uint32_t *pc, uint32_t op32, int offset)
+{
+    (void) ir; (void) seg; (void) fetchdat; (void) ssegs;
+    (void) pc; (void) op32; (void) offset;
+    fatal("unexpected generic effective-address decoder call\n");
+    return NULL;
+}
 
 void x86illegal(void) { fatal("unexpected #UD\n"); }
 void x86_int(int vector) { fatal("unexpected exception %d\n", vector); }
@@ -155,6 +178,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_MOV & UOP_MASK] = codegen_MOV,
     [UOP_MOV_IMM & UOP_MASK] = codegen_MOV_IMM,
     [UOP_MOV_PTR & UOP_MASK] = codegen_MOV_PTR,
+    [UOP_CALL_FUNC & UOP_MASK] = codegen_CALL_FUNC,
     [UOP_ADD_IMM & UOP_MASK] = codegen_ADD_IMM,
     [UOP_XOR_IMM & UOP_MASK] = codegen_XOR_IMM,
     [UOP_IMUL_IMM & UOP_MASK] = codegen_IMUL_IMM,
@@ -342,6 +366,19 @@ static void make_cases(void)
                 c->body_ops = body;
                 c->loop_body = simd;
             }
+    for (int size = 1; size <= 4; size *= 2)
+        for (int a32 = 0; a32 < 2; a32++)
+            for (int backward = 0; backward < 2; backward++)
+                for (int miss = 0; miss < 2; miss++) {
+                    snprintf(name, sizeof(name), "string/movs%u/a%u/%s/%s", size * 8, a32 ? 32 : 16,
+                             backward ? "backward" : "forward", miss ? "lookup-miss" : "ram");
+                    c = add_case(name, MOVS);
+                    c->size = size;
+                    c->address = 1024;
+                    c->address32 = a32;
+                    c->backward = backward;
+                    c->lookup_miss = miss;
+                }
 }
 
 static int memory_reg(const bench_case_t *c)
@@ -400,10 +437,25 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
         uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
     if (c->cached_cycles) uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, -1);
     unsigned body_ops = c->body_ops ? c->body_ops : block_ops;
+    if (c->kind == MOVS) {
+        /* Reset each burst in generated code so repeated timed calls remain
+           inside the same two pages; include that small setup in the timing. */
+        uop_MOV_IMM(ir, IREG_ESI, c->address);
+        uop_MOV_IMM(ir, IREG_EDI, c->address + 4096);
+        op_ea_seg = &cpu_state.seg_ds;
+    }
     for (unsigned i = 0; i < (c->kind == EMPTY ? 0 : body_ops); i++) {
         int r = i % c->live_regs;
         switch (c->kind) {
             case MEMORY: emit_memory(ir, c); break;
+            case MOVS: {
+                uint32_t op32 = c->address32 ? 0x200 : 0;
+                uint32_t pc = c->size == 1 ? ropMOVS_b(&bench_block, ir, 0xa4, 0, op32, 0x101)
+                            : c->size == 2 ? ropMOVS_w(&bench_block, ir, 0xa5, 0, op32, 0x101)
+                                           : ropMOVS_l(&bench_block, ir, 0xa5, 0, op32 | 0x100, 0x101);
+                CHECK(pc == 0x101);
+                break;
+            }
             case INTEGER_ADD: uop_ADD_IMM(ir, IREG_32(r), IREG_32(r), 3); break;
             case MMX_ADD: uop_PADDD(ir, IREG_MM(r), IREG_MM(r), IREG_MM(r)); break;
             case SSE_INTEGER: uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r)); break;
@@ -476,6 +528,10 @@ static void reset_state(const bench_case_t *c, int timed)
         EBX = 0x12345678;
         cpu_state.ST[cpu_state.TOP] = 2.25;
     }
+    if (c->kind == MOVS) {
+        cpu_state.flags = c->backward ? D_FLAG : 0;
+        cpu_state.oldpc = 0x100;
+    }
     if (c->kind == SSE_ADD || c->kind == SSE_MUL || c->kind == SSE_SCALAR_ADD) {
         for (int i = 0; i < 8; i++)
             for (int lane = 0; lane < 4; lane++)
@@ -489,6 +545,10 @@ static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned wo
 {
     memset(memory, 0xa5, sizeof(memory));
     reset_state(c, 0);
+    if (c->kind == MOVS) {
+        for (unsigned i = 0; i < 4096; i++) memory[i] = (uint8_t) (i ^ (i >> 8));
+        memset(memory + 4096, 0, 4096);
+    }
     if (c->kind == MEMORY && c->form >= SINGLE_FORM) {
         float f = 1.25f;
         double d = 1.25;
@@ -555,6 +615,17 @@ static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned wo
             }
             CHECK(helper_calls == 0);
         }
+    } else if (c->kind == MOVS) {
+        int step = c->backward ? -c->size : c->size;
+        CHECK(ESI == c->address + work_ops * step && EDI == ESI + 4096);
+        for (unsigned i = 0; i < work_ops; i++) {
+            uint32_t addr = c->address + i * step;
+            CHECK(memcmp(memory + addr, memory + addr + 4096, c->size) == 0);
+        }
+        CHECK(EAX == expected.regs[0].l && ECX == expected.regs[1].l);
+        CHECK(cpu_state.flags == expected.flags && cpu_state.oldpc == 0x100);
+        CHECK(cycles == expected._cycles);
+        CHECK(helper_calls == (c->lookup_miss ? work_ops * 2 : 0));
     } else if (c->kind == JMP_LOOP) {
         for (unsigned i = 0; i < work_ops; i++) {
             if (c->loop_body)
@@ -755,6 +826,8 @@ int main(int argc, char **argv)
         if (exact_case && strcmp(c->name, exact_case)) continue;
         active_case = c->name;
         readlookup2[c->address >> 12] = writelookup2[c->address >> 12] = c->lookup_miss ? (uintptr_t) -1 : (uintptr_t) memory;
+        if (c->kind == MOVS)
+            writelookup2[1] = c->lookup_miss ? (uintptr_t) -1 : (uintptr_t) memory;
         reset_state(c, 0);
         unsigned jit_bytes, ops, copies;
         void (*entry)(void) = compile_case(c, &jit_bytes, &ops, &copies);
@@ -813,6 +886,7 @@ int main(int argc, char **argv)
             CHECK(fflush(csv) == 0);
         }
         readlookup2[c->address >> 12] = writelookup2[c->address >> 12] = (uintptr_t) memory;
+        if (c->kind == MOVS) writelookup2[1] = (uintptr_t) memory;
     }
     if (csv && fclose(csv)) fatal("failed to finish CSV output\n");
 #ifdef _WIN32

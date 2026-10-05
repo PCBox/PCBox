@@ -31,6 +31,7 @@ $commonFlags = @('-O2', '-g', '-DNDEBUG', '-std=gnu11', '-fomit-frame-pointer', 
     '-m64', '-march=x86-64', '-msse2', '-mfpmath=sse', '-mstackrealign', '-ffunction-sections',
     '-fdata-sections', '-fno-asynchronous-unwind-tables', '-DUSE_DYNAREC', '-DUSE_NEW_DYNAREC', '-Wl,--gc-sections')
 $sources = @('tests/cpu/cpu_microbench.c', 'src/codegen_new/codegen_ops_jump.c',
+    'src/codegen_new/codegen_ops_mov.c',
     'src/codegen_new/codegen_ops_helpers.c', 'src/codegen_new/codegen_block.c',
     'src/codegen_new/codegen_backend_x86-64_ops.c', 'src/codegen_new/codegen_backend_x86-64_ops_sse.c')
 $builds = [ordered] @{}

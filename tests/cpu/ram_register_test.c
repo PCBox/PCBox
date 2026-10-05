@@ -22,6 +22,7 @@
 #include "../../src/codegen_new/codegen_reg.c"
 extern const uOpFn uop_handlers[];
 #include "../../src/codegen_new/codegen_ir.c"
+#include "../../src/codegen_new/codegen_ops_mov.h"
 
 #define CHECK(condition) do { \
     if (!(condition)) { \
@@ -40,6 +41,9 @@ static codeblock_t test_block;
 codeblock_t *codeblock = &test_block;
 uint16_t *codeblock_hash;
 int block_current;
+x86seg *op_ea_seg;
+int op_ssegs, codegen_flat_ds, codegen_flat_ss;
+uint16_t cpu_cur_status;
 
 enum { CODE_SIZE = 262144, CHUNK_SIZE = 4096 };
 enum { FORM_REG, FORM_ABS, FORM_IMM, FORM_SINGLE, FORM_DOUBLE };
@@ -102,6 +106,26 @@ void *plat_mmap(size_t size, uint8_t executable, uint8_t *large)
     return memory;
 }
 void pclog(const char *fmt, ...) { (void) fmt; }
+
+/* MOVS cases supply valid segments; exercise the real instruction translator,
+   allocator and memory paths without linking the entire instruction decoder. */
+void codegen_check_seg_read(codeblock_t *block, ir_data_t *ir, x86seg *seg)
+{
+    (void) block; (void) ir; (void) seg;
+    CHECK(!(cr0 & 1));
+}
+void codegen_check_seg_write(codeblock_t *block, ir_data_t *ir, x86seg *seg)
+{
+    codegen_check_seg_read(block, ir, seg);
+}
+x86seg *codegen_generate_ea(ir_data_t *ir, x86seg *seg, uint32_t fetchdat, int ssegs,
+                          uint32_t *pc, uint32_t op32, int offset)
+{
+    (void) ir; (void) seg; (void) fetchdat; (void) ssegs;
+    (void) pc; (void) op32; (void) offset;
+    fatal("unexpected generic effective-address decoder call\n");
+    return NULL;
+}
 
 struct mem_block_t *
 codegen_allocator_allocate(struct mem_block_t *parent, int nr)
@@ -250,6 +274,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_MOV & UOP_MASK] = codegen_MOV,
     [UOP_MOV_IMM & UOP_MASK] = codegen_MOV_IMM,
     [UOP_ADD_IMM & UOP_MASK] = codegen_ADD_IMM,
+    [UOP_AND_IMM & UOP_MASK] = codegen_AND_IMM,
     [UOP_ADD & UOP_MASK] = codegen_ADD,
     [UOP_ADD_LSHIFT & UOP_MASK] = codegen_ADD_LSHIFT,
     [UOP_PADDD & UOP_MASK] = codegen_PADDD,
@@ -968,6 +993,86 @@ run_memory_sequence(int kind, unsigned fault, unsigned pad, int dynamic_top, int
     memory_control = fault_on_call = 0;
 }
 
+static void
+run_movs(int size, int a32, int backward, int wrap, unsigned mapped, unsigned fault)
+{
+    cases++;
+    memset(&cpu_state, 0, sizeof(cpu_state));
+    memset(&test_block, 0, sizeof(test_block));
+    memset(memory, 0xa5, sizeof(memory));
+    memset(readlookup2, 0xff, sizeof(readlookup2));
+    memset(writelookup2, 0xff, sizeof(writelookup2));
+    next_chunk = helper_calls = aborted = memory_control = 0;
+    fault_on_call = fault;
+    expected_oldpc = cpu_state.oldpc = 0x1234;
+    cpu_state.flags = 0x8d7 | (backward ? D_FLAG : 0);
+    uint16_t initial_flags = cpu_state.flags;
+    /* DF belongs to execution state, not the translation-time context. */
+    cpu_state.flags ^= D_FLAG;
+    cycles = 1000;
+    EAX = 0x87654321;
+    ECX = EDX = 0x11223344;
+    /* Segment bases put both wrap boundaries into the small synthetic RAM.
+       a16 must ignore, and preserve, the nonzero upper halves of ESI/EDI. */
+    uint32_t edge = backward ? 0 : (a32 ? UINT32_MAX : 0xffff);
+    uint32_t source_index = wrap == 1 ? edge : 128;
+    uint32_t dest_index = wrap == 2 ? edge : 256;
+    uint32_t source = a32 ? source_index : 0x12340000 | source_index;
+    uint32_t dest = a32 ? dest_index : 0x56780000 | dest_index;
+    cpu_state.seg_ds.base = 64 - source_index;
+    cpu_state.seg_es.base = 4160 - dest_index;
+    op_ea_seg = &cpu_state.seg_ds;
+    memcpy(memory + 64, &EAX, size);
+    if (mapped & 1) readlookup2[0] = (uintptr_t) memory;
+    if (mapped & 2) writelookup2[1] = (uintptr_t) memory;
+
+    start_code();
+    build_loadstore_routines(&test_block);
+    codegen_exit_rout = start_code();
+    host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &aborted);
+    host_x86_MOV32_BASE_OFFSET_IMM(&test_block, REG_RDI, 0, 1);
+    codegen_backend_epilogue(&test_block);
+    codegen_reg_reset();
+    ir_data_t *ir = codegen_ir_init();
+    /* Make the indices and cycles dirty before the instruction and consume
+       both indices afterward, covering writeback and reload around the call. */
+    uop_MOV_IMM(ir, IREG_ESI, source);
+    uop_MOV_IMM(ir, IREG_EDI, dest);
+    uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, -3);
+    uint32_t next_pc = size == 1 ? ropMOVS_b(&test_block, ir, 0xa4, 0, a32 ? 0x200 : 0, 0x1235)
+                     : size == 2 ? ropMOVS_w(&test_block, ir, 0xa5, 0, a32 ? 0x200 : 0, 0x1235)
+                                 : ropMOVS_l(&test_block, ir, 0xa5, 0, a32 ? 0x300 : 0x100, 0x1235);
+    CHECK(next_pc == 0x1235);
+    uop_MOV(ir, IREG_ECX, IREG_ESI);
+    uop_MOV(ir, IREG_EDX, IREG_EDI);
+    uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, -2);
+    uint8_t *entry = start_code();
+    codegen_ir_compile(ir, &test_block);
+    cpu_state.flags = initial_flags;
+#ifdef _WIN32
+    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
+#else
+    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
+#endif
+    ((void (*)(void)) entry)();
+    unsigned calls = fault ? fault : !(mapped & 1) + !(mapped & 2);
+    CHECK(helper_calls == calls && aborted == !!fault && cpu_state.abrt == !!fault);
+    CHECK(cpu_state.oldpc == expected_oldpc && cpu_state.flags == initial_flags);
+    CHECK(EAX == 0x87654321);
+    CHECK(cycles == (fault ? 997 : 995) - (int) calls * 5);
+    int step = backward ? -size : size;
+    uint32_t expected_source = fault ? source : a32 ? source + step : (source & 0xffff0000) | (uint16_t) (source + step);
+    uint32_t expected_dest = fault ? dest : a32 ? dest + step : (dest & 0xffff0000) | (uint16_t) (dest + step);
+    CHECK(ESI == expected_source && EDI == expected_dest);
+    CHECK(ECX == (fault ? 0x11223344 : expected_source));
+    CHECK(EDX == (fault ? 0x11223344 : expected_dest));
+    for (int i = -1; i <= size; i++) {
+        CHECK(memory[64 + i] == (i >= 0 && i < size ? ((uint8_t *) &EAX)[i] : 0xa5));
+        CHECK(memory[4160 + i] == (!fault && i >= 0 && i < size ? memory[64 + i] : 0xa5));
+    }
+    fault_on_call = 0;
+}
+
 int
 main(void)
 {
@@ -979,6 +1084,13 @@ main(void)
     CHECK(code_memory != MAP_FAILED);
 #endif
     run_backend_init();
+    for (int size = 1; size <= 4; size *= 2)
+        for (int a32 = 0; a32 < 2; a32++)
+            for (int backward = 0; backward < 2; backward++)
+                for (int wrap = 0; wrap < 3; wrap++)
+                    for (unsigned mapped = 0; mapped < 4; mapped++)
+                        for (unsigned fault = 0; fault <= !(mapped & 1) + !(mapped & 2); fault++)
+                            run_movs(size, a32, backward, wrap, mapped, fault);
     for (int top = 0; top < 2; top++) {
         for (int kind = 0; kind < 5; kind++) {
             for (unsigned pad = 0; pad < BLOCK_MAX; pad += 31) {

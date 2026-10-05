@@ -2,6 +2,7 @@ if(ARCH STREQUAL "x86_64" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     # Available to CLion without enabling the full test suite; normal builds
     # do not build or run benchmarks. Match the emulator's optimization flags.
     add_executable(cpu_microbench EXCLUDE_FROM_ALL cpu_microbench.c
+        ../../src/codegen_new/codegen_ops_mov.c
         ../../src/codegen_new/codegen_backend_x86-64_ops.c
         ../../src/codegen_new/codegen_backend_x86-64_ops_sse.c)
     set_target_properties(cpu_microbench PROPERTIES WIN32_EXECUTABLE FALSE MACOSX_BUNDLE FALSE)
@@ -52,6 +53,7 @@ if(BUILD_TESTING AND ARCH STREQUAL "x86_64")
         add_test(NAME hint_nop_test COMMAND hint_nop_test)
 
         add_executable(ram_register_test ram_register_test.c
+            ../../src/codegen_new/codegen_ops_mov.c
             ../../src/codegen_new/codegen_backend_x86-64_ops.c
             ../../src/codegen_new/codegen_backend_x86-64_ops_sse.c)
         target_compile_definitions(ram_register_test PRIVATE USE_DYNAREC USE_NEW_DYNAREC)

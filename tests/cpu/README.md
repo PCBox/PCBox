@@ -15,7 +15,7 @@ Google Test or Google Benchmark dependency.
 
 The shared configuration builds the target first and runs 21 samples per
 case, targeting 75 ms per sample after 100 ms of warmup. The suite contains
-355 cases; allow roughly 10–15 minutes per full run. Each run replaces that CSV, so copy a result you want to keep before
+379 cases; allow roughly 10–15 minutes per full run. Each run replaces that CSV, so copy a result you want to keep before
 running again. Use Run, without attaching a debugger, for timing comparisons.
 
 The target is available without enabling `BUILD_TESTING` or `BUILD_BENCHMARKS`.
@@ -128,12 +128,16 @@ a nonzero status. There are no machine-dependent performance pass/fail threshold
 | `stream/.../stride-*` | Contiguous and 4 KiB strides through 32 KiB, 1 MiB and 16 MiB working sets |
 | Additional arithmetic | Integer XOR, IMUL and shifts, scalar ADDSS, and SHUFPS at different register pressures |
 | `loop` | Actual rel8/16/32 JMP frontend and unrolling gate, with integer/SIMD bodies from 1 to 32 operations |
+| `string/movs*` | Non-REP byte/word/dword MOVS translators, a16/a32, both directions, with inline RAM or synthetic memory helpers |
 
 Arithmetic cases measure backend operations; they do not include opcode decoding
 or the complete guest-instruction frontend. Memory cases compile repeated IR
 loads/stores, keeping each load required. Stream steps include address increment
 and wraparound. `cycles-live` adds two guest-cycle updates per block. Arithmetic
 register allocation/spills and block entry/exit are part of the measurements.
+MOVS cases count one complete copy instruction as one operation, including its
+index updates. Each block resets ESI/EDI before a burst in two fixed RAM pages;
+that setup is included in timing. Segments are valid, and REP is not measured.
 Pressure cases keep modified values live across the accesses and verify their
 preservation. Their setup/writeback cost is included and amortized per memory
 access. SSE check cases also cover joins and helper calls with live SIMD values.
