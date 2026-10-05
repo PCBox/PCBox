@@ -1668,27 +1668,33 @@ codegen_MEM_SCALAR_LOOKUP(codeblock_t *block, uintptr_t *lookup, int size, uint3
 static void
 codegen_MEM_SLOW_ENTER(codeblock_t *block, uop_t *uop)
 {
+    const int dynamic_top = (block->flags & CODEBLOCK_HAS_FPU) && !(block->flags & CODEBLOCK_STATIC_TOP);
+
     /* Helpers can change CR0/CR4. Leave the flag untouched on inline RAM hits;
        the next SSE instruction must recheck after even a successful helper. */
     if (uop->type & UOP_TYPE_SSE_INVALIDATE)
         host_x86_MOV32_BASE_OFFSET_IMM(block, REG_RSP, STACK_SSE_RECHECK, 1);
-    /* Dynamic x87 writeback uses ECX. Keep the helper's address and data
-       intact while materializing the guest state on this path only. */
-    host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG0, REG_ESI);
-    host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG1, REG_ECX);
+    /* Writeback preserves ESI; only dynamic x87 addressing clobbers ECX.
+       Preserve the store data only when that addressing can be emitted. */
+    if (dynamic_top)
+        host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG1, REG_ECX);
     codegen_reg_flush_conditional(block, uop->dest_reg_a);
-    host_x86_MOV32_REG_BASE_OFFSET(block, REG_ESI, REG_RSP, STACK_ARG0);
-    host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG1);
+    if (dynamic_top)
+        host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG1);
 }
 
 static void
 codegen_MEM_SLOW_LEAVE(codeblock_t *block, uop_t *uop)
 {
+    const int dynamic_top = (block->flags & CODEBLOCK_HAS_FPU) && !(block->flags & CODEBLOCK_STATIC_TOP);
+
     /* Reloading a dynamic x87 stack value also uses ECX, which may now
        contain a scalar load result. XMM0 is reserved for the helper result. */
-    host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG0, REG_ECX);
+    if (dynamic_top)
+        host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG0, REG_ECX);
     codegen_reg_reload_mem(block, uop->dest_reg_a);
-    host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG0);
+    if (dynamic_top)
+        host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG0);
 }
 
 static void
