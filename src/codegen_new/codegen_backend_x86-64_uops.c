@@ -26,6 +26,9 @@
 #    define STACK_ARG1        (4)
 #    define STACK_ARG2        (8)
 #    define STACK_ARG3        (12)
+/* Between the x87 TOP delta at 32 and the first FP spill at 40. This is
+   block-local state, outside the Win64 shadow space, not architectural state. */
+#    define STACK_SSE_RECHECK (36)
 #    define STACK_TEMP_DQ     (64)
 #    define STACK_TEMP_MXCSR  (96)
 
@@ -1490,7 +1493,20 @@ codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
     host_x86_JMP(block, codegen_exit_rout);
     *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
 
+    host_x86_MOV32_BASE_OFFSET_IMM(block, REG_RSP, STACK_SSE_RECHECK, 0);
     return 0;
+}
+
+void
+codegen_backend_sse_recheck(codeblock_t *block, uop_t *uop)
+{
+    /* A dominating successful SSE_ENTER initialized this slot. If a helper
+       changed control state, fault at this SSE instruction, not the memory op. */
+    host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_SSE_RECHECK);
+    host_x86_TEST32_REG(block, REG_ECX, REG_ECX);
+    uint32_t *checked = host_x86_JZ_long(block);
+    codegen_SSE_ENTER(block, uop);
+    codegen_set_jump_dest(block, checked);
 }
 
 static int
@@ -1652,6 +1668,10 @@ codegen_MEM_SCALAR_LOOKUP(codeblock_t *block, uintptr_t *lookup, int size, uint3
 static void
 codegen_MEM_SLOW_ENTER(codeblock_t *block, uop_t *uop)
 {
+    /* Helpers can change CR0/CR4. Leave the flag untouched on inline RAM hits;
+       the next SSE instruction must recheck after even a successful helper. */
+    if (uop->type & UOP_TYPE_SSE_INVALIDATE)
+        host_x86_MOV32_BASE_OFFSET_IMM(block, REG_RSP, STACK_SSE_RECHECK, 1);
     /* Dynamic x87 writeback uses ECX. Keep the helper's address and data
        intact while materializing the guest state on this path only. */
     host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG0, REG_ESI);

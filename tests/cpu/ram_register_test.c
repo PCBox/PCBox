@@ -574,6 +574,80 @@ run_sse_case(unsigned control, unsigned misalignment, int dynamic_top, unsigned 
 }
 
 static void
+run_sse_recheck(int size, int store, unsigned control, unsigned fault)
+{
+    cases++;
+    memset(&cpu_state, 0, sizeof(cpu_state));
+    memset(&test_block, 0, sizeof(test_block));
+    memset(memory, 0xa5, sizeof(memory));
+    memset(readlookup2, 0xff, sizeof(readlookup2));
+    memset(writelookup2, 0xff, sizeof(writelookup2));
+    next_chunk = helper_calls = aborted = exception = 0;
+    fault_on_call = fault;
+    memory_control = control;
+    expected_oldpc = 0x1234;
+    cycles = 1000;
+    cr0 = 0;
+    cr4 = CR4_OSFXSR;
+    readlookup2[1] = writelookup2[1] = (uintptr_t) memory;
+
+    start_code();
+    build_loadstore_routines(&test_block);
+    codegen_exit_rout = start_code();
+    host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &aborted);
+    host_x86_MOV32_BASE_OFFSET_IMM(&test_block, REG_RDI, 0, 1);
+    codegen_backend_epilogue(&test_block);
+
+    codegen_reg_reset();
+    ir_data_t *ir = codegen_ir_init();
+    int reg = size == 16 ? IREG_XMM(6) : size == 8 ? IREG_MM(0)
+              : size == 4 ? IREG_EDX : size == 2 ? IREG_DX : IREG_DL;
+    cpu_state.oldpc = 0x1230;
+    uop_SSE_ENTER(ir);
+    uop_MOV_IMM(ir, IREG_oldpc, expected_oldpc);
+    /* A later RAM hit must not clear the pending check from an earlier
+       helper. Exercise both scalar and split 128-bit load/store helpers. */
+    for (int page = 0; page < 2; page++) {
+        uop_MOV_IMM(ir, IREG_eaaddr, page * 4096 + 64);
+        if (store)
+            uop_MEM_STORE_REG(ir, IREG_DS_base, IREG_eaaddr, reg);
+        else
+            uop_MEM_LOAD_REG(ir, reg, IREG_DS_base, IREG_eaaddr);
+    }
+    uop_ADD_IMM(ir, IREG_EAX, IREG_EAX, 1);
+    cpu_state.oldpc = 0x1238;
+    uop_SSE_ENTER(ir);
+    uop_ADD_IMM(ir, IREG_EAX, IREG_EAX, 1);
+    uint8_t *entry = start_code();
+    codegen_ir_compile(ir, &test_block);
+#ifdef _WIN32
+    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
+#else
+    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
+#endif
+    ((void (*)(void)) entry)();
+    unsigned calls = fault ? fault : size == 16 ? 2 : 1;
+    unsigned vector = fault || !control ? 0 : control == 1 ? 7 : 6;
+    CHECK(helper_calls == calls && exception == vector);
+    CHECK(aborted == !!(fault || vector));
+    const cpu_state_t *state = vector ? &fault_state : &cpu_state;
+    CHECK(state->regs[0].l == (fault ? 0 : vector ? 1 : 2));
+    CHECK(state->_cycles == 1000 - (int) calls * 5);
+    CHECK(state->oldpc == (vector ? 0x1238 : expected_oldpc));
+
+    /* Run the same block again with SSE disabled on entry. The stack slot
+       left by a previous invocation must never bypass the first check. */
+    exception = aborted = helper_calls = 0;
+    cpu_state.abrt = 0;
+    cr0 = 8;
+    cr4 = CR4_OSFXSR;
+    ((void (*)(void)) entry)();
+    CHECK(exception == 7 && aborted && !helper_calls);
+    CHECK(fault_state.oldpc == 0x1230);
+    memory_control = fault_on_call = 0;
+}
+
+static void
 run_sse_join(int taken, int alignment)
 {
     cases++;
@@ -582,6 +656,7 @@ run_sse_join(int taken, int alignment)
     next_chunk = exception = 0;
     EAX = 1;
     EBX = !taken;
+    cr0 = 0;
     cr4 = CR4_OSFXSR;
     for (int lane = 0; lane < 4; lane++)
         cpu_state.XMM[0].l[lane] = 7;
@@ -854,7 +929,17 @@ main(void)
         run_sse_case(2, 0, 1, 0);
         run_sse_case(4, 0, 1, 0);
         run_sse_case(0, 1, 1, 0);
+        run_sse_case(0, 0, 1, 1);
+        run_sse_case(0, 0, 1, 3);
+        run_sse_case(0, 0, 1, 4);
+        run_sse_case(0, 0, 1, 5);
     }
+    padding = 0;
+    for (int size = 1; size <= 16; size *= 2)
+        for (int store = 0; store < 2; store++)
+            for (unsigned control = 0; control < 4; control++)
+                for (unsigned fault = 0; fault <= (size == 16 ? 2 : 1); fault++)
+                    run_sse_recheck(size, store, control, fault);
     for (int taken = 0; taken < 2; taken++)
         for (int alignment = 0; alignment < 2; alignment++)
             run_sse_join(taken, alignment);

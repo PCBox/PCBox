@@ -21,6 +21,9 @@
   Backends with an inline RAM path can defer writeback until that path misses.*/
 #define UOP_TYPE_MEM (1 << 24)
 
+/*Set during emission when a memory helper must invalidate an earlier SSE check.*/
+#define UOP_TYPE_SSE_INVALIDATE (1 << 23)
+
 /*uOP uses source and dest registers*/
 #define UOP_TYPE_PARAMS_REGS (1 << 28)
 /*uOP uses pointer*/
