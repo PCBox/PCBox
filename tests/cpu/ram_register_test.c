@@ -143,6 +143,13 @@ access_memory(uint32_t addr, uint64_t value, unsigned size, int store)
         cr4 &= ~CR4_OSFXSR;
     else if (memory_control == 3)
         cr0 |= 4;
+    else if (memory_control == 4) {
+        /* Guest-state mutations matter even in ABI-preserved host registers. */
+        EBP += 3;
+        cpu_state.ST[cpu_state.TOP] += 0.25;
+        for (int lane = 0; lane < 4; lane++)
+            cpu_state.XMM[7].l[lane] += 5;
+    }
     if (helper_calls == fault_on_call) {
         cpu_state.abrt = 1;
         return 0;
@@ -848,6 +855,119 @@ run_backend_init(void)
     }
 }
 
+static void
+run_memory_sequence(int kind, unsigned fault, unsigned pad, int dynamic_top, int first_inline)
+{
+    cases++;
+    memset(&cpu_state, 0, sizeof(cpu_state));
+    memset(&test_block, 0, sizeof(test_block));
+    memset(readlookup2, 0xff, sizeof(readlookup2));
+    memset(writelookup2, 0xff, sizeof(writelookup2));
+    memset(memory, 0xa5, sizeof(memory));
+    next_chunk = helper_calls = aborted = 0;
+    fault_on_call = fault;
+    expected_oldpc = 0x1234;
+    memory_control = 4;
+    cycles = 1000;
+    EBP = 10;
+    cpu_state.ST[0] = 1.5;
+    cpu_state.ST[1] = 2.25;
+    for (int r = 0; r < 8; r++)
+        for (int lane = 0; lane < 4; lane++)
+            cpu_state.XMM[r].l[lane] = 10 + r + lane;
+    double value = 1.25;
+    if (kind == 2) {
+        memcpy(memory + 64, &value, 8);
+        memcpy(memory + 4096, &value, 8);
+    }
+    if (first_inline)
+        readlookup2[0] = writelookup2[0] = (uintptr_t) memory;
+
+    start_code();
+    build_loadstore_routines(&test_block);
+    codegen_exit_rout = start_code();
+    host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &aborted);
+    host_x86_MOV32_BASE_OFFSET_IMM(&test_block, REG_RDI, 0, 1);
+    codegen_backend_epilogue(&test_block);
+
+    codegen_reg_reset();
+    ir_data_t *ir = codegen_ir_init();
+    test_block.flags = CODEBLOCK_HAS_FPU | (dynamic_top ? 0 : CODEBLOCK_STATIC_TOP);
+    uop_MOV_IMM(ir, IREG_EAX, 64);
+    uop_MOV_IMM(ir, IREG_EBX, 0x12345678);
+    uop_MOV_IMM(ir, IREG_oldpc, expected_oldpc);
+    uop_ADD_IMM(ir, IREG_EBP, IREG_EBP, 1);
+    uop_FADD(ir, IREG_ST(0), IREG_ST(0), IREG_ST(0));
+    for (int r = 1; r < 8; r++)
+        uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
+    uop_MOV(ir, IREG_temp0_DQ, IREG_XMM(5));
+    uop_MOV(ir, IREG_temp0, IREG_EBX);
+    uop_gen_imm(UOP_TEST_PADDING, ir, pad);
+    for (int i = 0; i < 32; i++) {
+        if (first_inline && i == 1)
+            uop_MOV_IMM(ir, IREG_EAX, 4096);
+        if (kind == 0)
+            uop_MEM_LOAD_REG(ir, IREG_BX, IREG_DS_base, IREG_EAX);
+        else if (kind == 1)
+            uop_MEM_STORE_REG(ir, IREG_DS_base, IREG_EAX, IREG_EBX);
+        else if (kind == 2)
+            uop_MEM_LOAD_DOUBLE(ir, IREG_ST(1), IREG_DS_base, IREG_EAX);
+        else if (kind == 3)
+            uop_MEM_LOAD_REG(ir, IREG_XMM(0), IREG_DS_base, IREG_EAX);
+        else
+            uop_MEM_STORE_REG(ir, IREG_DS_base, IREG_EAX, IREG_XMM(0));
+        /* This temporary is live at early sites but dead at final emission. */
+        if (i == 15) {
+            uop_MOV(ir, IREG_XMM(6), IREG_temp0_DQ);
+            uop_MOV(ir, IREG_EDX, IREG_temp0);
+        }
+    }
+    uop_ADD_IMM(ir, IREG_EBP, IREG_EBP, 1);
+    uop_FADD(ir, IREG_ST(0), IREG_ST(0), IREG_ST(0));
+    for (int r = 1; r < 8; r++)
+        uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
+    uint8_t *entry = start_code();
+    codegen_ir_compile(ir, &test_block);
+    CHECK(next_chunk > 4);
+    cpu_state.TOP = dynamic_top ? 3 : 0;
+    cpu_state.ST[3] = 1.5;
+    cpu_state.ST[4] = 2.25;
+#ifdef _WIN32
+    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
+#else
+    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
+#endif
+    ((void (*)(void)) entry)();
+    unsigned calls = fault ? fault : (32 - first_inline) * (kind >= 3 ? 2 : 1);
+    CHECK(helper_calls == calls && aborted == !!fault);
+    CHECK(cycles == 1000 - (int) calls * 5);
+    CHECK(EBP == 11 + calls * 3 + !fault);
+    CHECK(cpu_state.ST[dynamic_top ? 3 : 0] == (3.0 + calls * 0.25) * (fault ? 1 : 2));
+    unsigned completed = fault ? first_inline + (fault - 1) / (kind >= 3 ? 2 : 1) : 32;
+    if (completed >= 16)
+        CHECK(EDX == 0x12345678);
+    if (kind == 0)
+        CHECK(EBX == (completed ? 0x1234a5a5 : 0x12345678));
+    if (kind == 2)
+        CHECK(cpu_state.ST[dynamic_top ? 4 : 1] == (completed ? 1.25 : 2.25));
+    if (kind == 4) {
+        uint32_t source[] = { 10, 11, 12, 13 };
+        uint8_t expected[16];
+        memset(expected, 0xa5, sizeof(expected));
+        unsigned written = completed ? 16 : fault > 1 ? 8 : 0;
+        memcpy(expected, source, written);
+        CHECK(!memcmp(memory + 64, expected, sizeof(expected)));
+    }
+    for (int lane = 0; lane < 4; lane++) {
+        CHECK(cpu_state.XMM[7].l[lane] == ((17u + lane) * 2 + calls * 5) * (fault ? 1 : 2));
+        if (kind == 3)
+            CHECK(cpu_state.XMM[0].l[lane] == (completed ? 0xa5a5a5a5 : 10u + lane));
+        if (completed >= 16)
+            CHECK(cpu_state.XMM[6].l[lane] == (15u + lane) * (fault ? 2 : 4));
+    }
+    memory_control = fault_on_call = 0;
+}
+
 int
 main(void)
 {
@@ -859,6 +979,19 @@ main(void)
     CHECK(code_memory != MAP_FAILED);
 #endif
     run_backend_init();
+    for (int top = 0; top < 2; top++) {
+        for (int kind = 0; kind < 5; kind++) {
+            for (unsigned pad = 0; pad < BLOCK_MAX; pad += 31) {
+                run_memory_sequence(kind, 0, pad, top, 0);
+                run_memory_sequence(kind, 1, pad, top, 0);
+                run_memory_sequence(kind, 2, pad, top, 0);
+                run_memory_sequence(kind, kind >= 3 ? 64 : 32, pad, top, 0);
+                /* A successful inline load must remain dirty, and its new value
+                   becomes the old destination if the following helper faults. */
+                run_memory_sequence(kind, 1, pad, top, 1);
+            }
+        }
+    }
     for (int top = 0; top < 2; top++) {
         for (int store = 0; store < 2; store++) {
             for (int form = FORM_REG; form <= FORM_DOUBLE; form++) {
