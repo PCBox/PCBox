@@ -13,9 +13,9 @@ Google Test or Google Benchmark dependency.
    select it in the run configuration; the target is `cpu_microbench`.
 3. Results appear in the console and in `build/cpu-microbench.csv`.
 
-The shared configuration builds the target first and runs nine samples per
-case, targeting at least 25 ms per sample. Allow roughly a minute for the full
-suite. Each run replaces that CSV, so copy a result you want to keep before
+The shared configuration builds the target first and runs 21 samples per
+case, targeting 75 ms per sample after 100 ms of warmup. The suite contains
+355 cases; allow roughly 10–15 minutes per full run. Each run replaces that CSV, so copy a result you want to keep before
 running again. Use Run, without attaching a debugger, for timing comparisons.
 
 The target is available without enabling `BUILD_TESTING` or `BUILD_BENCHMARKS`.
@@ -42,7 +42,7 @@ Save a baseline, change/build the code, then run:
 In CLion, set the program arguments to:
 
 ```text
---samples 9 --sample-ms 25 --baseline before.csv --csv after.csv
+--samples 21 --sample-ms 75 --baseline before.csv --csv after.csv
 ```
 
 The configuration's working directory is `build`, so those filenames refer to
@@ -51,6 +51,47 @@ The configuration's working directory is `build`, so those filenames refer to
 show `--`. Different block sizes are rejected. Keep host, build flags and sample
 settings the same. Repeat the baseline and candidate if the difference is small;
 turbo, thermal changes, scheduling and other applications can move the results.
+
+For a reproducible branch comparison on Windows/MinGW, use the paired runner:
+
+```powershell
+./tests/cpu/build_microbench_compare.ps1 -BaselineRef codex/cpu-microbench-baseline -OutputDirectory build/comparison -Compiler C:/msys64/mingw64/bin/gcc.exe
+python tests/cpu/compare_microbench.py --baseline build/comparison/baseline.exe --current build/comparison/current.exe --output build/comparison/results --cpu 4
+```
+
+The build script exports the baseline revision into the output directory and
+backports only the current C fixture into that snapshot. It builds both versions
+with the same compiler and optimization flags, without changing either branch.
+`build.json` records revisions, source changes, flags and hashes. Choose a logical
+CPU that exists on your machine; `--cpu` uses Windows process affinity.
+
+The runner randomizes case order with a recorded seed and uses paired AB/BA
+order across two rounds. Defaults are 11 samples of approximately 75 ms per
+round, giving 22 samples and about 1.65 seconds of measured work per case per
+version. Allow roughly 20–30 minutes. Run only one comparison at a time. Avoid
+debuggers and other heavy work while timing. Longer samples reduce timer and
+scheduler noise, but do not guarantee lower variance.
+
+Outputs include `comparison.csv`, pooled `baseline.csv` and `current.csv`, a
+long-form `samples.csv`, the run manifest, and each individual CSV/log under
+`runs/`. Pooled CSVs are for analysis; use individual harness CSVs with the C
+executable's `--baseline` option. The runner independently checks the reported
+medians and standard deviations against the raw observations. No samples are
+discarded. Use `--resume` with unchanged settings and executables to continue an
+interrupted run; completed, validated runs are retained.
+
+The comparison labels a gain/regression only when it exceeds 3%, has the same
+direction by at least 3% in every round, exceeds three combined relative median
+absolute deviations, and both pooled coefficients of variation are at most 5%.
+These are screening rules, not statistical significance tests. Cases with CV
+above 5% are labeled `noisy`; smaller or inconsistent differences are
+`no_clear_change`. Check raw samples and repeat important findings. Samples
+within a process are correlated, and two process rounds cannot establish a
+precise confidence interval or attribute a result to a particular commit.
+
+Use `--filter substring` or `--case-file names.txt` with the runner for follow-up
+measurements. `--block-ops 1 8 32 64` covers multiple block sizes. JMP cases encode
+their own body lengths in their names and keep those lengths across this sweep.
 
 Useful arguments:
 
@@ -61,6 +102,9 @@ Useful arguments:
 --block-ops 1                               expose block entry/exit overhead
 --block-ops 64                              amortize that overhead over more work
 --quick                                    3 short samples; validation/smoke run
+--case loop/jmp8/integer/body-1              one exact case (no substring matches)
+--cpu 4                                    pin the process to logical CPU 4 (Windows)
+--warmup-ms 250                             extra untimed warmup per case
 ```
 
 Filters are case-sensitive substrings. Options are applied left to right.
@@ -78,12 +122,31 @@ a nonzero status. There are no machine-dependent performance pass/fail threshold
 | `stream` | 32/128-bit accesses stepping 64 bytes through 32 KiB, 1 MiB and 16 MiB working sets |
 | `integer`, `mmx`, `sse` | ADD, PADDD, ADDPS and MULPS; one dependency chain or several independent registers, including eight live SIMD values |
 | `sse/entry-checks` | Consecutive checks eligible for coalescing, and checks separated by memory accesses |
+| `pressure` | Six live GPRs, seven live SIMD registers, or both, around aligned accesses, page splits and lookup misses |
+| `alignment` | Intermediate byte offsets for 32/64/128-bit loads and stores |
+| `x87` | Single/double conversion loads and stores with dynamic TOP, on inline and helper paths |
+| `stream/.../stride-*` | Contiguous and 4 KiB strides through 32 KiB, 1 MiB and 16 MiB working sets |
+| Additional arithmetic | Integer XOR, IMUL and shifts, scalar ADDSS, and SHUFPS at different register pressures |
+| `loop` | Actual rel8/16/32 JMP frontend and unrolling gate, with integer/SIMD bodies from 1 to 32 operations |
 
 Arithmetic cases measure backend operations; they do not include opcode decoding
 or the complete guest-instruction frontend. Memory cases compile repeated IR
 loads/stores, keeping each load required. Stream steps include address increment
 and wraparound. `cycles-live` adds two guest-cycle updates per block. Arithmetic
 register allocation/spills and block entry/exit are part of the measurements.
+Pressure cases keep modified values live across the accesses and verify their
+preservation. Their setup/writeback cost is included and amortized per memory
+access. SSE check cases also cover joins and helper calls with live SIMD values.
+
+JMP cases use synthetic instruction metadata and bytes with the production JMP
+translator, unrolling gate, allocator and IR duplication. Context restoration
+matches `codegen_set_loop_start` for the fixture's decoding context. One operation
+is one arithmetic body operation plus its guest-cycle deduction. `body_ops` and
+`unroll_copies` distinguish the loop length from the actual work in each generated
+block; `ops_per_block` includes all copies. Thus a baseline that does not unroll
+and a candidate that does are normalized to equal work. Validation checks the
+result, PC and deducted cycles for that actual work. These cases include host
+call/return overhead, but not the emulator's real dispatcher or event handling.
 
 Each case is compiled and validated before timing. Validation checks results,
 cycle accounting, streaming wraparound and unexpected exceptions. A calibration
@@ -99,8 +162,9 @@ entry-check case divides by the requested checks even though only the first chec
 is emitted; its small ns/op reflects that optimization.
 
 The table shows median, minimum and nearest-rank p95 across batch averages.
-With nine samples p95 is the largest sample; it is not the p95 latency of an
-individual memory access. CSV contains those summaries, every sample, iteration
+It is not the p95 latency of an individual memory access. CSV also contains mean,
+sample standard deviation, coefficient of variation (CV), median absolute
+deviation (MAD), maximum, total measured milliseconds, every sample, iteration
 counts, validation helper calls per block and allocated JIT payload bytes.
 Metadata records host CPU, compiler/build and register-pool sizes.
 
