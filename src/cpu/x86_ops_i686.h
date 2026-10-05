@@ -468,11 +468,11 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
            into a hardware-defined image), but it dramatically cuts the residual
            MMX-mode misclassification until the proper register-model refactor is
            implemented. */
-        if (readmeml(easeg, old_eaaddr + 464) == 0x54474553UL) {
+        if (readmeml(easeg, old_eaaddr + 400) == 0x54474553UL) {
             have_exact = 1;
             for (i = 0; i <= 7; i++)
-                exact_tag[i] = readmemb(easeg, old_eaaddr + 468 + i);
-            exact_ismmx = readmemb(easeg, old_eaaddr + 476);
+                exact_tag[i] = readmemb(easeg, old_eaaddr + 404 + i);
+            exact_ismmx = readmemb(easeg, old_eaaddr + 412);
         }
 
         cpu_state.ismmx = 0;
@@ -617,10 +617,10 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
         }
 
         /* Reserved-area hijack: stash exact ismmx/tag in the PII-unused reserved tail. */
-        writememl(easeg, old_eaaddr + 464, 0x54474553UL);
+        writememl(easeg, old_eaaddr + 400, 0x54474553UL);
         for (i = 0; i <= 7; i++)
-            writememb(easeg, old_eaaddr + 468 + i, cpu_state.tag[i]);
-        writememb(easeg, old_eaaddr + 476, cpu_state.ismmx);
+            writememb(easeg, old_eaaddr + 404 + i, cpu_state.tag[i]);
+        writememb(easeg, old_eaaddr + 412, cpu_state.ismmx);
 
         cpu_state.eaaddr = old_eaaddr;
 
