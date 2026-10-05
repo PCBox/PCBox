@@ -24,6 +24,7 @@ def read_result(path):
     if len(rows) != 1:
         raise ValueError(f"Expected one case in {path}")
     row = rows[0]
+    row.setdefault("measure", "execute")  # Older fixtures only timed execution.
     samples = [float(row[f"sample_{i + 1}_ns"]) for i in range(int(row["samples"]))]
     if not all(math.isfinite(x) and x > 0 for x in samples):
         raise ValueError(f"Invalid samples in {path}")
@@ -71,13 +72,13 @@ def collect(output, jobs, rounds, labels):
                                              round=round_index + 1, sample=s + 1, ns_per_op=value,
                                              iterations=int(row["iterations"]),
                                              ops_per_block=int(row["ops_per_block"]), source=str(path.relative_to(output))))
-            for key in ("ops_per_block", "jit_bytes", "helpers_per_block", "body_ops", "unroll_copies"):
+            for key in ("ops_per_block", "jit_bytes", "helpers_per_block", "body_ops", "unroll_copies", "measure"):
                 if len({row[key] for row in sources}) != 1:
                     raise ValueError(f"Generated work changed between rounds: {name} {key}")
             pooled[label] = summarize(values)
             per_round[label] = medians
             source[label] = sources[0]
-            summary = dict(case=name, block_ops=block_ops, **pooled[label])
+            summary = dict(case=name, block_ops=block_ops, measure=sources[0]["measure"], **pooled[label])
             summary.update({key: int(sources[0][key]) for key in
                             ("ops_per_block", "jit_bytes", "helpers_per_block", "body_ops", "unroll_copies")})
             summary.update(rounds=rounds, iterations_per_run=json.dumps([int(r["iterations"]) for r in sources]),
@@ -85,6 +86,8 @@ def collect(output, jobs, rounds, labels):
             summary.update({f"sample_{s + 1}_ns": value for s, value in enumerate(values)})
             summaries[label].append(summary)
         before, after = pooled["baseline"], pooled["current"]
+        if source["baseline"]["measure"] != source["current"]["measure"]:
+            raise ValueError("Cannot compare execution with compilation")
         change = 100 * (after["median_ns"] / before["median_ns"] - 1)
         deltas = [100 * (a / b - 1) for b, a in zip(per_round["baseline"], per_round["current"])]
         noise = 300 * math.hypot(before["mad_ns"] / before["median_ns"], after["mad_ns"] / after["median_ns"])
@@ -99,7 +102,7 @@ def collect(output, jobs, rounds, labels):
             decision = "regression"
         else:
             decision = "no_clear_change"
-        comparison.append(dict(case=name, block_ops=block_ops, baseline_ns=before["median_ns"],
+        comparison.append(dict(case=name, block_ops=block_ops, measure=source["baseline"]["measure"], baseline_ns=before["median_ns"],
                                current_ns=after["median_ns"], delta_pct=change,
                                speedup=before["median_ns"] / after["median_ns"], decision=decision,
                                baseline_cv_pct=before["cv_pct"], current_cv_pct=after["cv_pct"],
@@ -132,13 +135,15 @@ def main():
     parser.add_argument("--filter", default="")
     parser.add_argument("--case-file", type=Path, help="Optional newline-separated exact case names")
     parser.add_argument("--seed", type=int, default=20261005)
+    parser.add_argument("--measure", choices=("execute", "compile"), default="execute")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     if not (3 <= args.samples <= 99 and 1 <= args.sample_ms <= 1000 and args.rounds >= 1
-            and 0 <= args.warmup_ms <= 5000 and all(1 <= n <= 64 for n in args.block_ops)):
+            and 0 <= args.warmup_ms <= 5000 and all(1 <= n <= (192 if args.measure == "compile" else 64) for n in args.block_ops)):
         parser.error("invalid sample, warmup, round or block settings")
     executables = {label: getattr(args, label).resolve() for label in ("baseline", "current")}
-    inventories = {label: subprocess.check_output([str(exe), "--list"], text=True).splitlines()
+    measurement_args = ["--measure", "compile"] if args.measure == "compile" else []
+    inventories = {label: subprocess.check_output([str(exe), "--list", *measurement_args], text=True).splitlines()
                    for label, exe in executables.items()}
     if inventories["baseline"] != inventories["current"]:
         raise ValueError("Baseline and current case inventories differ; backport the same harness")
@@ -149,6 +154,8 @@ def main():
             raise ValueError(f"Unknown/filtered cases: {wanted - set(names)}")
         names = [name for name in names if name in wanted]
     jobs = [(name, n) for n in args.block_ops for name in names]
+    if any(n > 64 and not name.startswith("compile/") for name, n in jobs):
+        parser.error("Only the compile/ cases support more than 64 operations")
     if not jobs:
         raise ValueError("No cases selected")
     output = args.output.resolve()
@@ -158,6 +165,8 @@ def main():
                   labels=dict(baseline=args.baseline_label, current=args.current_label),
                   executables={label: dict(path=str(exe), sha256=hashlib.sha256(exe.read_bytes()).hexdigest())
                                for label, exe in executables.items()})
+    if args.measure == "compile":
+        config["measure"] = args.measure
     manifest = output / "manifest.json"
     canonical = json.dumps(config, indent=2)
     if manifest.exists():
@@ -184,6 +193,7 @@ def main():
                 command = [str(executables[label]), "--case", name, "--block-ops", str(block_ops),
                            "--samples", str(args.samples), "--sample-ms", str(args.sample_ms),
                            "--warmup-ms", str(args.warmup_ms), "--csv", str(path)]
+                command.extend(measurement_args)
                 if args.cpu is not None:
                     command.extend(["--cpu", str(args.cpu)])
                 with log.open("w", encoding="utf-8") as stream:

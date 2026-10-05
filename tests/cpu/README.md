@@ -178,8 +178,36 @@ code invalidation or a guest OS. `helpers/block` is counted during validation;
 counter increments are disabled during timing. These cases isolate the emitted
 fallback, register writeback/reload and C-call costs. They are not MMIO benchmarks.
 
-This suite deliberately excludes JIT compilation cost, dispatcher block lookup,
+The default execution mode excludes JIT compilation cost, dispatcher block lookup,
 devices, rendering, interrupts and real instruction mixes. It cannot convert
 ns/op into a sustainable Pentium III MHz value. Keep the SSE soak test as an
 end-to-end check: a local microbenchmark win can still lose in a larger workload
 through code size, cache behavior or a different instruction mix.
+
+### Compilation measurements
+
+Pass `--measure compile` to either the executable or paired runner to measure
+**nanoseconds per compiled block**, independently of execution throughput:
+
+```powershell
+python tests/cpu/compare_microbench.py --baseline build/comparison/baseline.exe --current build/comparison/current.exe --output build/comparison/compile --measure compile --filter compile/ --block-ops 1 8 32 64 --cpu 4
+```
+
+This mode accepts the existing cases and adds three `compile/` cases. They vary
+eight modified integer and eight SIMD registers across stores to exercise
+differing allocator snapshots: fixed dword stores, alternating word/dword/qword
+stores, and three phases of those widths. The phased case exposes repeated
+searches through earlier sites with incompatible helper types. These three
+cases also accept block sizes up to 192 operations; other cases remain limited
+to 64. Each iteration constructs fresh IR, allocates registers,
+emits code and resolves branches/stubs. It reuses the same executable arena;
+shared helper creation, OS allocation, instruction-cache flushing, execution,
+validation and state resets are outside timing. The first and last generated
+blocks are executed and validated. This measures backend block construction,
+not the complete guest decoder, dispatcher, cache eviction or an OS startup.
+`ops_per_block` is 1 in compilation CSVs, `body_ops` retains the requested block
+length, and `measure` identifies the units. Keep compilation and execution
+results in separate directories. The executable's `--baseline` option is for
+execution only; use the paired runner for compilation comparisons.
+`slow_sites` and `slow_stubs` report the captured memory sites and distinct
+helper stubs (or -1 for revisions predating deferred stubs).

@@ -1,6 +1,6 @@
 /* Standalone x86-64 dynarec benchmarks. Compile real IR and execute the real
    allocator/emitter/helper ABI; supply only RAM callbacks and executable memory.
-   Compilation, validation and printing are outside the timed batches. */
+   Execution is measured by default; --measure compile times block creation. */
 #include <errno.h>
 #include <math.h>
 #include <stdarg.h>
@@ -36,7 +36,7 @@ extern const uOpFn uop_handlers[];
 enum { CODE_SIZE = 1024 * 1024, CHUNK_SIZE = 4096, RAM_SIZE = 16 * 1024 * 1024,
        MAX_CASES = 1024, MAX_SAMPLES = 99 };
 enum { MEMORY, INTEGER_ADD, MMX_ADD, SSE_INTEGER, SSE_ADD, SSE_MUL, SSE_ENTRY, EMPTY,
-       INTEGER_XOR, INTEGER_MUL, INTEGER_SHIFT, SSE_SCALAR_ADD, SSE_SHUFFLE, JMP_LOOP, MOVS };
+       INTEGER_XOR, INTEGER_MUL, INTEGER_SHIFT, SSE_SCALAR_ADD, SSE_SHUFFLE, JMP_LOOP, MOVS, MIXED_STORES };
 enum { REG_FORM, ABS_FORM, IMM_FORM, SINGLE_FORM, DOUBLE_FORM };
 
 typedef struct {
@@ -45,7 +45,7 @@ typedef struct {
     uint32_t address, working_set;
     int lookup_miss, gpr_pressure, simd_pressure, dynamic_top, loop_body;
     unsigned stride, body_ops;
-    int address32, backward;
+    int address32, backward, phased_stores;
 } bench_case_t;
 
 cpu_state_t cpu_state;
@@ -63,6 +63,8 @@ static struct mem_block_t chunks[CODE_SIZE / CHUNK_SIZE];
 static uint8_t *code_memory;
 static _Alignas(64) uint8_t memory[RAM_SIZE];
 static unsigned next_chunk, case_count, block_ops = 32;
+static unsigned first_codegen_chunk;
+static int measure_compile;
 static bench_case_t cases[MAX_CASES];
 static const char *active_case = "initialization";
 static int verifying;
@@ -417,7 +419,7 @@ static void emit_memory(ir_data_t *ir, const bench_case_t *c)
     }
 }
 
-static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned *work_ops, unsigned *copies))(void)
+static void prepare_codegen(void)
 {
     next_chunk = 0;
     memset(&bench_block, 0, sizeof(bench_block));
@@ -425,7 +427,22 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
     build_loadstore_routines(&bench_block);
     codegen_exit_rout = start_code();
     codegen_backend_epilogue(&bench_block);
-    unsigned first_chunk = next_chunk;
+    first_codegen_chunk = next_chunk;
+}
+
+static void flush_code(void)
+{
+#ifdef _WIN32
+    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
+#else
+    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
+#endif
+}
+
+static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned *work_ops, unsigned *copies))(void)
+{
+    next_chunk = first_codegen_chunk;
+    memset(&bench_block, 0, sizeof(bench_block));
     uint8_t *entry = start_code();
     codegen_reg_reset();
     ir_data_t *ir = codegen_ir_init();
@@ -437,6 +454,7 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
         uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
     if (c->cached_cycles) uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, -1);
     unsigned body_ops = c->body_ops ? c->body_ops : block_ops;
+    if (c->kind == MIXED_STORES) uop_MOV_IMM(ir, IREG_eaaddr, c->address);
     if (c->kind == MOVS) {
         /* Reset each burst in generated code so repeated timed calls remain
            inside the same two pages; include that small setup in the timing. */
@@ -448,6 +466,17 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
         int r = i % c->live_regs;
         switch (c->kind) {
             case MEMORY: emit_memory(ir, c); break;
+            case MIXED_STORES: {
+                /* Changing guest/host mappings generates distinct snapshots,
+                   unlike a repeated load with one stable allocator state. */
+                r = ((i + 1) * 2654435761u) >> 29;
+                unsigned width = c->phased_stores ? i * 3 / body_ops : i % 3;
+                uop_ADD_IMM(ir, IREG_32(r), IREG_32(r), i + 1);
+                uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
+                uop_MEM_STORE_REG(ir, IREG_DS_base, IREG_eaaddr, c->size ? IREG_32(r)
+                                  : width == 0 ? IREG_16(r) : width == 1 ? IREG_32(r) : IREG_MM(0));
+                break;
+            }
             case MOVS: {
                 uint32_t op32 = c->address32 ? 0x200 : 0;
                 uint32_t pc = c->size == 1 ? ropMOVS_b(&bench_block, ir, 0xa4, 0, op32, 0x101)
@@ -480,6 +509,11 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
                 break;
         }
     }
+    if (c->kind == MIXED_STORES)
+        for (int r = 0; r < 8; r++) {
+            uop_ADD_IMM(ir, IREG_32(r), IREG_32(r), 1);
+            uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
+        }
     for (int r = 0; r < c->gpr_pressure; r++)
         uop_ADD_IMM(ir, pressure_regs[r], pressure_regs[r], 1);
     for (int r = 1; r <= c->simd_pressure; r++)
@@ -500,12 +534,7 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
     *work_ops = c->kind == EMPTY ? 1 : body_ops * *copies;
     codegen_ir_compile(ir, &bench_block);
     /* Allocated payload, including unused tails, excludes the shared helpers. */
-    *jit_bytes = (next_chunk - first_chunk - 1) * MEM_BLOCK_SIZE + block_pos;
-#ifdef _WIN32
-    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
-#else
-    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
-#endif
+    *jit_bytes = (next_chunk - first_codegen_chunk - 1) * MEM_BLOCK_SIZE + block_pos;
     return (void (*)(void)) entry;
 }
 
@@ -626,6 +655,26 @@ static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned wo
         CHECK(cpu_state.flags == expected.flags && cpu_state.oldpc == 0x100);
         CHECK(cycles == expected._cycles);
         CHECK(helper_calls == (c->lookup_miss ? work_ops * 2 : 0));
+    } else if (c->kind == MIXED_STORES) {
+        uint8_t stored[8];
+        memset(stored, 0xa5, sizeof(stored));
+        for (unsigned i = 0; i < block_ops; i++) {
+            unsigned r = ((i + 1) * 2654435761u) >> 29;
+            unsigned width = c->phased_stores ? i * 3 / block_ops : i % 3;
+            expected.regs[r].l += i + 1;
+            for (int lane = 0; lane < 4; lane++) expected.XMM[r].l[lane] *= 2;
+            memcpy(stored, !c->size && width == 2 ? (void *) &expected.MM[0].q : (void *) &expected.regs[r].l,
+                   c->size ? 4 : 2 << width);
+        }
+        CHECK(!memcmp(memory + c->address, stored, sizeof(stored)));
+        for (int r = 0; r < 8; r++) expected.regs[r].l++;
+        for (int r = 0; r < 8; r++)
+            for (int lane = 0; lane < 4; lane++) expected.XMM[r].l[lane] *= 2;
+        CHECK(!memcmp(cpu_state.regs, expected.regs, sizeof(expected.regs)));
+        CHECK(!memcmp(cpu_state.XMM, expected.XMM, sizeof(expected.XMM)));
+        CHECK(!memcmp(cpu_state.MM, expected.MM, sizeof(expected.MM)));
+        CHECK(helper_calls == (c->lookup_miss ? block_ops : 0));
+        CHECK(cycles == expected._cycles - c->cached_cycles * 2);
     } else if (c->kind == JMP_LOOP) {
         for (unsigned i = 0; i < work_ops; i++) {
             if (c->loop_body)
@@ -687,6 +736,14 @@ static double measure(void (*entry)(void), unsigned iterations)
     for (unsigned i = 0; i < iterations; i++) entry();
     return now_ns() - begin;
 }
+
+static double measure_compilation(const bench_case_t *c, unsigned iterations)
+{
+    unsigned bytes, ops, copies;
+    double begin = now_ns();
+    for (unsigned i = 0; i < iterations; i++) compile_case(c, &bytes, &ops, &copies);
+    return now_ns() - begin;
+}
 static int compare_double(const void *a, const void *b)
 {
     double x = *(const double *) a, y = *(const double *) b;
@@ -711,6 +768,8 @@ static void load_baseline(const char *path)
     unsigned ops, iterations, samples, matched = 0;
     double median;
     while (fgets(line, sizeof(line), f)) {
+        if (line[0] == '#' && strstr(line, "measure=compile"))
+            fatal("cannot use a compilation baseline for execution timings\n");
         if (line[0] == '#' || !strncmp(line, "case,", 5)) continue;
         if (sscanf(line, "%127[^,],%u,%u,%u,%lf", name, &ops, &iterations, &samples, &median) != 5 ||
             !isfinite(median) || median <= 0) fatal("invalid baseline row\n");
@@ -741,8 +800,9 @@ static void metadata(FILE *out)
     }
     fprintf(out, "# cpu_microbench v2; host=%s\n# build=%s; compiler=%s; compiled=%s %s\n",
             brand, CPU_BENCH_BUILD, __VERSION__, __DATE__, __TIME__);
-    fprintf(out, "# block_ops=%u; host_gprs=%d; host_simd=%d; misalignment_cycles=%d\n",
-            block_ops, CODEGEN_HOST_REGS, CODEGEN_HOST_FP_REGS, timing_misaligned);
+    fprintf(out, "# block_ops=%u; host_gprs=%d; host_simd=%d; misalignment_cycles=%d; measure=%s\n",
+            block_ops, CODEGEN_HOST_REGS, CODEGEN_HOST_FP_REGS, timing_misaligned,
+            measure_compile ? "compile" : "execute");
 }
 
 int main(int argc, char **argv)
@@ -756,6 +816,7 @@ int main(int argc, char **argv)
                  "               [--block-ops 1..64] [--csv result.csv] [--baseline old.csv]\n"
                  "               [--case exact-name] [--warmup-ms 0..5000] [--cpu 0..63 (Windows)]\n"
                  "               [--list] [--quick]\n"
+                 "               [--measure execute|compile] (compile: ns/block; compile/ cases accept up to 192 ops)\n"
                  "Lower ns/op is better. Positive baseline delta means slower.\n"
                  "Measures generated blocks, not a complete guest CPU or emulated MHz.");
             return 0;
@@ -770,17 +831,37 @@ int main(int argc, char **argv)
             else if (!strcmp(option, "--sample-ms")) sample_ms = number(argv[i], 1, 1000);
             else if (!strcmp(option, "--warmup-ms")) warmup_ms = number(argv[i], 0, 5000);
             else if (!strcmp(option, "--cpu")) affinity_cpu = number(argv[i], 0, 63);
-            else if (!strcmp(option, "--block-ops")) block_ops = number(argv[i], 1, 64);
+            else if (!strcmp(option, "--block-ops")) block_ops = number(argv[i], 1, 192);
             else if (!strcmp(option, "--csv")) csv_path = argv[i];
             else if (!strcmp(option, "--baseline")) baseline_path = argv[i];
+            else if (!strcmp(option, "--measure")) {
+                if (strcmp(argv[i], "compile") && strcmp(argv[i], "execute")) fatal("invalid measurement mode\n");
+                measure_compile = !strcmp(argv[i], "compile");
+            }
             else fatal("unknown option: %s\n", option);
         }
     }
     make_cases();
+    if (measure_compile) {
+        bench_case_t *c = &cases[case_count++];
+        *c = (bench_case_t) { .kind = MIXED_STORES, .address = 64, .size = 4, .store = 1, .live_regs = 8 };
+        strcpy(c->name, "compile/mixed-stores");
+        c = &cases[case_count++];
+        *c = cases[case_count - 2];
+        c->size = 0;
+        c->cached_cycles = 1;
+        strcpy(c->name, "compile/mixed-width-stores");
+        c = &cases[case_count++];
+        *c = cases[case_count - 2];
+        c->phased_stores = 1;
+        strcpy(c->name, "compile/phased-stores");
+    }
+    if (measure_compile && baseline_path) fatal("use the paired runner for compilation comparisons\n");
     unsigned selected = 0;
     for (unsigned i = 0; i < case_count; i++) {
         if (!strstr(cases[i].name, filter)) continue;
         if (exact_case && strcmp(cases[i].name, exact_case)) continue;
+        if (block_ops > 64 && cases[i].kind != MIXED_STORES) fatal("only compile/ cases support more than 64 ops\n");
         selected++;
         if (list) puts(cases[i].name);
     }
@@ -811,12 +892,13 @@ int main(int argc, char **argv)
     memset(writelookup2, 0xff, sizeof(writelookup2));
     for (unsigned i = 0; i < RAM_SIZE / 4096; i++) readlookup2[i] = writelookup2[i] = (uintptr_t) memory;
     metadata(stdout);
-    printf("%u cases, %u samples, target %u ms/sample; units ns/operation (empty: ns/block)\n", selected, samples, sample_ms);
+    printf("%u cases, %u samples, target %u ms/sample; units %s\n", selected, samples, sample_ms,
+           measure_compile ? "ns/compiled block" : "ns/operation (empty: ns/block)");
     puts("Case                                                   median        min        p95    delta   helpers/block");
     if (csv) {
         metadata(csv);
         fprintf(csv, "# samples=%u; target_ms=%u; warmup_ms=%u; affinity_cpu=%d\n", samples, sample_ms, warmup_ms, affinity_cpu);
-        fputs("case,ops_per_block,iterations,samples,median_ns,min_ns,p95_ns,helpers_per_block,jit_bytes,mean_ns,stddev_ns,cv_pct,mad_ns,max_ns,body_ops,unroll_copies,measured_ms", csv);
+        fputs("case,ops_per_block,iterations,samples,median_ns,min_ns,p95_ns,helpers_per_block,jit_bytes,mean_ns,stddev_ns,cv_pct,mad_ns,max_ns,body_ops,unroll_copies,measured_ms,measure,slow_sites,slow_stubs", csv);
         for (unsigned i = 0; i < samples; i++) fprintf(csv, ",sample_%u_ns", i + 1);
         fputc('\n', csv);
     }
@@ -829,16 +911,25 @@ int main(int argc, char **argv)
         if (c->kind == MOVS)
             writelookup2[1] = c->lookup_miss ? (uintptr_t) -1 : (uintptr_t) memory;
         reset_state(c, 0);
+        prepare_codegen();
         unsigned jit_bytes, ops, copies;
         void (*entry)(void) = compile_case(c, &jit_bytes, &ops, &copies);
+        flush_code();
         unsigned calls = validate(c, entry, ops);
+        unsigned divisor = measure_compile ? 1 : ops;
+        int slow_sites = -1, slow_stubs = -1;
+#ifdef CODEGEN_BACKEND_HAS_MEM_STUBS
+        slow_sites = mem_slow_count;
+        slow_stubs = 0;
+        for (int i = 0; i < mem_slow_count; i++) slow_stubs += mem_slow_sites[i].owner == i;
+#endif
         /* Warm the code/data and calibrate enough work to amortize the timer.
            Reset state outside timing; floating-point timing inputs stay finite. */
         unsigned iterations = 1024;
         double elapsed;
         do {
             reset_state(c, 1);
-            elapsed = measure(entry, iterations);
+            elapsed = measure_compile ? measure_compilation(c, iterations) : measure(entry, iterations);
             if (elapsed >= 5e6 || iterations >= (1u << 27)) break;
             iterations *= 2;
         } while (1);
@@ -847,15 +938,16 @@ int main(int argc, char **argv)
         double warm_end = now_ns() + warmup_ms * 1e6;
         do {
             reset_state(c, 1);
-            measure(entry, iterations);
+            if (measure_compile) measure_compilation(c, iterations);
+            else measure(entry, iterations);
         } while (now_ns() < warm_end);
         double values[MAX_SAMPLES], sorted[MAX_SAMPLES];
         double mean = 0, variance = 0, measured_ms = 0;
         for (unsigned s = 0; s < samples; s++) {
             reset_state(c, 1);
-            elapsed = measure(entry, iterations);
+            elapsed = measure_compile ? measure_compilation(c, iterations) : measure(entry, iterations);
             measured_ms += elapsed / 1e6;
-            values[s] = elapsed / ((double) iterations * ops);
+            values[s] = elapsed / ((double) iterations * divisor);
             CHECK(isfinite(values[s]) && values[s] > 0);
             sorted[s] = values[s];
             mean += values[s] / samples;
@@ -877,13 +969,19 @@ int main(int argc, char **argv)
         printf(" %8u\n", calls);
         fflush(stdout);
         if (csv) {
-            fprintf(csv, "%s,%u,%u,%u,%.9f,%.9f,%.9f,%u,%u", c->name, ops, iterations, samples,
+            fprintf(csv, "%s,%u,%u,%u,%.9f,%.9f,%.9f,%u,%u", c->name, divisor, iterations, samples,
                     median, sorted[0], p95, calls, jit_bytes);
-            fprintf(csv, ",%.9f,%.9f,%.6f,%.9f,%.9f,%u,%u,%.3f", mean, stddev, stddev / mean * 100,
-                    mad, sorted[samples - 1], c->body_ops ? c->body_ops : block_ops, copies, measured_ms);
+            fprintf(csv, ",%.9f,%.9f,%.6f,%.9f,%.9f,%u,%u,%.3f,%s,%d,%d", mean, stddev, stddev / mean * 100,
+                    mad, sorted[samples - 1], c->body_ops ? c->body_ops : block_ops, copies, measured_ms,
+                    measure_compile ? "compile" : "execute", slow_sites, slow_stubs);
             for (unsigned s = 0; s < samples; s++) fprintf(csv, ",%.9f", values[s]);
             fputc('\n', csv);
             CHECK(fflush(csv) == 0);
+        }
+        if (measure_compile) {
+            reset_state(c, 0);
+            flush_code();
+            CHECK(validate(c, entry, ops) == calls);
         }
         readlookup2[c->address >> 12] = writelookup2[c->address >> 12] = (uintptr_t) memory;
         if (c->kind == MOVS) writelookup2[1] = (uintptr_t) memory;
@@ -894,6 +992,7 @@ int main(int argc, char **argv)
 #else
     CHECK(munmap(code_memory, CODE_SIZE) == 0);
 #endif
-    puts("All selected cases validated. Compilation and validation excluded from timings.");
+    puts(measure_compile ? "All selected cases validated. Compilation timed; execution excluded."
+                         : "All selected cases validated. Compilation and validation excluded from timings.");
     return 0;
 }

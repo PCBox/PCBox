@@ -1709,6 +1709,89 @@ typedef struct mem_slow_site_t {
 static mem_slow_site_t mem_slow_sites[UOP_NR_MAX];
 static int mem_slow_count, mem_slow_active;
 
+/* Preserve the cheap contiguous search for early matches. Index only stubs
+   not found in that bounded prefix, so common repeated accesses need no hash.
+   Entries store owner + 1; zero is empty. At most half the table is occupied. */
+static uint16_t mem_slow_index[UOP_NR_MAX * 2];
+enum { MEM_SLOW_LINEAR_SITES = 16 };
+
+static inline int
+codegen_MEM_SAME_STUB(const mem_slow_site_t *site, const mem_slow_site_t *other)
+{
+    return site->helper == other->helper && site->size == other->size
+           && site->cycles_reg == other->cycles_reg && site->sse_invalidate == other->sse_invalidate
+           && site->state.write_mask == other->state.write_mask
+           && site->state.reload_mask == other->state.reload_mask
+           && !memcmp(site->state.regs, other->state.regs, sizeof(site->state.regs));
+}
+
+static inline unsigned
+codegen_MEM_STUB_HASH(const mem_slow_site_t *site)
+{
+    /* Hash exactly the compatibility key, never struct padding, continuations
+       or final allocator state. Equality is still checked on every collision. */
+    uintptr_t helper = (uintptr_t) site->helper;
+    uint32_t hash = (uint32_t) helper ^ (uint32_t) (helper >> 32);
+    hash = (hash ^ site->size) * 16777619u;
+    hash = (hash ^ (uint32_t) site->cycles_reg) * 16777619u;
+    hash = (hash ^ site->sse_invalidate) * 16777619u;
+    hash = (hash ^ site->state.write_mask ^ ((uint32_t) site->state.reload_mask << 16)) * 16777619u;
+    /* Scalar word loads avoid a SIMD stack temporary (and Win64 frame
+       realignment) in the surrounding emitter. Do not read snapshot padding. */
+    unsigned n = 0;
+    for (; n + 4 <= sizeof(site->state.regs); n += 4) {
+        uint32_t word;
+        memcpy(&word, &site->state.regs[n], sizeof(word));
+        hash = (hash ^ word) * 16777619u;
+    }
+    uint32_t tail = 0;
+    for (unsigned shift = 0; n < sizeof(site->state.regs); n++, shift += 8)
+        tail |= (uint32_t) site->state.regs[n] << shift;
+    hash = (hash ^ tail) * 16777619u;
+    return hash ^ (hash >> 16);
+}
+
+static void
+codegen_MEM_FIND_OWNERS(const codeblock_t *block)
+{
+    unsigned index_size = 0;
+    for (int i = 0; i < mem_slow_count; i++) {
+        mem_slow_site_t *site = &mem_slow_sites[i];
+        /* Keep direct continuations for dynamic TOP. Paired 128-bit accesses
+           retain two independently checked helpers. Neither shares stubs. */
+        if (site->size != 16 && ((block->flags & CODEBLOCK_STATIC_TOP)
+            || !(site->state.write_uses_top || site->state.reload_uses_top))) {
+            int limit = i < MEM_SLOW_LINEAR_SITES ? i : MEM_SLOW_LINEAR_SITES;
+            for (int j = 0; j < limit; j++) {
+                if (codegen_MEM_SAME_STUB(site, &mem_slow_sites[j])) {
+                    site->owner = mem_slow_sites[j].owner;
+                    break;
+                }
+            }
+            if (site->owner == i && i >= MEM_SLOW_LINEAR_SITES) {
+                if (!index_size) {
+                    index_size = 32;
+                    while (index_size < (unsigned) mem_slow_count * 2)
+                        index_size *= 2;
+                    memset(mem_slow_index, 0, index_size * sizeof(mem_slow_index[0]));
+                }
+                unsigned slot = codegen_MEM_STUB_HASH(site) & (index_size - 1);
+                while (mem_slow_index[slot]) {
+                    int owner = mem_slow_index[slot] - 1;
+                    if (codegen_MEM_SAME_STUB(site, &mem_slow_sites[owner])) {
+                        site->owner = owner;
+                        break;
+                    }
+                    slot = (slot + 1) & (index_size - 1);
+                }
+                if (!mem_slow_index[slot])
+                    mem_slow_index[slot] = i + 1;
+            }
+        }
+        mem_slow_sites[site->owner].users++;
+    }
+}
+
 static void
 codegen_MEM_CALL_PRECHECKED(codeblock_t *block, mem_slow_site_t *site)
 {
@@ -1750,29 +1833,7 @@ codegen_backend_mem_begin(void)
 void
 codegen_backend_mem_finish(codeblock_t *block)
 {
-    for (int i = 0; i < mem_slow_count; i++) {
-        mem_slow_site_t *site = &mem_slow_sites[i];
-        for (int j = 0; j < i; j++) {
-            mem_slow_site_t *other = &mem_slow_sites[j];
-            /* Dynamic TOP emitters address a fixed block-frame slot. Keep
-               direct continuations for them; shared returns also outweighed
-               the code-size savings in the dynamic-TOP measurements. */
-            /* Paired accesses retain two independently checked helpers;
-               sharing would add a third generated call without removing one. */
-            if (site->size == 16 || (!(block->flags & CODEBLOCK_STATIC_TOP)
-                && (site->state.write_uses_top || site->state.reload_uses_top)))
-                break;
-            if (site->helper == other->helper && site->size == other->size
-                && site->cycles_reg == other->cycles_reg && site->sse_invalidate == other->sse_invalidate
-                && site->state.write_mask == other->state.write_mask
-                && site->state.reload_mask == other->state.reload_mask
-                && !memcmp(site->state.regs, other->state.regs, sizeof(site->state.regs))) {
-                site->owner = other->owner;
-                break;
-            }
-        }
-        mem_slow_sites[site->owner].users++;
-    }
+    codegen_MEM_FIND_OWNERS(block);
     void *shared_exit = codegen_exit_rout;
     for (int i = 0; i < mem_slow_count; i++) {
         if (mem_slow_sites[i].users > 1) {

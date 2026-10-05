@@ -3,6 +3,9 @@ if(ARCH STREQUAL "x86_64" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     # do not build or run benchmarks. Match the emulator's optimization flags.
     add_executable(cpu_microbench EXCLUDE_FROM_ALL cpu_microbench.c
         ../../src/codegen_new/codegen_ops_mov.c
+        ../../src/codegen_new/codegen_ops_jump.c
+        ../../src/codegen_new/codegen_ops_helpers.c
+        ../../src/codegen_new/codegen_block.c
         ../../src/codegen_new/codegen_backend_x86-64_ops.c
         ../../src/codegen_new/codegen_backend_x86-64_ops_sse.c)
     set_target_properties(cpu_microbench PROPERTIES WIN32_EXECUTABLE FALSE MACOSX_BUNDLE FALSE)
@@ -16,6 +19,9 @@ if(ARCH STREQUAL "x86_64" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_link_options(cpu_microbench PRIVATE
         $<$<PLATFORM_ID:Darwin>:-Wl,-dead_strip>
         $<$<NOT:$<PLATFORM_ID:Darwin>>:-Wl,--gc-sections>)
+    if(NOT WIN32)
+        target_link_libraries(cpu_microbench PRIVATE m)
+    endif()
 endif()
 
 if(BUILD_TESTING AND ARCH STREQUAL "x86_64")
@@ -51,6 +57,23 @@ if(BUILD_TESTING AND ARCH STREQUAL "x86_64")
             $<$<PLATFORM_ID:Darwin>:-Wl,-dead_strip>
             $<$<NOT:$<PLATFORM_ID:Darwin>>:-Wl,--gc-sections>)
         add_test(NAME hint_nop_test COMMAND hint_nop_test)
+
+        add_executable(jump_unroll_test jump_unroll_test.c
+            ../../src/codegen_new/codegen_ops_jump.c
+            ../../src/codegen_new/codegen_ops_helpers.c
+            ../../src/codegen_new/codegen_block.c
+            ../../src/codegen_new/codegen_backend_x86-64_ops.c
+            ../../src/codegen_new/codegen_backend_x86-64_ops_sse.c)
+        target_compile_definitions(jump_unroll_test PRIVATE USE_DYNAREC USE_NEW_DYNAREC)
+        target_include_directories(jump_unroll_test PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/include ${PROJECT_SOURCE_DIR}/src/cpu
+            ${PROJECT_SOURCE_DIR}/src/codegen_new ${PROJECT_BINARY_DIR}/src/include)
+        target_compile_options(jump_unroll_test PRIVATE -ffunction-sections -fdata-sections
+            $<$<PLATFORM_ID:Windows>:-fno-asynchronous-unwind-tables>)
+        target_link_options(jump_unroll_test PRIVATE
+            $<$<PLATFORM_ID:Darwin>:-Wl,-dead_strip>
+            $<$<NOT:$<PLATFORM_ID:Darwin>>:-Wl,--gc-sections>)
+        add_test(NAME jump_unroll_test COMMAND jump_unroll_test)
 
         add_executable(ram_register_test ram_register_test.c
             ../../src/codegen_new/codegen_ops_mov.c
