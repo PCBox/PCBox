@@ -1135,6 +1135,21 @@ codegen_CMP_JZ_DEST(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_CMP_ULT(codeblock_t *block, uop_t *uop)
+{
+    int dest = HOST_REG_GET(uop->dest_reg_a_real);
+    host_x86_CMP32_REG_REG(block, HOST_REG_GET(uop->src_reg_a_real), HOST_REG_GET(uop->src_reg_b_real));
+    /* Compare before writing dest, which may alias either operand. MOV
+       clears the upper bits without changing CF; XOR would destroy it. */
+    host_x86_MOV32_REG_IMM(block, dest, 0);
+    codegen_alloc_bytes(block, 4);
+    if (dest >= 4)
+        codegen_addbyte(block, 0x40 | (dest >> 3)); /* REX for low-byte registers */
+    codegen_addbyte3(block, 0x0f, uop->imm_data ? 0x93 : 0x92, 0xc0 | (dest & 7)); /* SETAE / SETB */
+    return 0;
+}
+
+static int
 codegen_CMOVNZ(codeblock_t *block, uop_t *uop)
 {
     int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
@@ -4986,6 +5001,7 @@ codegen_XOR_IMM(codeblock_t *block, uop_t *uop)
 }
 
 const uOpFn uop_handlers[UOP_MAX] = {
+    [UOP_CMP_ULT & UOP_MASK] = codegen_CMP_ULT,
     [UOP_CALL_FUNC & UOP_MASK] = codegen_CALL_FUNC,
     [UOP_CALL_FUNC_RESULT &
         UOP_MASK]

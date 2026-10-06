@@ -29,6 +29,9 @@ extern const uOpFn uop_handlers[];
 #include "../../src/codegen_new/codegen_ir.c"
 #include "../../src/codegen_new/codegen_ops_jump.h"
 #include "../../src/codegen_new/codegen_ops_mov.h"
+#include "../../src/codegen_new/codegen_ops_arith.h"
+#include "../../src/codegen_new/codegen_ops_setcc.h"
+#include "x86_flags.h"
 
 #ifndef CPU_BENCH_BUILD
 #    define CPU_BENCH_BUILD "standalone"
@@ -36,7 +39,8 @@ extern const uOpFn uop_handlers[];
 enum { CODE_SIZE = 1024 * 1024, CHUNK_SIZE = 4096, RAM_SIZE = 16 * 1024 * 1024,
        MAX_CASES = 1024, MAX_SAMPLES = 99 };
 enum { MEMORY, INTEGER_ADD, MMX_ADD, SSE_INTEGER, SSE_ADD, SSE_MUL, SSE_ENTRY, EMPTY,
-       INTEGER_XOR, INTEGER_MUL, INTEGER_SHIFT, SSE_SCALAR_ADD, SSE_SHUFFLE, JMP_LOOP, MOVS, MIXED_STORES };
+       INTEGER_XOR, INTEGER_MUL, INTEGER_SHIFT, SSE_SCALAR_ADD, SSE_SHUFFLE, JMP_LOOP, MOVS, MIXED_STORES,
+       FRONTEND_FLAGS };
 enum { REG_FORM, ABS_FORM, IMM_FORM, SINGLE_FORM, DOUBLE_FORM };
 
 typedef struct {
@@ -54,6 +58,8 @@ typedef struct {
 _Alignas(64) cpu_state_t cpu_state;
 #define BENCH_CALLBACK __attribute__((aligned(64)))
 uint32_t cr4;
+int tempc;
+uint8_t znptable8[256];
 uint16_t cpu_cur_status;
 int timing_misaligned = 3, cpu_cyrix_alignment;
 uintptr_t readlookup2[2097152], writelookup2[1048576];
@@ -115,10 +121,17 @@ void codegen_check_seg_write_abs(codeblock_t *block, ir_data_t *ir, x86seg *seg,
 x86seg *codegen_generate_ea(ir_data_t *ir, x86seg *seg, uint32_t fetchdat, int ssegs,
                           uint32_t *pc, uint32_t op32, int offset)
 {
+#ifdef CPU_FASTPATH_TEST
+    /* The correctness fixture only needs the ModR/M [EAX] form. */
+    CHECK((fetchdat & 0xc7) == 0 && (op32 & 0x200));
+    uop_MOV(ir, IREG_eaaddr, IREG_EAX);
+    return &cpu_state.seg_ds;
+#else
     (void) ir; (void) seg; (void) fetchdat; (void) ssegs;
     (void) pc; (void) op32; (void) offset;
     fatal("unexpected generic effective-address decoder call\n");
     return NULL;
+#endif
 }
 
 void x86illegal(void) { fatal("unexpected #UD\n"); }
@@ -197,13 +210,22 @@ BENCH_CALLBACK void writememll(uint32_t addr, uint32_t value) { access_memory(ad
 BENCH_CALLBACK void writememql(uint32_t addr, uint64_t value) { access_memory(addr, value, 8, 1); }
 
 const uOpFn uop_handlers[UOP_MAX] = {
+#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
+    [UOP_CMP_ULT & UOP_MASK] = codegen_CMP_ULT,
+#endif
     [UOP_MOV & UOP_MASK] = codegen_MOV,
     [UOP_MOV_IMM & UOP_MASK] = codegen_MOV_IMM,
     [UOP_MOV_PTR & UOP_MASK] = codegen_MOV_PTR,
     [UOP_CALL_FUNC & UOP_MASK] = codegen_CALL_FUNC,
+    [UOP_CALL_FUNC_RESULT & UOP_MASK] = codegen_CALL_FUNC_RESULT,
     [UOP_MOVZX & UOP_MASK] = codegen_MOVZX,
     [UOP_ADD & UOP_MASK] = codegen_ADD,
+    [UOP_SUB & UOP_MASK] = codegen_SUB,
+    [UOP_SUB_IMM & UOP_MASK] = codegen_SUB_IMM,
+    [UOP_XOR & UOP_MASK] = codegen_XOR,
     [UOP_OR & UOP_MASK] = codegen_OR,
+    [UOP_SHR_IMM & UOP_MASK] = codegen_SHR_IMM,
+    [UOP_CMOVNZ & UOP_MASK] = codegen_CMOVNZ,
     [UOP_CMP_JB & UOP_MASK] = codegen_CMP_JB,
     [UOP_CMP_JNBE & UOP_MASK] = codegen_CMP_JNBE,
     [UOP_MOVZX_REG_PTR_8 & UOP_MASK] = codegen_MOVZX_REG_PTR_8,
@@ -254,6 +276,14 @@ static void make_cases(void)
     static const uint32_t working_sets[] = { 32768, 1024 * 1024, RAM_SIZE };
     char name[128];
     add_case("control/empty-block", EMPTY);
+    /* These use instruction translators, including lazy flags and C-call
+       barriers. Backend-only ADD/IMUL cases cannot measure that overhead. */
+    const char *flag_cases[] = { "cmp32-adc32", "cmp32-sbb32", "add32-adc32",
+                                "cmp32-setb", "cmp32-setbe", "cmp32-cmovb32" };
+    for (unsigned i = 0; i < sizeof(flag_cases) / sizeof(flag_cases[0]); i++) {
+        snprintf(name, sizeof(name), "frontend/%s", flag_cases[i]);
+        add_case(name, FRONTEND_FLAGS)->form = i;
+    }
     for (int store = 0; store < 2; store++) {
         for (int size = 1; size <= 16; size *= 2) {
             for (int location = 0; location < 6; location++) {
@@ -473,6 +503,7 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
     memset(&bench_block, 0, sizeof(bench_block));
     start_code();
     codegen_reg_reset();
+    cpu_block_end = 0;
     ir_data_t *ir = codegen_ir_init();
     bench_block.flags = CODEBLOCK_HAS_FPU | (c->dynamic_top ? 0 : CODEBLOCK_STATIC_TOP);
     bench_block.TOP = cpu_state.TOP;
@@ -494,6 +525,28 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
         int r = i % c->live_regs;
         switch (c->kind) {
             case MEMORY: emit_memory(ir, c); break;
+            case FRONTEND_FLAGS:
+                if (c->form == 2)
+                    ropADD_l_rm(&bench_block, ir, 0x03, 0xc1, 0x300, 0x101); /* ADD EAX,ECX */
+                else
+                    ropCMP_l_rm(&bench_block, ir, 0x3b, 0xc1, 0x300, 0x101); /* CMP EAX,ECX */
+                /* The emulator interprets each instruction while translating;
+                   reproduce only its flags-producer metadata here. */
+                cpu_state.flags_op = c->form == 2 ? FLAGS_ADD32 : FLAGS_SUB32;
+                if (c->form == 0 || c->form == 2)
+                    ropADC_l_rm(&bench_block, ir, 0x13, 0xda, 0x300, 0x103); /* ADC EBX,EDX */
+                else if (c->form == 1)
+                    ropSBB_l_rm(&bench_block, ir, 0x1b, 0xda, 0x300, 0x103);
+                else if (c->form == 3)
+                    ropSETB(&bench_block, ir, 0x92, 0xc3, 0x300, 0x103);
+                else if (c->form == 4)
+                    ropSETBE(&bench_block, ir, 0x96, 0xc3, 0x300, 0x103);
+                else
+                    ropCMOVB_l(&bench_block, ir, 0x42, 0xda, 0x300, 0x103);
+                /* Like the decoder, stop at the allocator's version/refcount
+                   limit. The reported operation count uses the actual pairs. */
+                if (cpu_block_end) body_ops = i + 1;
+                break;
             case MIXED_STORES: {
                 /* Changing guest/host mappings generates distinct snapshots,
                    unlike a repeated load with one stable allocator state. */
@@ -708,6 +761,26 @@ static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned wo
         CHECK(!memcmp(cpu_state.MM, expected.MM, sizeof(expected.MM)));
         CHECK(helper_calls == (c->lookup_miss ? block_ops : 0));
         CHECK(cycles == expected._cycles - c->cached_cycles * 2);
+    } else if (c->kind == FRONTEND_FLAGS) {
+        for (unsigned i = 0; i < work_ops; i++) {
+            uint32_t a = expected.regs[0].l, b = expected.regs[1].l;
+            unsigned carry;
+            if (c->form == 2) {
+                uint64_t sum = (uint64_t) a + b;
+                expected.regs[0].l = (uint32_t) sum;
+                carry = sum >> 32;
+            } else
+                carry = a < b;
+            if (c->form == 0 || c->form == 2)
+                expected.regs[3].l += expected.regs[2].l + carry;
+            else if (c->form == 1)
+                expected.regs[3].l -= expected.regs[2].l + carry;
+            else if (c->form == 3 || c->form == 4)
+                expected.regs[3].b.l = c->form == 3 ? carry : a <= b;
+            else if (carry)
+                expected.regs[3].l = expected.regs[2].l;
+        }
+        CHECK(!memcmp(cpu_state.regs, expected.regs, sizeof(expected.regs)));
     } else if (c->kind == JMP_LOOP) {
         for (unsigned i = 0; i < work_ops; i++) {
             if (c->loop_body)
@@ -805,6 +878,9 @@ static void load_baseline(const char *path)
     unsigned ops, iterations, samples, matched = 0;
     double median;
     while (fgets(line, sizeof(line), f)) {
+        unsigned requested;
+        if (sscanf(line, "# block_ops=%u;", &requested) == 1 && requested != block_ops)
+            fatal("baseline requested block size differs\n");
         if (line[0] == '#' && strstr(line, "measure=compile"))
             fatal("cannot use a compilation baseline for execution timings\n");
         if (line[0] == '#' || !strncmp(line, "case,", 5)) continue;
@@ -812,7 +888,8 @@ static void load_baseline(const char *path)
             !isfinite(median) || median <= 0) fatal("invalid baseline row\n");
         for (unsigned i = 0; i < case_count; i++) {
             if (strcmp(name, cases[i].name)) continue;
-            if (cases[i].kind != JMP_LOOP && ops != (cases[i].kind == EMPTY ? 1 : block_ops))
+            if (cases[i].kind == FRONTEND_FLAGS ? (!ops || ops > block_ops)
+                : cases[i].kind != JMP_LOOP && ops != (cases[i].kind == EMPTY ? 1 : block_ops))
                 fatal("baseline block size differs for %s\n", name);
             if (baseline[i]) fatal("duplicate baseline row for %s\n", name);
             baseline[i] = median;

@@ -15,7 +15,7 @@ Google Test or Google Benchmark dependency.
 
 The shared configuration builds the target first and runs 21 samples per
 case, targeting 75 ms per sample after 100 ms of warmup. The suite contains
-379 cases; allow roughly 10–15 minutes per full run. Each run replaces that CSV, so copy a result you want to keep before
+385 cases; allow roughly 10–15 minutes per full run. Each run replaces that CSV, so copy a result you want to keep before
 running again. Use Run, without attaching a debugger, for timing comparisons.
 
 The target is available without enabling `BUILD_TESTING` or `BUILD_BENCHMARKS`.
@@ -64,7 +64,6 @@ backports only the current C fixture into that snapshot. It builds both versions
 with the same compiler and optimization flags, without changing either branch.
 `build.json` records revisions, source changes, flags and hashes. Choose a logical
 CPU that exists on your machine; `--cpu` uses Windows process affinity.
-
 The fixture aligns its synthetic CPU state, memory callbacks and timing loops
 equally in both builds. Timing loops are not inlined, so calibration and samples
 use the same call boundary. Generated code still uses each backend's real layout.
@@ -120,6 +119,7 @@ a nonzero status. There are no machine-dependent performance pass/fail threshold
 | Group | Work |
 |---|---|
 | `control` | Empty generated block, reported as ns/block |
+| `frontend` | CMP/ADD followed by ADC, SBB, SETB, SETBE or CMOVB, using the production lazy-flag translators |
 | `ram` | 8/16/32/64/128-bit loads/stores; aligned, unaligned, cache-line split, last page-contained address, page split, missing lookup entry |
 | `cycles-live` / `cycles-memory` | Cycle counter used by IR across memory accesses, versus no explicit cycle-counter IR; actual caching follows allocator pressure |
 | `form` | Absolute and immediate scalar forms, plus x87 single/double memory conversion paths |
@@ -134,8 +134,14 @@ a nonzero status. There are no machine-dependent performance pass/fail threshold
 | `loop` | Actual rel8/16/32 JMP frontend and unrolling gate, with integer/SIMD bodies from 1 to 32 operations |
 | `string/movs*` | Non-REP byte/word/dword MOVS translators, a16/a32, both directions, with inline RAM or synthetic memory helpers |
 
-Arithmetic cases measure backend operations; they do not include opcode decoding
-or the complete guest-instruction frontend. Memory cases compile repeated IR
+Arithmetic cases outside `frontend/` measure backend operations; they do not include opcode decoding
+or the complete guest-instruction frontend. The `frontend/` cases count one
+producer/consumer instruction pair per operation, including flag bookkeeping
+and any fallback C calls. They use synthetic decoder inputs and reproduce the
+interpreter's translation-time flag metadata. Long frontend bursts honor the
+allocator's block-end request before register versions overflow; `ops_per_block`
+records the actual pairs, while `body_ops` records the requested burst length.
+Memory cases compile repeated IR
 loads/stores, keeping each load required. Stream steps include address increment
 and wraparound. `cycles-live` adds two guest-cycle updates per block. Arithmetic
 register allocation/spills and block entry/exit are part of the measurements.
@@ -178,7 +184,8 @@ Metadata records host CPU, compiler/build and register-pool sizes.
 
 Slow-path callbacks access synthetic RAM and reproduce the fixture's PIII
 misalignment penalty. They **do not** measure the real MMU page walker, devices,
-code invalidation or a guest OS. `helpers/block` is counted during validation;
+code invalidation or a guest OS. `helpers/block` counts memory callbacks during validation
+(not flag helpers);
 counter increments are disabled during timing. These cases isolate the emitted
 fallback, register writeback/reload and C-call costs. They are not MMIO benchmarks.
 
@@ -228,7 +235,14 @@ cmake --build build/cpu-tests -j 4
 ctest --test-dir build/cpu-tests --output-on-failure
 ```
 
-`cpu_fastpath_test` shares the microbenchmark's real JIT and synthetic RAM.
+`cpu_fastpath_test` shares the microbenchmark's real JIT and synthetic RAM,
+with independent arithmetic expectations. It covers exhaustive 8-bit carry
+inputs; word/dword boundaries and seeded random inputs; known and unknown lazy
+flags; inverted conditions; ADC/SBB byte, high-byte, word, dword, memory and
+mutable-immediate forms; and fault ordering before memory writes commit.
+Conditions are also tested at the allocator's register-version limit.
+The x64 native unsigned-compare operation is exercised with every allocator
+register and source/destination alias combination, including REX byte encodings.
 RET tests cover both stack sizes, 16-bit SP wrapping, unsigned imm16 adjustment,
 page-split instructions/stacks, mutable immediates, stack-limit faults and
 memory aborts.
@@ -245,3 +259,89 @@ absent from this checkout and have been removed.
 
 These are execution and ABI tests, not a game compatibility test or a proof of
 a sustainable guest clock rate. Run a representative game/VM for that last check.
+
+## Fast-path measurements, 2026-10-06
+
+Baseline: `098866151804a32b03d3eae566554750e72c9168`. Candidate: the working
+tree with the RET imm16/operand32 table entry, selective Win64 XMM preservation,
+native unsigned comparisons for known carry conditions, and the 32-bit memory
+register-mask correction. The latter fixes preservation of upper SIMD slots on
+helper/fault paths; the new execution tests exposed the old truncation.
+
+Windows x64, Ryzen 9 9950X, logical CPU 4, MSYS2 GCC 15.2.0, identical `-O2`
+builds with the current fixture backported to the baseline. The full 385-case
+execution sweep used two counterbalanced rounds, seven 20 ms samples per round,
+30 ms warmup and 32 requested operations per block. It classified 158 gains,
+167 cases with no clear change, 53 noisy cases and seven regressions. Every
+selected block passed result validation. These classifications are the screening
+rule described above, not a guarantee about game performance.
+
+The longer check used eleven 50 ms samples per round and 100 ms warmup. Its
+medians for the affected fast paths were:
+
+| Case | Before | After | Time change |
+|---|---:|---:|---:|
+| Empty block (ns/block) | 2.845 | 1.935 | -32.0% |
+| CMP32 / ADC32 (ns/pair) | 1.196 | 0.363 | -69.7% |
+| CMP32 / SBB32 (ns/pair) | 1.201 | 0.371 | -69.1% |
+| ADD32 / ADC32 (ns/pair) | 1.226 | 0.378 | -69.1% |
+| CMP32 / SETB (ns/pair) | 1.132 | 0.223 | -80.3% |
+| CMP32 / SETBE (ns/pair) | 1.730 | 0.222 | -87.2% |
+| CMP32 / CMOVB32 (ns/pair) | 1.180 | 0.239 | -79.8% |
+
+**This candidate does not pass a strict no-performance-regressions gate.**
+The longer check confirmed these six slower cases:
+
+| Case | Before (ns/op) | After (ns/op) | Time change |
+|---|---:|---:|---:|
+| `ram/load32/page-split/cycles-memory` | 1.943 | 2.150 | +10.6% |
+| `ram/load32/page-split/cycles-live` | 2.012 | 2.240 | +11.3% |
+| `pressure/load32/page-split/simd-7` | 2.305 | 2.461 | +6.8% |
+| `pressure/load64/page-split/simd-7` | 2.303 | 2.444 | +6.1% |
+| `sse/entry-checks/store/lookup-miss` | 7.150 | 7.575 | +5.9% |
+| `loop/jmp32/sse/body-1` | 0.412 | 0.512 | +24.1% |
+
+The last case has ten unrolled body operations: its increase is about 1 ns per
+generated block. The rel8/rel16 versions varied enough to be classified noisy
+in the longer check; other runs also showed slowdowns. Code/body alignment and
+allocator-order experiments did not reliably remove that result and were not
+retained. These cases need further investigation before claiming regression-free
+performance. No game/VM throughput measurement was made.
+
+Additional runs covered 19 representative execution cases with one and 64
+requested operations, and 15 compilation cases with one and 32 operations.
+All validated. The native comparison keeps carry lowering to one IR operation;
+32-pair flag-block compilation medians fell by 26–37% (five of six cases were
+classified gains, one noisy). Of four initially flagged compilation slowdowns,
+the longer check confirmed one: a single CMP32/CMOVB32 pair, 411 to 430 ns/block
+(+4.7%). The other three did not meet the repeatability threshold on that run.
+
+The RET translator's stack, immediate and fault behavior is covered by the new
+tests. This fixture does not time the real decoder's removed interpreter fallback,
+so no isolated RET speedup is claimed.
+
+The full PCBox build and all eight standalone CPU suites passed. The new
+`cpu_fastpath_test` completed 648,640 executions, including the native compare
+alias checks; the existing suites also cover RAM/SSE preservation and decoding.
+
+Local artifacts are under `build/cpu-throughput-fixes/`:
+
+- `native-build/build.json`: compiler arguments, source diff, hashes and baseline snapshot.
+- `native-execution/`: full sweep, raw samples and per-run validation logs.
+- `native-execution-recheck/`: longer execution check, including all initially flagged cases.
+- `native-block-sizes/`: one/64-operation execution comparisons.
+- `native-compilation/` and `native-compilation-recheck/`: compilation measurements.
+- `application-build.log` and `tests/Testing/Temporary/LastTest.log`: build/test evidence.
+
+Reproduce the full sweep from the repository root, choosing fresh output folders:
+
+```powershell
+./tests/cpu/build_microbench_compare.ps1 -BaselineRef 098866151804a32b03d3eae566554750e72c9168 -OutputDirectory build/fastpath-compare -Compiler C:/msys64/mingw64/bin/gcc.exe
+python tests/cpu/compare_microbench.py --baseline build/fastpath-compare/baseline.exe --current build/fastpath-compare/current.exe --output build/fastpath-compare/execution --samples 7 --sample-ms 20 --warmup-ms 30 --rounds 2 --block-ops 32 --cpu 4
+```
+
+Use the recorded case lists (`native-recheck-cases.txt`,
+`representative-execution.txt`, `representative-compilation.txt` and
+`native-compile-recheck-cases.txt`) with `--case-file` to reproduce the focused
+runs. Their manifests record all other arguments. Earlier experimental binaries
+and results in this local build directory are superseded by the `native-*` runs.

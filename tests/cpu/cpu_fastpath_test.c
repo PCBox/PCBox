@@ -1,14 +1,24 @@
 /* Execute the production translators, allocator and x64 backend. Share the
    benchmark's RAM/code arena so correctness and timing exercise the same JIT,
-   with explicit stack, fault and ABI assertions. */
+   but use independent arithmetic oracles and explicit fault/ABI assertions. */
 #define CPU_FASTPATH_TEST
 #define main cpu_microbench_main
 #include "cpu_microbench.c"
 #undef main
 
 typedef void (*jit_fn)(void);
+typedef uint32_t (*translator)(codeblock_t *, ir_data_t *, uint8_t, uint32_t, uint32_t, uint32_t);
 static unsigned checks;
+static uint32_t random_state = 0x9e3779b9;
 int stack32;
+
+static uint32_t random_u32(void)
+{
+    random_state ^= random_state << 13;
+    random_state ^= random_state >> 17;
+    random_state ^= random_state << 5;
+    return random_state;
+}
 
 static ir_data_t *begin_test(const char *name)
 {
@@ -33,6 +43,223 @@ static jit_fn finish_test(ir_data_t *ir)
     flush_code();
     return (jit_fn) bench_block.data;
 }
+
+/* Do not derive expected carry using the same bit trick as the translator. */
+static unsigned prepare_flags(int op, unsigned bits, uint32_t a, uint32_t b, unsigned carry)
+{
+    uint32_t mask = UINT32_MAX >> (32 - bits);
+    a &= mask;
+    b &= mask;
+    cpu_state.flags_op = op;
+    cpu_state.flags_op1 = a;
+    cpu_state.flags_op2 = b;
+    cpu_state.flags = 0x202 | carry;
+    if (op == FLAGS_ADD8 || op == FLAGS_ADD16 || op == FLAGS_ADD32) {
+        cpu_state.flags_res = (a + b) & mask;
+        return ((uint64_t) a + b) > mask;
+    }
+    if (op == FLAGS_SUB8 || op == FLAGS_SUB16 || op == FLAGS_SUB32) {
+        cpu_state.flags_res = (a - b) & mask;
+        return a < b;
+    }
+    if (op == FLAGS_ADC32) {
+        cpu_state.flags_res = a + b + carry;
+        return (uint64_t) a + b + carry > UINT32_MAX;
+    }
+    if (op == FLAGS_SBC32) {
+        cpu_state.flags_res = a - b - carry;
+        return (uint64_t) a < (uint64_t) b + carry;
+    }
+    cpu_state.flags_res = a;
+    return op == FLAGS_ZN8 || op == FLAGS_ZN16 || op == FLAGS_ZN32 ? 0 : carry;
+}
+
+static void test_conditions(void)
+{
+    const int ops[] = { FLAGS_ADD8, FLAGS_ADD16, FLAGS_ADD32, FLAGS_SUB8, FLAGS_SUB16, FLAGS_SUB32,
+                       FLAGS_ZN8, FLAGS_ZN16, FLAGS_ZN32, FLAGS_INC8, FLAGS_INC16, FLAGS_INC32,
+                       FLAGS_DEC8, FLAGS_DEC16, FLAGS_DEC32, FLAGS_ADC32, FLAGS_SBC32, FLAGS_UNKNOWN };
+    const uint32_t edge[] = {0, 1, 0x7f, 0x80, 0xff, 0x100, 0x7fff, 0x8000, 0xffff,
+                            0x10000, 0x7fffffff, 0x80000000, 0xfffffffe, 0xffffffff};
+    for (unsigned op = 0; op < sizeof(ops) / sizeof(ops[0]); op++)
+        for (int known = 0; known <= 1; known++) {
+            ir_data_t *ir = begin_test("carry/conditions");
+            codegen_flags_changed = known;
+            cpu_state.flags_op = ops[op];
+            setcc_gen_B(ir, 0);
+            uop_MOV(ir, IREG_EAX, IREG_temp0);
+            setcc_gen_B(ir, 1);
+            uop_MOV(ir, IREG_EBX, IREG_temp0);
+            setcc_gen_BE(ir, 0);
+            uop_MOV(ir, IREG_ECX, IREG_temp0);
+            setcc_gen_BE(ir, 1);
+            uop_MOV(ir, IREG_EDX, IREG_temp0);
+            jit_fn entry = finish_test(ir);
+            unsigned bits = op < 15 ? 8u << (op % 3) : 32;
+            unsigned count = bits == 8 && op < 6 ? 65536 : 8192;
+            for (unsigned i = 0; i < count; i++) {
+                uint32_t a = bits == 8 && op < 6 ? i >> 8 : i < 196 ? edge[i / 14] : random_u32();
+                uint32_t b = bits == 8 && op < 6 ? i & 255 : i < 196 ? edge[i % 14] : random_u32();
+                unsigned carry = prepare_flags(ops[op], bits, a, b, i & 1);
+                uint32_t old_a = cpu_state.flags_op1, old_b = cpu_state.flags_op2, old_r = cpu_state.flags_res;
+                uint16_t old_flags = cpu_state.flags;
+                unsigned zero = ops[op] == FLAGS_UNKNOWN ? !!(old_flags & Z_FLAG) : old_r == 0;
+                entry();
+                if (EAX != carry || EBX != !carry || ECX != (carry || zero) || EDX != !(carry || zero))
+                    fatal("op=%d known=%d a=%08x b=%08x: got %u/%u/%u/%u, CF=%u ZF=%u\n",
+                          ops[op], known, a, b, EAX, EBX, ECX, EDX, carry, zero);
+                CHECK(cpu_state.flags_op == ops[op] && cpu_state.flags == old_flags);
+                CHECK(cpu_state.flags_op1 == old_a && cpu_state.flags_op2 == old_b && cpu_state.flags_res == old_r);
+                checks++;
+            }
+        }
+}
+
+static void test_adc_sbb(void)
+{
+    const translator reg_ops[2][3] = {{ropADC_b_rm, ropADC_w_rm, ropADC_l_rm},
+                                      {ropSBB_b_rm, ropSBB_w_rm, ropSBB_l_rm}};
+    const translator group_ops[] = {rop80, rop81_w, rop81_l};
+    /* Every scratch-register arrangement: register/high byte, immediate,
+       memory, and mutable immediate with a live memory operand. */
+    for (int subtract = 0; subtract <= 1; subtract++)
+        for (unsigned width = 0; width < 3; width++)
+            for (int form = 0; form < 5; form++)
+                for (int known = 0; known <= 1; known++) {
+                    unsigned bits = 8u << width;
+                    uint32_t mask = UINT32_MAX >> (32 - bits);
+                    ir_data_t *ir = begin_test("carry/ADC-SBB operands");
+                    int high = !width && form == 1;
+                    int dynamic = form == 4;
+                    int mem = form >= 3;
+                    unsigned reg = high ? 7 : 3; /* BH or BL/BX/EBX */
+                    if (dynamic) bench_block.flags |= CODEBLOCK_NO_IMMEDIATES;
+                    cpu_state.flags_op = FLAGS_SUB32;
+                    codegen_flags_changed = known;
+                    uint32_t immediate = 0x87654321;
+                    memcpy(instruction_bytes + 0x102, &immediate, 4);
+                    if (form < 2)
+                        reg_ops[subtract][width](&bench_block, ir, 0, 0xc0 | (reg << 3) | 2, 0x300, 0x101);
+                    else
+                        group_ops[width](&bench_block, ir, 0, (subtract ? 0x18 : 0x10) | (mem ? 0 : 0xc3), 0x300, 0x101);
+                    jit_fn entry = finish_test(ir);
+                    for (unsigned i = 0; i < 2048; i++) {
+                        uint32_t a = random_u32(), b = form < 2 ? random_u32() : immediate;
+                        if (dynamic && width) {
+                            b = random_u32();
+                            memcpy(instruction_bytes + 0x102, &b, 4);
+                        }
+                        a &= mask;
+                        b &= mask;
+                        unsigned carry = prepare_flags(FLAGS_SUB32, 32, i & 1 ? 0 : UINT32_MAX, 1, 0);
+                        EAX = 0x4000;
+                        EBX = high ? (0xa5b6005a | (a << 8)) : ((0xa5b65a00 & ~mask) | a);
+                        EDX = b;
+                        uint32_t old_ebx = EBX;
+                        memcpy(memory + EAX, &a, bits / 8);
+                        uint32_t expected = (subtract ? a - b - carry : a + b + carry) & mask;
+                        entry();
+                        CHECK(!cpu_state.abrt);
+                        uint32_t actual = 0;
+                        if (mem) memcpy(&actual, memory + EAX, bits / 8);
+                        else actual = high ? BH : EBX & mask;
+                        if (actual != expected)
+                            fatal("sub=%d bits=%u form=%d known=%d a=%x b=%x cf=%u: %x != %x\n",
+                                  subtract, bits, form, known, a, b, carry, actual, expected);
+                        uint32_t changed = high ? 0xff00 : mask;
+                        CHECK(mem ? EBX == old_ebx : (EBX & ~changed) == (old_ebx & ~changed));
+                        CHECK(cpu_state.flags_op1 == a && cpu_state.flags_op2 == b && cpu_state.flags_res == expected);
+                        CHECK(!!CF_SET() == (subtract ? (uint64_t) a < (uint64_t) b + carry : (uint64_t) a + b + carry > mask));
+                        checks++;
+                    }
+                }
+}
+
+static void test_carry_faults(void)
+{
+    for (int subtract = 0; subtract <= 1; subtract++) {
+        ir_data_t *ir = begin_test("carry/memory fault ordering");
+        cpu_state.flags_op = FLAGS_SUB32;
+        cpu_state.oldpc = 0x100;
+        codegen_flags_changed = 1;
+        uint32_t imm = 7;
+        memcpy(instruction_bytes + 0x102, &imm, 4);
+        rop81_l(&bench_block, ir, 0x81, subtract ? 0x18 : 0x10, 0x300, 0x101);
+        jit_fn entry = finish_test(ir);
+        for (int fault = 1; fault <= 2; fault++) {
+            uint32_t operand = 0x12345678;
+            memcpy(memory + 0x4000, &operand, 4);
+            prepare_flags(FLAGS_SUB32, 32, 0, UINT32_MAX, 0);
+            cpu_state.abrt = 0;
+            EAX = 0x4000;
+            readlookup2[4] = writelookup2[4] = (uintptr_t) -1;
+            test_fault_access = fault;
+            entry();
+            CHECK(cpu_state.abrt == 14 && cpu_state.oldpc == 0x100);
+            CHECK(cpu_state.flags_op == FLAGS_SUB32 && cpu_state.flags_op1 == 0);
+            CHECK(cpu_state.flags_op2 == UINT32_MAX && cpu_state.flags_res == 1);
+            CHECK(!memcmp(memory + 0x4000, &operand, 4));
+            readlookup2[4] = writelookup2[4] = (uintptr_t) memory;
+            checks++;
+        }
+    }
+}
+
+static void test_condition_version_limit(void)
+{
+    for (int add = 0; add <= 1; add++)
+        for (int below_equal = 0; below_equal <= 1; below_equal++) {
+            ir_data_t *ir = begin_test("carry/register version boundary");
+            /* The decoder can enter an instruction with version 250. It
+               only honors CPU_BLOCK_END after that instruction is emitted. */
+            for (int i = 0; i < REG_VERSION_MAX; i++) {
+                uop_MOV_IMM(ir, IREG_temp0, i);
+                uop_MOV_IMM(ir, IREG_temp1, i);
+            }
+            cpu_block_end = 0;
+            cpu_state.flags_op = add ? FLAGS_ADD32 : FLAGS_SUB32;
+            codegen_flags_changed = 1;
+            if (below_equal) setcc_gen_BE(ir, 0);
+            else setcc_gen_B(ir, 1);
+            CHECK(cpu_block_end && reg_last_version[IREG_temp0] >= REG_VERSION_MAX);
+            CHECK(reg_last_version[IREG_temp1] >= REG_VERSION_MAX);
+            uop_MOV(ir, IREG_EAX, IREG_temp0);
+            jit_fn entry = finish_test(ir);
+            prepare_flags(add ? FLAGS_ADD32 : FLAGS_SUB32, 32, add ? UINT32_MAX : 0, 1, 0);
+            entry();
+            CHECK(EAX == (unsigned) below_equal);
+            checks++;
+        }
+}
+
+#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
+static void test_native_compare_aliases(void)
+{
+    /* Exercise every allocator register, including REX byte encodings and
+       destinations aliased with either comparison operand. */
+    for (int d = 0; d < CODEGEN_HOST_REGS; d++)
+        for (int a = 0; a < CODEGEN_HOST_REGS; a++)
+            for (int b = 0; b < CODEGEN_HOST_REGS; b++)
+                for (int invert = 0; invert <= 1; invert++) {
+                    begin_test("carry/native compare aliases");
+                    int dest = codegen_host_reg_list[d].reg;
+                    int lhs = codegen_host_reg_list[a].reg, rhs = codegen_host_reg_list[b].reg;
+                    codegen_backend_prologue(&bench_block);
+                    host_x86_MOV32_REG_IMM(&bench_block, lhs, 0x80000000u);
+                    host_x86_MOV32_REG_IMM(&bench_block, rhs, UINT32_MAX);
+                    uop_t uop = { .dest_reg_a_real = dest | IREG_SIZE_L,
+                                  .src_reg_a_real = lhs | IREG_SIZE_L,
+                                  .src_reg_b_real = rhs | IREG_SIZE_L, .imm_data = invert };
+                    codegen_CMP_ULT(&bench_block, &uop);
+                    host_x86_MOV32_ABS_REG(&bench_block, &EAX, dest);
+                    codegen_backend_epilogue(&bench_block);
+                    flush_code();
+                    ((jit_fn) bench_block.data)();
+                    CHECK(EAX == (unsigned) ((lhs != rhs) ^ invert));
+                    checks++;
+                }
+}
+#endif
 
 #ifdef _WIN64
 static uint8_t sentinel[160], observed[160];
@@ -197,6 +424,13 @@ int main(void)
     host_x86_MOV8_ABS_IMM(&bench_block, &cpu_state.abrt, 12);
     host_x86_JMP(&bench_block, codegen_exit_rout);
     first_codegen_chunk = next_chunk;
+    test_conditions();
+    test_adc_sbb();
+    test_carry_faults();
+    test_condition_version_limit();
+#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
+    test_native_compare_aliases();
+#endif
 #ifdef _WIN64
     test_xmm_abi();
 #endif

@@ -15,11 +15,16 @@
 #include "codegen_ops_arith.h"
 #include "codegen_ops_helpers.h"
 #include "codegen_ops_jit_wrappers.h"
+#include "codegen_ops_setcc.h"
 
 static inline void
 get_cf(ir_data_t *ir, int dest_reg)
 {
-    uop_CALL_FUNC_RESULT(ir, dest_reg, jit_CF_SET);
+    /* Group-immediate forms can already have an operand in temp0 and an
+       immediate in temp2. Use the result temporary as scratch only before
+       computing that result; do not clobber their live operands for CF. */
+    int scratch = dest_reg == IREG_temp1 ? IREG_temp2 : IREG_temp1;
+    setcc_gen_carry(ir, dest_reg, scratch);
 }
 
 uint32_t
