@@ -229,6 +229,9 @@ ctest --test-dir build/cpu-tests --output-on-failure
 ```
 
 `cpu_fastpath_test` shares the microbenchmark's real JIT and synthetic RAM.
+RET tests cover both stack sizes, 16-bit SP wrapping, unsigned imm16 adjustment,
+page-split instructions/stacks, mutable immediates, stack-limit faults and
+memory aborts.
 
 On Windows, generated callers seed and check all ten nonvolatile XMM registers
 around blocks with 0–16 live SIMD values. These exercise spills, read-only

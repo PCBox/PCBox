@@ -134,6 +134,49 @@ static void test_xmm_abi(void)
 }
 #endif
 
+static void test_ret_imm(void)
+{
+    const uint32_t stacks[] = {0x4000, 0xfffc, 0x7654fffc, 0x4fff};
+    const uint16_t immediates[] = {0, 4, 0x8000, 0xffff};
+    for (int wide = 0; wide <= 1; wide++)
+        for (int dynamic = 0; dynamic <= 1; dynamic++)
+            for (int split = 0; split <= 1; split++)
+                for (unsigned s = 0; s < 4; s++)
+                    for (unsigned n = 0; n < 4; n++) {
+                        if (wide && s == 2) continue;
+                        ir_data_t *ir = begin_test("RET imm16 / operand32");
+                        uint32_t pc = split ? 0xfff : 0x101;
+                        memcpy(instruction_bytes + pc, &immediates[n], 2);
+                        if (dynamic) bench_block.flags |= CODEBLOCK_NO_IMMEDIATES;
+                        stack32 = wide;
+                        cpu_state.oldpc = pc - 1;
+                        CHECK(ropRET_imm_32(&bench_block, ir, 0xc2, 0, 0x300, pc) == UINT32_MAX);
+                        jit_fn entry = finish_test(ir);
+                        for (int fault = 0; fault < 3; fault++) {
+                            uint16_t imm = dynamic ? immediates[(n + 1) % 4] : immediates[n];
+                            if (dynamic) memcpy(instruction_bytes + pc, &imm, 2);
+                            ESP = stacks[s];
+                            uint32_t address = wide ? ESP : SP;
+                            uint32_t target = 0xdeadbeef;
+                            memcpy(memory + address, &target, 4);
+                            cpu_state.pc = 0x1234;
+                            cpu_state.abrt = 0;
+                            cpu_state.seg_ss.limit_high = fault == 1 ? address + 2 : UINT32_MAX;
+                            readlookup2[address >> 12] = fault == 2 ? (uintptr_t) -1 : (uintptr_t) memory;
+                            test_fault_access = fault == 2 ? 1 : 0;
+                            entry();
+                            uint32_t expected_sp = wide ? stacks[s] + 4 + imm
+                                : (stacks[s] & 0xffff0000) | (uint16_t) (stacks[s] + 4 + imm);
+                            CHECK(cpu_state.abrt == (fault == 1 ? 12 : fault == 2 ? 14 : 0));
+                            CHECK(ESP == (fault ? stacks[s] : expected_sp));
+                            CHECK(cpu_state.pc == (fault ? 0x1234 : target));
+                            CHECK(cpu_state.oldpc == pc - 1);
+                            readlookup2[address >> 12] = (uintptr_t) memory;
+                            checks++;
+                        }
+                    }
+}
+
 int main(void)
 {
 #ifdef _WIN32
@@ -148,9 +191,16 @@ int main(void)
     memset(writelookup2, 0xff, sizeof(writelookup2));
     for (unsigned i = 0; i < RAM_SIZE / 4096; i++) readlookup2[i] = writelookup2[i] = (uintptr_t) memory;
     prepare_codegen();
+    /* Exception dispatch is outside this fixture; retain the real checks and
+       shared exit while recording the exception vector for assertions. */
+    codegen_ss_rout = start_code();
+    host_x86_MOV8_ABS_IMM(&bench_block, &cpu_state.abrt, 12);
+    host_x86_JMP(&bench_block, codegen_exit_rout);
+    first_codegen_chunk = next_chunk;
 #ifdef _WIN64
     test_xmm_abi();
 #endif
+    test_ret_imm();
     printf("cpu_fastpath_test: %u executions passed\n", checks);
     return 0;
 }
