@@ -231,8 +231,14 @@ void codegen_check_seg_read(codeblock_t *block, ir_data_t *ir, x86seg *seg)
     (void) block; (void) ir; (void) seg;
     CHECK(!(cr0 & 1));
 }
-void codegen_check_seg_write(codeblock_t *block, ir_data_t *ir, x86seg *seg)
+void codegen_check_seg_write(codeblock_t *block, ir_data_t *ir, x86seg *seg, int addr_reg, int size)
 {
+    (void) addr_reg; (void) size;
+    codegen_check_seg_read(block, ir, seg);
+}
+void codegen_check_seg_write_abs(codeblock_t *block, ir_data_t *ir, x86seg *seg, uint32_t addr, int size)
+{
+    (void) addr; (void) size;
     codegen_check_seg_read(block, ir, seg);
 }
 x86seg *codegen_generate_ea(ir_data_t *ir, x86seg *seg, uint32_t fetchdat, int ssegs,

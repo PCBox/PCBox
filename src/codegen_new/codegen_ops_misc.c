@@ -136,15 +136,10 @@ ropF6(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchd
             codegen_mark_code_present(block, cs + op_pc + 1, 1);
             return op_pc + 2;
 
-        case 0x10: /*NOT*/
+        case 0x10: /*NOT - affects no flags, so the lazy flag state carries over*/
             uop_XOR_IMM(ir, reg, reg, 0xff);
-            uop_MOV(ir, IREG_flags_res_B, reg);
-            uop_MOVZX(ir, IREG_flags_res, IREG_flags_res_B);
-            uop_MOV_IMM(ir, IREG_flags_op, FLAGS_ZN8);
             if ((fetchdat & 0xc0) != 0xc0)
                 uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, reg);
-
-            codegen_flags_changed = 1;
             return op_pc + 1;
 
         case 0x18: /*NEG*/
@@ -258,15 +253,10 @@ ropF7_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
             codegen_mark_code_present(block, cs + op_pc + 1, 2);
             return op_pc + 3;
 
-        case 0x10: /*NOT*/
+        case 0x10: /*NOT - affects no flags, so the lazy flag state carries over*/
             uop_XOR_IMM(ir, reg, reg, 0xffff);
-            uop_MOV(ir, IREG_flags_res_W, reg);
-            uop_MOVZX(ir, IREG_flags_res, IREG_flags_res_W);
-            uop_MOV_IMM(ir, IREG_flags_op, FLAGS_ZN16);
             if ((fetchdat & 0xc0) != 0xc0)
                 uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, reg);
-
-            codegen_flags_changed = 1;
             return op_pc + 1;
 
         case 0x18: /*NEG*/
@@ -389,14 +379,10 @@ ropF7_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
             codegen_mark_code_present(block, cs + op_pc + 1, 4);
             return op_pc + 5;
 
-        case 0x10: /*NOT*/
+        case 0x10: /*NOT - affects no flags, so the lazy flag state carries over*/
             uop_XOR_IMM(ir, reg, reg, 0xffffffff);
-            uop_MOV(ir, IREG_flags_res, reg);
-            uop_MOV_IMM(ir, IREG_flags_op, FLAGS_ZN32);
             if ((fetchdat & 0xc0) != 0xc0)
                 uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, reg);
-
-            codegen_flags_changed = 1;
             return op_pc + 1;
 
         case 0x18: /*NEG*/
