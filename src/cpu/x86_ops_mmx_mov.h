@@ -18,6 +18,7 @@ opMOVD_l_mm_a16(uint32_t fetchdat)
         CLOCK_CYCLES(1);
     } else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3);
         dst = readmeml(easeg, cpu_state.eaaddr);
         if (cpu_state.abrt)
             return 1;
@@ -51,6 +52,7 @@ opMOVD_l_mm_a32(uint32_t fetchdat)
         CLOCK_CYCLES(1);
     } else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3);
         dst = readmeml(easeg, cpu_state.eaaddr);
         if (cpu_state.abrt)
             return 1;
@@ -203,6 +205,7 @@ opMOVQ_q_mm_a16(uint32_t fetchdat)
         CLOCK_CYCLES(1);
     } else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7);
         dst = readmemq(easeg, cpu_state.eaaddr);
         if (cpu_state.abrt)
             return 1;
@@ -236,6 +239,7 @@ opMOVQ_q_mm_a32(uint32_t fetchdat)
         CLOCK_CYCLES(1);
     } else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7);
         dst = readmemq(easeg, cpu_state.eaaddr);
         if (cpu_state.abrt)
             return 1;
