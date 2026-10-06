@@ -473,7 +473,14 @@
 #define UOP_CMP_ULT (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10b)
 #define UOP_CMP_SLT (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10c)
 
-#define UOP_MAX     0x10d
+/* DIVMOD returns a fault status and leaves quotient/remainder in backend
+   scratch. Read both results immediately after the exception branch, before
+   emitting another memory operation or helper call on the success path.
+   imm_data holds the quotient width, with bit 8 selecting signed division. */
+#define UOP_DIVMOD (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10d)
+#define UOP_DIV_RESULT (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10e)
+
+#define UOP_MAX     0x10f
 
 #define UOP_INVALID 0xffff
 
@@ -858,6 +865,8 @@ extern int codegen_fp_enter(void);
 #define uop_UMUL(ir, dst_reg, src_reg_a, src_reg_b)              uop_gen_reg_dst_src2(UOP_UMUL, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_UMUL_HI(ir, dst_reg, src_reg_a, src_reg_b)           uop_gen_reg_dst_src2(UOP_UMUL_HI, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_UDIV_CHECK(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, bits) uop_gen_reg_dst_src3_imm(UOP_UDIV_CHECK, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, bits)
+#define uop_DIVMOD(ir, dst_reg, low, high, divisor, mode) uop_gen_reg_dst_src3_imm(UOP_DIVMOD, ir, dst_reg, low, high, divisor, mode)
+#define uop_DIV_RESULT(ir, dst_reg, remainder) uop_gen_reg_dst_imm(UOP_DIV_RESULT, ir, dst_reg, remainder)
 #define uop_IDIV_CHECK(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, bits) uop_gen_reg_dst_src3_imm(UOP_IDIV_CHECK, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, bits)
 #define uop_UDIV(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)    uop_gen_reg_dst_src3(UOP_UDIV, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)
 #define uop_UMOD(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)    uop_gen_reg_dst_src3(UOP_UMOD, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)

@@ -361,7 +361,7 @@ clobber_call_helper(void)
 static int
 test_div_helper(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, clobber_div_helper);
+    return codegen_DIV_HELPER(block, uop, clobber_div_helper, 0);
 }
 
 static int

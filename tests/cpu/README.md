@@ -393,3 +393,76 @@ Use the recorded case lists (`native-recheck-cases.txt`,
 `native-compile-recheck-cases.txt`) with `--case-file` to reproduce the focused
 runs. Their manifests record all other arguments. Earlier experimental binaries
 and results in this local build directory are superseded by the `native-*` runs.
+
+## Expanded matrix and arithmetic changes, 2026-10-07
+
+The suite grew from 385 to 4,357 execution cases and 4,360 compilation cases.
+The five changes were compared individually against their immediate parent:
+native signed dword conditions, inline INC/DEC carry preservation, memory-source
+CMOV, low-half UMUL through IMUL, and combined DIV/IDIV helpers. The host was
+Windows x64 on the Ryzen 9 9950X, logical CPU 4, with MSYS2 GCC 15.2.0 and
+identical `-O2 -march=x86-64` paired builds. Each pair used the same current
+fixture and case definitions.
+
+Focused execution comparisons included the affected cases and 22 unchanged
+controls covering scalar/SIMD work, RAM helpers, register pressure, loops and
+pointer chasing. Each used two counterbalanced rounds, seven 20 ms samples
+per round, 30 ms warmup and 32 operations per block. Compilation comparisons
+used the same settings with one and 32 operations per block. Examples classified
+as gains, with execution time in ns per benchmark operation:
+
+| Change and case | Before | After | Time change |
+|---|---:|---:|---:|
+| Signed conditions: CMP32 / SETL, input 1 | 2.083 | 0.221 | -89.4% |
+| Carry preservation: CMP32 / INC, input 0 | 1.731 | 0.370 | -78.6% |
+| Memory CMOVB32: RAM, input 0 | 4.389 | 1.721 | -60.8% |
+| Low-half unsigned32 multiply, four live values | 0.304 | 0.136 | -55.3% |
+| Unsigned DIV32, input 0, no live SIMD | 6.336 | 2.060 | -67.5% |
+
+These isolated improvements do not predict a whole-VM speedup. CMOV's baseline
+is the small fallback model described above: it omits interpreter decoding,
+segment checks and instruction timing. The compiled path checks the segment
+and performs an unconditional checked load. Its page-split CMOVE cases were
+8–13% slower than the model, and CMOVP page-split/miss cases were 16–29% slower
+in the longer check (eleven 50 ms samples, 100 ms warmup, two rounds). The other
+four changes had no classified execution regressions in their focused screens.
+
+Compilation has real tradeoffs. A single CMP32/SETL pair took about 20 ns more
+(5%), while 32-pair blocks compiled 34% faster. Inline carry adds IR: the
+CMP32/INC example rose from 6.73 to 7.24 microseconds per 32-pair block (7.5%);
+word cases increased more, around 29–54% in the initial screen. Its empty-block
+control also rose about 15%, so short-block changes cannot be attributed solely
+to the extra IR. CMOVB32 compiled in 18.58 rather than 4.78 microseconds for 32
+pairs, comparing a full translation with a call to the small fallback model.
+Unsigned multiply compilation improved about 10–16% for 32-operation blocks;
+the affected DIV/IDIV compilation cases improved about 11–25% across both sizes.
+The division change also showed an unrelated 32-operation `compile/mixed-stores`
+increase of 3.7%, repeated at 3.3% with eleven 60 ms samples. This series does
+not establish a strict absence of performance regressions.
+
+Every step passed all eight standalone CPU suites. The final fast-path suite
+ran 1,755,888 executions, including signed boundaries, carry preservation,
+memory faults on false CMOV conditions, multiply register aliases, and byte,
+word and dword division results, overflow, zero divisors and CPU-specific flag
+handling. The full matrix also validated with one and 64 operations per block.
+The full Windows application build passed. Win64 was exercised; other host ABIs
+and game/VM throughput were not measured in this series.
+
+Final quick sweeps completed all 4,357 execution and 4,360 compilation cases.
+The bulk execution sweep showed large RAM timing changes that did not reproduce
+in fresh paired runs: nine selected cases had no clear change and one remained
+noisy. For example, the same Release binary's store16/aligned/GPR4/join case
+measured 3.90 ns/op in the bulk sweep and 0.39 ns/op in isolation. The cause of
+this run-history sensitivity is unresolved. Treat bulk timings as exploratory;
+use the paired runner's fresh process per case for performance comparisons.
+
+Local evidence is under `build/cpu-expansion/`. Each of `signed-aligned/`,
+`carry/`, `cmov/`, `multiply/` and `divide/` contains the paired binaries,
+`build.json`, raw runs and `execution/comparison.csv` and
+`compilation/comparison.csv`. `carry/recheck/` and `cmov/recheck/` contain longer
+follow-ups. The case lists and per-step CTest logs are in the parent directory.
+`divide/compile-recheck/` records the compilation follow-up;
+`series/ram-recheck/` compares the complete series against `d1e33c54e` with the
+same fixture. `final-execute.csv` and `final-compile.csv` are the quick sweeps,
+and `application-build.log` records the application build. Use the comparison
+commands above with the saved case lists to repeat a screen.

@@ -79,6 +79,41 @@ codegen_udiv_check_bits(uint32_t low, uint32_t high, uint32_t divisor, uint32_t 
     return (codegen_div_u64(low, high) / divisor) > max_quotient;
 }
 
+/* Called inside an arithmetic uop: live XMM values must survive. The last
+   scratch word supplies the quotient width and signedness; the first two
+   receive results only after the overflow check has passed. */
+static __attribute__((noinline, target("general-regs-only"))) uint32_t
+codegen_divmod(uint32_t low, uint32_t high, uint32_t divisor, uint32_t *result)
+{
+    unsigned bits = result[2] & 0xff;
+
+    if (!divisor)
+        return 1;
+    if (result[2] & 0x100) {
+        int64_t dividend = ((int64_t) (int32_t) high * INT64_C(0x100000000)) + low;
+        int32_t divs = (int32_t) divisor;
+        int64_t limit = INT64_C(1) << (bits - 1);
+        int64_t quotient;
+
+        if (dividend == INT64_MIN && divs == -1)
+            return 1;
+        quotient = dividend / divs;
+        if (quotient < -limit || quotient >= limit)
+            return 1;
+        result[0] = (uint32_t) quotient;
+        result[1] = (uint32_t) (dividend % divs);
+    } else {
+        uint64_t dividend = ((uint64_t) high << 32) | low;
+        uint64_t quotient = dividend / divisor;
+
+        if (quotient > (UINT32_MAX >> (32 - bits)))
+            return 1;
+        result[0] = (uint32_t) quotient;
+        result[1] = (uint32_t) (dividend % divisor);
+    }
+    return 0;
+}
+
 static uint32_t
 codegen_idiv_check_bits(uint32_t low, uint32_t high, uint32_t divisor, uint32_t bits)
 {
@@ -273,7 +308,7 @@ codegen_DIV_HELPER_LOAD_ARG(codeblock_t *block, int dst_reg, int src_reg, int sa
 }
 
 static int
-codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
+codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper, int divmod)
 {
     int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
     int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
@@ -297,6 +332,9 @@ codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
         const int saved_eax_offset = 24;
 #    endif
 
+        if (divmod)
+            host_x86_MOV32_BASE_OFFSET_IMM(block, REG_RSP, STACK_TEMP_DQ + 8, uop->imm_data);
+
         /* These helpers run inside an arithmetic uop, without a register
            barrier. Preserve the allocator's caller-saved integer registers. */
         host_x86_PUSH(block, REG_R10);
@@ -308,12 +346,28 @@ codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
         codegen_DIV_HELPER_LOAD_ARG(block, REG_ECX, src_reg_a, saved_eax_offset, saved_edx_offset);
         codegen_DIV_HELPER_LOAD_ARG(block, REG_EDX, src_reg_b, saved_eax_offset, saved_edx_offset);
         codegen_DIV_HELPER_LOAD_ARG(block, REG_R8, src_reg_c, saved_eax_offset, saved_edx_offset);
+        if (divmod) {
+            codegen_alloc_bytes(block, 8);
+            codegen_addbyte4(block, 0x4c, 0x8d, 0x8c, 0x24); /* LEA R9,[RSP+scratch] */
+            codegen_addlong(block, local_size + 32 + STACK_TEMP_DQ);
+        }
 #    else
         codegen_DIV_HELPER_LOAD_ARG(block, REG_EDI, src_reg_a, saved_eax_offset, saved_edx_offset);
         codegen_DIV_HELPER_LOAD_ARG(block, REG_ESI, src_reg_b, saved_eax_offset, saved_edx_offset);
         codegen_DIV_HELPER_LOAD_ARG(block, REG_EDX, src_reg_c, saved_eax_offset, saved_edx_offset);
+        if (divmod) {
+            codegen_alloc_bytes(block, 8);
+            codegen_addbyte4(block, 0x48, 0x8d, 0x8c, 0x24); /* LEA RCX,[RSP+scratch] */
+            codegen_addlong(block, local_size + 32 + STACK_TEMP_DQ);
+        }
 #    endif
-        host_x86_CALL(block, helper);
+        if (divmod) {
+            /* The generic far-call emitter uses R9, our fourth Win64 argument. */
+            host_x86_MOV64_REG_IMM(block, REG_RAX, (uintptr_t) helper);
+            codegen_alloc_bytes(block, 2);
+            codegen_addbyte2(block, 0xff, 0xd0); /* CALL RAX */
+        } else
+            host_x86_CALL(block, helper);
         host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, result_offset, REG_EAX);
         host_x86_MOV32_REG_BASE_OFFSET(block, REG_EDX, REG_RSP, saved_edx_offset);
         host_x86_MOV32_REG_BASE_OFFSET(block, REG_EAX, REG_RSP, saved_eax_offset);
@@ -326,6 +380,20 @@ codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
     else
         fatal("DIV helper size mismatch: dest_size=%x, src_size_a=%x, src_size_b=%x, src_size_c=%x\n", dest_size, src_size_a, src_size_b, src_size_c);
 #    endif
+    return 0;
+}
+
+static int
+codegen_DIVMOD(codeblock_t *block, uop_t *uop)
+{
+    return codegen_DIV_HELPER(block, uop, codegen_divmod, 1);
+}
+
+static int
+codegen_DIV_RESULT(codeblock_t *block, uop_t *uop)
+{
+    host_x86_MOV32_REG_BASE_OFFSET(block, HOST_REG_GET(uop->dest_reg_a_real), REG_RSP,
+                                  STACK_TEMP_DQ + 4 * uop->imm_data);
     return 0;
 }
 
@@ -540,37 +608,37 @@ codegen_UMUL_HI(codeblock_t *block, uop_t *uop)
 static int
 codegen_UDIV_CHECK(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, codegen_udiv_check_helper(uop->imm_data));
+    return codegen_DIV_HELPER(block, uop, codegen_udiv_check_helper(uop->imm_data), 0);
 }
 
 static int
 codegen_IDIV_CHECK(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, codegen_idiv_check_helper(uop->imm_data));
+    return codegen_DIV_HELPER(block, uop, codegen_idiv_check_helper(uop->imm_data), 0);
 }
 
 static int
 codegen_UDIV(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, codegen_udiv_quot);
+    return codegen_DIV_HELPER(block, uop, codegen_udiv_quot, 0);
 }
 
 static int
 codegen_UMOD(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, codegen_umod_rem);
+    return codegen_DIV_HELPER(block, uop, codegen_umod_rem, 0);
 }
 
 static int
 codegen_IDIV(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, codegen_idiv_quot);
+    return codegen_DIV_HELPER(block, uop, codegen_idiv_quot, 0);
 }
 
 static int
 codegen_IMOD(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, codegen_imod_rem);
+    return codegen_DIV_HELPER(block, uop, codegen_imod_rem, 0);
 }
 
 static int
@@ -4954,6 +5022,8 @@ codegen_XOR_IMM(codeblock_t *block, uop_t *uop)
 }
 
 const uOpFn uop_handlers[UOP_MAX] = {
+    [UOP_DIVMOD & UOP_MASK] = codegen_DIVMOD,
+    [UOP_DIV_RESULT & UOP_MASK] = codegen_DIV_RESULT,
     [UOP_CMP_SLT & UOP_MASK] = codegen_CMP_SLT,
     [UOP_CMP_ULT & UOP_MASK] = codegen_CMP_ULT,
     [UOP_CALL_FUNC & UOP_MASK] = codegen_CALL_FUNC,

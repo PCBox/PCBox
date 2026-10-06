@@ -602,6 +602,102 @@ static void test_umul_aliases(void)
                 }
 }
 
+/* Work in unsigned magnitudes, including INT64_MIN / -1, so the oracle
+   cannot itself take the host exception being checked. */
+static int divide_oracle(unsigned bits, int is_signed, uint64_t dividend, uint32_t divisor,
+                         uint32_t *quotient, uint32_t *remainder)
+{
+    uint32_t mask = UINT32_MAX >> (32 - bits);
+    uint64_t dividend_mask = bits == 32 ? UINT64_MAX : (UINT64_C(1) << (2 * bits)) - 1;
+    dividend &= dividend_mask;
+    divisor &= mask;
+    int negative_n = is_signed && (dividend >> (2 * bits - 1));
+    int negative_d = is_signed && (divisor >> (bits - 1));
+    uint64_t numerator = negative_n ? (-dividend & dividend_mask) : dividend;
+    uint32_t denominator = negative_d ? (-divisor & mask) : divisor;
+    if (!denominator) return 1;
+    uint64_t q = numerator / denominator, r = numerator % denominator;
+    uint64_t limit = is_signed ? (UINT64_C(1) << (bits - 1)) - !(negative_n ^ negative_d) : mask;
+    if (q > limit) return 1;
+    *quotient = (uint32_t) ((negative_n ^ negative_d) ? -q : q) & mask;
+    *remainder = (uint32_t) (negative_n ? -r : r) & mask;
+    return 0;
+}
+
+static void test_division(void)
+{
+    const uint64_t edge[] = {0, 1, 0x7f, 0x80, 0xff, 0x100, 0x7fff, 0x8000, 0xffff,
+                             0x10000, 0x7fffffff, 0x80000000, 0xffffffff, 0x100000000,
+                             UINT64_C(0x8000000000000000), UINT64_MAX};
+    const int live_regs[] = {IREG_ECX, IREG_ESP, IREG_EBP, IREG_ESI, IREG_EDI};
+    for (int width = 0; width < 3; width++)
+        for (int sign = 0; sign < 2; sign++)
+            for (int form = 0; form < 5; form++)
+                for (int model = 0; model < 3; model++) {
+                    ir_data_t *ir = begin_test("DIV/IDIV results and faults");
+                    cpu_iscyrix = model == 1;
+                    is6117 = model == 2;
+                    cpu_state.oldpc = 0x100;
+                    for (int r = 0; r < 5; r++) uop_ADD_IMM(ir, live_regs[r], live_regs[r], 1);
+                    for (int r = 0; r < 8; r++) uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
+                    unsigned operand = form == 0 ? 3 : form == 1 ? 0 : form == 2 ? 2 : 4;
+                    uint32_t modrm = (sign ? 0x38 : 0x30) | (form == 4 ? 0 : 0xc0 | operand);
+                    translator op = width == 0 ? ropF6 : width == 1 ? ropF7_16 : ropF7_32;
+                    CHECK(op(&bench_block, ir, 0, modrm, 0x300, 0x101) == 0x102);
+                    for (int r = 0; r < 5; r++) uop_ADD_IMM(ir, live_regs[r], live_regs[r], 2);
+                    for (int r = 0; r < 8; r++) uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
+                    jit_fn entry = finish_test(ir);
+                    unsigned bits = 8u << width;
+                    uint32_t mask = UINT32_MAX >> (32 - bits);
+                    for (unsigned i = 0; i < 1024; i++) {
+                        uint64_t dividend = i < 256 ? edge[i / 16] : ((uint64_t) random_u32() << 32) | random_u32();
+                        uint32_t divisor = i < 256 ? edge[i % 16] : random_u32();
+                        for (int r = 0; r < 8; r++) cpu_state.regs[r].l = random_u32();
+                        EAX = width == 0 ? (EAX & 0xffff0000) | (uint16_t) dividend : (EAX & ~mask) | (dividend & mask);
+                        if (width) EDX = (EDX & ~mask) | ((dividend >> bits) & mask);
+                        EBX = divisor;
+                        if (form == 4) EAX = i & 1 ? 0x4fff : 0x4000;
+                        memcpy(memory + 0x4000, &divisor, bits / 8);
+                        memcpy(memory + 0x4fff, &divisor, bits / 8);
+                        uint32_t before[8];
+                        for (int r = 0; r < 8; r++) before[r] = cpu_state.regs[r].l;
+                        if (form != 4) divisor = !width && operand == 4 ? AH : cpu_state.regs[operand].l;
+                        /* ESP is deliberately live and dirty before DIV. */
+                        if (width && form == 3) divisor++;
+                        dividend = !width ? AX : ((uint64_t) (EDX & mask) << bits) | (EAX & mask);
+                        uint32_t q = 0, rem = 0;
+                        int fault = divide_oracle(bits, sign, dividend, divisor, &q, &rem);
+                        int read_fault = form == 4 && i % 4 == 0;
+                        uint32_t address = EAX;
+                        if (form == 4) readlookup2[address >> 12] = (uintptr_t) -1;
+                        test_fault_access = read_fault ? 1 : 0;
+                        cpu_state.abrt = 0;
+                        prepare_flags(FLAGS_SUB32, 32, 1, 2, 0);
+                        cpu_state.oldpc = 0;
+                        for (int r = 0; r < 8; r++)
+                            for (int lane = 0; lane < 4; lane++) cpu_state.XMM[r].l[lane] = r * 4 + lane + 1;
+                        entry();
+                        CHECK(cpu_state.abrt == (read_fault ? 14 : fault ? 1 : 0));
+                        if (fault || read_fault) CHECK(cpu_state.oldpc == 0x100);
+                        int failed = fault || read_fault;
+                        if (!failed) {
+                            before[0] = !width ? (before[0] & 0xffff0000) | q | (rem << 8) : (before[0] & ~mask) | q;
+                            if (width) before[2] = (before[2] & ~mask) | rem;
+                        }
+                        for (int r = 0; r < 5; r++) before[IREG_GET_REG(live_regs[r])] += failed ? 1 : 3;
+                        for (int r = 0; r < 8; r++) CHECK(cpu_state.regs[r].l == before[r]);
+                        if (failed || model) CHECK(cpu_state.flags_op == FLAGS_SUB32 && cpu_state.flags_res == UINT32_MAX && cpu_state.flags == 0x202);
+                        else if (!width) CHECK(cpu_state.flags_op == FLAGS_UNKNOWN && cpu_state.flags == 0xad6);
+                        else CHECK(cpu_state.flags_op == (width == 1 ? FLAGS_ZN16 : FLAGS_ZN32) && cpu_state.flags_res == q && cpu_state.flags == 0x202);
+                        for (int r = 0; r < 8; r++)
+                            for (int lane = 0; lane < 4; lane++) CHECK(cpu_state.XMM[r].l[lane] == (unsigned) (r * 4 + lane + 1) * (failed ? 2 : 4));
+                        if (form == 4) readlookup2[address >> 12] = (uintptr_t) memory;
+                        checks++;
+                    }
+                }
+    cpu_iscyrix = is6117 = 0;
+}
+
 int main(void)
 {
 #ifdef _WIN32
@@ -631,6 +727,7 @@ int main(void)
     test_incdec_carry();
     test_cmov_memory();
     test_umul_aliases();
+    test_division();
     test_carry_faults();
     test_condition_version_limit();
 #ifdef CODEGEN_BACKEND_HAS_CMP_ULT

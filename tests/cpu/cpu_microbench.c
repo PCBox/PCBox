@@ -210,10 +210,15 @@ BENCH_CALLBACK void writememll(uint32_t addr, uint32_t value) { access_memory(ad
 BENCH_CALLBACK void writememql(uint32_t addr, uint64_t value) { access_memory(addr, value, 8, 1); }
 
 const uOpFn uop_handlers[UOP_MAX] = {
+#ifdef CODEGEN_BACKEND_HAS_DIVMOD
+    [UOP_DIVMOD & UOP_MASK] = codegen_DIVMOD,
+    [UOP_DIV_RESULT & UOP_MASK] = codegen_DIV_RESULT,
+#endif
 #ifdef CODEGEN_BACKEND_HAS_CMP_SLT
     [UOP_CMP_SLT & UOP_MASK] = codegen_CMP_SLT,
 #endif
     [UOP_MOVSX & UOP_MASK] = codegen_MOVSX,
+    [UOP_SAR_IMM & UOP_MASK] = codegen_SAR_IMM,
     [UOP_AND & UOP_MASK] = codegen_AND,
     [UOP_UMUL & UOP_MASK] = codegen_UMUL,
     [UOP_UMUL_HI & UOP_MASK] = codegen_UMUL_HI,
