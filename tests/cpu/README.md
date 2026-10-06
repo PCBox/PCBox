@@ -15,7 +15,8 @@ Google Test or Google Benchmark dependency.
 
 The shared configuration builds the target first and runs 21 samples per
 case, targeting 75 ms per sample after 100 ms of warmup. The suite contains
-385 cases; allow roughly 10–15 minutes per full run. Each run replaces that CSV, so copy a result you want to keep before
+4,357 execution cases (4,360 in compilation mode); allow several hours for a full
+run at these settings. Each run replaces that CSV, so copy a result you want to keep before
 running again. Use Run, without attaching a debugger, for timing comparisons.
 
 The target is available without enabling `BUILD_TESTING` or `BUILD_BENCHMARKS`.
@@ -71,7 +72,7 @@ use the same call boundary. Generated code still uses each backend's real layout
 The runner randomizes case order with a recorded seed and uses paired AB/BA
 order across two rounds. Defaults are 11 samples of approximately 75 ms per
 round, giving 22 samples and about 1.65 seconds of measured work per case per
-version. Allow roughly 20–30 minutes. Run only one comparison at a time. Avoid
+version. Allow several hours for the expanded suite. Run only one comparison at a time. Avoid
 debuggers and other heavy work while timing. Longer samples reduce timer and
 scheduler noise, but do not guarantee lower variance.
 
@@ -115,6 +116,53 @@ Filters are case-sensitive substrings. Options are applied left to right.
 a nonzero status. There are no machine-dependent performance pass/fail thresholds.
 
 ## What is measured
+
+The expanded groups cover:
+
+- `conditions/`: all sixteen SETcc conditions and word/dword CMOV, following
+  byte/word/dword CMP or ADD, known and unknown producer metadata, two input
+  patterns. One operation is a producer/consumer pair.
+- `carry/`: CMP/ADD followed by word/dword INC/DEC, including carry and signed
+  boundary inputs. Validation checks the preserved carry independently.
+- `cmov-memory/`: all conditions, word/dword operands, RAM, page splits and
+  lookup misses. Before a translator supports the memory form, a small C
+  fallback model performs the load and condition evaluation. Its count is
+  recorded as `frontend_fallbacks`; it excludes interpreter decoding and
+  instruction timing and is not a measurement of the complete interpreter.
+- `multiply/` and `divide/`: signed/unsigned low-half multiplication with
+  different dependency counts, and the production dword DIV/IDIV frontend
+  with multiple dividend shapes and live SIMD values. Division includes input
+  setup and quotient/remainder accumulators, keeping both results observable.
+- `matrix/`: RAM widths from byte through 128-bit, alignment/cache-line/page
+  boundaries, missing mappings, 0–6 live GPRs, 0–7 live SIMD registers, and
+  accesses separated by joins or C calls. The call performs no device work;
+  it isolates the cost of losing the current register allocation.
+- `working-set/`: 4 KiB through 16 MiB, all five widths, contiguous, cache-line,
+  page and page-plus-cache-line strides, with and without register pressure.
+- `pointer-chase/`: dependent loads through deterministic sequential or
+  shuffled cache-line rings, with one, two or four independent chains. This
+  distinguishes load latency from streaming throughput and prefetching.
+
+Every execution case can also be measured with `--measure compile`. The CSV
+records pre-unrolling IR operations, explicit call operations, memory operations,
+barriers and frontend fallbacks, alongside code bytes and deferred memory sites.
+`call_uops` counts explicit IR calls, not calls emitted inside arithmetic or
+memory operations. The paired runner retains these columns for both versions.
+
+Use `--validate-only` to execute and check the entire selected matrix without
+timing it. It cannot be combined with CSV or baseline output. Useful sweeps:
+
+```powershell
+./build/windows-mingw64/tests/cpu/cpu_microbench.exe --validate-only --block-ops 1
+./build/windows-mingw64/tests/cpu/cpu_microbench.exe --validate-only --block-ops 64
+./build/windows-mingw64/tests/cpu/cpu_microbench.exe --filter pointer-chase/ --csv build/chase.csv
+./build/windows-mingw64/tests/cpu/cpu_microbench.exe --measure compile --filter conditions/ --csv build/conditions-compile.csv
+```
+
+Block-size sweeps expose entry/exit amortization; joins and calls expose state
+writeback; memory matrices separate register spills, lookup helpers and host
+cache behavior. These are diagnostics for larger changes, not measurements of
+the production dispatcher, real MMU walks, REP execution, devices or a guest OS.
 
 | Group | Work |
 |---|---|

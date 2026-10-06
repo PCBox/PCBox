@@ -25,12 +25,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot export baseline sources' }
 if ($LASTEXITCODE -ne 0) { throw 'Cannot extract baseline sources' }
 # Backport only the fixture. The baseline emulator sources stay at their commit.
 Copy-Item -LiteralPath (Join-Path $repoRoot 'tests/cpu/cpu_microbench.c') -Destination (Join-Path $baselineRoot 'tests/cpu/cpu_microbench.c')
+Copy-Item -LiteralPath (Join-Path $repoRoot 'tests/cpu/cpu_microbench_cases.h') -Destination (Join-Path $baselineRoot 'tests/cpu/cpu_microbench_cases.h')
 $compilerPath = (Get-Command $Compiler -ErrorAction Stop).Source
 $env:PATH = (Split-Path $compilerPath) + [IO.Path]::PathSeparator + $env:PATH
 $commonFlags = @('-O2', '-g', '-DNDEBUG', '-std=gnu11', '-fomit-frame-pointer', '-fno-strict-aliasing',
     '-m64', '-march=x86-64', '-msse2', '-mfpmath=sse', '-mstackrealign', '-ffunction-sections',
     '-fdata-sections', '-fno-asynchronous-unwind-tables', '-DUSE_DYNAREC', '-DUSE_NEW_DYNAREC', '-Wl,--gc-sections')
 $sources = @('tests/cpu/cpu_microbench.c', 'src/codegen_new/codegen_ops_jump.c',
+    'src/codegen_new/codegen_ops_misc.c',
     'src/codegen_new/codegen_ops_arith.c', 'src/codegen_new/codegen_ops_setcc.c',
     'src/codegen_new/codegen_ops_mov.c',
     'src/codegen_new/codegen_ops_helpers.c', 'src/codegen_new/codegen_block.c',

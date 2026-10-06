@@ -31,16 +31,18 @@ extern const uOpFn uop_handlers[];
 #include "../../src/codegen_new/codegen_ops_mov.h"
 #include "../../src/codegen_new/codegen_ops_arith.h"
 #include "../../src/codegen_new/codegen_ops_setcc.h"
+#include "../../src/codegen_new/codegen_ops_misc.h"
 #include "x86_flags.h"
+#include "../../src/codegen_new/codegen_ops_jit_wrappers.h"
 
 #ifndef CPU_BENCH_BUILD
 #    define CPU_BENCH_BUILD "standalone"
 #endif
 enum { CODE_SIZE = 1024 * 1024, CHUNK_SIZE = 4096, RAM_SIZE = 16 * 1024 * 1024,
-       MAX_CASES = 1024, MAX_SAMPLES = 99 };
+       MAX_CASES = 16384, MAX_SAMPLES = 99 };
 enum { MEMORY, INTEGER_ADD, MMX_ADD, SSE_INTEGER, SSE_ADD, SSE_MUL, SSE_ENTRY, EMPTY,
        INTEGER_XOR, INTEGER_MUL, INTEGER_SHIFT, SSE_SCALAR_ADD, SSE_SHUFFLE, JMP_LOOP, MOVS, MIXED_STORES,
-       FRONTEND_FLAGS };
+       FRONTEND_FLAGS, CONDITIONS, CARRY_INCDEC, CMOV_MEMORY, MULTIPLY, DIVIDE, POINTER_CHASE };
 enum { REG_FORM, ABS_FORM, IMM_FORM, SINGLE_FORM, DOUBLE_FORM };
 
 typedef struct {
@@ -50,6 +52,7 @@ typedef struct {
     int lookup_miss, gpr_pressure, simd_pressure, dynamic_top, loop_body;
     unsigned stride, body_ops;
     int address32, backward, phased_stores;
+    int producer, condition, unknown_flags, boundary;
 } bench_case_t;
 
 /* Keep synthetic data/helper placement stable across emitter changes. Small
@@ -79,6 +82,7 @@ static bench_case_t cases[MAX_CASES];
 static const char *active_case = "initialization";
 static int verifying;
 static unsigned helper_calls;
+static unsigned emitted_uops, emitted_calls, emitted_memory, emitted_barriers, frontend_fallbacks;
 static uint8_t instruction_bytes[8192];
 #ifdef CPU_FASTPATH_TEST
 static int test_fault_access; /* 1: read abort, 2: write abort */
@@ -121,17 +125,10 @@ void codegen_check_seg_write_abs(codeblock_t *block, ir_data_t *ir, x86seg *seg,
 x86seg *codegen_generate_ea(ir_data_t *ir, x86seg *seg, uint32_t fetchdat, int ssegs,
                           uint32_t *pc, uint32_t op32, int offset)
 {
-#ifdef CPU_FASTPATH_TEST
-    /* The correctness fixture only needs the ModR/M [EAX] form. */
+    /* These fixtures supply the ModR/M [EAX] form directly. */
     CHECK((fetchdat & 0xc7) == 0 && (op32 & 0x200));
     uop_MOV(ir, IREG_eaaddr, IREG_EAX);
     return &cpu_state.seg_ds;
-#else
-    (void) ir; (void) seg; (void) fetchdat; (void) ssegs;
-    (void) pc; (void) op32; (void) offset;
-    fatal("unexpected generic effective-address decoder call\n");
-    return NULL;
-#endif
 }
 
 void x86illegal(void) { fatal("unexpected #UD\n"); }
@@ -210,6 +207,19 @@ BENCH_CALLBACK void writememll(uint32_t addr, uint32_t value) { access_memory(ad
 BENCH_CALLBACK void writememql(uint32_t addr, uint64_t value) { access_memory(addr, value, 8, 1); }
 
 const uOpFn uop_handlers[UOP_MAX] = {
+    [UOP_MOVSX & UOP_MASK] = codegen_MOVSX,
+    [UOP_AND & UOP_MASK] = codegen_AND,
+    [UOP_UMUL & UOP_MASK] = codegen_UMUL,
+    [UOP_UMUL_HI & UOP_MASK] = codegen_UMUL_HI,
+    [UOP_IMUL & UOP_MASK] = codegen_IMUL,
+    [UOP_IMUL_HI & UOP_MASK] = codegen_IMUL_HI,
+    [UOP_UDIV_CHECK & UOP_MASK] = codegen_UDIV_CHECK,
+    [UOP_IDIV_CHECK & UOP_MASK] = codegen_IDIV_CHECK,
+    [UOP_UDIV & UOP_MASK] = codegen_UDIV,
+    [UOP_UMOD & UOP_MASK] = codegen_UMOD,
+    [UOP_IDIV & UOP_MASK] = codegen_IDIV,
+    [UOP_IMOD & UOP_MASK] = codegen_IMOD,
+    [UOP_CMP_IMM_JZ_DEST & UOP_MASK] = codegen_CMP_IMM_JZ_DEST,
 #ifdef CODEGEN_BACKEND_HAS_CMP_ULT
     [UOP_CMP_ULT & UOP_MASK] = codegen_CMP_ULT,
 #endif
@@ -268,6 +278,8 @@ static bench_case_t *add_case(const char *name, int kind)
     c->stride = 64;
     return c;
 }
+
+#include "cpu_microbench_cases.h"
 
 static void make_cases(void)
 {
@@ -438,7 +450,8 @@ static void make_cases(void)
                     c->address32 = a32;
                     c->backward = backward;
                     c->lookup_miss = miss;
-                }
+    }
+    make_extended_cases();
 }
 
 static int memory_reg(const bench_case_t *c)
@@ -449,6 +462,11 @@ static int memory_reg(const bench_case_t *c)
 
 static void emit_memory(ir_data_t *ir, const bench_case_t *c)
 {
+    if (c->boundary == 1) {
+        int jump = uop_CMP_IMM_JNZ_DEST(ir, IREG_EAX, 0);
+        uop_set_jump_dest(ir, jump);
+    } else if (c->boundary == 2)
+        uop_CALL_FUNC(ir, bench_barrier);
     int reg = memory_reg(c);
     if (c->entry_checks) uop_SSE_ENTER(ir);
     if (c->form == ABS_FORM) {
@@ -479,6 +497,11 @@ static void emit_memory(ir_data_t *ir, const bench_case_t *c)
 
 static void prepare_codegen(void)
 {
+    for (unsigned i = 0; i < 256; i++) {
+        unsigned ones = 0;
+        for (unsigned v = i; v; v >>= 1) ones += v & 1;
+        znptable8[i] = (i == 0 ? Z_FLAG : 0) | (i & 0x80 ? N_FLAG : 0) | (ones & 1 ? 0 : P_FLAG);
+    }
     next_chunk = 0;
     memset(&bench_block, 0, sizeof(bench_block));
     start_code();
@@ -504,6 +527,8 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
     start_code();
     codegen_reg_reset();
     cpu_block_end = 0;
+    codegen_flags_changed = 0;
+    frontend_fallbacks = 0;
     ir_data_t *ir = codegen_ir_init();
     bench_block.flags = CODEBLOCK_HAS_FPU | (c->dynamic_top ? 0 : CODEBLOCK_STATIC_TOP);
     bench_block.TOP = cpu_state.TOP;
@@ -524,6 +549,10 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
     for (unsigned i = 0; i < (c->kind == EMPTY ? 0 : body_ops); i++) {
         int r = i % c->live_regs;
         switch (c->kind) {
+            case CONDITIONS: case CARRY_INCDEC: case CMOV_MEMORY: case MULTIPLY: case DIVIDE: case POINTER_CHASE:
+                emit_extended(ir, c, i);
+                if (cpu_block_end) body_ops = i + 1;
+                break;
             case MEMORY: emit_memory(ir, c); break;
             case FRONTEND_FLAGS:
                 if (c->form == 2)
@@ -613,6 +642,15 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
     }
     *copies = codegen_unroll_count ? codegen_unroll_count : 1;
     *work_ops = c->kind == EMPTY ? 1 : body_ops * *copies;
+    emitted_uops = ir->wr_pos;
+    emitted_calls = emitted_memory = emitted_barriers = 0;
+    for (int i = 0; i < ir->wr_pos; i++) {
+        unsigned type = ir->uops[i].type;
+        emitted_calls += (type & UOP_MASK) == (UOP_CALL_FUNC & UOP_MASK)
+                      || (type & UOP_MASK) == (UOP_CALL_FUNC_RESULT & UOP_MASK);
+        emitted_memory += !!(type & UOP_TYPE_MEM);
+        emitted_barriers += !!(type & (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER));
+    }
     codegen_ir_compile(ir, &bench_block);
     /* Allocated payload, including unused tails, excludes the shared helpers. */
     *jit_bytes = (next_chunk - first_codegen_chunk - 1) * MEM_BLOCK_SIZE + block_pos;
@@ -638,6 +676,7 @@ static void reset_state(const bench_case_t *c, int timed)
         for (int lane = 0; lane < 4; lane++)
             cpu_state.XMM[i].l[lane] = 0x12345678 + i + lane;
     }
+    reset_extended(c);
     if (c->kind == MEMORY) {
         EAX = c->address;
         EBX = 0x12345678;
@@ -659,6 +698,7 @@ static void reset_state(const bench_case_t *c, int timed)
 static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned work_ops)
 {
     memset(memory, 0xa5, sizeof(memory));
+    if (c->kind == POINTER_CHASE) prepare_chase(c);
     reset_state(c, 0);
     if (c->kind == MOVS) {
         for (unsigned i = 0; i < 4096; i++) memory[i] = (uint8_t) (i ^ (i >> 8));
@@ -730,6 +770,8 @@ static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned wo
             }
             CHECK(helper_calls == 0);
         }
+    } else if (c->kind >= CONDITIONS) {
+        validate_extended(c, &expected, work_ops);
     } else if (c->kind == MOVS) {
         int step = c->backward ? -c->size : c->size;
         CHECK(ESI == c->address + work_ops * step && EDI == ESI + 4096);
@@ -923,18 +965,19 @@ int main(int argc, char **argv)
 {
     unsigned samples = 21, sample_ms = 75, warmup_ms = 100;
     const char *filter = "", *exact_case = NULL, *csv_path = NULL, *baseline_path = NULL;
-    int list = 0, affinity_cpu = -1;
+    int list = 0, validate_only = 0, affinity_cpu = -1;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--help")) {
             puts("cpu_microbench [--filter substring] [--samples 3..99] [--sample-ms 1..1000]\n"
                  "               [--block-ops 1..64] [--csv result.csv] [--baseline old.csv]\n"
                  "               [--case exact-name] [--warmup-ms 0..5000] [--cpu 0..63 (Windows)]\n"
-                 "               [--list] [--quick]\n"
+                 "               [--list] [--quick] [--validate-only]\n"
                  "               [--measure execute|compile] (compile: ns/block; compile/ cases accept up to 192 ops)\n"
                  "Lower ns/op is better. Positive baseline delta means slower.\n"
                  "Measures generated blocks, not a complete guest CPU or emulated MHz.");
             return 0;
         } else if (!strcmp(argv[i], "--list")) list = 1;
+        else if (!strcmp(argv[i], "--validate-only")) validate_only = 1;
         else if (!strcmp(argv[i], "--quick")) { samples = 3; sample_ms = 1; warmup_ms = 1; }
         else {
             const char *option = argv[i];
@@ -971,6 +1014,7 @@ int main(int argc, char **argv)
         strcpy(c->name, "compile/phased-stores");
     }
     if (measure_compile && baseline_path) fatal("use the paired runner for compilation comparisons\n");
+    if (validate_only && (csv_path || baseline_path)) fatal("validation-only does not produce timings\n");
     unsigned selected = 0;
     for (unsigned i = 0; i < case_count; i++) {
         if (!strstr(cases[i].name, filter)) continue;
@@ -1012,7 +1056,7 @@ int main(int argc, char **argv)
     if (csv) {
         metadata(csv);
         fprintf(csv, "# samples=%u; target_ms=%u; warmup_ms=%u; affinity_cpu=%d\n", samples, sample_ms, warmup_ms, affinity_cpu);
-        fputs("case,ops_per_block,iterations,samples,median_ns,min_ns,p95_ns,helpers_per_block,jit_bytes,mean_ns,stddev_ns,cv_pct,mad_ns,max_ns,body_ops,unroll_copies,measured_ms,measure,slow_sites,slow_stubs", csv);
+        fputs("case,ops_per_block,iterations,samples,median_ns,min_ns,p95_ns,helpers_per_block,jit_bytes,mean_ns,stddev_ns,cv_pct,mad_ns,max_ns,body_ops,unroll_copies,measured_ms,measure,slow_sites,slow_stubs,ir_uops,call_uops,memory_uops,barrier_uops,frontend_fallbacks", csv);
         for (unsigned i = 0; i < samples; i++) fprintf(csv, ",sample_%u_ns", i + 1);
         fputc('\n', csv);
     }
@@ -1030,6 +1074,12 @@ int main(int argc, char **argv)
         void (*entry)(void) = compile_case(c, &jit_bytes, &ops, &copies);
         flush_code();
         unsigned calls = validate(c, entry, ops);
+        if (validate_only) {
+            printf("%s: validated\n", c->name);
+            readlookup2[c->address >> 12] = writelookup2[c->address >> 12] = (uintptr_t) memory;
+            if (c->kind == MOVS) writelookup2[1] = (uintptr_t) memory;
+            continue;
+        }
         unsigned divisor = measure_compile ? 1 : ops;
         int slow_sites = -1, slow_stubs = -1;
 #ifdef CODEGEN_BACKEND_HAS_MEM_STUBS
@@ -1039,7 +1089,8 @@ int main(int argc, char **argv)
 #endif
         /* Warm the code/data and calibrate enough work to amortize the timer.
            Reset state outside timing; floating-point timing inputs stay finite. */
-        unsigned iterations = 1024;
+        unsigned minimum_iterations = measure_compile ? 1 : 1024;
+        unsigned iterations = minimum_iterations;
         double elapsed;
         do {
             reset_state(c, 1);
@@ -1048,7 +1099,7 @@ int main(int argc, char **argv)
             iterations *= 2;
         } while (1);
         double estimate = ceil(iterations * sample_ms * 1e6 / elapsed);
-        iterations = estimate > (1u << 28) ? (1u << 28) : estimate < 1024 ? 1024 : (unsigned) estimate;
+        iterations = estimate > (1u << 28) ? (1u << 28) : estimate < minimum_iterations ? minimum_iterations : (unsigned) estimate;
         double warm_end = now_ns() + warmup_ms * 1e6;
         do {
             reset_state(c, 1);
@@ -1088,6 +1139,7 @@ int main(int argc, char **argv)
             fprintf(csv, ",%.9f,%.9f,%.6f,%.9f,%.9f,%u,%u,%.3f,%s,%d,%d", mean, stddev, stddev / mean * 100,
                     mad, sorted[samples - 1], c->body_ops ? c->body_ops : block_ops, copies, measured_ms,
                     measure_compile ? "compile" : "execute", slow_sites, slow_stubs);
+            fprintf(csv, ",%u,%u,%u,%u,%u", emitted_uops, emitted_calls, emitted_memory, emitted_barriers, frontend_fallbacks);
             for (unsigned s = 0; s < samples; s++) fprintf(csv, ",%.9f", values[s]);
             fputc('\n', csv);
             CHECK(fflush(csv) == 0);
@@ -1106,7 +1158,8 @@ int main(int argc, char **argv)
 #else
     CHECK(munmap(code_memory, CODE_SIZE) == 0);
 #endif
-    puts(measure_compile ? "All selected cases validated. Compilation timed; execution excluded."
+    puts(validate_only ? "All selected cases validated. No timings collected."
+                       : measure_compile ? "All selected cases validated. Compilation timed; execution excluded."
                          : "All selected cases validated. Compilation and validation excluded from timings.");
     return 0;
 }

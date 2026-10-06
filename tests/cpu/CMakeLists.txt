@@ -15,6 +15,7 @@ if(ARCH STREQUAL "x86_64" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     # Available to CLion without enabling the full test suite; normal builds
     # do not build or run benchmarks. Match the emulator's optimization flags.
     add_executable(cpu_microbench EXCLUDE_FROM_ALL cpu_microbench.c
+        ../../src/codegen_new/codegen_ops_misc.c
         ../../src/codegen_new/codegen_ops_arith.c
         ../../src/codegen_new/codegen_ops_setcc.c
         ../../src/codegen_new/codegen_ops_mov.c
@@ -51,6 +52,7 @@ if(BUILD_TESTING AND ARCH STREQUAL "x86_64")
 
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         add_executable(cpu_fastpath_test cpu_fastpath_test.c
+            ../../src/codegen_new/codegen_ops_misc.c
             ../../src/codegen_new/codegen_ops_arith.c
             ../../src/codegen_new/codegen_ops_setcc.c
             ../../src/codegen_new/codegen_ops_mov.c
