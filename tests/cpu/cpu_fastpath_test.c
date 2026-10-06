@@ -513,6 +513,60 @@ static void test_incdec_carry(void)
                     }
 }
 
+static void test_cmov_memory(void)
+{
+    const uint32_t edge[] = {0, 1, 0x7fffffff, 0x80000000, UINT32_MAX};
+    for (int wide = 0; wide < 2; wide++)
+        for (int cond = 0; cond < 16; cond++)
+            for (int known = 0; known < 2; known++)
+                for (int alias = 0; alias < 2; alias++) {
+                    ir_data_t *ir = begin_test("CMOV memory source");
+                    cpu_state.oldpc = 0x100;
+                    cpu_state.flags_op = FLAGS_SUB32;
+                    codegen_flags_changed = known;
+                    if (!alias) uop_MOV_IMM(ir, IREG_EBX, 0xa5a55a5a);
+                    for (int r = 0; r < 8; r++) uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
+                    CHECK(bench_cmov[wide][cond](&bench_block, ir, 0, alias ? 0 : 0x18, 0x300, 0x101) == 0x102);
+                    for (int r = 0; r < 8; r++) uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
+                    jit_fn entry = finish_test(ir);
+                    for (unsigned i = 0; i < 256; i++)
+                        for (int location = 0; location < 3; location++)
+                            for (int fault = 0; fault < 3; fault++) {
+                                uint32_t a = i < 25 ? edge[i / 5] : random_u32();
+                                uint32_t b = i < 25 ? edge[i % 5] : random_u32();
+                                prepare_flags(FLAGS_SUB32, 32, a, b, 0);
+                                uint32_t address = location == 1 ? 0x4fff : 0x4000;
+                                uint32_t value = random_u32(), mask = wide ? UINT32_MAX : 0xffff;
+                                EAX = address;
+                                EBX = 0;
+                                memcpy(memory + address, &value, wide ? 4 : 2);
+                                cpu_state.abrt = 0;
+                                cpu_state.oldpc = 0;
+                                cpu_state.seg_ds.limit_high = fault == 1 ? address : UINT32_MAX;
+                                readlookup2[address >> 12] = location == 2 || fault ? (uintptr_t) -1 : (uintptr_t) memory;
+                                test_fault_access = fault ? 1 : 0;
+                                helper_calls = 0;
+                                for (int r = 0; r < 8; r++)
+                                    for (int lane = 0; lane < 4; lane++) cpu_state.XMM[r].l[lane] = 1 + r * 4 + lane;
+                                entry();
+                                uint32_t expected = alias ? address : 0xa5a55a5a;
+                                if (!fault && condition_oracle(cond, a, b, 32, 0)) expected = (expected & ~mask) | (value & mask);
+                                CHECK((alias ? EAX : EBX) == expected);
+                                CHECK(cpu_state.abrt == (fault == 1 ? 13 : fault == 2 ? 14 : 0));
+                                CHECK(cpu_state.oldpc == 0x100);
+                                CHECK(cpu_state.flags_op == FLAGS_SUB32 && cpu_state.flags_op1 == a && cpu_state.flags_op2 == b);
+                                CHECK(cpu_state.flags_res == a - b && cpu_state.flags == 0x202);
+                                /* Segment faults precede the read, including false conditions. */
+                                if (fault == 1) CHECK(helper_calls == 0);
+                                else if (location || fault) CHECK(helper_calls != 0);
+                                for (int r = 0; r < 8; r++)
+                                    for (int lane = 0; lane < 4; lane++) CHECK(cpu_state.XMM[r].l[lane] == (unsigned) (1 + r * 4 + lane) * (fault ? 2 : 4));
+                                readlookup2[address >> 12] = (uintptr_t) memory;
+                                checks++;
+                            }
+                }
+}
+
 int main(void)
 {
 #ifdef _WIN32
@@ -532,11 +586,15 @@ int main(void)
     codegen_ss_rout = start_code();
     host_x86_MOV8_ABS_IMM(&bench_block, &cpu_state.abrt, 12);
     host_x86_JMP(&bench_block, codegen_exit_rout);
+    codegen_gpf_rout = start_code();
+    host_x86_MOV8_ABS_IMM(&bench_block, &cpu_state.abrt, 13);
+    host_x86_JMP(&bench_block, codegen_exit_rout);
     first_codegen_chunk = next_chunk;
     test_conditions();
     test_adc_sbb();
     test_signed_conditions();
     test_incdec_carry();
+    test_cmov_memory();
     test_carry_faults();
     test_condition_version_limit();
 #ifdef CODEGEN_BACKEND_HAS_CMP_ULT

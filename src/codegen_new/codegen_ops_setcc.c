@@ -471,14 +471,11 @@ cmov_select(ir_data_t *ir, int dest_reg, int src_reg)
 }
 
 static uint32_t
-ropCMOV_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_pc,
+ropCMOV_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc,
                void (*gen_cond)(ir_data_t *ir, int invert), int invert, int is_32)
 {
     int dest_reg;
     int src_reg;
-
-    if ((fetchdat & 0xc0) != 0xc0)
-        return 0;
 
     codegen_mark_code_present(block, cs + op_pc, 1);
 
@@ -488,6 +485,19 @@ ropCMOV_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op
     } else {
         dest_reg = IREG_16((fetchdat >> 3) & 7);
         src_reg  = IREG_16(fetchdat & 7);
+    }
+
+    if ((fetchdat & 0xc0) != 0xc0) {
+        x86seg *target_seg;
+
+        uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+        target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+        codegen_check_seg_read(block, ir, target_seg);
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, is_32 ? 3 : 1);
+        /* CMOV reads memory even when the condition is false. Keep the value
+           outside temp0/temp1, which the condition generators use. */
+        src_reg = is_32 ? IREG_temp2 : IREG_temp2_W;
+        uop_MEM_LOAD_REG(ir, src_reg, ireg_seg_base(target_seg), IREG_eaaddr);
     }
 
     gen_cond(ir, invert);
@@ -530,20 +540,20 @@ ropSET(NLE, setcc_gen_LE, 1)
                                ir_data_t *ir,                           \
                                UNUSED(uint8_t opcode),                  \
                                uint32_t fetchdat,                       \
-                               UNUSED(uint32_t op_32),                  \
+                               uint32_t op_32,                          \
                                uint32_t op_pc)                          \
     {                                                                   \
-        return ropCMOV_common(block, ir, fetchdat, op_pc, gen, invert, 0); \
+        return ropCMOV_common(block, ir, fetchdat, op_32, op_pc, gen, invert, 0); \
     }                                                                   \
                                                                         \
     uint32_t ropCMOV##cond##_l(codeblock_t *block,                      \
                                ir_data_t *ir,                           \
                                UNUSED(uint8_t opcode),                  \
                                uint32_t fetchdat,                       \
-                               UNUSED(uint32_t op_32),                  \
+                               uint32_t op_32,                          \
                                uint32_t op_pc)                          \
     {                                                                   \
-        return ropCMOV_common(block, ir, fetchdat, op_pc, gen, invert, 1); \
+        return ropCMOV_common(block, ir, fetchdat, op_32, op_pc, gen, invert, 1); \
     }
 
 ropCMOV(O,   setcc_gen_O,  0)
