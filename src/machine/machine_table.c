@@ -10105,7 +10105,7 @@ const machine_t machines[] = {
             .max_multi   = 0
         },
         .bus_flags = MACHINE_PS2,
-        .flags     = MACHINE_IDE | MACHINE_SOUND | MACHINE_GAMEPORT, /* Machine has internal video: Paradise WD90C31 (onboard variant not yet emulated) */
+        .flags     = MACHINE_IDE | MACHINE_VIDEO | MACHINE_SOUND | MACHINE_GAMEPORT, /* Machine has internal video: Paradise WD90C31 */
         .ram       = {
             .min  = 2048,
             .max  = 32768,
@@ -10127,7 +10127,7 @@ const machine_t machines[] = {
         .device                   = NULL,
         .kbd_device               = NULL,
         .fdc_device               = NULL,
-        .vid_device               = NULL,
+        .vid_device               = &paradise_wd90c31_onboard_device,
         .snd_device               = &sensationaud_device,
         .net_device               = NULL,
         .aliases                  = { "" }
