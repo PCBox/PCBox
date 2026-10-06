@@ -116,7 +116,7 @@ ropF6(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchd
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
         if ((fetchdat & 0x30) == 0x10) /*NEG/NOT*/
-            codegen_check_seg_write(block, ir, target_seg);
+            codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 1);
         else
             codegen_check_seg_read(block, ir, target_seg);
         uop_MEM_LOAD_REG(ir, IREG_temp0_B, ireg_seg_base(target_seg), IREG_eaaddr);
@@ -238,7 +238,7 @@ ropF7_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
         if ((fetchdat & 0x30) == 0x10) /*NEG/NOT*/
-            codegen_check_seg_write(block, ir, target_seg);
+            codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 2);
         else
             codegen_check_seg_read(block, ir, target_seg);
         uop_MEM_LOAD_REG(ir, IREG_temp0_W, ireg_seg_base(target_seg), IREG_eaaddr);
@@ -370,7 +370,7 @@ ropF7_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
         if ((fetchdat & 0x30) == 0x10) /*NEG/NOT*/
-            codegen_check_seg_write(block, ir, target_seg);
+            codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 4);
         else
             codegen_check_seg_read(block, ir, target_seg);
         uop_MEM_LOAD_REG(ir, IREG_temp0, ireg_seg_base(target_seg), IREG_eaaddr);
@@ -514,7 +514,7 @@ ropFF_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
         if (!(fetchdat & 0x30)) /*INC/DEC*/
-            codegen_check_seg_write(block, ir, target_seg);
+            codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 2);
         else
             codegen_check_seg_read(block, ir, target_seg);
         uop_MEM_LOAD_REG(ir, IREG_temp0_W, ireg_seg_base(target_seg), IREG_eaaddr);
@@ -616,7 +616,7 @@ ropFF_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
         if (!(fetchdat & 0x30)) /*INC/DEC*/
-            codegen_check_seg_write(block, ir, target_seg);
+            codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 4);
         else
             codegen_check_seg_read(block, ir, target_seg);
         uop_MEM_LOAD_REG(ir, IREG_temp0, ireg_seg_base(target_seg), IREG_eaaddr);

@@ -119,23 +119,61 @@ codegen_check_seg_read(UNUSED(codeblock_t *block), ir_data_t *ir, x86seg *seg)
 
     seg->checked = 1;
 }
-void
-codegen_check_seg_write(UNUSED(codeblock_t *block), ir_data_t *ir, x86seg *seg)
+/*Set in x86seg.checked once this block has verified the segment is a writable
+  data segment. Every segment load clears checked, and this bit with it.*/
+#define SEG_CHECKED_WRITABLE 2
+
+/*The per-segment half of the interpreter's SEG_CHECK_WRITE and
+  CHECK_WRITE_COMMON: a null selector, a read-only data segment or a code
+  segment raises #GP(0).*/
+static void
+codegen_check_seg_writable(ir_data_t *ir, x86seg *seg)
 {
     /*Segments always valid in real/V86 mode*/
     if (!(cr0 & 1) || (cpu_state.eflags & VM_FLAG))
         return;
-    /*CS and SS must always be valid*/
-    if (seg == &cpu_state.seg_cs || seg == &cpu_state.seg_ss)
-        return;
-    if (seg->checked)
+    /*SS can only hold a writable data segment*/
+    if (seg == &cpu_state.seg_ss)
         return;
     if (seg == &cpu_state.seg_ds && codegen_flat_ds && !(cpu_cur_status & CPU_STATUS_NOTFLATDS))
         return;
+    /*Blocks do not reset CS's flag, so check it every time. Code segments are
+      never writable, so this always faults.*/
+    if (seg != &cpu_state.seg_cs && (seg->checked & SEG_CHECKED_WRITABLE))
+        return;
 
-    uop_CMP_IMM_JZ(ir, ireg_seg_base(seg), (uint32_t) -1, codegen_gpf_rout);
+    if (seg != &cpu_state.seg_cs && !seg->checked)
+        uop_CMP_IMM_JZ(ir, ireg_seg_base(seg), (uint32_t) -1, codegen_gpf_rout);
 
-    seg->checked = 1;
+    uop_MOVZX_REG_PTR_8(ir, IREG_temp3, &seg->access);
+    uop_AND_IMM(ir, IREG_temp3, IREG_temp3, 0x0a);
+    uop_CMP_IMM_JZ(ir, IREG_temp3, 0x00, codegen_gpf_rout); /*Read-only data*/
+    uop_AND_IMM(ir, IREG_temp3, IREG_temp3, 0x08);
+    uop_CMP_IMM_JZ(ir, IREG_temp3, 0x08, codegen_gpf_rout); /*Code*/
+
+    if (seg != &cpu_state.seg_cs)
+        seg->checked = 1 | SEG_CHECKED_WRITABLE;
+}
+
+/*Checks a write of size bytes at seg:addr_reg the way the interpreter's
+  seteab()/seteaw()/seteal() do. Uses IREG_temp3.*/
+void
+codegen_check_seg_write(codeblock_t *block, ir_data_t *ir, x86seg *seg, int addr_reg, int size)
+{
+    codegen_check_seg_writable(ir, seg);
+    CHECK_SEG_LIMITS(block, ir, seg, addr_reg, size - 1);
+}
+
+/*As codegen_check_seg_write(), for a write to a constant offset. Uses
+  IREG_eaaddr and IREG_temp3.*/
+void
+codegen_check_seg_write_abs(codeblock_t *block, ir_data_t *ir, x86seg *seg, uint32_t addr, int size)
+{
+    codegen_check_seg_writable(ir, seg);
+    if (!codegen_seg_is_flat(seg)) {
+        uop_MOV_IMM(ir, IREG_eaaddr, addr);
+        CHECK_SEG_LIMITS(block, ir, seg, IREG_eaaddr, size - 1);
+    }
 }
 
 static x86seg *

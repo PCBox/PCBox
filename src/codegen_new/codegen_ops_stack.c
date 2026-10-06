@@ -147,7 +147,7 @@ ropPOP_W(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
         }
     } else {
         x86seg *target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 2);
-        codegen_check_seg_write(block, ir, target_seg);
+        codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 2);
 
         if (stack32)
             uop_MEM_LOAD_REG(ir, IREG_temp0_W, IREG_SS_base, IREG_ESP);
@@ -179,7 +179,7 @@ ropPOP_L(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
         }
     } else {
         x86seg *target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 4);
-        codegen_check_seg_write(block, ir, target_seg);
+        codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 4);
 
         if (stack32)
             uop_MEM_LOAD_REG(ir, IREG_temp0, IREG_SS_base, IREG_ESP);

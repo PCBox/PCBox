@@ -335,8 +335,7 @@ ropSETCC_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t o
 
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
-        codegen_check_seg_write(block, ir, target_seg);
-        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 0);
+        codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 1);
         /*The condition must be evaluated after the EA calculation -
           codegen_generate_ea can clobber IREG_temp0*/
         gen_cond(ir, invert);

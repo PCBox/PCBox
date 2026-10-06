@@ -1,4 +1,9 @@
 #include "386_common.h"
+/*x87.h has no include guard; the FPU translators include it before this.*/
+#ifndef TAG_EMPTY
+#    include "x87_sf.h"
+#    include "x87.h"
+#endif
 #include "codegen_backend.h"
 
 /* Returning zero from a native opcode translator selects interpreter fallback. */
@@ -52,54 +57,49 @@ SUB_SP(ir_data_t *ir, int offset)
         uop_SUB_IMM(ir, IREG_SP, IREG_SP, offset);
 }
 
+/*A pop frees the popped slots, as x87_pop() does. IREG_tag() is relative to the
+  compile-time TOP and dynamic-TOP blocks rebase it at run time, so IREG_tag(0)
+  is the popped slot in both modes. Pushes need nothing here: every caller sets
+  IREG_tag(-1) itself, and FILD qword relies on its TAG_UINT64 surviving.*/
 static inline void
 fpu_POP(codeblock_t *block, ir_data_t *ir)
 {
+    uop_MOV_IMM(ir, IREG_tag(0), TAG_EMPTY);
     if (block->flags & CODEBLOCK_STATIC_TOP)
-    {
-        uop_MOV_IMM(ir, IREG_tag(cpu_state.TOP), TAG_EMPTY);
         uop_MOV_IMM(ir, IREG_FPU_TOP, cpu_state.TOP + 1);
-    }
     else
-    {
-        //TODO: mark tags empty here too.
         uop_ADD_IMM(ir, IREG_FPU_TOP, IREG_FPU_TOP, 1);
-    }
 }
 static inline void
 fpu_POP2(codeblock_t *block, ir_data_t *ir)
 {
+    uop_MOV_IMM(ir, IREG_tag(0), TAG_EMPTY);
+    uop_MOV_IMM(ir, IREG_tag(1), TAG_EMPTY);
     if (block->flags & CODEBLOCK_STATIC_TOP)
-    {
-        uop_MOV_IMM(ir, IREG_tag(cpu_state.TOP), TAG_EMPTY);
-        uop_MOV_IMM(ir, IREG_tag(cpu_state.TOP + 1), TAG_EMPTY);
         uop_MOV_IMM(ir, IREG_FPU_TOP, cpu_state.TOP + 2);
-    }
     else
-    {
-        //TODO: mark tags empty here too.
         uop_ADD_IMM(ir, IREG_FPU_TOP, IREG_FPU_TOP, 2);
-    }
 }
 static inline void
 fpu_PUSH(codeblock_t *block, ir_data_t *ir)
 {
     if (block->flags & CODEBLOCK_STATIC_TOP)
-    {
         uop_MOV_IMM(ir, IREG_FPU_TOP, cpu_state.TOP - 1);
-        uop_MOV_IMM(ir, IREG_tag(cpu_state.TOP), TAG_VALID);
-    }
     else
-    {
         uop_SUB_IMM(ir, IREG_FPU_TOP, IREG_FPU_TOP, 1);
-        //TODO: mark tag valid here too.
-    }
+}
+
+/*Flat DS/SS are part of the block key, so their base and limits need no checks.*/
+static inline int
+codegen_seg_is_flat(x86seg *seg)
+{
+    return (seg == &cpu_state.seg_ds && codegen_flat_ds && !(cpu_cur_status & CPU_STATUS_NOTFLATDS)) || (seg == &cpu_state.seg_ss && codegen_flat_ss && !(cpu_cur_status & CPU_STATUS_NOTFLATSS));
 }
 
 static inline void
 CHECK_SEG_LIMITS(UNUSED(codeblock_t *block), ir_data_t *ir, x86seg *seg, int addr_reg, int end_offset)
 {
-    if ((seg == &cpu_state.seg_ds && codegen_flat_ds && !(cpu_cur_status & CPU_STATUS_NOTFLATDS)) || (seg == &cpu_state.seg_ss && codegen_flat_ss && !(cpu_cur_status & CPU_STATUS_NOTFLATSS)))
+    if (codegen_seg_is_flat(seg))
         return;
 
     uop_CMP_JB(ir, addr_reg, ireg_seg_limit_low(seg), codegen_gpf_rout);
