@@ -290,6 +290,8 @@ ropMOV_b_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
     x86seg *target_seg;
     uint8_t imm;
 
+    if(fetchdat & 0x38) return 0; //Illegal encoding.
+
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
         int dest_reg = fetchdat & 7;
@@ -319,6 +321,8 @@ ropMOV_w_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
     x86seg  *target_seg;
     uint16_t imm;
 
+    if(fetchdat & 0x38) return 0; //Illegal encoding.
+
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
         int dest_reg = fetchdat & 7;
@@ -341,6 +345,8 @@ ropMOV_l_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
 {
     x86seg  *target_seg;
     uint32_t imm;
+
+    if(fetchdat & 0x38) return 0; //Illegal encoding.
 
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -731,6 +737,7 @@ ropXLAT(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSE
     if (!(op_32 & 0x200))
         uop_AND_IMM(ir, IREG_eaaddr, IREG_eaaddr, 0xffff);
 
+    codegen_check_seg_read(block, ir, op_ea_seg);
     uop_MEM_LOAD_REG(ir, IREG_AL, ireg_seg_base(op_ea_seg), IREG_eaaddr);
 
     return op_pc;

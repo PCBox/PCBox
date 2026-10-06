@@ -23,7 +23,7 @@ ropPSxxW_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
     int op  = fetchdat & 0x38;
     int shift;
 
-    if(op_sse_xmm)
+    if(op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES) || ((fetchdat & 0xc0) != 0xc0))
         return 0;
 
     REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
@@ -54,7 +54,7 @@ ropPSxxD_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
     int op  = fetchdat & 0x38;
     int shift;
 
-    if(op_sse_xmm)
+    if(op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES) || ((fetchdat & 0xc0) != 0xc0))
         return 0;
 
     REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
@@ -85,7 +85,7 @@ ropPSxxQ_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
     int op  = fetchdat & 0x38;
     int shift;
 
-    if(op_sse_xmm)
+    if(op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES) || ((fetchdat & 0xc0) != 0xc0))
         return 0;
 
     REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);

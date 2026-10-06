@@ -138,6 +138,9 @@ ropF6(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchd
 
         case 0x10: /*NOT*/
             uop_XOR_IMM(ir, reg, reg, 0xff);
+            uop_MOV(ir, IREG_flags_res_B, reg);
+            uop_MOVZX(ir, IREG_flags_res, IREG_flags_res_B);
+            uop_MOV_IMM(ir, IREG_flags_op, FLAGS_ZN8);
             if ((fetchdat & 0xc0) != 0xc0)
                 uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, reg);
 
@@ -257,6 +260,9 @@ ropF7_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
 
         case 0x10: /*NOT*/
             uop_XOR_IMM(ir, reg, reg, 0xffff);
+            uop_MOV(ir, IREG_flags_res_W, reg);
+            uop_MOVZX(ir, IREG_flags_res, IREG_flags_res_W);
+            uop_MOV_IMM(ir, IREG_flags_op, FLAGS_ZN16);
             if ((fetchdat & 0xc0) != 0xc0)
                 uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, reg);
 
@@ -385,6 +391,8 @@ ropF7_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
 
         case 0x10: /*NOT*/
             uop_XOR_IMM(ir, reg, reg, 0xffffffff);
+            uop_MOV(ir, IREG_flags_res, reg);
+            uop_MOV_IMM(ir, IREG_flags_op, FLAGS_ZN32);
             if ((fetchdat & 0xc0) != 0xc0)
                 uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, reg);
 
