@@ -57,7 +57,7 @@
         CLOCK_CYCLES(1);                                  \
     } else {                                              \
         SEG_CHECK_READ(cpu_state.ea_seg);                 \
-        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 15) \
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 15); \
         if (cpu_state.eaaddr & 0xf) {                     \
             x86gpf(NULL, 0);                              \
             if (cpu_state.abrt)                           \

@@ -115,6 +115,7 @@ rop_sse_arith_packed(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), 
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
         codegen_check_seg_read(block, ir, target_seg);
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 15);
         uop_CHECK_ALIGN(ir);
         uop_MEM_LOAD_REG(ir, IREG_temp0_DQ, ireg_seg_base(target_seg), IREG_eaaddr);
         uop_sse_arith_packed(ir, op, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_temp0_DQ);
@@ -140,6 +141,7 @@ rop_sse_arith_single(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), 
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
         codegen_check_seg_read(block, ir, target_seg);
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 3);
         uop_MEM_LOAD_REG(ir, IREG_temp0, ireg_seg_base(target_seg), IREG_eaaddr);
         uop_MOVZX(ir, IREG_temp0_DQ, IREG_temp0);
         uop_sse_arith_single(ir, op, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_temp0_DQ);
@@ -165,6 +167,7 @@ rop_sse_arith_double(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), 
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
         codegen_check_seg_read(block, ir, target_seg);
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 7);
         uop_MEM_LOAD_REG(ir, IREG_temp0_Q, ireg_seg_base(target_seg), IREG_eaaddr);
         uop_sse_arith_double(ir, op, IREG_XMM(dest_reg), IREG_XMM(dest_reg), IREG_temp0_Q);
     }
