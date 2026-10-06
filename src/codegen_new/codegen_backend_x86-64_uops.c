@@ -490,69 +490,8 @@ codegen_IMUL_HI(codeblock_t *block, uop_t *uop)
 static int
 codegen_UMUL(codeblock_t *block, uop_t *uop)
 {
-    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
-    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
-    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
-    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
-    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
-    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
-
-    if (REG_IS_L(dest_size) && REG_IS_L(src_size_a) && REG_IS_L(src_size_b)) {
-        int mul_reg = src_reg_b;
-
-        host_x86_PUSH(block, REG_RAX);
-        host_x86_PUSH(block, REG_RDX);
-        if ((src_reg_b == REG_EAX) && (src_reg_a != REG_EAX)) {
-            mul_reg = (src_reg_a == REG_ECX) ? REG_EDX : REG_ECX;
-            host_x86_MOV32_REG_REG(block, mul_reg, REG_EAX);
-        }
-        if (src_reg_a != REG_EAX)
-            host_x86_MOV32_REG_REG(block, REG_EAX, src_reg_a);
-        host_x86_MUL32_REG(block, mul_reg);
-
-        if (dest_reg == REG_EDX) {
-            host_x86_MOV32_REG_REG(block, REG_EDX, REG_EAX);
-            host_x86_ADD64_REG_IMM(block, REG_RSP, 8);
-            host_x86_POP(block, REG_RAX);
-        } else if (dest_reg == REG_EAX) {
-            host_x86_POP(block, REG_RDX);
-            host_x86_ADD64_REG_IMM(block, REG_RSP, 8);
-        } else {
-            host_x86_MOV32_REG_REG(block, dest_reg, REG_EAX);
-            host_x86_POP(block, REG_RDX);
-            host_x86_POP(block, REG_RAX);
-        }
-    } else if (REG_IS_W(dest_size) && REG_IS_W(src_size_a) && REG_IS_W(src_size_b)) {
-        int mul_reg = src_reg_b;
-
-        host_x86_PUSH(block, REG_RAX);
-        host_x86_PUSH(block, REG_RDX);
-        if ((src_reg_b == REG_EAX) && (src_reg_a != REG_EAX)) {
-            mul_reg = (src_reg_a == REG_ECX) ? REG_EDX : REG_ECX;
-            host_x86_MOV16_REG_REG(block, mul_reg, REG_EAX);
-        }
-        if (src_reg_a != REG_EAX)
-            host_x86_MOV16_REG_REG(block, REG_EAX, src_reg_a);
-        host_x86_MUL16_REG(block, mul_reg);
-
-        if (dest_reg == REG_EDX) {
-            host_x86_MOV16_REG_REG(block, REG_EDX, REG_EAX);
-            host_x86_ADD64_REG_IMM(block, REG_RSP, 8);
-            host_x86_POP(block, REG_RAX);
-        } else if (dest_reg == REG_EAX) {
-            host_x86_POP(block, REG_RDX);
-            host_x86_ADD64_REG_IMM(block, REG_RSP, 8);
-        } else {
-            host_x86_MOV16_REG_REG(block, dest_reg, REG_EAX);
-            host_x86_POP(block, REG_RDX);
-            host_x86_POP(block, REG_RAX);
-        }
-    }
-#    ifdef RECOMPILER_DEBUG
-    else
-        fatal("UMUL size mismatch: dest_size=%x, src_size_a=%x, src_size_b=%x\n", dest_size, src_size_a, src_size_b);
-#    endif
-    return 0;
+    /* Signedness only affects the high half; guest flags are handled by IR. */
+    return codegen_IMUL(block, uop);
 }
 
 static int

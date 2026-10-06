@@ -567,6 +567,41 @@ static void test_cmov_memory(void)
                 }
 }
 
+static void test_umul_aliases(void)
+{
+    static uint32_t input[CODEGEN_HOST_REGS], output[CODEGEN_HOST_REGS];
+    const uint32_t edge[] = {0, 1, 0xffff, 0x8000, 0x80000000, UINT32_MAX};
+    for (int wide = 0; wide < 2; wide++)
+        for (int d = 0; d < CODEGEN_HOST_REGS; d++)
+            for (int a = 0; a < CODEGEN_HOST_REGS; a++)
+                for (int b = 0; b < CODEGEN_HOST_REGS; b++) {
+                    begin_test("low-half UMUL aliases");
+                    codegen_backend_prologue(&bench_block);
+                    for (int r = 0; r < CODEGEN_HOST_REGS; r++)
+                        host_x86_MOV32_REG_ABS(&bench_block, codegen_host_reg_list[r].reg, &input[r]);
+                    int size = wide ? IREG_SIZE_L : IREG_SIZE_W;
+                    uop_t uop = { .dest_reg_a_real = codegen_host_reg_list[d].reg | size,
+                                  .src_reg_a_real = codegen_host_reg_list[a].reg | size,
+                                  .src_reg_b_real = codegen_host_reg_list[b].reg | size };
+                    codegen_UMUL(&bench_block, &uop);
+                    for (int r = 0; r < CODEGEN_HOST_REGS; r++)
+                        host_x86_MOV32_ABS_REG(&bench_block, &output[r], codegen_host_reg_list[r].reg);
+                    codegen_backend_epilogue(&bench_block);
+                    flush_code();
+                    for (unsigned i = 0; i < 256; i++) {
+                        for (int r = 0; r < CODEGEN_HOST_REGS; r++) input[r] = random_u32();
+                        input[a] = i < 36 ? edge[i / 6] : random_u32();
+                        input[b] = i < 36 ? edge[i % 6] : random_u32();
+                        uint32_t mask = wide ? UINT32_MAX : 0xffff;
+                        uint32_t product = (uint64_t) (input[a] & mask) * (input[b] & mask);
+                        ((jit_fn) bench_block.data)();
+                        for (int r = 0; r < CODEGEN_HOST_REGS; r++)
+                            CHECK(output[r] == (r == d ? (input[d] & ~mask) | (product & mask) : input[r]));
+                        checks++;
+                    }
+                }
+}
+
 int main(void)
 {
 #ifdef _WIN32
@@ -595,6 +630,7 @@ int main(void)
     test_signed_conditions();
     test_incdec_carry();
     test_cmov_memory();
+    test_umul_aliases();
     test_carry_faults();
     test_condition_version_limit();
 #ifdef CODEGEN_BACKEND_HAS_CMP_ULT
