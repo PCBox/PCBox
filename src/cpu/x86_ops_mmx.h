@@ -15,6 +15,7 @@
         CLOCK_CYCLES(1);                           \
     } else {                                       \
         SEG_CHECK_READ(cpu_state.ea_seg);          \
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7UL); \
         src.q = readmemq(easeg, cpu_state.eaaddr); \
         if (cpu_state.abrt)                        \
             return 1;                              \
@@ -27,6 +28,7 @@
         CLOCK_CYCLES(1);                                  \
     } else {                                              \
         SEG_CHECK_READ(cpu_state.ea_seg);                 \
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL); \
         src.l[0] = readmeml(easeg, cpu_state.eaaddr);     \
         if (cpu_state.abrt)                               \
             return 1;                                     \
@@ -41,6 +43,7 @@
         CLOCK_CYCLES(1);                                  \
     } else {                                              \
         SEG_CHECK_READ(cpu_state.ea_seg);                 \
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7UL); \
         src.q[0] = readmemq(easeg, cpu_state.eaaddr);     \
         if (cpu_state.abrt)                               \
             return 1;                                     \
