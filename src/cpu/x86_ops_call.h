@@ -7,7 +7,7 @@
         cgate16 = cgate32 = cgate_task = 0; \
         if (msw & 1)                     \
             op_loadcscall(new_seg, old_pc); \
-        else {                           \
+        else if (!stack_cr_push(2, 2)) { \
             op_loadcs(new_seg);          \
             cycles -= timing_call_rm;    \
         }                                \
@@ -57,7 +57,7 @@
         cgate16 = cgate32 = cgate_task = 0; \
         if (msw & 1)                     \
             op_loadcscall(new_seg, old_pc); \
-        else {                           \
+        else if (!stack_cr_push(2, 4)) { \
             op_loadcs(new_seg);          \
             cycles -= timing_call_rm;    \
         }                                \
@@ -108,7 +108,7 @@
         cgate16 = cgate32 = cgate_task = 0; \
         if (msw & 1)                    \
             op_loadcscall(new_seg);        \
-        else {                          \
+        else if (!stack_cr_push(2, 2)) { \
             op_loadcs(new_seg);          \
             cycles -= timing_call_rm;   \
         }                               \
@@ -155,7 +155,7 @@
         cgate16 = cgate32 = cgate_task = 0; \
         if (msw & 1)                    \
             op_loadcscall(new_seg);        \
-        else {                          \
+        else if (!stack_cr_push(2, 4)) { \
             op_loadcs(new_seg);         \
             cycles -= timing_call_rm;   \
         }                               \

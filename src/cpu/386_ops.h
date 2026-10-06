@@ -53,11 +53,15 @@ static __inline void
 PUSH_W(uint16_t val)
 {
     if (stack32) {
+        if (stack_cr(ESP - 2, 2))
+            return;
         writememw(ss, ESP - 2, val);
         if (cpu_state.abrt)
             return;
         ESP -= 2;
     } else {
+        if (stack_cr((SP - 2) & 0xFFFF, 2))
+            return;
         writememw(ss, (SP - 2) & 0xFFFF, val);
         if (cpu_state.abrt)
             return;
@@ -69,11 +73,15 @@ static __inline void
 PUSH_L(uint32_t val)
 {
     if (stack32) {
+        if (stack_cr(ESP - 4, 4))
+            return;
         writememl(ss, ESP - 4, val);
         if (cpu_state.abrt)
             return;
         ESP -= 4;
     } else {
+        if (stack_cr((SP - 4) & 0xFFFF, 4))
+            return;
         writememl(ss, (SP - 4) & 0xFFFF, val);
         if (cpu_state.abrt)
             return;
@@ -86,11 +94,15 @@ POP_W(void)
 {
     uint16_t ret;
     if (stack32) {
+        if (stack_cr(ESP, 2))
+            return 0;
         ret = readmemw(ss, ESP);
         if (cpu_state.abrt)
             return 0;
         ESP += 2;
     } else {
+        if (stack_cr(SP, 2))
+            return 0;
         ret = readmemw(ss, SP);
         if (cpu_state.abrt)
             return 0;
@@ -104,11 +116,15 @@ POP_L(void)
 {
     uint32_t ret;
     if (stack32) {
+        if (stack_cr(ESP, 4))
+            return 0;
         ret = readmeml(ss, ESP);
         if (cpu_state.abrt)
             return 0;
         ESP += 4;
     } else {
+        if (stack_cr(SP, 4))
+            return 0;
         ret = readmeml(ss, SP);
         if (cpu_state.abrt)
             return 0;
@@ -122,11 +138,15 @@ POP_W_seg(uint32_t seg)
 {
     uint16_t ret;
     if (stack32) {
+        if (stack_cr(ESP, 2))
+            return 0;
         ret = readmemw(seg, ESP);
         if (cpu_state.abrt)
             return 0;
         ESP += 2;
     } else {
+        if (stack_cr(SP, 2))
+            return 0;
         ret = readmemw(seg, SP);
         if (cpu_state.abrt)
             return 0;
@@ -140,11 +160,15 @@ POP_L_seg(uint32_t seg)
 {
     uint32_t ret;
     if (stack32) {
+        if (stack_cr(ESP, 4))
+            return 0;
         ret = readmeml(seg, ESP);
         if (cpu_state.abrt)
             return 0;
         ESP += 4;
     } else {
+        if (stack_cr(SP, 4))
+            return 0;
         ret = readmeml(seg, SP);
         if (cpu_state.abrt)
             return 0;

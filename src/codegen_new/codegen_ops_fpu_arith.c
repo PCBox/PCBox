@@ -363,7 +363,7 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
     return op_pc;
 }
 
-#define ropF_arith_mem(name, load_uop)                                                         \
+#define ropF_arith_mem(name, load_uop, end_offset)                                             \
     uint32_t ropFADD##name(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode),          \
                            uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)                  \
     {                                                                                          \
@@ -376,6 +376,7 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         load_uop(ir, IREG_temp0_D, ireg_seg_base(target_seg), IREG_eaaddr);                    \
         uop_FADD(ir, IREG_ST(0), IREG_ST(0), IREG_temp0_D);                                    \
         uop_FROUND_PC(ir, IREG_ST(0));                                                         \
@@ -393,6 +394,7 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         load_uop(ir, IREG_temp0_D, ireg_seg_base(target_seg), IREG_eaaddr);                    \
         uop_FCOM(ir, IREG_temp1_W, IREG_ST(0), IREG_temp0_D);                                  \
         uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));           \
@@ -410,6 +412,7 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         load_uop(ir, IREG_temp0_D, ireg_seg_base(target_seg), IREG_eaaddr);                    \
         uop_FCOM(ir, IREG_temp1_W, IREG_ST(0), IREG_temp0_D);                                  \
         uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));           \
@@ -430,6 +433,7 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         load_uop(ir, IREG_temp0_D, ireg_seg_base(target_seg), IREG_eaaddr);                    \
         uop_FDIV(ir, IREG_ST(0), IREG_ST(0), IREG_temp0_D);                                    \
         uop_FROUND_PC(ir, IREG_ST(0));                                                         \
@@ -449,6 +453,7 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         load_uop(ir, IREG_temp0_D, ireg_seg_base(target_seg), IREG_eaaddr);                    \
         uop_FDIV(ir, IREG_ST(0), IREG_temp0_D, IREG_ST(0));                                    \
         uop_FROUND_PC(ir, IREG_ST(0));                                                         \
@@ -468,6 +473,7 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         load_uop(ir, IREG_temp0_D, ireg_seg_base(target_seg), IREG_eaaddr);                    \
         uop_FMUL(ir, IREG_ST(0), IREG_ST(0), IREG_temp0_D);                                    \
         uop_FROUND_PC(ir, IREG_ST(0));                                                         \
@@ -487,6 +493,7 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         load_uop(ir, IREG_temp0_D, ireg_seg_base(target_seg), IREG_eaaddr);                    \
         uop_FSUB(ir, IREG_ST(0), IREG_ST(0), IREG_temp0_D);                                    \
         uop_FROUND_PC(ir, IREG_ST(0));                                                         \
@@ -506,6 +513,7 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         load_uop(ir, IREG_temp0_D, ireg_seg_base(target_seg), IREG_eaaddr);                    \
         uop_FSUB(ir, IREG_ST(0), IREG_temp0_D, IREG_ST(0));                                    \
         uop_FROUND_PC(ir, IREG_ST(0));                                                         \
@@ -515,11 +523,11 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
     }
 
 // clang-format off
-ropF_arith_mem(s, uop_MEM_LOAD_SINGLE)
-ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE)
+ropF_arith_mem(s, uop_MEM_LOAD_SINGLE, 3)
+ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE, 7)
 // clang-format on
 
-#define ropFI_arith_mem(name, temp_reg)                                                        \
+#define ropFI_arith_mem(name, temp_reg, end_offset)                                            \
     uint32_t ropFIADD##name(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode),         \
                             uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)                 \
     {                                                                                          \
@@ -532,6 +540,7 @@ ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE)
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         uop_MEM_LOAD_REG(ir, temp_reg, ireg_seg_base(target_seg), IREG_eaaddr);                \
         uop_MOV_DOUBLE_INT(ir, IREG_temp0_D, temp_reg);                                        \
         uop_FADD(ir, IREG_ST(0), IREG_ST(0), IREG_temp0_D);                                    \
@@ -550,6 +559,7 @@ ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE)
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         uop_MEM_LOAD_REG(ir, temp_reg, ireg_seg_base(target_seg), IREG_eaaddr);                \
         uop_MOV_DOUBLE_INT(ir, IREG_temp0_D, temp_reg);                                        \
         uop_FCOM(ir, IREG_temp1_W, IREG_ST(0), IREG_temp0_D);                                  \
@@ -568,6 +578,7 @@ ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE)
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         uop_MEM_LOAD_REG(ir, temp_reg, ireg_seg_base(target_seg), IREG_eaaddr);                \
         uop_MOV_DOUBLE_INT(ir, IREG_temp0_D, temp_reg);                                        \
         uop_FCOM(ir, IREG_temp1_W, IREG_ST(0), IREG_temp0_D);                                  \
@@ -589,6 +600,7 @@ ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE)
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         uop_MEM_LOAD_REG(ir, temp_reg, ireg_seg_base(target_seg), IREG_eaaddr);                \
         uop_MOV_DOUBLE_INT(ir, IREG_temp0_D, temp_reg);                                        \
         uop_FDIV(ir, IREG_ST(0), IREG_ST(0), IREG_temp0_D);                                    \
@@ -609,6 +621,7 @@ ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE)
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         uop_MEM_LOAD_REG(ir, temp_reg, ireg_seg_base(target_seg), IREG_eaaddr);                \
         uop_MOV_DOUBLE_INT(ir, IREG_temp0_D, temp_reg);                                        \
         uop_FDIV(ir, IREG_ST(0), IREG_temp0_D, IREG_ST(0));                                    \
@@ -629,6 +642,7 @@ ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE)
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         uop_MEM_LOAD_REG(ir, temp_reg, ireg_seg_base(target_seg), IREG_eaaddr);                \
         uop_MOV_DOUBLE_INT(ir, IREG_temp0_D, temp_reg);                                        \
         uop_FMUL(ir, IREG_ST(0), IREG_ST(0), IREG_temp0_D);                                    \
@@ -649,6 +663,7 @@ ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE)
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         uop_MEM_LOAD_REG(ir, temp_reg, ireg_seg_base(target_seg), IREG_eaaddr);                \
         uop_MOV_DOUBLE_INT(ir, IREG_temp0_D, temp_reg);                                        \
         uop_FSUB(ir, IREG_ST(0), IREG_ST(0), IREG_temp0_D);                                    \
@@ -669,6 +684,7 @@ ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE)
         op_pc--;                                                                               \
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0); \
         codegen_check_seg_read(block, ir, target_seg);                                         \
+        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         uop_MEM_LOAD_REG(ir, temp_reg, ireg_seg_base(target_seg), IREG_eaaddr);                \
         uop_MOV_DOUBLE_INT(ir, IREG_temp0_D, temp_reg);                                        \
         uop_FSUB(ir, IREG_ST(0), IREG_temp0_D, IREG_ST(0));                                    \
@@ -679,8 +695,8 @@ ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE)
     }
 
 // clang-format off
-ropFI_arith_mem(l, IREG_temp0)
-ropFI_arith_mem(w, IREG_temp0_W)
+ropFI_arith_mem(l, IREG_temp0, 3)
+ropFI_arith_mem(w, IREG_temp0_W, 1)
 // clang-format on
 
 uint32_t

@@ -107,8 +107,16 @@ codegen_check_seg_read(UNUSED(codeblock_t *block), ir_data_t *ir, x86seg *seg)
     /*Segments always valid in real/V86 mode*/
     if (!(cr0 & 1) || (cpu_state.eflags & VM_FLAG))
         return;
-    /*CS and SS must always be valid*/
-    if (seg == &cpu_state.seg_cs || seg == &cpu_state.seg_ss)
+    /*CS and SS must always be valid, but CS can be an execute-only code
+      segment, which the interpreter's CHECK_READ refuses to read. Blocks do
+      not reset CS's flag, so check it every time.*/
+    if (seg == &cpu_state.seg_cs) {
+        uop_MOVZX_REG_PTR_8(ir, IREG_temp3, &seg->access);
+        uop_AND_IMM(ir, IREG_temp3, IREG_temp3, 0x0a);
+        uop_CMP_IMM_JZ(ir, IREG_temp3, 0x08, codegen_gpf_rout);
+        return;
+    }
+    if (seg == &cpu_state.seg_ss)
         return;
     if (seg->checked)
         return;

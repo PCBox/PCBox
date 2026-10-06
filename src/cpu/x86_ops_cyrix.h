@@ -53,6 +53,7 @@ opSVDC_a16(uint32_t fetchdat)
     if (ins_check) {
         fetch_ea_16(fetchdat);
         SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
         opSVDC_common(fetchdat);
     } else
         x86illegal();
@@ -80,6 +81,7 @@ opSVDC_a32(uint32_t fetchdat)
     if (ins_check) {
         fetch_ea_32(fetchdat);
         SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
         opSVDC_common(fetchdat);
     } else
         x86illegal();
@@ -136,6 +138,7 @@ opRSDC_a16(uint32_t fetchdat)
     if (ins_check) {
         fetch_ea_16(fetchdat);
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
         opRSDC_common(fetchdat);
     } else
         x86illegal();
@@ -163,6 +166,7 @@ opRSDC_a32(uint32_t fetchdat)
     if (ins_check) {
         fetch_ea_32(fetchdat);
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
         opRSDC_common(fetchdat);
     } else
         x86illegal();
@@ -191,6 +195,7 @@ opSVLDT_a16(uint32_t fetchdat)
     if (ins_check) {
         fetch_ea_16(fetchdat);
         SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
         cyrix_write_seg_descriptor(easeg + cpu_state.eaaddr, &ldt);
         writememw(0, easeg + cpu_state.eaaddr + 8, ldt.seg);
     } else
@@ -219,6 +224,7 @@ opSVLDT_a32(uint32_t fetchdat)
     if (ins_check) {
         fetch_ea_32(fetchdat);
         SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
         cyrix_write_seg_descriptor(easeg + cpu_state.eaaddr, &ldt);
         writememw(0, easeg + cpu_state.eaaddr + 8, ldt.seg);
     } else
@@ -248,6 +254,7 @@ opRSLDT_a16(uint32_t fetchdat)
     if (ins_check) {
         fetch_ea_16(fetchdat);
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
         cyrix_load_seg_descriptor(easeg + cpu_state.eaaddr, &ldt);
     } else
         x86illegal();
@@ -275,6 +282,7 @@ opRSLDT_a32(uint32_t fetchdat)
     if (ins_check) {
         fetch_ea_32(fetchdat);
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
         cyrix_load_seg_descriptor(easeg + cpu_state.eaaddr, &ldt);
     } else
         x86illegal();
@@ -303,6 +311,7 @@ opSVTS_a16(uint32_t fetchdat)
     if (ins_check) {
         fetch_ea_16(fetchdat);
         SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
         cyrix_write_seg_descriptor(easeg + cpu_state.eaaddr, &tr);
         writememw(0, easeg + cpu_state.eaaddr + 8, tr.seg);
     } else
@@ -331,6 +340,7 @@ opSVTS_a32(uint32_t fetchdat)
     if (ins_check) {
         fetch_ea_32(fetchdat);
         SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
         cyrix_write_seg_descriptor(easeg + cpu_state.eaaddr, &tr);
         writememw(0, easeg + cpu_state.eaaddr + 8, tr.seg);
     } else
@@ -360,6 +370,7 @@ opRSTS_a16(uint32_t fetchdat)
     if (ins_check) {
         fetch_ea_16(fetchdat);
         SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
         cyrix_write_seg_descriptor(easeg + cpu_state.eaaddr, &tr);
         writememw(0, easeg + cpu_state.eaaddr + 8, tr.seg);
     } else
@@ -388,6 +399,7 @@ opRSTS_a32(uint32_t fetchdat)
     if (ins_check) {
         fetch_ea_32(fetchdat);
         SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
         cyrix_write_seg_descriptor(easeg + cpu_state.eaaddr, &tr);
         writememw(0, easeg + cpu_state.eaaddr + 8, tr.seg);
     } else

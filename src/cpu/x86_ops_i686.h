@@ -83,6 +83,8 @@ sf_fx_save_stor_common(uint32_t fetchdat, int bits)
             x86illegal();
             return cpu_state.abrt;
         }
+        SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 511UL);
         uint32_t restored_mxcsr = cpu_state.mxcsr;
         if ((cpu_features & CPU_FEATURE_SSE) && (cr4 & CR4_OSFXSR)) {
             uint32_t mxcsr_mask = (cpu_features & CPU_FEATURE_SSE2) ? 0xffff : 0xffbf;
@@ -158,6 +160,8 @@ sf_fx_save_stor_common(uint32_t fetchdat, int bits)
             x86gpf(NULL, 0);
             return cpu_state.abrt;
         }
+        SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 511UL);
         writememw(easeg, cpu_state.eaaddr, i387_get_control_word());
         writememw(easeg, cpu_state.eaaddr + 2, i387_get_status_word());
         writememw(easeg, cpu_state.eaaddr + 4, pack_FPU_TW(fpu_state.tag));
@@ -246,6 +250,7 @@ sf_fx_save_stor_common(uint32_t fetchdat, int bits)
             mxcsr_mask = 0xffbf;
 
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL);
         src = readmeml(easeg, cpu_state.eaaddr);
         if (cpu_state.abrt)
             return 1;
@@ -261,6 +266,7 @@ sf_fx_save_stor_common(uint32_t fetchdat, int bits)
             return cpu_state.abrt;
         }
         SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL);
         writememl(easeg, cpu_state.eaaddr, cpu_state.mxcsr);
         if (cpu_state.abrt)
             return 1;
@@ -271,6 +277,7 @@ sf_fx_save_stor_common(uint32_t fetchdat, int bits)
         {
             //Emulate CLFLUSH as a single byte read.
             SEG_CHECK_READ(cpu_state.ea_seg);
+            CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr);
             (void)readmemb(easeg, cpu_state.eaaddr);
         }
     }
@@ -390,6 +397,8 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
             x86illegal();
             return cpu_state.abrt;
         }
+        SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 511UL);
         uint32_t restored_mxcsr = cpu_state.mxcsr;
         if ((cpu_features & CPU_FEATURE_SSE) && (cr4 & CR4_OSFXSR)) {
             uint32_t mxcsr_mask = (cpu_features & CPU_FEATURE_SSE2) ? 0xffff : 0xffbf;
@@ -518,6 +527,8 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
             x86illegal();
             return cpu_state.abrt;
         }
+        SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 511UL);
         if ((twd & 0x0003) != 0x0003)
             ftwb |= 0x01;
         if ((twd & 0x000c) != 0x000c)
@@ -638,6 +649,7 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
             mxcsr_mask = 0xffbf;
 
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL);
         src = readmeml(easeg, cpu_state.eaaddr);
         if (cpu_state.abrt)
             return 1;
@@ -654,6 +666,7 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
             return cpu_state.abrt;
         }
         SEG_CHECK_WRITE(cpu_state.ea_seg);
+        CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL);
         writememl(easeg, cpu_state.eaaddr, cpu_state.mxcsr);
         if (cpu_state.abrt)
             return 1;
@@ -669,6 +682,7 @@ fx_save_stor_common(uint32_t fetchdat, int bits)
         {
             //Emulate CLFLUSH as a single byte read.
             SEG_CHECK_READ(cpu_state.ea_seg);
+            CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr);
             (void)readmemb(easeg, cpu_state.eaaddr);
         }
     }

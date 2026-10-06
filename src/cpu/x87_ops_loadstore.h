@@ -249,6 +249,7 @@ FBLD_a16(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     load_reg_lo = readmemq(easeg, cpu_state.eaaddr);
     load_reg_hi = readmemw(easeg, cpu_state.eaaddr + 8);
     if (cpu_state.abrt)
@@ -290,6 +291,7 @@ FBLD_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     load_reg_lo = readmemq(easeg, cpu_state.eaaddr);
     load_reg_hi = readmemw(easeg, cpu_state.eaaddr + 8);
     if (cpu_state.abrt)
@@ -329,6 +331,7 @@ FBSTP_a16(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     tempd = ST(0);
     if (tempd < 0.0)
         tempd = -tempd;
@@ -364,6 +367,7 @@ FBSTP_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     tempd = ST(0);
     if (tempd < 0.0)
         tempd = -tempd;
@@ -525,6 +529,7 @@ opFLDe_a16(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     t = x87_ld80();
     if (cpu_state.abrt)
         return 1;
@@ -541,6 +546,7 @@ opFLDe_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     t = x87_ld80();
     if (cpu_state.abrt)
         return 1;
@@ -557,6 +563,7 @@ opFSTPe_a16(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     x87_st80(ST(0));
     if (cpu_state.abrt)
         return 1;
@@ -572,6 +579,7 @@ opFSTPe_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     x87_st80(ST(0));
     if (cpu_state.abrt)
         return 1;

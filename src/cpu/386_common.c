@@ -1667,7 +1667,7 @@ x86_int_sw(int num)
 
         if ((num << 2UL) + 3UL > idt.limit)
             x86_int(0x0d);
-        else {
+        else if (!stack_cr_push(3, 2)) {
             if (stack32) {
                 writememw(ss, ESP - 2, cpu_state.flags);
                 writememw(ss, ESP - 4, CS);
@@ -1719,6 +1719,8 @@ x86_int_sw_rm(int num)
     if (cpu_state.abrt)
         return 1;
 
+    if (stack_cr_push(3, 2))
+        return 1;
     writememw(ss, ((SP - 2) & 0xFFFF), cpu_state.flags);
 
     if (cpu_state.abrt)

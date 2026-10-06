@@ -4,9 +4,10 @@
         CLOCK_CYCLES(1);                           \
     } else {                                       \
         SEG_CHECK_READ(cpu_state.ea_seg);          \
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7UL); \
         shift = readmemq(easeg, cpu_state.eaaddr); \
         if (cpu_state.abrt)                        \
-            return 0;                              \
+            return 1;                              \
         CLOCK_CYCLES(2);                           \
     }
 

@@ -156,11 +156,11 @@ opCMPXCHG8B_a16(uint32_t fetchdat)
         return ILLEGAL(fetchdat);
     }
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7UL);
     temp    = geteal();
     temp_hi = readmeml(easeg, cpu_state.eaaddr + 4);
     if (cpu_state.abrt)
-        return 0;
+        return 1;
     if (EAX == temp && EDX == temp_hi) {
         seteal(EBX);
         writememl(easeg, cpu_state.eaaddr + 4, ECX);
@@ -169,7 +169,7 @@ opCMPXCHG8B_a16(uint32_t fetchdat)
         EDX = temp_hi;
     }
     if (cpu_state.abrt)
-        return 0;
+        return 1;
     flags_rebuild();
     if (temp == temp2 && temp_hi == temp2_hi)
         cpu_state.flags |= Z_FLAG;
@@ -197,11 +197,11 @@ opCMPXCHG8B_a32(uint32_t fetchdat)
         return ILLEGAL(fetchdat);
     }
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7UL);
     temp    = geteal();
     temp_hi = readmeml(easeg, cpu_state.eaaddr + 4);
     if (cpu_state.abrt)
-        return 0;
+        return 1;
     if (EAX == temp && EDX == temp_hi) {
         seteal(EBX);
         writememl(easeg, cpu_state.eaaddr + 4, ECX);
@@ -210,7 +210,7 @@ opCMPXCHG8B_a32(uint32_t fetchdat)
         EDX = temp_hi;
     }
     if (cpu_state.abrt)
-        return 0;
+        return 1;
     flags_rebuild();
     if (temp == temp2 && temp_hi == temp2_hi)
         cpu_state.flags |= Z_FLAG;

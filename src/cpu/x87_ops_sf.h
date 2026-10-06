@@ -375,6 +375,7 @@ sf_FRSTOR_a16(UNUSED(uint32_t fetchdat))
     FPU_check_pending_exceptions();
     fetch_ea_16(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 107UL : 93UL));
     offset = fpu_load_environment();
     for (int n = 0; n < 8; n++) {
         tmp.signif  = readmemq(easeg, offset + (n * 10));
@@ -396,6 +397,7 @@ sf_FRSTOR_a32(uint32_t fetchdat)
     FPU_check_pending_exceptions();
     fetch_ea_32(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 107UL : 93UL));
     offset = fpu_load_environment();
     for (int n = 0; n < 8; n++) {
         tmp.signif   = readmemq(easeg, offset + (n * 10));
@@ -417,6 +419,7 @@ sf_FNSAVE_a16(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 107UL : 93UL));
     offset = fpu_save_environment();
     /* save all registers in stack order. */
     for (int m = 0; m < 8; m++) {
@@ -454,6 +457,7 @@ sf_FNSAVE_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 107UL : 93UL));
     offset = fpu_save_environment();
     /* save all registers in stack order. */
     for (int m = 0; m < 8; m++) {
@@ -533,6 +537,7 @@ sf_FLDENV_a16(UNUSED(uint32_t fetchdat))
     FPU_check_pending_exceptions();
     fetch_ea_16(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 27UL : 13UL));
     fpu_load_environment();
     /* read all registers in stack order and update x87 tag word */
     for (int n = 0; n < 8; n++) {
@@ -556,6 +561,7 @@ sf_FLDENV_a32(uint32_t fetchdat)
     FPU_check_pending_exceptions();
     fetch_ea_32(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 27UL : 13UL));
     fpu_load_environment();
     /* read all registers in stack order and update x87 tag word */
     for (int n = 0; n < 8; n++) {
@@ -577,6 +583,7 @@ sf_FNSTENV_a16(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 27UL : 13UL));
     fpu_save_environment();
     /* mask all floating point exceptions */
     fpu_state.cwd |= FPU_CW_Exceptions_Mask;
@@ -593,6 +600,7 @@ sf_FNSTENV_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 27UL : 13UL));
     fpu_save_environment();
     /* mask all floating point exceptions */
     fpu_state.cwd |= FPU_CW_Exceptions_Mask;

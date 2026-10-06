@@ -234,6 +234,7 @@ opFSTOR_a16(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 107UL : 93UL));
     FSTOR();
     return cpu_state.abrt;
 }
@@ -244,6 +245,7 @@ opFSTOR_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 107UL : 93UL));
     FSTOR();
     return cpu_state.abrt;
 }
@@ -463,6 +465,7 @@ opFSAVE_a16(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 107UL : 93UL));
     FSAVE();
     return cpu_state.abrt;
 }
@@ -473,6 +476,7 @@ opFSAVE_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 107UL : 93UL));
     FSAVE();
     return cpu_state.abrt;
 }
@@ -1037,6 +1041,7 @@ opFLDENV_a16(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 27UL : 13UL));
     FLDENV();
     return cpu_state.abrt;
 }
@@ -1047,6 +1052,7 @@ opFLDENV_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 27UL : 13UL));
     FLDENV();
     return cpu_state.abrt;
 }
@@ -1146,6 +1152,7 @@ opFSTENV_a16(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 27UL : 13UL));
     FSTENV();
     return cpu_state.abrt;
 }
@@ -1156,6 +1163,7 @@ opFSTENV_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 27UL : 13UL));
     FSTENV();
     return cpu_state.abrt;
 }

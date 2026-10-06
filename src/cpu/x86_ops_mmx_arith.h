@@ -454,10 +454,11 @@ opPMULLW_a16(uint32_t fetchdat)
         src = MMX_GETREG(cpu_rm);
     else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7UL);
         src.l[0] = readmeml(easeg, cpu_state.eaaddr);
         src.l[1] = readmeml(easeg, cpu_state.eaaddr + 4);
         if (cpu_state.abrt)
-            return 0;
+            return 1;
         CLOCK_CYCLES(1);
     }
     dst->sw[0] *= src.sw[0];
@@ -488,10 +489,11 @@ opPMULLW_a32(uint32_t fetchdat)
         src = MMX_GETREG(cpu_rm);
     else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7UL);
         src.l[0] = readmeml(easeg, cpu_state.eaaddr);
         src.l[1] = readmeml(easeg, cpu_state.eaaddr + 4);
         if (cpu_state.abrt)
-            return 0;
+            return 1;
         CLOCK_CYCLES(1);
     }
     dst->sw[0] *= src.sw[0];
@@ -523,10 +525,11 @@ opPMULHW_a16(uint32_t fetchdat)
         src = MMX_GETREG(cpu_rm);
     else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7UL);
         src.l[0] = readmeml(easeg, cpu_state.eaaddr);
         src.l[1] = readmeml(easeg, cpu_state.eaaddr + 4);
         if (cpu_state.abrt)
-            return 0;
+            return 1;
         CLOCK_CYCLES(1);
     }
     dst->sw[0] = ((int32_t) dst->sw[0] * (int32_t) src.sw[0]) >> 16;
@@ -557,10 +560,11 @@ opPMULHW_a32(uint32_t fetchdat)
         src = MMX_GETREG(cpu_rm);
     else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7UL);
         src.l[0] = readmeml(easeg, cpu_state.eaaddr);
         src.l[1] = readmeml(easeg, cpu_state.eaaddr + 4);
         if (cpu_state.abrt)
-            return 0;
+            return 1;
         CLOCK_CYCLES(1);
     }
     dst->sw[0] = ((int32_t) dst->sw[0] * (int32_t) src.sw[0]) >> 16;

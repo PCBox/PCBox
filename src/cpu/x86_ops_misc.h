@@ -770,6 +770,7 @@ opBOUND_w_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     ILLEGAL_ON(cpu_mod == 3);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL);
     low  = geteaw();
     high = readmemw(easeg, cpu_state.eaaddr + 2);
     if (cpu_state.abrt)
@@ -793,6 +794,7 @@ opBOUND_w_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     ILLEGAL_ON(cpu_mod == 3);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL);
     low  = geteaw();
     high = readmemw(easeg, cpu_state.eaaddr + 2);
     if (cpu_state.abrt)
@@ -817,6 +819,7 @@ opBOUND_l_a16(uint32_t fetchdat)
     fetch_ea_16(fetchdat);
     ILLEGAL_ON(cpu_mod == 3);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7UL);
     low  = geteal();
     high = readmeml(easeg, cpu_state.eaaddr + 4);
     if (cpu_state.abrt)
@@ -840,6 +843,7 @@ opBOUND_l_a32(uint32_t fetchdat)
     fetch_ea_32(fetchdat);
     ILLEGAL_ON(cpu_mod == 3);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7UL);
     low  = geteal();
     high = readmeml(easeg, cpu_state.eaaddr + 4);
     if (cpu_state.abrt)

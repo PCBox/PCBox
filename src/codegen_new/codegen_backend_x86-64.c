@@ -49,6 +49,7 @@ void *codegen_mem_load_callback[4];
 void *codegen_mem_store_callback[4];
 
 void *codegen_gpf_rout;
+void *codegen_ss_rout;
 void *codegen_exit_rout;
 
 uint64_t codegen_host_cpu_features;
@@ -523,6 +524,18 @@ codegen_backend_init(void)
     host_x86_POP(block, REG_RBP);
     host_x86_POP(block, REG_RBX);
     host_x86_RET(block);
+
+    /*As codegen_gpf_rout, but raises #SS(0), for stack limit violations.*/
+    codegen_ss_rout = &block_write_data[block_pos];
+#    if _WIN64
+    host_x86_XOR32_REG_REG(block, REG_ECX, REG_ECX);
+    host_x86_XOR32_REG_REG(block, REG_EDX, REG_EDX);
+#    else
+    host_x86_XOR32_REG_REG(block, REG_EDI, REG_EDI);
+    host_x86_XOR32_REG_REG(block, REG_ESI, REG_ESI);
+#    endif
+    host_x86_CALL(block, (void *) x86ss);
+    host_x86_JMP(block, codegen_exit_rout);
 
     block_write_data = NULL;
 

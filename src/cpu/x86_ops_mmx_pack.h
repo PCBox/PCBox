@@ -19,9 +19,10 @@ opPUNPCKLDQ_a16(uint32_t fetchdat)
         CLOCK_CYCLES(1);
     } else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL);
         usrc = readmeml(easeg, cpu_state.eaaddr);
         if (cpu_state.abrt)
-            return 0;
+            return 1;
         dst->l[1] = usrc;
 
         CLOCK_CYCLES(2);
@@ -52,9 +53,10 @@ opPUNPCKLDQ_a32(uint32_t fetchdat)
         CLOCK_CYCLES(1);
     } else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL);
         usrc = readmeml(easeg, cpu_state.eaaddr);
         if (cpu_state.abrt)
-            return 0;
+            return 1;
         dst->l[1] = usrc;
 
         CLOCK_CYCLES(2);

@@ -196,6 +196,7 @@ sf_FBLD_PACKED_BCD_a16(uint32_t fetchdat)
     FPU_check_pending_exceptions();
     fetch_ea_16(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     load_reg_hi = readmemw(easeg, (cpu_state.eaaddr + 8) & 0xffff);
     load_reg_lo = readmemq(easeg, cpu_state.eaaddr);
     if (cpu_state.abrt)
@@ -238,6 +239,7 @@ sf_FBLD_PACKED_BCD_a32(uint32_t fetchdat)
     FPU_check_pending_exceptions();
     fetch_ea_32(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     load_reg_hi = readmemw(easeg, cpu_state.eaaddr + 8);
     load_reg_lo = readmemq(easeg, cpu_state.eaaddr);
     if (cpu_state.abrt)
@@ -415,6 +417,7 @@ sf_FLDe_a16(uint32_t fetchdat)
     FPU_check_pending_exceptions();
     fetch_ea_16(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     result.signif  = readmemq(easeg, cpu_state.eaaddr);
     result.signExp = readmemw(easeg, cpu_state.eaaddr + 8);
     if (cpu_state.abrt)
@@ -441,6 +444,7 @@ sf_FLDe_a32(uint32_t fetchdat)
     FPU_check_pending_exceptions();
     fetch_ea_32(fetchdat);
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     result.signif  = readmemq(easeg, cpu_state.eaaddr);
     result.signExp = readmemw(easeg, cpu_state.eaaddr + 8);
     if (cpu_state.abrt)
@@ -1122,6 +1126,7 @@ sf_FBSTP_PACKED_BCD_a16(uint32_t fetchdat)
     swap_values16u(sw, fpu_state.swd);
 
     // write packed bcd to memory
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     writememq(easeg, cpu_state.eaaddr, save_reg_lo);
     writememw(easeg, cpu_state.eaaddr + 8, save_reg_hi);
     if (cpu_state.abrt)
@@ -1186,6 +1191,7 @@ sf_FBSTP_PACKED_BCD_a32(uint32_t fetchdat)
     swap_values16u(sw, fpu_state.swd);
 
     // write packed bcd to memory
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     writememq(easeg, cpu_state.eaaddr, save_reg_lo);
     writememw(easeg, cpu_state.eaaddr + 8, save_reg_hi);
     if (cpu_state.abrt)
@@ -1511,6 +1517,7 @@ sf_FSTPe_a16(uint32_t fetchdat)
     } else {
         save_reg = FPU_read_regi(0);
     }
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     writememq(easeg, cpu_state.eaaddr, save_reg.signif);
     writememw(easeg, cpu_state.eaaddr + 8, save_reg.signExp);
     FPU_pop();
@@ -1542,6 +1549,7 @@ sf_FSTPe_a32(uint32_t fetchdat)
     } else {
         save_reg = FPU_read_regi(0);
     }
+    CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
     writememq(easeg, cpu_state.eaaddr, save_reg.signif);
     writememw(easeg, cpu_state.eaaddr + 8, save_reg.signExp);
     FPU_pop();

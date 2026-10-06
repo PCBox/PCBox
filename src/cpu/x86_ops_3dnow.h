@@ -278,6 +278,7 @@ opPFRCP(UNUSED(uint32_t fetchdat))
         CLOCK_CYCLES(1);
     } else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL);
         src.i = readmeml(easeg, cpu_state.eaaddr);
         if (cpu_state.abrt)
             return 1;
@@ -337,6 +338,7 @@ opPFRSQRT(UNUSED(uint32_t fetchdat))
         CLOCK_CYCLES(1);
     } else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 3UL);
         src.i = readmeml(easeg, cpu_state.eaaddr);
         if (cpu_state.abrt)
             return 1;
@@ -437,10 +439,11 @@ opPMULHRW(UNUSED(uint32_t fetchdat))
         CLOCK_CYCLES(1);
     } else {
         SEG_CHECK_READ(cpu_state.ea_seg);
+        CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 7UL);
         src.l[0] = readmeml(easeg, cpu_state.eaaddr);
         src.l[1] = readmeml(easeg, cpu_state.eaaddr + 4);
         if (cpu_state.abrt)
-            return 0;
+            return 1;
         dst->w[0] = ((int32_t) (dst->sw[0] * (int32_t) src.sw[0]) + 0x8000) >> 16;
         dst->w[1] = ((int32_t) (dst->sw[1] * (int32_t) src.sw[1]) + 0x8000) >> 16;
         dst->w[2] = ((int32_t) (dst->sw[2] * (int32_t) src.sw[2]) + 0x8000) >> 16;

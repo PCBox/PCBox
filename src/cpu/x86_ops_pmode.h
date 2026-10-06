@@ -386,7 +386,8 @@ op0F01_common(UNUSED(uint32_t fetchdat), int is32, int is286, UNUSED(int ea32))
             uint32_t eaddr = EAX;
 
             SEG_CHECK_READ(cpu_state.ea_seg);
-            (void)readmemb(easeg, eaddr);
+            CHECK_READ(cpu_state.ea_seg, eaddr, eaddr);
+            (void)readmemb(cpu_state.ea_seg->base, eaddr);
 
             flushmmucache_nopc();
             return 0;
@@ -414,8 +415,10 @@ op0F01_common(UNUSED(uint32_t fetchdat), int is32, int is286, UNUSED(int ea32))
     switch (rmdat & 0x38) {
         case 0x00: /*SGDT*/
             ILLEGAL_ON(cpu_mod == 3);
-            if (cpu_mod != 3)
+            if (cpu_mod != 3) {
                 SEG_CHECK_WRITE(cpu_state.ea_seg);
+                CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 5UL);
+            }
             seteaw(gdt.limit);
             base = gdt.base; // is32 ? gdt.base : (gdt.base & 0xffffff);
             if (is286)
@@ -425,8 +428,10 @@ op0F01_common(UNUSED(uint32_t fetchdat), int is32, int is286, UNUSED(int ea32))
             PREFETCH_RUN(7, 2, rmdat, 0, 0, 1, 1, ea32);
             break;
         case 0x08: /*SIDT*/
-            if (cpu_mod != 3)
+            if (cpu_mod != 3) {
                 SEG_CHECK_WRITE(cpu_state.ea_seg);
+                CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 5UL);
+            }
             seteaw(idt.limit);
             base = idt.base;
             if (is286)
@@ -441,8 +446,10 @@ op0F01_common(UNUSED(uint32_t fetchdat), int is32, int is286, UNUSED(int ea32))
                 x86gpf(NULL, 0);
                 break;
             }
-            if (cpu_mod != 3)
+            if (cpu_mod != 3) {
                 SEG_CHECK_READ(cpu_state.ea_seg);
+                CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 5UL);
+            }
             limit = geteaw();
             base  = readmeml(0, easeg + cpu_state.eaaddr + 2);
             if (cpu_state.abrt)
@@ -459,8 +466,10 @@ op0F01_common(UNUSED(uint32_t fetchdat), int is32, int is286, UNUSED(int ea32))
                 x86gpf(NULL, 0);
                 break;
             }
-            if (cpu_mod != 3)
+            if (cpu_mod != 3) {
                 SEG_CHECK_READ(cpu_state.ea_seg);
+                CHECK_READ(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 5UL);
+            }
             limit = geteaw();
             base  = readmeml(0, easeg + cpu_state.eaaddr + 2);
             if (cpu_state.abrt)

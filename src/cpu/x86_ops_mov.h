@@ -521,6 +521,7 @@ opXLAT_a16(UNUSED(uint32_t fetchdat))
     uint8_t  temp;
 
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, addr, addr);
     temp = readmemb(cpu_state.ea_seg->base, addr);
     if (cpu_state.abrt)
         return 1;
@@ -536,6 +537,7 @@ opXLAT_a32(UNUSED(uint32_t fetchdat))
     uint8_t  temp;
 
     SEG_CHECK_READ(cpu_state.ea_seg);
+    CHECK_READ(cpu_state.ea_seg, addr, addr);
     temp = readmemb(cpu_state.ea_seg->base, addr);
     if (cpu_state.abrt)
         return 1;
