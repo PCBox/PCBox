@@ -175,6 +175,60 @@ static void test_adc_sbb(void)
                 }
 }
 
+static void test_signed_conditions(void)
+{
+    const uint32_t edge[] = {0, 1, 0x7fffffff, 0x80000000, 0x80000001, 0xfffffffe, 0xffffffff};
+    for (int decrement = 0; decrement < 2; decrement++)
+        for (int known = 0; known < 2; known++)
+            for (int cond = 12; cond < 16; cond++)
+                for (int move = 0; move < 3; move++) {
+                    ir_data_t *ir = begin_test("signed conditions");
+                    cpu_state.flags_op = decrement ? FLAGS_DEC32 : FLAGS_SUB32;
+                    codegen_flags_changed = known;
+                    if (move) bench_cmov[move - 1][cond](&bench_block, ir, 0, 0xda, 0x300, 0x101);
+                    else bench_setcc[cond](&bench_block, ir, 0, 0xc3, 0x300, 0x101);
+                    jit_fn entry = finish_test(ir);
+                    for (unsigned i = 0; i < 4145; i++) {
+                        uint32_t a = i < 49 ? edge[i / 7] : random_u32();
+                        uint32_t b = decrement ? 1 : i < 49 ? edge[i % 7] : random_u32();
+                        prepare_flags(FLAGS_SUB32, 32, a, b, 1);
+                        cpu_state.flags_op = decrement ? FLAGS_DEC32 : FLAGS_SUB32;
+                        EDX = 0xabcdef12; EBX = 0x12345678;
+                        unsigned condition = (cond < 14 ? (int32_t) a < (int32_t) b : (int32_t) a <= (int32_t) b) ^ (cond & 1);
+                        uint32_t expected = move == 2 ? (condition ? EDX : EBX)
+                            : move == 1 ? (condition ? (EBX & 0xffff0000) | (EDX & 0xffff) : EBX)
+                            : (EBX & 0xffffff00) | condition;
+                        entry();
+                        CHECK(EBX == expected && EDX == 0xabcdef12);
+                        CHECK(cpu_state.flags_op1 == a && cpu_state.flags_op2 == b && cpu_state.flags_res == a - b);
+                        CHECK(cpu_state.flags & C_FLAG);
+                        checks++;
+                    }
+                }
+#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
+    for (int d = 0; d < CODEGEN_HOST_REGS; d++)
+        for (int a = 0; a < CODEGEN_HOST_REGS; a++)
+            for (int b = 0; b < CODEGEN_HOST_REGS; b++)
+                for (int invert = 0; invert < 2; invert++) {
+                    begin_test("signed compare aliases");
+                    int dest = codegen_host_reg_list[d].reg;
+                    int lhs = codegen_host_reg_list[a].reg, rhs = codegen_host_reg_list[b].reg;
+                    codegen_backend_prologue(&bench_block);
+                    host_x86_MOV32_REG_IMM(&bench_block, lhs, 0x80000000u);
+                    host_x86_MOV32_REG_IMM(&bench_block, rhs, 0x7fffffffu);
+                    uop_t op = {.dest_reg_a_real = dest | IREG_SIZE_L, .src_reg_a_real = lhs | IREG_SIZE_L,
+                                .src_reg_b_real = rhs | IREG_SIZE_L, .imm_data = invert};
+                    codegen_CMP_SLT(&bench_block, &op);
+                    host_x86_MOV32_ABS_REG(&bench_block, &EAX, dest);
+                    codegen_backend_epilogue(&bench_block);
+                    flush_code();
+                    ((jit_fn) bench_block.data)();
+                    CHECK(EAX == (unsigned) ((lhs != rhs) ^ invert));
+                    checks++;
+                }
+#endif
+}
+
 static void test_carry_faults(void)
 {
     for (int subtract = 0; subtract <= 1; subtract++) {
@@ -426,6 +480,7 @@ int main(void)
     first_codegen_chunk = next_chunk;
     test_conditions();
     test_adc_sbb();
+    test_signed_conditions();
     test_carry_faults();
     test_condition_version_limit();
 #ifdef CODEGEN_BACKEND_HAS_CMP_ULT

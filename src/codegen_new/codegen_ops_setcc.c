@@ -311,6 +311,12 @@ static void
 setcc_gen_L(ir_data_t *ir, int invert)
 {
     switch (codegen_flags_changed ? cpu_state.flags_op : FLAGS_UNKNOWN) {
+#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
+        case FLAGS_SUB32:
+        case FLAGS_DEC32:
+            uop_CMP_SLT(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert);
+            break;
+#endif
         case FLAGS_ZN8:
             /*V flag is always clear. Condition is true if N is set*/
             uop_MOVZX(ir, IREG_temp0, IREG_flags_res_B);
@@ -363,6 +369,12 @@ static void
 setcc_gen_LE(ir_data_t *ir, int invert)
 {
     switch (codegen_flags_changed ? cpu_state.flags_op : FLAGS_UNKNOWN) {
+#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
+        case FLAGS_SUB32:
+        case FLAGS_DEC32:
+            uop_CMP_SLT(ir, IREG_temp0, IREG_flags_op2, IREG_flags_op1, !invert);
+            break;
+#endif
         case FLAGS_SUB8:
         case FLAGS_DEC8:
             uop_MOVSX(ir, IREG_temp0, IREG_flags_op2_B);

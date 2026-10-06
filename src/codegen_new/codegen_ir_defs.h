@@ -471,8 +471,9 @@
 
 /* 32-bit unsigned comparison: dest = (src_a < src_b) ^ imm (0 or 1). */
 #define UOP_CMP_ULT (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10b)
+#define UOP_CMP_SLT (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10c)
 
-#define UOP_MAX     0x10c
+#define UOP_MAX     0x10d
 
 #define UOP_INVALID 0xffff
 
@@ -1005,6 +1006,7 @@ extern int codegen_fp_enter(void);
 #define uop_MOV_INT_DOUBLE_64(ir, dst_reg, src_reg_d, src_reg_q, tag)    uop_gen_reg_dst_src3(UOP_MOV_INT_DOUBLE_64, ir, dst_reg, src_reg_d, src_reg_q, tag)
 #define uop_CMOVNZ(ir, dst_reg, old_reg, src_reg, cond_reg)              uop_gen_reg_dst_src3(UOP_CMOVNZ, ir, dst_reg, old_reg, src_reg, cond_reg)
 #define uop_CMP_ULT(ir, dst_reg, a, b, invert)                         uop_gen_reg_dst_src2_imm(UOP_CMP_ULT, ir, dst_reg, a, b, invert)
+#define uop_CMP_SLT(ir, dst_reg, a, b, invert)                         uop_gen_reg_dst_src2_imm(UOP_CMP_SLT, ir, dst_reg, a, b, invert)
 
 #define uop_NOP_BARRIER(ir)                                              uop_gen(UOP_NOP_BARRIER, ir)
 

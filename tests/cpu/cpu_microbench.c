@@ -24,6 +24,9 @@
 #    undef REG_DWORD
 #    undef REG_QWORD
 #endif
+/* Keep hot compilation entry points on stable boundaries in paired builds. */
+void codegen_reg_reset(void) __attribute__((aligned(64)));
+void codegen_ir_compile(ir_data_t *ir, codeblock_t *block) __attribute__((aligned(64)));
 #include "../../src/codegen_new/codegen_reg.c"
 extern const uOpFn uop_handlers[];
 #include "../../src/codegen_new/codegen_ir.c"
@@ -207,6 +210,9 @@ BENCH_CALLBACK void writememll(uint32_t addr, uint32_t value) { access_memory(ad
 BENCH_CALLBACK void writememql(uint32_t addr, uint64_t value) { access_memory(addr, value, 8, 1); }
 
 const uOpFn uop_handlers[UOP_MAX] = {
+#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
+    [UOP_CMP_SLT & UOP_MASK] = codegen_CMP_SLT,
+#endif
     [UOP_MOVSX & UOP_MASK] = codegen_MOVSX,
     [UOP_AND & UOP_MASK] = codegen_AND,
     [UOP_UMUL & UOP_MASK] = codegen_UMUL,
@@ -520,7 +526,7 @@ static void flush_code(void)
 #endif
 }
 
-static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned *work_ops, unsigned *copies))(void)
+static __attribute__((noinline, aligned(64))) void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned *work_ops, unsigned *copies))(void)
 {
     next_chunk = first_codegen_chunk;
     memset(&bench_block, 0, sizeof(bench_block));
