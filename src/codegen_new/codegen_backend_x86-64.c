@@ -6,12 +6,14 @@
 #    include "cpu.h"
 #    include <86box/mem.h>
 #    include <86box/plat.h>
+#    include <86box/plat_unused.h>
 
 #    include "codegen.h"
 #    include "codegen_allocator.h"
 #    include "codegen_backend.h"
 #    include "codegen_backend_x86-64_defs.h"
 #    include "codegen_backend_x86-64_ops.h"
+#    include "codegen_backend_x86-64_ops_helpers.h"
 #    include "codegen_backend_x86-64_ops_sse.h"
 #    include "codegen_reg.h"
 #    include "x86.h"
@@ -71,15 +73,19 @@ host_reg_def_t codegen_host_reg_list[CODEGEN_HOST_REGS] = {
 };
 
 /* Keep the 128-bit IR spill at 0x50 separate from the memory scratch at 0x40,
-   MXCSR scratch at 0x60, and saved XMM6-XMM15. Both frames align helper calls. */
-#define CODEGEN_WIN64_FRAME 0x108
-#define CODEGEN_XMM6_SAVE   0x68 /*XMM6-XMM15 are saved at 16 byte intervals from here*/
+   MXCSR scratch at 0x60, and saved XMM6-XMM15. Both frames align helper calls.
+   Align the 16-byte saves too, so none straddles a cache line. */
+#define CODEGEN_WIN64_FRAME 0x118
+#define CODEGEN_XMM6_SAVE   0x70 /*XMM6-XMM15 are saved at 16 byte intervals from here*/
+/* 0x28/0x30 hold FP temporaries, 0x40 holds memory scratch. The intervening
+   slot points at this block's epilogue, including on helper/fault exits. */
+#define CODEGEN_WIN64_EXIT  0x38
 
 host_reg_def_t codegen_host_fp_reg_list[CODEGEN_HOST_FP_REGS] = {
-#    if _WIN64
-  /*Windows x86-64 calling convention preserves XMM6-XMM15*/
-    {REG_XMM6,  0                     },
-    { REG_XMM7, 0                     },
+#    ifdef _WIN64
+    /*Windows x86-64 calling convention preserves XMM6-XMM15*/
+    { REG_XMM6, 0 },
+    { REG_XMM7, 0 },
 #    else
     /*System V AMD64 calling convention does not preserve any XMM registers*/
     { REG_XMM6, HOST_REG_FLAG_VOLATILE },
@@ -114,21 +120,57 @@ host_reg_def_t codegen_host_fp_reg_list[CODEGEN_HOST_FP_REGS] = {
 };
 
 #ifdef _WIN64
-/* Blocks hold guest FPU/MMX/SSE values in XMM6-XMM15, and the Windows x64
-   ABI makes them the caller's. */
+uint16_t codegen_win64_xmm_used;
+static int win64_frame_active, win64_selective_xmm;
+static uint8_t *win64_exit_immediate, *win64_save_area;
+static unsigned win64_save_offsets[11];
+
+/* Reserve the worst-case saves while allocating the block. Once allocation
+   is complete, compact the used saves at the end and move the PUSH/SUB
+   prefix next to them. Only the entry pointer moves; body/branch addresses
+   stay fixed, even across chunks. The relocated prefix has no PC-relative
+   instructions; RBP setup and the exit-pointer patch follow the save area. */
 static void
 codegen_win64_save_xmm(codeblock_t *block)
 {
-    for (int reg = REG_XMM6; reg <= REG_XMM15; reg++)
+    codegen_alloc_bytes(block, 128);
+    win64_save_area = &block_write_data[block_pos];
+    for (int reg = REG_XMM6; reg <= REG_XMM15; reg++) {
+        win64_save_offsets[reg - REG_XMM6] = &block_write_data[block_pos] - win64_save_area;
         host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, CODEGEN_XMM6_SAVE + (reg - REG_XMM6) * 16, reg);
+    }
+    win64_save_offsets[10] = &block_write_data[block_pos] - win64_save_area;
 }
 
-/* Put back what the caller had. */
 static void
-codegen_win64_restore_xmm(codeblock_t *block)
+codegen_win64_finish_saves(codeblock_t *block, uint16_t used)
 {
-    for (int reg = REG_XMM6; reg <= REG_XMM15; reg++)
-        host_x86_MOVDQU_XREG_BASE_OFFSET(block, reg, REG_RSP, CODEGEN_XMM6_SAVE + (reg - REG_XMM6) * 16);
+    uint8_t original[128];
+    unsigned bytes = 0;
+    memcpy(original, win64_save_area, win64_save_offsets[10]);
+    for (int r = 0; r < 10; r++)
+        if (used & (1u << (r + REG_XMM6)))
+            bytes += win64_save_offsets[r + 1] - win64_save_offsets[r];
+    unsigned gap = win64_save_offsets[10] - bytes;
+    if (gap) {
+        uint8_t *base = block->data;
+        memmove(base + gap, base, win64_save_area - base);
+        block->data += gap;
+        /* Keep the original entry usable by raw callers/debuggers. The
+           dispatcher uses block->data and never executes this trampoline.
+           One removed MOVDQU frees at least six bytes. */
+        int32_t displacement = gap - 5;
+        base[0] = 0xe9;
+        memcpy(base + 1, &displacement, sizeof(displacement));
+    }
+    uint8_t *out = win64_save_area + gap;
+    for (int r = 0; r < 10; r++) {
+        if (used & (1u << (r + REG_XMM6))) {
+            unsigned len = win64_save_offsets[r + 1] - win64_save_offsets[r];
+            memcpy(out, original + win64_save_offsets[r], len);
+            out += len;
+        }
+    }
 }
 #endif
 
@@ -507,23 +549,7 @@ codegen_backend_init(void)
     /* Helper emission can spill into a new allocator chunk. block_pos is
        relative to that chunk, not to the first chunk in block->data. */
     codegen_exit_rout = &block_write_data[block_pos];
-#ifdef _WIN64
-    codegen_win64_restore_xmm(block);
-    host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
-#else
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x68);
-#endif
-    host_x86_POP(block, REG_R15);
-    host_x86_POP(block, REG_R14);
-    host_x86_POP(block, REG_R13);
-    host_x86_POP(block, REG_R12);
-#ifdef _WIN64
-    host_x86_POP(block, REG_RDI);
-    host_x86_POP(block, REG_RSI);
-#endif
-    host_x86_POP(block, REG_RBP);
-    host_x86_POP(block, REG_RBX);
-    host_x86_RET(block);
+    codegen_backend_epilogue(block);
 
     /*As codegen_gpf_rout, but raises #SS(0), for stack limit violations.*/
     codegen_ss_rout = &block_write_data[block_pos];
@@ -555,6 +581,7 @@ void
 codegen_backend_prologue(codeblock_t *block)
 {
     block_pos = BLOCK_START; /*Entry code*/
+    block->data = block_write_data;
     host_x86_PUSH(block, REG_RBX);
     host_x86_PUSH(block, REG_RBP);
 #ifdef _WIN64
@@ -567,6 +594,9 @@ codegen_backend_prologue(codeblock_t *block)
     host_x86_PUSH(block, REG_R15);
 #ifdef _WIN64
     host_x86_SUB64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
+    win64_frame_active = 1;
+    win64_selective_xmm = 0;
+    codegen_win64_xmm_used = 0;
     codegen_win64_save_xmm(block);
 #else
     host_x86_SUB64_REG_IMM(block, REG_RSP, 0x68);
@@ -579,13 +609,46 @@ codegen_backend_prologue(codeblock_t *block)
     }
     if (block->flags & CODEBLOCK_NO_IMMEDIATES)
         host_x86_MOV64_REG_IMM(block, REG_R12, ((uintptr_t) ram) + 2147483648ULL);
+#ifdef _WIN64
+    host_x86_MOV64_REG_IMM(block, REG_RCX, 0);
+    win64_exit_immediate = &block_write_data[block_pos - 8];
+    host_x86_MOV64_BASE_OFFSET_REG(block, REG_RSP, CODEGEN_WIN64_EXIT, REG_RCX);
+#endif
 }
+
+#ifdef _WIN64
+void
+codegen_backend_ir_prologue(codeblock_t *block)
+{
+    codegen_backend_prologue(block);
+    /* Raw emitter users retain full saves; the IR allocator supplies an
+       exhaustive use mask, including loads, spills, joins and helper reloads. */
+    win64_selective_xmm = 1;
+}
+#endif
 
 void
 codegen_backend_epilogue(codeblock_t *block)
 {
 #ifdef _WIN64
-    codegen_win64_restore_xmm(block);
+    if (!win64_frame_active) {
+        /* Shared exit: the block's frame already knows the exact restore
+           sequence. This is also used for taken guest branches, so avoid
+           testing a register mask at runtime. JMP qword [RSP+0x38]. */
+        codegen_alloc_bytes(block, 4);
+        codegen_addbyte4(block, 0xff, 0x64, 0x24, CODEGEN_WIN64_EXIT);
+        return;
+    }
+    uint16_t used = win64_selective_xmm ? codegen_win64_xmm_used : 0xffc0;
+    codegen_alloc_bytes(block, 128);
+    uintptr_t epilogue = (uintptr_t) &block_write_data[block_pos];
+    memcpy(win64_exit_immediate, &epilogue, sizeof(epilogue));
+    if (win64_selective_xmm)
+        codegen_win64_finish_saves(block, used);
+    for (int reg = REG_XMM6; reg <= REG_XMM15; reg++)
+        if (used & (1u << reg))
+            host_x86_MOVDQU_XREG_BASE_OFFSET(block, reg, REG_RSP, CODEGEN_XMM6_SAVE + (reg - REG_XMM6) * 16);
+    win64_frame_active = 0;
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
 #else
     host_x86_ADD64_REG_IMM(block, REG_RSP, 0x68);

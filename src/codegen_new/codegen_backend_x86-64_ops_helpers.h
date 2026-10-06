@@ -1,3 +1,6 @@
+#ifndef CODEGEN_BACKEND_X86_64_OPS_HELPERS_H
+#define CODEGEN_BACKEND_X86_64_OPS_HELPERS_H
+
 #define JMP_LEN_BYTES 5
 
 static inline void
@@ -103,3 +106,5 @@ is_imm8(uint32_t imm_data)
         return 1;
     return 0;
 }
+
+#endif

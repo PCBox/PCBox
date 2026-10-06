@@ -65,6 +65,10 @@ with the same compiler and optimization flags, without changing either branch.
 `build.json` records revisions, source changes, flags and hashes. Choose a logical
 CPU that exists on your machine; `--cpu` uses Windows process affinity.
 
+The fixture aligns its synthetic CPU state, memory callbacks and timing loops
+equally in both builds. Timing loops are not inlined, so calibration and samples
+use the same call boundary. Generated code still uses each backend's real layout.
+
 The runner randomizes case order with a recorded seed and uses paired AB/BA
 order across two rounds. Defaults are 11 samples of approximately 75 ms per
 round, giving 22 samples and about 1.65 seconds of measured work per case per
@@ -211,3 +215,30 @@ results in separate directories. The executable's `--baseline` option is for
 execution only; use the paired runner for compilation comparisons.
 `slow_sites` and `slow_stubs` report the captured memory sites and distinct
 helper stubs (or -1 for revisions predating deferred stubs).
+
+## CPU correctness tests without GUI dependencies
+
+The CPU fixtures also form a standalone CMake project. This avoids the full
+application's Google Test dependency and runs the same targets registered by
+the main project when `BUILD_TESTING` is enabled:
+
+```powershell
+cmake -S tests/cpu -B build/cpu-tests -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=C:/msys64/mingw64/bin/gcc.exe
+cmake --build build/cpu-tests -j 4
+ctest --test-dir build/cpu-tests --output-on-failure
+```
+
+`cpu_fastpath_test` shares the microbenchmark's real JIT and synthetic RAM.
+
+On Windows, generated callers seed and check all ten nonvolatile XMM registers
+around blocks with 0–16 live SIMD values. These exercise spills, read-only
+sources, joins, helper calls, early exits, dirty load destinations and allocator
+chunk crossings. The mixed MMX/SSE fault tests also cover host register masks
+beyond bit 15. Existing RAM/SSE tests remain separate targets and include the
+production exception dispatcher and many memory-alignment/fault combinations.
+
+The former profiling test registrations referenced `codegen_profile*.c` sources
+absent from this checkout and have been removed.
+
+These are execution and ABI tests, not a game compatibility test or a proof of
+a sustainable guest clock rate. Run a representative game/VM for that last check.

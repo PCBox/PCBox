@@ -20,6 +20,12 @@
 #define CODEGEN_BACKEND_HAS_SSE_RECHECK
 #define CODEGEN_BACKEND_HAS_MEM_STUBS
 
+#ifdef _WIN64
+#    define CODEGEN_BACKEND_HAS_SELECTIVE_XMM
+/* The allocator records every XMM register loaded or written by this block. */
+extern uint16_t codegen_win64_xmm_used;
+#endif
+
 #define CODEGEN_HAS_SSE
 
 #define CODEGEN_HOST_CPU_FEATURE_SSE3   (1ULL << 0)

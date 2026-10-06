@@ -92,7 +92,11 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
     codegen_reg_process_dead_list(ir);
     block_write_data = codeblock_allocator_get_ptr(block->head_mem_block);
     block_pos        = 0;
+#ifdef CODEGEN_BACKEND_HAS_SELECTIVE_XMM
+    codegen_backend_ir_prologue(block);
+#else
     codegen_backend_prologue(block);
+#endif
 #ifdef CODEGEN_BACKEND_HAS_MEM_STUBS
     codegen_backend_mem_begin();
 #endif

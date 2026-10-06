@@ -48,7 +48,11 @@ typedef struct {
     int address32, backward, phased_stores;
 } bench_case_t;
 
-cpu_state_t cpu_state;
+/* Keep synthetic data/helper placement stable across emitter changes. Small
+   unrelated text/data shifts otherwise change cache-line splits in the test
+   callbacks, obscuring the cost of the generated code we want to compare. */
+_Alignas(64) cpu_state_t cpu_state;
+#define BENCH_CALLBACK __attribute__((aligned(64)))
 uint32_t cr4;
 uint16_t cpu_cur_status;
 int timing_misaligned = 3, cpu_cyrix_alignment;
@@ -69,7 +73,10 @@ static bench_case_t cases[MAX_CASES];
 static const char *active_case = "initialization";
 static int verifying;
 static unsigned helper_calls;
-static uint8_t instruction_bytes[4096];
+static uint8_t instruction_bytes[8192];
+#ifdef CPU_FASTPATH_TEST
+static int test_fault_access; /* 1: read abort, 2: write abort */
+#endif
 uint32_t pccache;
 uint8_t *pccache2 = instruction_bytes;
 static const int pressure_regs[] = { IREG_ECX, IREG_EDX, IREG_ESI, IREG_EDI, IREG_EBP, IREG_ESP };
@@ -151,6 +158,7 @@ static uint8_t *start_code(void)
 {
     bench_block.head_mem_block = codegen_allocator_allocate(NULL, 0);
     block_write_data = codeblock_allocator_get_ptr(bench_block.head_mem_block);
+    bench_block.data = block_write_data;
     block_pos = 0;
     return block_write_data;
 }
@@ -163,6 +171,12 @@ static uint64_t access_memory(uint32_t addr, uint64_t value, unsigned size, int 
         helper_calls++;
         CHECK(addr <= RAM_SIZE - size);
     }
+#ifdef CPU_FASTPATH_TEST
+    if (test_fault_access == (store ? 2 : 1)) {
+        cpu_state.abrt = 14;
+        return 0;
+    }
+#endif
     if (addr & (size - 1))
         cycles = (int32_t) ((uint32_t) cycles - timing_misaligned);
     if (store)
@@ -173,20 +187,28 @@ static uint64_t access_memory(uint32_t addr, uint64_t value, unsigned size, int 
     }
     return value;
 }
-uint8_t readmembl(uint32_t addr) { return access_memory(addr, 0, 1, 0); }
-uint16_t readmemwl(uint32_t addr) { return access_memory(addr, 0, 2, 0); }
-uint32_t readmemll(uint32_t addr) { return access_memory(addr, 0, 4, 0); }
-uint64_t readmemql(uint32_t addr) { return access_memory(addr, 0, 8, 0); }
-void writemembl(uint32_t addr, uint8_t value) { access_memory(addr, value, 1, 1); }
-void writememwl(uint32_t addr, uint16_t value) { access_memory(addr, value, 2, 1); }
-void writememll(uint32_t addr, uint32_t value) { access_memory(addr, value, 4, 1); }
-void writememql(uint32_t addr, uint64_t value) { access_memory(addr, value, 8, 1); }
+BENCH_CALLBACK uint8_t readmembl(uint32_t addr) { return access_memory(addr, 0, 1, 0); }
+BENCH_CALLBACK uint16_t readmemwl(uint32_t addr) { return access_memory(addr, 0, 2, 0); }
+BENCH_CALLBACK uint32_t readmemll(uint32_t addr) { return access_memory(addr, 0, 4, 0); }
+BENCH_CALLBACK uint64_t readmemql(uint32_t addr) { return access_memory(addr, 0, 8, 0); }
+BENCH_CALLBACK void writemembl(uint32_t addr, uint8_t value) { access_memory(addr, value, 1, 1); }
+BENCH_CALLBACK void writememwl(uint32_t addr, uint16_t value) { access_memory(addr, value, 2, 1); }
+BENCH_CALLBACK void writememll(uint32_t addr, uint32_t value) { access_memory(addr, value, 4, 1); }
+BENCH_CALLBACK void writememql(uint32_t addr, uint64_t value) { access_memory(addr, value, 8, 1); }
 
 const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_MOV & UOP_MASK] = codegen_MOV,
     [UOP_MOV_IMM & UOP_MASK] = codegen_MOV_IMM,
     [UOP_MOV_PTR & UOP_MASK] = codegen_MOV_PTR,
     [UOP_CALL_FUNC & UOP_MASK] = codegen_CALL_FUNC,
+    [UOP_MOVZX & UOP_MASK] = codegen_MOVZX,
+    [UOP_ADD & UOP_MASK] = codegen_ADD,
+    [UOP_OR & UOP_MASK] = codegen_OR,
+    [UOP_CMP_JB & UOP_MASK] = codegen_CMP_JB,
+    [UOP_CMP_JNBE & UOP_MASK] = codegen_CMP_JNBE,
+    [UOP_MOVZX_REG_PTR_8 & UOP_MASK] = codegen_MOVZX_REG_PTR_8,
+    [UOP_MOVZX_REG_PTR_16 & UOP_MASK] = codegen_MOVZX_REG_PTR_16,
+    [UOP_MOV_REG_PTR & UOP_MASK] = codegen_MOV_REG_PTR,
     [UOP_ADD_IMM & UOP_MASK] = codegen_ADD_IMM,
     [UOP_XOR_IMM & UOP_MASK] = codegen_XOR_IMM,
     [UOP_IMUL_IMM & UOP_MASK] = codegen_IMUL_IMM,
@@ -449,7 +471,7 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
 {
     next_chunk = first_codegen_chunk;
     memset(&bench_block, 0, sizeof(bench_block));
-    uint8_t *entry = start_code();
+    start_code();
     codegen_reg_reset();
     ir_data_t *ir = codegen_ir_init();
     bench_block.flags = CODEBLOCK_HAS_FPU | (c->dynamic_top ? 0 : CODEBLOCK_STATIC_TOP);
@@ -541,12 +563,17 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
     codegen_ir_compile(ir, &bench_block);
     /* Allocated payload, including unused tails, excludes the shared helpers. */
     *jit_bytes = (next_chunk - first_codegen_chunk - 1) * MEM_BLOCK_SIZE + block_pos;
-    return (void (*)(void)) entry;
+    /* The dispatcher enters through data, which can follow a compacted
+       prologue inside the first allocator chunk. */
+    return (void (*)(void)) bench_block.data;
 }
 
 static void reset_state(const bench_case_t *c, int timed)
 {
     memset(&cpu_state, 0, sizeof(cpu_state));
+    /* MOVS now emits the production segment-limit checks. Give the fixture
+       valid segments instead of relying on those checks being absent. */
+    cpu_state.seg_ds.limit_high = cpu_state.seg_es.limit_high = cpu_state.seg_ss.limit_high = UINT32_MAX;
     cr4 = CR4_OSFXSR;
     cpu_state.old_fp_control = 0x1f80;
     cpu_state.new_fp_control = 0x1f80;
@@ -734,16 +761,20 @@ static double now_ns(void)
 #endif
 }
 
-/* Keep the call boundary in the measurement: real blocks also have entry,
-   register load/writeback and exit costs. Never subtract an empty-loop result. */
-static double measure(void (*entry)(void), unsigned iterations)
+/* Keep one consistently aligned timing loop in both builds. Inlining it into
+   calibration but not sampling, or changing its cache-line offset when JIT
+   code grows, otherwise confounds these very short generated blocks. Keep
+   entry/writeback/exit costs; never subtract an empty-loop result. */
+static __attribute__((noinline, aligned(64))) double
+measure(void (*entry)(void), unsigned iterations)
 {
     double begin = now_ns();
     for (unsigned i = 0; i < iterations; i++) entry();
     return now_ns() - begin;
 }
 
-static double measure_compilation(const bench_case_t *c, unsigned iterations)
+static __attribute__((noinline, aligned(64))) double
+measure_compilation(const bench_case_t *c, unsigned iterations)
 {
     unsigned bytes, ops, copies;
     double begin = now_ns();

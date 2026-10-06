@@ -211,6 +211,11 @@ void x86gpf(char *message, uint16_t error)
     CHECK(message == NULL && error == 0);
     record_exception(13);
 }
+void x86ss(char *message, uint16_t error)
+{
+    CHECK(message == NULL && error == 0);
+    record_exception(12);
+}
 
 /* Backend initialization allocates metadata here; executable chunks still
    come from the fixture allocator below, with gaps between chunks. */
@@ -394,6 +399,8 @@ pad_code(codeblock_t *block, uop_t *uop)
 }
 
 const uOpFn uop_handlers[UOP_MAX] = {
+    [UOP_CMP_JB & UOP_MASK] = codegen_CMP_JB,
+    [UOP_CMP_JNBE & UOP_MASK] = codegen_CMP_JNBE,
     [UOP_MOV & UOP_MASK] = codegen_MOV,
     [UOP_MOV_IMM & UOP_MASK] = codegen_MOV_IMM,
     [UOP_ADD_IMM & UOP_MASK] = codegen_ADD_IMM,
@@ -993,6 +1000,9 @@ run_backend_init(void)
         uint8_t *entry = start_code();
         codegen_backend_prologue(&test_block);
         host_x86_JMP(&test_block, gpf ? codegen_gpf_rout : codegen_exit_rout);
+        /* Finalize the block's restore target even when every path exits
+           through the shared dispatcher. */
+        codegen_backend_epilogue(&test_block);
 #ifdef _WIN32
         CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
 #else
@@ -1121,6 +1131,7 @@ run_movs(int size, int a32, int backward, int wrap, unsigned mapped, unsigned fa
 {
     cases++;
     memset(&cpu_state, 0, sizeof(cpu_state));
+    cpu_state.seg_ds.limit_high = cpu_state.seg_es.limit_high = UINT32_MAX;
     memset(&test_block, 0, sizeof(test_block));
     memset(memory, 0xa5, sizeof(memory));
     memset(readlookup2, 0xff, sizeof(readlookup2));
@@ -1228,6 +1239,9 @@ run_indexed_sequence(unsigned fault, int mapped)
     uop_MOV_IMM(ir, IREG_eaaddr, 64);
     uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, -1);
     for (unsigned i = 0; i < 64; i++) {
+        /* Change the live register set halfway through, keeping more than
+           the linear-prefix number of distinct slow-path snapshots. */
+        if (i == 32) uop_ADD_IMM(ir, IREG_flags_op1, IREG_flags_op1, 1);
         unsigned r = ((i + 1) * 2654435761u) >> 29;
         uop_ADD_IMM(ir, IREG_32(r), IREG_32(r), i + 1);
         uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
@@ -1269,6 +1283,7 @@ run_indexed_sequence(unsigned fault, int mapped)
     CHECK(helper_calls == (fault ? fault : mapped ? 0 : 64));
     CHECK(aborted == !!fault && cpu_state.abrt == !!fault);
     CHECK(cpu_state.oldpc == expected_oldpc && cycles == 999 - !fault - 5 * (int) helper_calls);
+    CHECK(cpu_state.flags_op1 == (!fault || fault > 32));
     fault_on_call = 0;
 }
 

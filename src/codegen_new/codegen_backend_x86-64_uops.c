@@ -1735,7 +1735,8 @@ codegen_MEM_STUB_HASH(const mem_slow_site_t *site)
     hash = (hash ^ site->size) * 16777619u;
     hash = (hash ^ (uint32_t) site->cycles_reg) * 16777619u;
     hash = (hash ^ site->sse_invalidate) * 16777619u;
-    hash = (hash ^ site->state.write_mask ^ ((uint32_t) site->state.reload_mask << 16)) * 16777619u;
+    hash = (hash ^ site->state.write_mask) * 16777619u;
+    hash = (hash ^ site->state.reload_mask) * 16777619u;
     /* Scalar word loads avoid a SIMD stack temporary (and Win64 frame
        realignment) in the surrounding emitter. Do not read snapshot padding. */
     unsigned n = 0;
