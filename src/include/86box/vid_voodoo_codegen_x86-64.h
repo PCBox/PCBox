@@ -963,27 +963,6 @@ voodoo_generate(uint8_t *code_block, voodoo_t *voodoo, voodoo_params_t *params, 
     addbyte(0x56);
     addbyte(0x41); /*PUSH R15*/
     addbyte(0x57);
-#if _WIN64
-    /* This code uses XMM6-XMM11 and XMM15, which the Windows x64 ABI makes
-       the caller's: keep them for it. 0x78 bytes keep RSP 16-byte aligned
-       after the eight pushes. */
-    addbyte(0x48); /*SUB RSP, 0x78*/
-    addbyte(0x83);
-    addbyte(0xec);
-    addbyte(0x78);
-    for (int i = 0; i < (int) (sizeof(voodoo_win64_xmm_saved) / sizeof(voodoo_win64_xmm_saved[0])); i++) {
-        int xmm = voodoo_win64_xmm_saved[i];
-
-        addbyte(0xf3); /*MOVDQU [RSP+i*16], XMMn*/
-        if (xmm >= 8)
-            addbyte(0x44);
-        addbyte(0x0f);
-        addbyte(0x7f);
-        addbyte(0x44 | ((xmm & 7) << 3));
-        addbyte(0x24);
-        addbyte(i * 16);
-    }
-#endif
 
 #if _WIN64
     addbyte(0x48); /*MOV RDI, RCX (voodoo_state)*/
