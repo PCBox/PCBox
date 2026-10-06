@@ -17,6 +17,7 @@
 #include "codegen_ops_helpers.h"
 #include "codegen_ops_jit_wrappers.h"
 #include "codegen_ops_misc.h"
+#include "codegen_ops_setcc.h"
 
 static JIT_WRAPPER void
 jit_div_exception(void)
@@ -461,32 +462,6 @@ ropF7_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
     return 0;
 }
 
-static void
-rebuild_c(ir_data_t *ir)
-{
-    int needs_rebuild = 1;
-
-    if (codegen_flags_changed) {
-        switch (cpu_state.flags_op) {
-            case FLAGS_INC8:
-            case FLAGS_INC16:
-            case FLAGS_INC32:
-            case FLAGS_DEC8:
-            case FLAGS_DEC16:
-            case FLAGS_DEC32:
-                needs_rebuild = 0;
-                break;
-
-            default:
-                break;
-        }
-    }
-
-    if (needs_rebuild) {
-        uop_CALL_FUNC(ir, jit_flags_rebuild_c);
-    }
-}
-
 uint32_t
 ropFF_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
@@ -518,7 +493,7 @@ ropFF_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
 
     switch (fetchdat & 0x38) {
         case 0x00: /*INC*/
-            rebuild_c(ir);
+            setcc_rebuild_c(ir);
             codegen_flags_changed = 1;
 
             if ((fetchdat & 0xc0) == 0xc0) {
@@ -538,7 +513,7 @@ ropFF_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
             return op_pc + 1;
 
         case 0x08: /*DEC*/
-            rebuild_c(ir);
+            setcc_rebuild_c(ir);
             codegen_flags_changed = 1;
 
             if ((fetchdat & 0xc0) == 0xc0) {
@@ -625,7 +600,7 @@ ropFF_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
 
     switch (fetchdat & 0x38) {
         case 0x00: /*INC*/
-            rebuild_c(ir);
+            setcc_rebuild_c(ir);
             codegen_flags_changed = 1;
 
             if ((fetchdat & 0xc0) == 0xc0) {
@@ -645,7 +620,7 @@ ropFF_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
             return op_pc + 1;
 
         case 0x08: /*DEC*/
-            rebuild_c(ir);
+            setcc_rebuild_c(ir);
             codegen_flags_changed = 1;
 
             if ((fetchdat & 0xc0) == 0xc0) {

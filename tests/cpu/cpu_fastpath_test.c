@@ -11,6 +11,7 @@ typedef uint32_t (*translator)(codeblock_t *, ir_data_t *, uint8_t, uint32_t, ui
 static unsigned checks;
 static uint32_t random_state = 0x9e3779b9;
 int stack32;
+void loadcsjmp(uint16_t seg, uint32_t old_pc) { (void) seg; (void) old_pc; fatal("unexpected far jump\n"); }
 
 static uint32_t random_u32(void)
 {
@@ -458,6 +459,60 @@ static void test_ret_imm(void)
                     }
 }
 
+static void test_incdec_carry(void)
+{
+    const int producers[] = {FLAGS_ADD8, FLAGS_ADD16, FLAGS_ADD32, FLAGS_SUB8, FLAGS_SUB16, FLAGS_SUB32,
+                            FLAGS_ZN8, FLAGS_ZN16, FLAGS_ZN32, FLAGS_INC32, FLAGS_DEC32, FLAGS_ADC32, FLAGS_SBC32, FLAGS_UNKNOWN};
+    for (unsigned p = 0; p < sizeof(producers) / sizeof(producers[0]); p++)
+        for (int known = 0; known < 2; known++)
+            for (int width = 0; width < 3; width++)
+                for (int form = 0; form < 3; form++)
+                    for (int decrement = 0; decrement < 2; decrement++) {
+                        ir_data_t *ir = begin_test("INC/DEC carry preservation");
+                        cpu_state.flags_op = producers[p];
+                        codegen_flags_changed = known;
+                        int mem = form == 2, high = !width && form == 1;
+                        uint32_t modrm = (decrement ? 8 : 0) | (mem ? 0 : high ? 0xc7 : 0xc3);
+                        if (!width) ropINCDEC(&bench_block, ir, 0xfe, modrm, 0x300, 0x101);
+                        else if (form) (width == 1 ? ropFF_16 : ropFF_32)(&bench_block, ir, 0xff, modrm, 0x300, 0x101);
+                        else {
+                            translator op = decrement ? (width == 1 ? ropDEC_r16 : ropDEC_r32) : (width == 1 ? ropINC_r16 : ropINC_r32);
+                            op(&bench_block, ir, decrement ? 0x4b : 0x43, 0, 0x300, 0x101);
+                        }
+                        jit_fn entry = finish_test(ir);
+                        unsigned bits = 8u << width, producer_bits = p < 9 ? 8u << (p % 3) : 32;
+                        uint32_t mask = UINT32_MAX >> (32 - bits);
+                        for (unsigned i = 0; i < 512; i++) {
+                            uint32_t a = random_u32(), b = random_u32();
+                            unsigned carry = prepare_flags(producers[p], producer_bits, a, b, i & 1);
+                            uint16_t flags_before = cpu_state.flags;
+                            uint32_t value = (i < 8 ? (i / 2 & 1 ? (1u << (bits - 1)) : 0) - (i & 1) : random_u32()) & mask;
+                            EBX = high ? 0x12340078 | (value << 8) : (0x12345678 & ~mask) | value;
+                            uint32_t saved_ebx = EBX;
+                            EAX = 0x4000;
+                            memcpy(memory + EAX, &value, bits / 8);
+                            int fault = mem && i % 8 == 0 ? (i / 8 % 2) + 1 : 0;
+                            readlookup2[EAX >> 12] = writelookup2[EAX >> 12] = fault ? (uintptr_t) -1 : (uintptr_t) memory;
+                            test_fault_access = fault;
+                            cpu_state.abrt = 0;
+                            entry();
+                            uint32_t expected = fault ? value : (value + (decrement ? -1 : 1)) & mask;
+                            uint32_t actual = 0;
+                            if (mem) memcpy(&actual, memory + EAX, bits / 8);
+                            else actual = high ? BH : EBX & mask;
+                            CHECK(actual == expected && cpu_state.abrt == (fault ? 14 : 0));
+                            CHECK(!!CF_SET() == carry);
+                            CHECK((cpu_state.flags & ~C_FLAG) == (flags_before & ~C_FLAG));
+                            if (mem) CHECK(EBX == saved_ebx);
+                            else CHECK((EBX & ~(high ? 0xff00 : mask)) == (saved_ebx & ~(high ? 0xff00 : mask)));
+                            if (fault) CHECK(cpu_state.flags_op == producers[p]);
+                            else CHECK(cpu_state.flags_res == expected);
+                            checks++;
+                        }
+                        readlookup2[4] = writelookup2[4] = (uintptr_t) memory;
+                    }
+}
+
 int main(void)
 {
 #ifdef _WIN32
@@ -481,6 +536,7 @@ int main(void)
     test_conditions();
     test_adc_sbb();
     test_signed_conditions();
+    test_incdec_carry();
     test_carry_faults();
     test_condition_version_limit();
 #ifdef CODEGEN_BACKEND_HAS_CMP_ULT

@@ -181,6 +181,43 @@ setcc_gen_carry(ir_data_t *ir, int dest, int scratch)
 }
 
 void
+setcc_rebuild_c(ir_data_t *ir)
+{
+    switch (codegen_flags_changed ? cpu_state.flags_op : FLAGS_UNKNOWN) {
+        case FLAGS_INC8:
+        case FLAGS_INC16:
+        case FLAGS_INC32:
+        case FLAGS_DEC8:
+        case FLAGS_DEC16:
+        case FLAGS_DEC32:
+            return;
+
+        case FLAGS_ZN8:
+        case FLAGS_ZN16:
+        case FLAGS_ZN32:
+            uop_AND_IMM(ir, IREG_flags, IREG_flags, ~C_FLAG);
+            return;
+
+        case FLAGS_ADD8:
+        case FLAGS_ADD16:
+        case FLAGS_ADD32:
+        case FLAGS_SUB8:
+        case FLAGS_SUB16:
+        case FLAGS_SUB32:
+            /* Group FF already has its memory operand in temp0. Leave
+               temp0/1 available for that operand and the INC/DEC result. */
+            setcc_gen_carry(ir, IREG_temp2, IREG_temp3);
+            uop_AND_IMM(ir, IREG_flags, IREG_flags, ~C_FLAG);
+            uop_OR(ir, IREG_flags, IREG_flags, IREG_temp2_W);
+            return;
+
+        default:
+            uop_CALL_FUNC(ir, jit_flags_rebuild_c);
+            return;
+    }
+}
+
+void
 setcc_gen_B(ir_data_t *ir, int invert)
 {
     setcc_gen_carry_invert(ir, IREG_temp0, IREG_temp1, invert);
