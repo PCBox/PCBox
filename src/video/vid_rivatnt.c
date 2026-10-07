@@ -313,6 +313,9 @@ typedef struct rivatnt_t
         uint32_t cursor_pos;
     } pramdac;
 
+    /* Runs PFIFO and PGRAPH a little after a register write kicks them. */
+    pc_timer_t gpu_timer;
+
     /* PTIMER is computed from the TSC when accessed; this only fires the alarm. */
     pc_timer_t ptimer_alarm_timer;
     uint64_t   ptimer_tsc_base;
@@ -321,6 +324,7 @@ typedef struct rivatnt_t
     void *i2c, *ddc;
 } rivatnt_t;
 
+static int tntlog_trace; /* TNTLOG */
 static video_timings_t timing_rivatnt		= {VIDEO_PCI, 2,  2,  1,  20, 20, 21};
 
 static uint8_t rivatnt_in(uint16_t addr, void *p);
@@ -635,6 +639,7 @@ rivatnt_pci_write(int func, int addr, UNUSED(int len), uint8_t val, void *p)
 #define PGR(r) (rivatnt->pgraph.regs[PGRAPH_REG(r)])
 
 static void rivatnt_do_gpu_work(rivatnt_t *rivatnt);
+static void rivatnt_gpu_kick(rivatnt_t *rivatnt);
 
 uint32_t
 rivatnt_pmc_recompute_intr(void *p)
@@ -690,6 +695,7 @@ rivatnt_pmc_write(uint32_t addr, uint32_t val, void *p)
         rivatnt_pmc_recompute_intr(rivatnt);
         break;
     case 0x000200:
+        pclog("[TNTLOG] %.3f PMC_ENABLE %08x\n", (double) tsc / cpuclock, val); /* TNTLOG */
         rivatnt->pmc.enable = val;
         break;
     }
@@ -892,7 +898,7 @@ rivatnt_pfifo_write(uint32_t addr, uint32_t val, void *p)
     }
 
     /* Most of these can unblock the pusher or the puller. */
-    rivatnt_do_gpu_work(rivatnt);
+    rivatnt_gpu_kick(rivatnt);
 }
 
 /* Look a handle up in RAMHT the way the NV4 puller does: fold the handle into
@@ -927,6 +933,7 @@ static void
 rivatnt_pfifo_cache_error(rivatnt_t *rivatnt, uint32_t reason)
 {
     rivatnt->pfifo.cache1_pull0 = (rivatnt->pfifo.cache1_pull0 & ~PULL0_ACCESS) | reason;
+    pclog("[TNTLOG] CACHE ERROR %03x\n", reason); /* TNTLOG */
     rivatnt->pfifo.debug_0 |= 0x10; /* CACHE_ERROR1 */
     rivatnt->pfifo.intr |= PFIFO_INTR_CACHE_ERROR;
     rivatnt_pmc_recompute_intr(rivatnt);
@@ -949,6 +956,7 @@ rivatnt_pfifo_pull(rivatnt_t *rivatnt)
     mthd = rivatnt->pfifo.cache1_method[get >> 2] & 0x1ffc;
     subc = (rivatnt->pfifo.cache1_method[get >> 2] >> 13) & 7;
     data = rivatnt->pfifo.cache1_data[get >> 2];
+    pclog("[TNTLOG] PULL ch%d subc %d mthd %04x data %08x eng %08x\n", chid, subc, mthd, data, rivatnt->pfifo.cache1_engine); /* TNTLOG */
 
     if (mthd == 0) {
         /* Bind an object: remember its engine for this subchannel and hand
@@ -1070,6 +1078,7 @@ rivatnt_pfifo_dma_pusher(rivatnt_t *rivatnt)
             break;
         if (!rivatnt_pfifo_dma_read(rivatnt, rivatnt->pfifo.dma_get, &word))
             break;
+        pclog("[TNTLOG] PUSH ch%d get %08x word %08x\n", rivatnt_cache1_chid(rivatnt), rivatnt->pfifo.dma_get, word); /* TNTLOG */
 
         progress = 1;
         if (count) {
@@ -1239,6 +1248,7 @@ rivatnt_user_write(rivatnt_t *rivatnt, uint32_t addr, uint32_t val)
 
     if (rivatnt->pfifo.mode & (1 << chid)) {
         /* DMA channel: the only writable register is DMA_PUT. */
+        pclog("[TNTLOG] %.3f USER ch%d %04x = %08x (cur ch%d)\n", (double) tsc / cpuclock, chid, offset, val, rivatnt_cache1_chid(rivatnt)); /* TNTLOG */
         if (offset == 0x40) {
             if (chid == rivatnt_cache1_chid(rivatnt))
                 rivatnt->pfifo.dma_put = val & 0x1ffffffc;
@@ -1246,7 +1256,7 @@ rivatnt_user_write(rivatnt_t *rivatnt, uint32_t addr, uint32_t val)
                 rivatnt_ramin_write_l(rivatnt_ramfc_addr(rivatnt, chid), val & 0x1ffffffc, rivatnt);
                 rivatnt->pfifo.dma |= 1 << chid;
             }
-            rivatnt_do_gpu_work(rivatnt);
+            rivatnt_gpu_kick(rivatnt);
         }
         return;
     }
@@ -1279,7 +1289,7 @@ rivatnt_user_write(rivatnt_t *rivatnt, uint32_t addr, uint32_t val)
     rivatnt->pfifo.cache1_method[put >> 2] = offset | (subc << 13);
     rivatnt->pfifo.cache1_data[put >> 2]   = val;
     rivatnt->pfifo.cache1_put              = (put + 4) & RIVATNT_CACHE1_MASK;
-    rivatnt_do_gpu_work(rivatnt);
+    rivatnt_gpu_kick(rivatnt);
 }
 
 /* PGRAPH */
@@ -1289,6 +1299,7 @@ rivatnt_pgraph_intr(rivatnt_t *rivatnt, uint32_t intr, uint32_t nsource)
 {
     PGR(NV_PGRAPH_INTR) |= intr;
     PGR(NV_PGRAPH_NSOURCE) |= nsource;
+    pclog("[TNTLOG] %.3f PGRAPH INTR %08x nsource %08x trapped %08x/%08x en %08x\n", (double) tsc / cpuclock, intr, nsource, PGR(NV_PGRAPH_TRAPPED_ADDR), PGR(NV_PGRAPH_TRAPPED_DATA), PGR(NV_PGRAPH_INTR_EN)); /* TNTLOG */
     rivatnt_pmc_recompute_intr(rivatnt);
 }
 
@@ -3970,17 +3981,19 @@ rivatnt_pgraph_write(uint32_t addr, uint32_t val, void *p)
     }
 
     if ((addr == NV_PGRAPH_INTR) || (addr == NV_PGRAPH_FIFO) || (addr == NV_PGRAPH_CTX_CONTROL))
-        rivatnt_do_gpu_work(rivatnt);
+        rivatnt_gpu_kick(rivatnt);
 }
 
 static void
 rivatnt_do_gpu_work(rivatnt_t *rivatnt)
 {
+    int i;
+
     if (rivatnt->gpu_busy)
         return;
     rivatnt->gpu_busy = 1;
 
-    for (int i = 0; i < 64; i++) {
+    for (i = 0; i < 64; i++) {
         int progress = 0;
 
         while (rivatnt_pfifo_pull(rivatnt))
@@ -3993,6 +4006,31 @@ rivatnt_do_gpu_work(rivatnt_t *rivatnt)
     }
 
     rivatnt->gpu_busy = 0;
+
+    /* Still going: carry on later rather than hogging the CPU. */
+    if (i == 64)
+        rivatnt_gpu_kick(rivatnt);
+}
+
+/* Methods take a while to get through PFIFO and PGRAPH, and the RM relies on
+   that. Its graphics interrupt handler services a context switch by loading
+   the new channel and re-enabling the puller, and only then re-reads
+   NV_PGRAPH_INTR; a notify raised by that channel's next methods before then
+   gets paired with the context switch's stale exception data, which the RM
+   treats as a hang and recovers from by resetting PFIFO and PGRAPH. So the
+   work runs a little after the last register write that could start it. */
+#define RIVATNT_GPU_LATENCY_US 2
+
+static void
+rivatnt_gpu_kick(rivatnt_t *rivatnt)
+{
+    timer_set_delay_u64(&rivatnt->gpu_timer, RIVATNT_GPU_LATENCY_US * TIMER_USEC);
+}
+
+static void
+rivatnt_gpu_timer(void *p)
+{
+    rivatnt_do_gpu_work((rivatnt_t *) p);
 }
 
 void
@@ -4366,6 +4404,23 @@ tntdbg_mmio(uint32_t addr, uint32_t val, int wr)
             pclog("[TNTDBG] ROM page %06x\n", addr & ~0xfff);
         return;
     }
+    if (tntlog_trace) { /* TNTLOG */
+        char     tr_buf[400]; /* TNTLOG */
+        int      tr_n = 0; /* TNTLOG */
+        for (int tr_i = 0; (tr_i < 160) && (tr_n < 360); tr_i++) { /* TNTLOG */
+            uint64_t tr_pa = mmutranslate_noabrt(cpu_state.seg_ss.base + ESP + tr_i * 4, 0); /* TNTLOG */
+            uint32_t tr_v; /* TNTLOG */
+            if (tr_pa == 0xffffffffffffffffULL) /* TNTLOG */
+                break; /* TNTLOG */
+            tr_v = mem_readl_phys((uint32_t) tr_pa); /* TNTLOG */
+            if ((tr_v >= 0xf80fb000) && (tr_v < 0xf82fb000)) /* TNTLOG */
+                tr_n += snprintf(tr_buf + tr_n, sizeof(tr_buf) - tr_n, " %x", tr_v - 0xf80fb000 + 0x10000); /* TNTLOG */
+        } /* TNTLOG */
+        tr_buf[tr_n] = 0; /* TNTLOG */
+        pclog("[TNTTR] %c %06x %08x stk%s\n", wr ? 'W' : 'R', addr, val, tr_buf); /* TNTLOG */
+        if ((wr && (addr == 0x000200)) || (++tntlog_trace > 40000)) /* TNTLOG */
+            tntlog_trace = 0; /* TNTLOG */
+    } /* TNTLOG */
     if (wr && (addr == 0x000200)) {
         memset(tntdbg_count, 0, sizeof(tntdbg_count));
         memset(rom_seen, 0, sizeof(rom_seen));
@@ -4825,6 +4880,17 @@ rivatnt_recalctimings(svga_t *svga)
 
     freq = (freq * v_n) / (v_m << v_p);
     if((svga->crtc[0x28] & 3) != 0) svga->clock = (cpuclock * (double)(1ull << 32)) / freq;
+
+    { /* TNTLOG */
+        static char last[160]; /* TNTLOG */
+        char cur[160]; /* TNTLOG */
+        snprintf(cur, sizeof(cur), "cr28 %02x bpp %d hdisp %d dispend %d rowoff %d ma %06x gdc6 %02x seq4 %02x ar10 %02x cfg %x", /* TNTLOG */
+                 svga->crtc[0x28], svga->bpp, svga->hdisp, svga->dispend, svga->rowoffset, svga->memaddr_latch, svga->gdcreg[6], svga->seqregs[4], svga->attrregs[0x10], rivatnt->pcrtc.config); /* TNTLOG */
+        if (strcmp(cur, last)) { /* TNTLOG */
+            pclog("[TNTLOG] %.3f MODE %s\n", (double) tsc / cpuclock, cur); /* TNTLOG */
+            strcpy(last, cur); /* TNTLOG */
+        } /* TNTLOG */
+    } /* TNTLOG */
 }
 
 void
@@ -4889,6 +4955,7 @@ static void
             rivatnt_swz_spread[i] |= ((i >> b) & 1) << (2 * b);
     }
 
+    timer_add(&rivatnt->gpu_timer, rivatnt_gpu_timer, rivatnt, 0);
     timer_add(&rivatnt->ptimer_alarm_timer, rivatnt_ptimer_alarm_poll, rivatnt, 0);
     rivatnt->ptimer_tsc_base = tsc;
 
@@ -4954,7 +5021,8 @@ void
 rivatnt_close(void *p)
 {
     rivatnt_t *rivatnt = (rivatnt_t *)p;
-    
+
+    timer_disable(&rivatnt->gpu_timer);
     svga_close(&rivatnt->svga);
     
     free(rivatnt);
