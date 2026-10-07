@@ -158,6 +158,10 @@ typedef struct rivatnt_t
     uint8_t     irq_state;
     uint8_t		int_line;
 
+    uint32_t cursor_offset;
+	int cursor_vram;
+	int cursor_enabled;
+
     int			card;
 
     struct
@@ -262,6 +266,7 @@ typedef struct rivatnt_t
     struct
     {
         uint32_t nvpll, mpll, vpll;
+        uint32_t cursor_pos;
     } pramdac;
 
     /* PTIMER is computed from the TSC when accessed; this only fires the alarm. */
@@ -2849,7 +2854,7 @@ rivatnt_mmio_read_l(uint32_t addr, void *p)
     if ((addr >= 0x1800) && (addr <= 0x18ff))
         ret = (rivatnt_pci_read(0,(addr+0) & 0xff,1,p) << 0) | (rivatnt_pci_read(0,(addr+1) & 0xff,1,p) << 8) | (rivatnt_pci_read(0,(addr+2) & 0xff,1,p) << 16) | (rivatnt_pci_read(0,(addr+3) & 0xff,1,p) << 24);
 
-    if(addr != 0x9400) pclog("[RIVA TNT] MMIO read %08x returns value %08x\n", addr, ret);
+    //if(addr != 0x9400) pclog("[RIVA TNT] MMIO read %08x returns value %08x\n", addr, ret);
 
     return ret;
 }
@@ -2900,7 +2905,7 @@ rivatnt_mmio_write_l(uint32_t addr, uint32_t val, void *p)
 
     addr &= 0xffffff;
 
-    pclog("[RIVA TNT] MMIO write %08x %08x\n", addr, val);
+    //pclog("[RIVA TNT] MMIO write %08x %08x\n", addr, val);
 
     if (rivatnt_is_vga_window(addr)) {
         rivatnt_vga_window_write(addr, 4, val, p);
@@ -2984,7 +2989,7 @@ rivatnt_rma_in(uint16_t addr, void *p)
 
     addr &= 0xff;
 
-    pclog("RIVA TNT RMA read %04X %04X:%08X\n", addr, CS, cpu_state.pc);
+    //pclog("RIVA TNT RMA read %04X %04X:%08X\n", addr, CS, cpu_state.pc);
 
     switch(addr) {
     case 0x00:
@@ -3022,7 +3027,7 @@ rivatnt_rma_out(uint16_t addr, uint8_t val, void *p)
 
     addr &= 0xff;
 
-    pclog("RIVA TNT RMA write %04X %02X %04X:%08X\n", addr, val, CS, cpu_state.pc);
+    //pclog("RIVA TNT RMA write %04X %02X %04X:%08X\n", addr, val, CS, cpu_state.pc);
 
     switch(addr) {
     case 0x04:
@@ -3124,6 +3129,15 @@ rivatnt_out(uint16_t addr, uint8_t val, void *p)
                 case 0x19: case 0x1a: case 0x25: case 0x28:
                 case 0x2d:
                     svga_recalctimings(svga);
+                    break;
+                case 0x30:
+		    		rivatnt->cursor_offset = (rivatnt->cursor_offset & ~(0x7f << 12)) | ((val & 0x7f) << 12);
+	    			rivatnt->cursor_vram = !!(val & 0x80);
+                    break;
+			    case 0x31:
+				    rivatnt->cursor_offset = (rivatnt->cursor_offset & ~(0xf8 << 4)) | ((val & 0xf8) << 4);
+				    rivatnt->cursor_enabled = !!(val & 1);
+				    svga->hwcursor.ena = !!(val & 1);
                     break;
                 case 0x38:
                     rivatnt->rma.rma_mode = val & 0xf;
@@ -3264,6 +3278,40 @@ rivatnt_vblank_start(svga_t *svga)
 }
 
 static void
+rivatnt_hwcursor_draw(svga_t *svga, int displine)
+{
+    rivatnt_t *rivatnt = (rivatnt_t *) svga->priv;
+    uint16_t startx = rivatnt->pramdac.cursor_pos & 0xfff;
+    uint16_t starty = (rivatnt->pramdac.cursor_pos >> 16) & 0xfff;
+	uint32_t cursor_offset = rivatnt->cursor_offset;
+	int         offset = svga->hwcursor_latch.x - svga->hwcursor_latch.xoff;
+
+    if(startx >= svga->hdisp || starty >= svga->dispend) return;
+
+    uint32_t cursor_bitmap = 0;
+    int replace_bit = 0;
+    int transparent = 0;
+
+	cursor_offset <<= 4;
+    for(int y = 0; y < 32; y++)
+	{
+    	for(int x = 0; x < 32; x++)
+    	{
+        	uint16_t raw = 0;
+			raw = rivatnt_ramin_read_w(cursor_offset, rivatnt);
+        	replace_bit = raw & 0x8000;
+        	transparent = raw == 0;
+        	cursor_bitmap = video_15to32[raw & 0x7fff];
+        	cursor_offset += 2;
+        	uint32_t current_col = buffer32->line[svga->hwcursor_latch.y + y][offset + x + svga->x_add];
+        	if(replace_bit) buffer32->line[svga->hwcursor_latch.y + y][offset + x + svga->x_add] = cursor_bitmap | 0xff000000;
+        	else buffer32->line[svga->hwcursor_latch.y + y][offset + x + svga->x_add] = transparent ? current_col | 0xff000000 : (current_col ^ cursor_bitmap) | 0xff000000;
+    	}
+	}
+}
+
+
+static void
 *rivatnt_init(const device_t *info)
 {
     rivatnt_t *rivatnt = malloc(sizeof(rivatnt_t));
@@ -3281,7 +3329,7 @@ static void
 
     svga_init(info, &rivatnt->svga, rivatnt, rivatnt->vram_size,
           rivatnt_recalctimings, rivatnt_in, rivatnt_out,
-          NULL, NULL);
+          rivatnt_hwcursor_draw, NULL);
 
     svga->decode_mask = rivatnt->vram_mask;
     svga->force_old_addr = 1;
