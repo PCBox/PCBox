@@ -2743,6 +2743,8 @@ rivatnt_pramdac_read(uint32_t addr, void *p)
     rivatnt_t *rivatnt = (rivatnt_t *)p;
     switch(addr)
     {
+        case 0x680300:
+            return rivatnt->pramdac.cursor_pos;
         case 0x680500:
             return rivatnt->pramdac.nvpll;
         case 0x680504:
@@ -2753,12 +2755,43 @@ rivatnt_pramdac_read(uint32_t addr, void *p)
     return 0;
 }
 
+/* The hardware cursor is a 32x32 LE_ROP1R5G5B5 image (64x64 with CUR_DBL).
+   Its address is CR2F<0> = bit 24, CR30<6:0> = bits 23:17, CR31<7:2> =
+   bits 16:11; CR30<7> says whether that is in the framebuffer (1) or in
+   instance memory (0). CR31<0> enables it. NV_PRAMDAC_CU_START_POS holds
+   a signed 12-bit X and Y, so the cursor can hang off the top left. */
+static void
+rivatnt_cursor_update(rivatnt_t *rivatnt)
+{
+    svga_t *svga = &rivatnt->svga;
+    int     size = (svga->crtc[0x31] & 2) ? 64 : 32;
+    int     x    = (int) ((rivatnt->pramdac.cursor_pos & 0xfff) ^ 0x800) - 0x800;
+    int     y    = (int) (((rivatnt->pramdac.cursor_pos >> 16) & 0xfff) ^ 0x800) - 0x800;
+
+    rivatnt->cursor_offset  = ((svga->crtc[0x2f] & 1) << 24) | ((svga->crtc[0x30] & 0x7f) << 17) |
+                              ((svga->crtc[0x31] & 0xfc) << 9);
+    rivatnt->cursor_vram    = !!(svga->crtc[0x30] & 0x80);
+    rivatnt->cursor_enabled = svga->crtc[0x31] & 1;
+
+    svga->hwcursor.ena       = rivatnt->cursor_enabled;
+    svga->hwcursor.addr      = rivatnt->cursor_offset;
+    svga->hwcursor.cur_xsize = svga->hwcursor.cur_ysize = size;
+    svga->hwcursor.xoff      = (x < 0) ? -x : 0;
+    svga->hwcursor.yoff      = (y < 0) ? -y : 0;
+    svga->hwcursor.x         = (x < 0) ? 0 : x;
+    svga->hwcursor.y         = (y < 0) ? 0 : y;
+}
+
 void
 rivatnt_pramdac_write(uint32_t addr, uint32_t val, void *p)
 {
     rivatnt_t *rivatnt = (rivatnt_t *)p;
     switch(addr)
     {
+        case 0x680300:
+            rivatnt->pramdac.cursor_pos = val & 0x0fff0fff;
+            rivatnt_cursor_update(rivatnt);
+            return;
         case 0x680500:
             rivatnt->pramdac.nvpll = val;
             break;
@@ -3130,14 +3163,10 @@ rivatnt_out(uint16_t addr, uint8_t val, void *p)
                 case 0x2d:
                     svga_recalctimings(svga);
                     break;
+                case 0x2f:
                 case 0x30:
-		    		rivatnt->cursor_offset = (rivatnt->cursor_offset & ~(0x7f << 12)) | ((val & 0x7f) << 12);
-	    			rivatnt->cursor_vram = !!(val & 0x80);
-                    break;
-			    case 0x31:
-				    rivatnt->cursor_offset = (rivatnt->cursor_offset & ~(0xf8 << 4)) | ((val & 0xf8) << 4);
-				    rivatnt->cursor_enabled = !!(val & 1);
-				    svga->hwcursor.ena = !!(val & 1);
+                case 0x31:
+                    rivatnt_cursor_update(rivatnt);
                     break;
                 case 0x38:
                     rivatnt->rma.rma_mode = val & 0xf;
@@ -3277,37 +3306,40 @@ rivatnt_vblank_start(svga_t *svga)
     rivatnt_pmc_recompute_intr(rivatnt);
 }
 
+/* Called once per scanline the cursor covers. Bit 15 of a cursor pixel set
+   draws its colour; clear XORs the colour into the screen (0 is clear). */
 static void
 rivatnt_hwcursor_draw(svga_t *svga, int displine)
 {
     rivatnt_t *rivatnt = (rivatnt_t *) svga->priv;
-    uint16_t startx = rivatnt->pramdac.cursor_pos & 0xfff;
-    uint16_t starty = (rivatnt->pramdac.cursor_pos >> 16) & 0xfff;
-	uint32_t cursor_offset = rivatnt->cursor_offset;
-	int         offset = svga->hwcursor_latch.x - svga->hwcursor_latch.xoff;
+    int        dbl     = (svga->hwcursor_latch.cur_xsize == 64);
+    int        row     = (displine - svga->y_add - svga->hwcursor_latch.y + svga->hwcursor_latch.yoff) >> dbl;
+    uint32_t  *line    = svga->monitor->target_buffer->line[displine];
+    uint32_t   addr;
 
-    if(startx >= svga->hdisp || starty >= svga->dispend) return;
+    if ((row < 0) || (row > 31))
+        return;
+    addr = svga->hwcursor_latch.addr + (row << 6);
 
-    uint32_t cursor_bitmap = 0;
-    int replace_bit = 0;
-    int transparent = 0;
+    for (int x = svga->hwcursor_latch.xoff; x < svga->hwcursor_latch.cur_xsize; x++) {
+        int      sx  = svga->hwcursor_latch.x + x - svga->hwcursor_latch.xoff;
+        uint32_t off = addr + ((x >> dbl) << 1);
+        uint16_t pix;
+        uint32_t col;
 
-	cursor_offset <<= 4;
-    for(int y = 0; y < 32; y++)
-	{
-    	for(int x = 0; x < 32; x++)
-    	{
-        	uint16_t raw = 0;
-			raw = rivatnt_ramin_read_w(cursor_offset, rivatnt);
-        	replace_bit = raw & 0x8000;
-        	transparent = raw == 0;
-        	cursor_bitmap = video_15to32[raw & 0x7fff];
-        	cursor_offset += 2;
-        	uint32_t current_col = buffer32->line[svga->hwcursor_latch.y + y][offset + x + svga->x_add];
-        	if(replace_bit) buffer32->line[svga->hwcursor_latch.y + y][offset + x + svga->x_add] = cursor_bitmap | 0xff000000;
-        	else buffer32->line[svga->hwcursor_latch.y + y][offset + x + svga->x_add] = transparent ? current_col | 0xff000000 : (current_col ^ cursor_bitmap) | 0xff000000;
-    	}
-	}
+        if (sx >= svga->hdisp)
+            break;
+        if (rivatnt->cursor_vram)
+            pix = svga->vram[off & rivatnt->vram_mask] | (svga->vram[(off + 1) & rivatnt->vram_mask] << 8);
+        else
+            pix = rivatnt_ramin_read_w(off, rivatnt);
+
+        col = video_15to32[pix & 0x7fff] & 0xffffff;
+        if (pix & 0x8000)
+            line[sx + svga->x_add] = col;
+        else
+            line[sx + svga->x_add] ^= col;
+    }
 }
 
 
