@@ -25,6 +25,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <wchar.h>
+#include <math.h>
 #include <86box/86box.h>
 #include "../cpu/cpu.h"
 #include <86box/dma.h>
@@ -75,6 +76,7 @@
 
 /* PGRAPH registers, as offsets into the register file */
 #define PGRAPH_REG(a) (((a) - 0x400000) >> 2)
+#define NV_PGRAPH_DEBUG_0      0x400080
 #define NV_PGRAPH_DEBUG_1      0x400084
 #define NV_PGRAPH_INTR         0x400100
 #define NV_PGRAPH_NSTATUS      0x400104
@@ -127,9 +129,48 @@
 #define NV_PGRAPH_STORED_FMT      0x400830
 #define NV_PGRAPH_PATT_COLORRAM(i) (0x400900 + (i) * 4)
 
-/* Surfaces: BOFFSET/BPITCH/BPIXEL index 0 is the destination, 1 the source. */
-#define SURF_DST 0
-#define SURF_SRC 1
+/* Surfaces, as BOFFSET/BBASE/BLIMIT/BPITCH index and BPIXEL nibble */
+#define SURF_DST   0
+#define SURF_SRC   1
+#define SURF_COLOR 2 /* 3D */
+#define SURF_ZETA  3
+#define SURF_SWZ   5 /* swizzled */
+
+#define NV_PGRAPH_BSWIZZLE(i) (0x40069c + (i) * 4) /* 0: SURF_COLOR, 1: SURF_SWZ */
+#define NV_PGRAPH_SURFACE     0x40070c
+#define NV_PGRAPH_DVD_COLORFMT 0x400764
+
+/* D3D state of the DX5 and DX6 triangle classes (layout from envytools).
+   The vertex RAM holds x and y in 12.4 fixed point, each with half of the
+   diffuse colour on top; specular and Z of vertex i are in entry i + 16
+   (DX5) or i + 8 (DX6, whose second texture coordinates are there too). */
+#define NV_PGRAPH_VTX_X(i)         (0x400400 + (i) * 4)
+#define NV_PGRAPH_VTX_Y(i)         (0x400480 + (i) * 4)
+#define NV_PGRAPH_TEX_OFFSET0      0x40050c
+#define NV_PGRAPH_FOG_COLOR        0x400510
+#define NV_PGRAPH_TEX_OFFSET1      0x40057c
+#define NV_PGRAPH_TEX_COLOR_KEY    0x400580
+#define NV_PGRAPH_COMBINE_FACTOR   0x400584
+#define NV_PGRAPH_COMBINE_ALPHA(i) (0x400590 + (i) * 8)
+#define NV_PGRAPH_COMBINE_COLOR(i) (0x400594 + (i) * 8)
+#define NV_PGRAPH_TEX_FORMAT(i)    (0x4005a8 + (i) * 4)
+#define NV_PGRAPH_TEX_FILTER(i)    (0x4005b0 + (i) * 4)
+#define NV_PGRAPH_TLV_XY           0x4005c0
+#define NV_PGRAPH_TLV_U0           0x4005c4
+#define NV_PGRAPH_TLV_V0           0x4005c8
+#define NV_PGRAPH_TLV_U1           0x4005cc
+#define NV_PGRAPH_TLV_V1           0x4005d0
+#define NV_PGRAPH_TLV_Z            0x4005d4
+#define NV_PGRAPH_TLV_COLOR        0x4005d8
+#define NV_PGRAPH_TLV_SPECULAR     0x4005dc
+#define NV_PGRAPH_TLV_RHW          0x4005e0
+#define NV_PGRAPH_CONTROL0         0x400818
+#define NV_PGRAPH_CONTROL1         0x40081c
+#define NV_PGRAPH_CONTROL2         0x400820
+#define NV_PGRAPH_BLEND            0x400824
+#define NV_PGRAPH_VTX_U(i)         (0x400d00 + (i) * 4)
+#define NV_PGRAPH_VTX_V(i)         (0x400d40 + (i) * 4)
+#define NV_PGRAPH_VTX_RHW(i)       (0x400d80 + (i) * 4)
 
 /* CTX_SWITCH1 PATCH_CONFIG (the object's OPERATION) */
 #define OP_SRCCOPY_AND 0
@@ -232,6 +273,7 @@ typedef struct rivatnt_t
     struct
     {
         uint32_t intr, intr_en;
+        uint32_t start, config;
     } pcrtc;
 
     struct
@@ -260,6 +302,8 @@ typedef struct rivatnt_t
         uint32_t m2mf_offset_in, m2mf_offset_out;
         int32_t  m2mf_pitch_in, m2mf_pitch_out;
         uint32_t m2mf_line_length, m2mf_line_count, m2mf_format;
+        int32_t  sifm_dudx, sifm_dvdy; /* 12.20 */
+        uint32_t sifm_format, sifm_offset;
     } d2;
     
 
@@ -269,6 +313,9 @@ typedef struct rivatnt_t
         uint32_t cursor_pos;
     } pramdac;
 
+    /* Runs PFIFO and PGRAPH a little after a register write kicks them. */
+    pc_timer_t gpu_timer;
+
     /* PTIMER is computed from the TSC when accessed; this only fires the alarm. */
     pc_timer_t ptimer_alarm_timer;
     uint64_t   ptimer_tsc_base;
@@ -277,6 +324,7 @@ typedef struct rivatnt_t
     void *i2c, *ddc;
 } rivatnt_t;
 
+static int tntlog_trace; /* TNTLOG */
 static video_timings_t timing_rivatnt		= {VIDEO_PCI, 2,  2,  1,  20, 20, 21};
 
 static uint8_t rivatnt_in(uint16_t addr, void *p);
@@ -363,7 +411,84 @@ rivatnt_ramin_write_l(uint32_t addr, uint32_t val, void *p)
 	vram_l[(addr ^ rivatnt->ramin_flip) >> 2] = val;
 }
 
-static uint8_t 
+/* BAR1 is a straight view of VRAM, whatever the VGA sequencer and graphics
+   controller are set to; only the legacy A0000 window goes through VGA
+   addressing. Newer RMs size the memory by writing every 1MB through it
+   while the card is still in a VGA mode. */
+static uint8_t
+rivatnt_lfb_read(uint32_t addr, void *p)
+{
+    rivatnt_t *rivatnt = (rivatnt_t *) p;
+
+    cycles -= rivatnt->svga.monitor->mon_video_timing_read_b;
+    return rivatnt->svga.vram[addr & rivatnt->vram_mask];
+}
+
+static uint16_t
+rivatnt_lfb_read_w(uint32_t addr, void *p)
+{
+    rivatnt_t *rivatnt = (rivatnt_t *) p;
+    uint8_t   *vram    = rivatnt->svga.vram;
+
+    cycles -= rivatnt->svga.monitor->mon_video_timing_read_w;
+    return vram[addr & rivatnt->vram_mask] | (vram[(addr + 1) & rivatnt->vram_mask] << 8);
+}
+
+static uint32_t
+rivatnt_lfb_read_l(uint32_t addr, void *p)
+{
+    rivatnt_t *rivatnt = (rivatnt_t *) p;
+    uint8_t   *vram    = rivatnt->svga.vram;
+    uint32_t   mask    = rivatnt->vram_mask;
+
+    cycles -= rivatnt->svga.monitor->mon_video_timing_read_l;
+    return vram[addr & mask] | (vram[(addr + 1) & mask] << 8) | (vram[(addr + 2) & mask] << 16) |
+           ((uint32_t) vram[(addr + 3) & mask] << 24);
+}
+
+static void
+rivatnt_lfb_write(uint32_t addr, uint8_t val, void *p)
+{
+    rivatnt_t *rivatnt = (rivatnt_t *) p;
+    svga_t    *svga    = &rivatnt->svga;
+
+    cycles -= svga->monitor->mon_video_timing_write_b;
+    addr &= rivatnt->vram_mask;
+    svga->vram[addr]               = val;
+    svga->changedvram[addr >> 12] = svga->monitor->mon_changeframecount;
+}
+
+static void
+rivatnt_lfb_write_w(uint32_t addr, uint16_t val, void *p)
+{
+    rivatnt_t *rivatnt = (rivatnt_t *) p;
+    svga_t    *svga    = &rivatnt->svga;
+
+    cycles -= svga->monitor->mon_video_timing_write_w;
+    for (int i = 0; i < 2; i++) {
+        uint32_t a = (addr + i) & rivatnt->vram_mask;
+
+        svga->vram[a]               = val >> (i * 8);
+        svga->changedvram[a >> 12] = svga->monitor->mon_changeframecount;
+    }
+}
+
+static void
+rivatnt_lfb_write_l(uint32_t addr, uint32_t val, void *p)
+{
+    rivatnt_t *rivatnt = (rivatnt_t *) p;
+    svga_t    *svga    = &rivatnt->svga;
+
+    cycles -= svga->monitor->mon_video_timing_write_l;
+    for (int i = 0; i < 4; i++) {
+        uint32_t a = (addr + i) & rivatnt->vram_mask;
+
+        svga->vram[a]               = val >> (i * 8);
+        svga->changedvram[a >> 12] = svga->monitor->mon_changeframecount;
+    }
+}
+
+static uint8_t
 rivatnt_pci_read(int func, int addr, UNUSED(int len), void *p)
 {
     rivatnt_t *rivatnt = (rivatnt_t *)p;
@@ -514,6 +639,7 @@ rivatnt_pci_write(int func, int addr, UNUSED(int len), uint8_t val, void *p)
 #define PGR(r) (rivatnt->pgraph.regs[PGRAPH_REG(r)])
 
 static void rivatnt_do_gpu_work(rivatnt_t *rivatnt);
+static void rivatnt_gpu_kick(rivatnt_t *rivatnt);
 
 uint32_t
 rivatnt_pmc_recompute_intr(void *p)
@@ -569,6 +695,7 @@ rivatnt_pmc_write(uint32_t addr, uint32_t val, void *p)
         rivatnt_pmc_recompute_intr(rivatnt);
         break;
     case 0x000200:
+        pclog("[TNTLOG] %.3f PMC_ENABLE %08x\n", (double) tsc / cpuclock, val); /* TNTLOG */
         rivatnt->pmc.enable = val;
         break;
     }
@@ -771,7 +898,7 @@ rivatnt_pfifo_write(uint32_t addr, uint32_t val, void *p)
     }
 
     /* Most of these can unblock the pusher or the puller. */
-    rivatnt_do_gpu_work(rivatnt);
+    rivatnt_gpu_kick(rivatnt);
 }
 
 /* Look a handle up in RAMHT the way the NV4 puller does: fold the handle into
@@ -806,6 +933,7 @@ static void
 rivatnt_pfifo_cache_error(rivatnt_t *rivatnt, uint32_t reason)
 {
     rivatnt->pfifo.cache1_pull0 = (rivatnt->pfifo.cache1_pull0 & ~PULL0_ACCESS) | reason;
+    pclog("[TNTLOG] CACHE ERROR %03x\n", reason); /* TNTLOG */
     rivatnt->pfifo.debug_0 |= 0x10; /* CACHE_ERROR1 */
     rivatnt->pfifo.intr |= PFIFO_INTR_CACHE_ERROR;
     rivatnt_pmc_recompute_intr(rivatnt);
@@ -828,6 +956,7 @@ rivatnt_pfifo_pull(rivatnt_t *rivatnt)
     mthd = rivatnt->pfifo.cache1_method[get >> 2] & 0x1ffc;
     subc = (rivatnt->pfifo.cache1_method[get >> 2] >> 13) & 7;
     data = rivatnt->pfifo.cache1_data[get >> 2];
+    pclog("[TNTLOG] PULL ch%d subc %d mthd %04x data %08x eng %08x\n", chid, subc, mthd, data, rivatnt->pfifo.cache1_engine); /* TNTLOG */
 
     if (mthd == 0) {
         /* Bind an object: remember its engine for this subchannel and hand
@@ -949,6 +1078,7 @@ rivatnt_pfifo_dma_pusher(rivatnt_t *rivatnt)
             break;
         if (!rivatnt_pfifo_dma_read(rivatnt, rivatnt->pfifo.dma_get, &word))
             break;
+        pclog("[TNTLOG] PUSH ch%d get %08x word %08x\n", rivatnt_cache1_chid(rivatnt), rivatnt->pfifo.dma_get, word); /* TNTLOG */
 
         progress = 1;
         if (count) {
@@ -1118,6 +1248,7 @@ rivatnt_user_write(rivatnt_t *rivatnt, uint32_t addr, uint32_t val)
 
     if (rivatnt->pfifo.mode & (1 << chid)) {
         /* DMA channel: the only writable register is DMA_PUT. */
+        pclog("[TNTLOG] %.3f USER ch%d %04x = %08x (cur ch%d)\n", (double) tsc / cpuclock, chid, offset, val, rivatnt_cache1_chid(rivatnt)); /* TNTLOG */
         if (offset == 0x40) {
             if (chid == rivatnt_cache1_chid(rivatnt))
                 rivatnt->pfifo.dma_put = val & 0x1ffffffc;
@@ -1125,7 +1256,7 @@ rivatnt_user_write(rivatnt_t *rivatnt, uint32_t addr, uint32_t val)
                 rivatnt_ramin_write_l(rivatnt_ramfc_addr(rivatnt, chid), val & 0x1ffffffc, rivatnt);
                 rivatnt->pfifo.dma |= 1 << chid;
             }
-            rivatnt_do_gpu_work(rivatnt);
+            rivatnt_gpu_kick(rivatnt);
         }
         return;
     }
@@ -1158,7 +1289,7 @@ rivatnt_user_write(rivatnt_t *rivatnt, uint32_t addr, uint32_t val)
     rivatnt->pfifo.cache1_method[put >> 2] = offset | (subc << 13);
     rivatnt->pfifo.cache1_data[put >> 2]   = val;
     rivatnt->pfifo.cache1_put              = (put + 4) & RIVATNT_CACHE1_MASK;
-    rivatnt_do_gpu_work(rivatnt);
+    rivatnt_gpu_kick(rivatnt);
 }
 
 /* PGRAPH */
@@ -1168,6 +1299,7 @@ rivatnt_pgraph_intr(rivatnt_t *rivatnt, uint32_t intr, uint32_t nsource)
 {
     PGR(NV_PGRAPH_INTR) |= intr;
     PGR(NV_PGRAPH_NSOURCE) |= nsource;
+    pclog("[TNTLOG] %.3f PGRAPH INTR %08x nsource %08x trapped %08x/%08x en %08x\n", (double) tsc / cpuclock, intr, nsource, PGR(NV_PGRAPH_TRAPPED_ADDR), PGR(NV_PGRAPH_TRAPPED_DATA), PGR(NV_PGRAPH_INTR_EN)); /* TNTLOG */
     rivatnt_pmc_recompute_intr(rivatnt);
 }
 
@@ -1433,9 +1565,45 @@ rivatnt_rop3(uint8_t rop, uint32_t p, uint32_t s, uint32_t d)
     return r;
 }
 
+/* Offset of texel (x, y) in a swizzled surface: the low bits of x and y
+   interleaved (x first) for as many bits as the smaller side has, then the
+   rest of the larger side. */
+static uint32_t rivatnt_swz_spread[2048];
+
+static uint32_t
+rivatnt_swizzle(uint32_t x, uint32_t y, int logw, int logh)
+{
+    int      log  = (logw < logh) ? logw : logh;
+    uint32_t mask = (1 << log) - 1;
+
+    return rivatnt_swz_spread[x & mask] | (rivatnt_swz_spread[y & mask] << 1) | (((x >> log) | (y >> log)) << (2 * log));
+}
+
+static int
+rivatnt_surf_fmt(rivatnt_t *rivatnt, int surf)
+{
+    return (PGR(NV_PGRAPH_BPIXEL) >> (surf * 4)) & 0xf;
+}
+
+static void
+rivatnt_set_surf_fmt(rivatnt_t *rivatnt, int surf, int fmt)
+{
+    PGR(NV_PGRAPH_BPIXEL) = (PGR(NV_PGRAPH_BPIXEL) & ~(0xf << (surf * 4))) | (fmt << (surf * 4));
+}
+
+static void
+rivatnt_surf_set_dma(rivatnt_t *rivatnt, int surf, uint32_t inst)
+{
+    uint32_t limit;
+
+    PGR(NV_PGRAPH_BBASE(surf))  = rivatnt_dma_base(rivatnt, inst, &limit, NULL) & 0xffffff;
+    PGR(NV_PGRAPH_BLIMIT(surf)) = limit & 0xffffff;
+}
+
 typedef struct {
     uint32_t base, pitch;
     int      fmt, bpp;
+    int      swz, swz_logw, swz_logh; /* swizzled destination */
     int      op;
     uint8_t  rop;
     int      x0, y0, x1, y1; /* clip, exclusive at the far edge */
@@ -1452,15 +1620,33 @@ rivatnt_draw_setup(rivatnt_t *rivatnt, rivatnt_draw_t *d, int clip_x0, int clip_
     uint32_t limit = PGR(NV_PGRAPH_BLIMIT(SURF_DST)) & 0xffffff;
 
     d->fmt   = PGR(NV_PGRAPH_BPIXEL) & 0xf;
-    d->bpp   = rivatnt_surf_bpp(d->fmt);
     d->base  = PGR(NV_PGRAPH_BBASE(SURF_DST)) + PGR(NV_PGRAPH_BOFFSET(SURF_DST));
     d->pitch = PGR(NV_PGRAPH_BPITCH(SURF_DST)) & 0xffff;
+    d->swz   = 0;
     d->op    = (ctx1 >> 15) & 7;
     d->rop   = PGR(NV_PGRAPH_ROP3) & 0xff;
     d->x0    = clip_x0;
     d->y0    = clip_y0;
     d->x1    = clip_x1;
     d->y1    = clip_y1;
+
+    /* A swizzled surface attached instead of a 2D one */
+    if (ctx1 & (1 << 14)) {
+        uint32_t swz = PGR(NV_PGRAPH_BSWIZZLE(1));
+
+        d->swz      = 1;
+        d->swz_logw = (swz >> 16) & 0xf;
+        d->swz_logh = (swz >> 24) & 0xf;
+        d->fmt      = rivatnt_surf_fmt(rivatnt, SURF_SWZ);
+        d->base     = PGR(NV_PGRAPH_BBASE(SURF_SWZ)) + PGR(NV_PGRAPH_BOFFSET(SURF_SWZ));
+        d->pitch    = 0;
+        limit       = 0;
+        if (d->x1 > (1 << d->swz_logw))
+            d->x1 = 1 << d->swz_logw;
+        if (d->y1 > (1 << d->swz_logh))
+            d->y1 = 1 << d->swz_logh;
+    }
+    d->bpp = rivatnt_surf_bpp(d->fmt);
 
     /* Never write outside the surface's pitch. */
     if (d->pitch && (d->x1 > (int) (d->pitch / d->bpp)))
@@ -1582,7 +1768,10 @@ rivatnt_draw_px(rivatnt_t *rivatnt, rivatnt_draw_t *d, int x, int y, uint32_t sr
     if (d->chroma && (src == d->chroma_key))
         return;
 
-    addr = d->base + y * d->pitch + x * d->bpp;
+    if (d->swz)
+        addr = d->base + rivatnt_swizzle(x, y, d->swz_logw, d->swz_logh) * d->bpp;
+    else
+        addr = d->base + y * d->pitch + x * d->bpp;
     switch (d->op) {
     case OP_ROP_AND:
         /* Most ROPs used by GDI don't read the destination or the pattern. */
@@ -1787,9 +1976,12 @@ static const rivatnt_ctx_mthd_t ctx_sifc[] = { /* 0x76 */
     { 0 }
 };
 static const rivatnt_ctx_mthd_t ctx_sifm[] = { /* 0x77 */
-    { 0x180, CTXM_DMA, 0 }, { 0x184, CTXM_DMA, 1 }, { 0x188, CTXM_CTX, 12 }, { 0x18c, CTXM_CTX, 27 },
-    { 0x190, CTXM_CTX, 28 }, { 0x194, CTXM_CTX, 29 }, { 0x198, CTXM_CTX, 30 }, { 0x19c, CTXM_SURF2D, 0 },
-    { 0x2fc, CTXM_OPERATION, 0 }, { 0 }
+    { 0x180, CTXM_DMA, 0 }, { 0x184, CTXM_DMA, 1 }, { 0x188, CTXM_CTX, 27 }, { 0x18c, CTXM_CTX, 28 },
+    { 0x190, CTXM_CTX, 29 }, { 0x194, CTXM_CTX, 30 }, { 0x198, CTXM_SURF2D, 0 }, { 0x304, CTXM_OPERATION, 0 },
+    { 0 }
+};
+static const rivatnt_ctx_mthd_t ctx_d3d[] = { /* 0x54, 0x55: textures in DMA A or B */
+    { 0x180, CTXM_DMA, 0 }, { 0x184, CTXM_DMA, 1 }, { 0x188, CTXM_DMA, 2 }, { 0x18c, CTXM_SURF2D, 0 }, { 0 }
 };
 static const rivatnt_ctx_mthd_t ctx_m2mf[] = { /* 0x39 */
     { 0x180, CTXM_DMA, 0 }, { 0x184, CTXM_DMA, 0x81 }, { 0x188, CTXM_DMA, 2 }, { 0 }
@@ -1954,6 +2146,1176 @@ rivatnt_m2mf(rivatnt_t *rivatnt)
     }
 }
 
+/* Read 1, 2 or 4 bytes through a DMA object. */
+static uint32_t
+rivatnt_dma_read(rivatnt_t *rivatnt, uint32_t inst, uint32_t offset, int bytes)
+{
+    uint32_t val = 0;
+
+    for (int i = 0; i < bytes; i++)
+        val |= rivatnt_dma_read8(rivatnt, inst, offset + i) << (i * 8);
+    return val;
+}
+
+static uint32_t
+rivatnt_yuv_to_argb(int y, int u, int v)
+{
+    int r = y + ((359 * (v - 128)) >> 8);
+    int g = y - ((88 * (u - 128) + 183 * (v - 128)) >> 8);
+    int b = y + ((454 * (u - 128)) >> 8);
+
+    r = (r < 0) ? 0 : ((r > 255) ? 255 : r);
+    g = (g < 0) ? 0 : ((g > 255) ? 255 : g);
+    b = (b < 0) ? 0 : ((b > 255) ? 255 : b);
+    return 0xff000000 | (r << 16) | (g << 8) | b;
+}
+
+/* SET_COLOR_FORMAT of SIFM: 1 A1R5G5B5, 2 X1R5G5B5, 3 A8R8G8B8, 4 X8R8G8B8,
+   5 V8YB8U8YA8, 6 YB8V8YA8U8, 7 R5G6B5 */
+static int
+rivatnt_sifm_format(uint32_t val)
+{
+    static const int fmts[8] = { 0, 0x06, 0x07, 0x0d, 0x0e, 0x12, 0x13, 0x0a };
+    return fmts[val & 7];
+}
+
+/* One source pixel of a SIFM image, as A8R8G8B8. */
+static uint32_t
+rivatnt_sifm_texel(rivatnt_t *rivatnt, uint32_t dma, int cfmt, int s, int t)
+{
+    uint32_t pitch = rivatnt->d2.sifm_format & 0xffff;
+    uint32_t row   = rivatnt->d2.sifm_offset + t * pitch;
+    uint32_t p;
+
+    if (s < 0)
+        s = 0;
+    if (s >= rivatnt->d2.w_in)
+        s = rivatnt->d2.w_in - 1;
+    switch (cfmt) {
+    case 0x12: /* YUY2 */
+    case 0x13: /* UYVY */
+        p = rivatnt_dma_read(rivatnt, dma, row + (s & ~1) * 2, 4);
+        if (cfmt == 0x13)
+            p = ((p >> 8) & 0x00ff00ff) | ((p << 8) & 0xff00ff00);
+        return rivatnt_yuv_to_argb((s & 1) ? ((p >> 16) & 0xff) : (p & 0xff), (p >> 8) & 0xff, p >> 24);
+    case 0x06: case 0x07: case 0x0a:
+        return rivatnt_color_expand(cfmt, rivatnt_dma_read(rivatnt, dma, row + s * 2, 2));
+    default:
+        return rivatnt_color_expand(cfmt, rivatnt_dma_read(rivatnt, dma, row + s * 4, 4));
+    }
+}
+
+static uint32_t
+rivatnt_lerp_argb(uint32_t a, uint32_t b, int f) /* f in 0..256 */
+{
+    uint32_t out = 0;
+
+    for (int i = 0; i < 32; i += 8) {
+        int ca = (a >> i) & 0xff, cb = (b >> i) & 0xff;
+        out |= (uint32_t) (ca + (((cb - ca) * f) >> 8)) << i;
+    }
+    return out;
+}
+
+/* SIFM: scale an image in memory onto the surface, which may be swizzled
+   (that is how textures get swizzled). DU_DX and DV_DY are 12.20, the
+   source point 12.4. */
+static void
+rivatnt_sifm(rivatnt_t *rivatnt, uint32_t point)
+{
+    rivatnt_draw_t d;
+    uint32_t       dma = PGR(NV_PGRAPH_CTX_SWITCH3) & 0xffff;
+    int            cfmt = rivatnt_obj_cfmt(rivatnt);
+    int            foh  = ((rivatnt->d2.sifm_format >> 24) & 0xff) == 1;
+    int64_t        du = rivatnt->d2.sifm_dudx, dv = rivatnt->d2.sifm_dvdy;
+    int64_t        s0 = (int64_t) (int16_t) (point & 0xffff) << 16, t0 = (int64_t) (int16_t) (point >> 16) << 16;
+
+    if ((rivatnt->d2.w_in <= 0) || (rivatnt->d2.h_in <= 0))
+        return;
+    rivatnt_draw_setup(rivatnt, &d, (int16_t) PGR(NV_PGRAPH_ABS_UCLIPA_XMIN), (int16_t) PGR(NV_PGRAPH_ABS_UCLIPA_YMIN),
+                       (int16_t) PGR(NV_PGRAPH_ABS_UCLIPA_XMAX), (int16_t) PGR(NV_PGRAPH_ABS_UCLIPA_YMAX));
+    /* Sample at the centre of each destination pixel; bilinear filtering
+       has its texel centres half a texel in. */
+    s0 += du / 2;
+    t0 += dv / 2;
+    if (foh) {
+        s0 -= 1 << 19;
+        t0 -= 1 << 19;
+    }
+
+    for (int y = 0; y < rivatnt->d2.h_out; y++) {
+        int     dy = rivatnt->d2.y + y;
+        int64_t t  = t0 + y * dv;
+        int     ti = (int) (t >> 20), tf = (int) ((t >> 12) & 0xff);
+
+        if ((dy < d.y0) || (dy >= d.y1))
+            continue;
+        if (ti < 0)
+            ti = tf = 0;
+        if (ti >= rivatnt->d2.h_in - 1) {
+            if (ti > rivatnt->d2.h_in - 1)
+                ti = rivatnt->d2.h_in - 1;
+            tf = 0;
+        }
+        for (int x = 0; x < rivatnt->d2.w_out; x++) {
+            int      dx = rivatnt->d2.x + x;
+            int64_t  s  = s0 + x * du;
+            int      si = (int) (s >> 20);
+            uint32_t c;
+
+            if ((dx < d.x0) || (dx >= d.x1))
+                continue;
+            c = rivatnt_sifm_texel(rivatnt, dma, cfmt, si, ti);
+            if (foh) {
+                int sf = (int) ((s >> 12) & 0xff);
+                c      = rivatnt_lerp_argb(c, rivatnt_sifm_texel(rivatnt, dma, cfmt, si + 1, ti), sf);
+                if (tf) {
+                    uint32_t c2 = rivatnt_sifm_texel(rivatnt, dma, cfmt, si, ti + 1);
+                    c2          = rivatnt_lerp_argb(c2, rivatnt_sifm_texel(rivatnt, dma, cfmt, si + 1, ti + 1), sf);
+                    c           = rivatnt_lerp_argb(c, c2, tf);
+                }
+            }
+            rivatnt_draw_px(rivatnt, &d, dx, dy, rivatnt_surf_pack(d.fmt, c, c));
+        }
+    }
+}
+
+/* 3D: the DX5 (0x54) and DX6 (0x55) triangle classes */
+
+typedef struct {
+    int32_t  x, y; /* 12.4 */
+    float    z, w;
+    float    u[2], v[2];
+    uint32_t color, spec;
+} rivatnt_vtx_t;
+
+/* One texture unit, set up from FORMAT/FILTER/OFFSET for a triangle. */
+typedef struct {
+    uint32_t inst, obj, limit;
+    int      target;
+    uint32_t page, phys; /* the last page translated */
+    uint32_t offset;
+    int      fmt, bpp, logw, logh, levels;
+    int      wrap_u, wrap_v;
+    int      min, mag, zoh_center, foh_center;
+    float    bias;
+    int      key_en;
+    uint32_t key, key_mask;
+    uint32_t level_offset[12];
+} rivatnt_tex_t;
+
+typedef struct {
+    int           dx6;
+    uint32_t      control0, control1, control2, blend;
+    uint32_t      cbase, cpitch, zbase, zpitch;
+    int           cfmt, cbpp, zbpp;
+    int           cswz, swz_logw, swz_logh;
+    int           x0, y0, x1, y1;
+    int           use_tex[2];
+    rivatnt_tex_t tex[2];
+    uint32_t      factor, fog;
+    uint32_t      comb_alpha[2], comb_color[2];
+} rivatnt_d3d_t;
+
+static float
+rivatnt_f32(uint32_t v)
+{
+    float f;
+
+    memcpy(&f, &v, 4);
+    return f;
+}
+
+/* A float to 12.4 fixed point, saturating like the hardware. */
+static uint16_t
+rivatnt_d3d_convert_xy(uint32_t val)
+{
+    int      e = (val >> 23) & 0xff;
+    uint32_t m = (val & 0x7fffff) | 0x800000;
+
+    if (e > 0x7f + 10)
+        return 0x7fff + (val >> 31);
+    if (e < 0x7f - 4)
+        return 0;
+    m >>= 0x7f + 10 - e + 24 - 15;
+    return (val & 0x80000000) ? -m : m;
+}
+
+/* A TLVERTEX method. Each field goes to the staging registers; the last
+   one of the vertex copies it into the vertex RAM. */
+static void
+rivatnt_d3d_vertex(rivatnt_t *rivatnt, int dx6, int idx, int field, uint32_t data)
+{
+    uint16_t xy;
+    int      j;
+
+    switch (field) {
+    case 0:
+    case 1:
+        xy = rivatnt_d3d_convert_xy(data);
+        /* MINUSD5: corner origin moves the pixel centres to integers */
+        if ((PGR(NV_PGRAPH_DEBUG_0) & (1 << 14)) && (PGR(NV_PGRAPH_DVD_COLORFMT) & 1))
+            xy = ((xy >= 0x8000) && (xy < 0x8008)) ? 0x8000 : (uint16_t) (xy - 8);
+        if (field)
+            PGR(NV_PGRAPH_TLV_XY) = (PGR(NV_PGRAPH_TLV_XY) & 0xffff) | (xy << 16);
+        else
+            PGR(NV_PGRAPH_TLV_XY) = (PGR(NV_PGRAPH_TLV_XY) & 0xffff0000) | xy;
+        return;
+    case 2: PGR(NV_PGRAPH_TLV_Z) = data; return;
+    case 3: PGR(NV_PGRAPH_TLV_RHW) = data & ~0x3f; return;
+    case 4: PGR(NV_PGRAPH_TLV_COLOR) = data; return;
+    case 5: PGR(NV_PGRAPH_TLV_SPECULAR) = data; return;
+    case 6: PGR(NV_PGRAPH_TLV_U0) = data & ~0x3f; return;
+    case 7:
+        PGR(NV_PGRAPH_TLV_V0) = data & ~0x3f;
+        if (dx6)
+            return;
+        break;
+    case 8: PGR(NV_PGRAPH_TLV_U1) = data & ~0x3f; return;
+    case 9: PGR(NV_PGRAPH_TLV_V1) = data & ~0x3f; break;
+    default: return;
+    }
+
+    PGR(NV_PGRAPH_VTX_X(idx))   = (PGR(NV_PGRAPH_TLV_XY) & 0xffff) | (PGR(NV_PGRAPH_TLV_COLOR) & 0xffff0000);
+    PGR(NV_PGRAPH_VTX_Y(idx))   = (PGR(NV_PGRAPH_TLV_XY) >> 16) | (PGR(NV_PGRAPH_TLV_COLOR) << 16);
+    PGR(NV_PGRAPH_VTX_U(idx))   = PGR(NV_PGRAPH_TLV_U0);
+    PGR(NV_PGRAPH_VTX_V(idx))   = PGR(NV_PGRAPH_TLV_V0);
+    PGR(NV_PGRAPH_VTX_RHW(idx)) = PGR(NV_PGRAPH_TLV_RHW);
+    j                           = dx6 ? (idx + 8) : (idx + 16);
+    if (dx6) {
+        PGR(NV_PGRAPH_VTX_U(j)) = PGR(NV_PGRAPH_TLV_U1);
+        PGR(NV_PGRAPH_VTX_V(j)) = PGR(NV_PGRAPH_TLV_V1);
+    }
+    PGR(NV_PGRAPH_VTX_X(j)) = PGR(NV_PGRAPH_TLV_SPECULAR);
+    PGR(NV_PGRAPH_VTX_Y(j)) = PGR(NV_PGRAPH_TLV_Z);
+}
+
+static void
+rivatnt_d3d_load_vtx(rivatnt_t *rivatnt, int dx6, int i, rivatnt_vtx_t *v)
+{
+    uint32_t xr = PGR(NV_PGRAPH_VTX_X(i)), yr = PGR(NV_PGRAPH_VTX_Y(i));
+    int      j  = dx6 ? (i + 8) : (i + 16);
+
+    v->x     = (int16_t) (xr & 0xffff);
+    v->y     = (int16_t) (yr & 0xffff);
+    v->color = (xr & 0xffff0000) | (yr >> 16);
+    v->w     = rivatnt_f32(PGR(NV_PGRAPH_VTX_RHW(i)));
+    v->u[0]  = rivatnt_f32(PGR(NV_PGRAPH_VTX_U(i)));
+    v->v[0]  = rivatnt_f32(PGR(NV_PGRAPH_VTX_V(i)));
+    v->u[1]  = dx6 ? rivatnt_f32(PGR(NV_PGRAPH_VTX_U(j))) : v->u[0];
+    v->v[1]  = dx6 ? rivatnt_f32(PGR(NV_PGRAPH_VTX_V(j))) : v->v[0];
+    v->spec  = PGR(NV_PGRAPH_VTX_X(j));
+    v->z     = rivatnt_f32(PGR(NV_PGRAPH_VTX_Y(j)));
+}
+
+/* Texture formats (FORMAT 10:8): Y8, AY8, A1R5G5B5, X1R5G5B5, A4R4G4B4,
+   R5G6B5, A8R8G8B8, X8R8G8B8. Textures are always swizzled, with their
+   mipmaps one after another. */
+static void
+rivatnt_tex_setup(rivatnt_t *rivatnt, rivatnt_tex_t *t, int unit)
+{
+    static const int      bpps[8]  = { 1, 1, 2, 2, 2, 2, 4, 4 };
+    static const uint32_t masks[8] = { 0xff, 0xff, 0x7fff, 0x7fff, 0x0fff, 0xffff, 0xffffff, 0xffffff };
+    uint32_t              format   = PGR(NV_PGRAPH_TEX_FORMAT(unit));
+    uint32_t              filter   = PGR(NV_PGRAPH_TEX_FILTER(unit));
+    uint32_t              off      = 0;
+
+    t->inst   = (format & 2) ? (PGR(NV_PGRAPH_CTX_SWITCH3) >> 16) : (PGR(NV_PGRAPH_CTX_SWITCH3) & 0xffff);
+    t->obj    = rivatnt_ramin_read_l(t->inst << 4, rivatnt);
+    t->limit  = rivatnt_ramin_read_l((t->inst << 4) + 4, rivatnt);
+    t->target = (t->obj >> 16) & 3;
+    t->page   = 0xffffffff;
+    t->offset = PGR(unit ? NV_PGRAPH_TEX_OFFSET1 : NV_PGRAPH_TEX_OFFSET0);
+    t->fmt    = (format >> 8) & 7;
+    t->bpp    = bpps[t->fmt];
+    t->logw   = (format >> 16) & 0xf;
+    t->logh   = (format >> 20) & 0xf;
+    t->levels = (format >> 12) & 0xf;
+    t->wrap_u = (format >> 24) & 7;
+    t->wrap_v = (format >> 28) & 7;
+    /* ORIGIN_ZOH/FOH: corner (D3D) puts texel i at [i, i + 1) */
+    t->zoh_center = !(format & (1 << 5));
+    t->foh_center = !(format & (1 << 7));
+    t->min        = (filter >> 24) & 7;
+    t->mag        = (filter >> 28) & 7;
+    t->bias       = (float) (int8_t) ((filter >> 16) & 0xff) / 8.0f;
+    t->key_en     = !!(format & 4);
+    t->key_mask   = masks[t->fmt];
+    t->key        = PGR(NV_PGRAPH_TEX_COLOR_KEY) & t->key_mask;
+
+    if (t->logw > 11)
+        t->logw = 11;
+    if (t->logh > 11)
+        t->logh = 11;
+    if (!t->levels)
+        t->levels = 1;
+    if (t->levels > 12)
+        t->levels = 12;
+    for (int i = 0; i < 12; i++) {
+        int lw = (t->logw > i) ? (t->logw - i) : 0, lh = (t->logh > i) ? (t->logh - i) : 0;
+
+        t->level_offset[i] = off;
+        off += (t->bpp << lw) << lh;
+    }
+}
+
+static uint32_t
+rivatnt_tex_read(rivatnt_t *rivatnt, rivatnt_tex_t *t, uint32_t off)
+{
+    uint32_t addr = t->offset + off, a, phys;
+
+    if (addr + t->bpp - 1 > t->limit)
+        return 0;
+    a = addr + (t->obj >> 20);
+    if ((a & ~0xfff) != t->page) {
+        uint32_t pte;
+
+        if (t->obj & (1 << 13))
+            pte = rivatnt_ramin_read_l((t->inst << 4) + 8, rivatnt) + (a & ~0xfff);
+        else
+            pte = rivatnt_ramin_read_l((t->inst << 4) + 8 + ((a >> 12) << 2), rivatnt);
+        t->page = a & ~0xfff;
+        t->phys = (pte & 1) ? (pte & ~0xfff) : 0xffffffff;
+    }
+    if (t->phys == 0xffffffff)
+        return 0;
+    phys = t->phys | (a & 0xfff);
+
+    if (t->target < 2)
+        return rivatnt_vram_read_px(rivatnt, phys, t->bpp);
+    switch (t->bpp) {
+    case 1:
+        return mem_readb_phys(phys);
+    case 2:
+        return mem_readw_phys(phys);
+    default:
+        return mem_readl_phys(phys);
+    }
+}
+
+static uint32_t
+rivatnt_tex_decode(rivatnt_tex_t *t, uint32_t p)
+{
+    uint32_t r, g, b;
+
+    /* Texels matching the colour key become transparent black; the driver
+       alpha tests them away. */
+    if (t->key_en && ((p & t->key_mask) == t->key))
+        return 0;
+    switch (t->fmt) {
+    case 0: /* Y8 */
+        return 0xff000000 | (p & 0xff) * 0x010101;
+    case 1: /* AY8 */
+        return (p & 0xff) * 0x01010101;
+    case 2: /* A1R5G5B5 */
+    case 3: /* X1R5G5B5 */
+        r = (p >> 10) & 0x1f;
+        g = (p >> 5) & 0x1f;
+        b = p & 0x1f;
+        return (((t->fmt == 3) || (p & 0x8000)) ? 0xff000000 : 0) | (((r << 3) | (r >> 2)) << 16) |
+               (((g << 3) | (g >> 2)) << 8) | ((b << 3) | (b >> 2));
+    case 4: /* A4R4G4B4 */
+        return ((p >> 12) & 0xf) * 0x11000000 | ((p >> 8) & 0xf) * 0x110000 | ((p >> 4) & 0xf) * 0x1100 | (p & 0xf) * 0x11;
+    case 5: /* R5G6B5 */
+        r = (p >> 11) & 0x1f;
+        g = (p >> 5) & 0x3f;
+        b = p & 0x1f;
+        return 0xff000000 | (((r << 3) | (r >> 2)) << 16) | (((g << 2) | (g >> 4)) << 8) | ((b << 3) | (b >> 2));
+    case 6: /* A8R8G8B8 */
+        return p;
+    default: /* X8R8G8B8 */
+        return p | 0xff000000;
+    }
+}
+
+static int
+rivatnt_tex_has_alpha(rivatnt_tex_t *t)
+{
+    return (t->fmt == 1) || (t->fmt == 2) || (t->fmt == 4) || (t->fmt == 6);
+}
+
+/* TEXTUREADDRESS: 1 wrap, 2 mirror, 3 clamp, 4 border. -1 is the border. */
+static int
+rivatnt_tex_wrap(int c, int size, int mode)
+{
+    switch (mode) {
+    case 2:
+        c &= 2 * size - 1;
+        return (c >= size) ? (2 * size - 1 - c) : c;
+    case 3:
+        return (c < 0) ? 0 : ((c >= size) ? (size - 1) : c);
+    case 4:
+        return ((c < 0) || (c >= size)) ? -1 : c;
+    default:
+        return c & (size - 1);
+    }
+}
+
+static uint32_t
+rivatnt_tex_texel(rivatnt_t *rivatnt, rivatnt_tex_t *t, int level, int s, int u)
+{
+    int lw = (t->logw > level) ? (t->logw - level) : 0;
+    int lh = (t->logh > level) ? (t->logh - level) : 0;
+
+    s = rivatnt_tex_wrap(s, 1 << lw, t->wrap_u);
+    u = rivatnt_tex_wrap(u, 1 << lh, t->wrap_v);
+    if ((s < 0) || (u < 0))
+        return 0;
+    return rivatnt_tex_decode(t, rivatnt_tex_read(rivatnt, t, t->level_offset[level] + rivatnt_swizzle(s, u, lw, lh) * t->bpp));
+}
+
+/* Sample one mipmap level; s and t are in level 0 texels. Filters: odd
+   values are nearest, even ones bilinear (D3DFILTER numbering). */
+static uint32_t
+rivatnt_tex_level(rivatnt_t *rivatnt, rivatnt_tex_t *t, int level, float s, float u, int filter)
+{
+    float scale = 1.0f / (float) (1 << level);
+
+    s *= scale;
+    u *= scale;
+    if (filter & 1) {
+        if (t->zoh_center) {
+            s += 0.5f;
+            u += 0.5f;
+        }
+        return rivatnt_tex_texel(rivatnt, t, level, (int) floorf(s), (int) floorf(u));
+    } else {
+        float    fs, fu;
+        int      s0, u0, ws, wu;
+        uint32_t c0, c1;
+
+        if (!t->foh_center) {
+            s -= 0.5f;
+            u -= 0.5f;
+        }
+        fs = floorf(s);
+        fu = floorf(u);
+        s0 = (int) fs;
+        u0 = (int) fu;
+        ws = (int) ((s - fs) * 256.0f);
+        wu = (int) ((u - fu) * 256.0f);
+        c0 = rivatnt_lerp_argb(rivatnt_tex_texel(rivatnt, t, level, s0, u0), rivatnt_tex_texel(rivatnt, t, level, s0 + 1, u0), ws);
+        c1 = rivatnt_lerp_argb(rivatnt_tex_texel(rivatnt, t, level, s0, u0 + 1), rivatnt_tex_texel(rivatnt, t, level, s0 + 1, u0 + 1), ws);
+        return rivatnt_lerp_argb(c0, c1, wu);
+    }
+}
+
+/* TEXTUREMIN/MAG: 1 nearest, 2 linear, 3 mip nearest, 4 mip linear,
+   5 linear mip nearest, 6 linear mip linear. */
+static uint32_t
+rivatnt_tex_sample(rivatnt_t *rivatnt, rivatnt_tex_t *t, float u, float v, float lod)
+{
+    float s = u * (float) (1 << t->logw), tt = v * (float) (1 << t->logh);
+    int   filter, level;
+
+    if (lod <= 0.0f)
+        return rivatnt_tex_level(rivatnt, t, 0, s, tt, t->mag);
+
+    filter = t->min;
+    if ((filter <= 2) || (t->levels <= 1))
+        return rivatnt_tex_level(rivatnt, t, 0, s, tt, filter);
+    if (filter <= 4) {
+        level = (int) (lod + 0.5f);
+        if (level > t->levels - 1)
+            level = t->levels - 1;
+        return rivatnt_tex_level(rivatnt, t, level, s, tt, filter);
+    }
+    level = (int) lod;
+    if (level >= t->levels - 1)
+        return rivatnt_tex_level(rivatnt, t, t->levels - 1, s, tt, filter);
+    return rivatnt_lerp_argb(rivatnt_tex_level(rivatnt, t, level, s, tt, filter),
+                             rivatnt_tex_level(rivatnt, t, level + 1, s, tt, filter), (int) ((lod - (float) level) * 256.0f));
+}
+
+static int
+rivatnt_mul8(int a, int b)
+{
+    int x = a * b + 128;
+
+    return (x + (x >> 8)) >> 8;
+}
+
+static int
+rivatnt_clamp8(int x)
+{
+    return (x < 0) ? 0 : ((x > 255) ? 255 : x);
+}
+
+/* A combiner input: 1 zero, 2 factor, 3 diffuse, 4 input, 5 texture 0,
+   6 texture 1, 7 LOD. */
+static uint32_t
+rivatnt_comb_source(const uint32_t *src, int sel)
+{
+    return src[sel & 7];
+}
+
+/* One DX6 combiner, for colour (a = 0) or alpha (a = 1): the result is
+   arg0 * arg1 + arg2 * arg3 mapped by the operation. Each argument byte
+   is inverse (bit 0), alpha replicate (bit 1, colour only), source 4:2. */
+static uint32_t
+rivatnt_combine(const uint32_t *src, uint32_t ctl, int alpha)
+{
+    int      res[4] = { 0, 0, 0, 0 };
+    int      first = alpha ? 3 : 0, last = alpha ? 4 : 3;
+    uint32_t out   = 0;
+
+    for (int ch = first; ch < last; ch++) {
+        int arg[4], x;
+
+        for (int i = 0; i < 4; i++) {
+            uint32_t sel = (ctl >> (i * 8)) & 0xff;
+            uint32_t c   = rivatnt_comb_source(src, sel >> 2);
+            int      v   = ((sel & 2) || alpha) ? (int) (c >> 24) : (int) ((c >> (ch * 8)) & 0xff);
+
+            arg[i] = (sel & 1) ? (255 - v) : v;
+        }
+        x = rivatnt_mul8(arg[0], arg[1]) + rivatnt_mul8(arg[2], arg[3]);
+        switch (ctl >> 29) {
+        case 2: x *= 2; break;
+        case 3: x *= 4; break;
+        case 4: x -= 128; break;
+        case 5: /* MUX: one product or the other on the input's alpha */
+            x = (src[4] >> 31) ? rivatnt_mul8(arg[2], arg[3]) : rivatnt_mul8(arg[0], arg[1]);
+            break;
+        case 6: x = 255 - x; break;
+        case 7: x = 2 * x - 255; break;
+        }
+        res[ch] = rivatnt_clamp8(x);
+    }
+    for (int ch = first; ch < last; ch++)
+        out |= (uint32_t) res[ch] << (ch * 8);
+    return out;
+}
+
+/* DX5 TEXTUREMAPBLEND: decal, modulate, decal alpha, modulate alpha,
+   decal mask, modulate mask, copy, add. */
+static uint32_t
+rivatnt_tex_blend(rivatnt_d3d_t *s, uint32_t tex, uint32_t diffuse)
+{
+    int      mode = s->blend & 0xf;
+    int      at = tex >> 24, af = diffuse >> 24;
+    int      mask = ((s->blend >> 4) & 3) == 1 ? (at & 1) : (at >> 7);
+    uint32_t out = 0;
+    int      a;
+
+    switch (mode) {
+    case 1: case 7: /* decal, copy */
+        return tex;
+    case 3: /* decal alpha */
+        for (int i = 0; i < 24; i += 8)
+            out |= (uint32_t) rivatnt_clamp8(rivatnt_mul8((tex >> i) & 0xff, at) + rivatnt_mul8((diffuse >> i) & 0xff, 255 - at)) << i;
+        return out | (af << 24);
+    case 5: /* decal mask */
+        return ((mask ? tex : diffuse) & 0xffffff) | (af << 24);
+    case 8: /* add */
+        for (int i = 0; i < 24; i += 8)
+            out |= (uint32_t) rivatnt_clamp8(((tex >> i) & 0xff) + ((diffuse >> i) & 0xff)) << i;
+        return out | (af << 24);
+    case 6: /* modulate mask */
+        if (!mask)
+            return diffuse;
+        a = af;
+        break;
+    case 4: /* modulate alpha */
+        a = rivatnt_mul8(at, af);
+        break;
+    default: /* modulate: the texture's alpha if it has one */
+        a = s->tex[0].key_en || rivatnt_tex_has_alpha(&s->tex[0]) ? at : af;
+        break;
+    }
+    for (int i = 0; i < 24; i += 8)
+        out |= (uint32_t) rivatnt_mul8((tex >> i) & 0xff, (diffuse >> i) & 0xff) << i;
+    return out | (a << 24);
+}
+
+static int
+rivatnt_d3d_test(int func, uint32_t a, uint32_t b)
+{
+    switch (func) {
+    case 1: return 0;
+    case 2: return a < b;
+    case 3: return a == b;
+    case 4: return a <= b;
+    case 5: return a > b;
+    case 6: return a != b;
+    case 7: return a >= b;
+    default: return 1;
+    }
+}
+
+/* STENCIL_OP: 1 keep, 2 zero, 3 replace, 4 incr sat, 5 decr sat, 6 invert,
+   7 incr, 8 decr */
+static uint32_t
+rivatnt_stencil_op(int op, uint32_t s, uint32_t ref)
+{
+    switch (op) {
+    case 2: return 0;
+    case 3: return ref;
+    case 4: return (s < 255) ? (s + 1) : 255;
+    case 5: return s ? (s - 1) : 0;
+    case 6: return ~s & 0xff;
+    case 7: return (s + 1) & 0xff;
+    case 8: return (s - 1) & 0xff;
+    default: return s;
+    }
+}
+
+/* SRCBLEND/DESTBLEND: zero, one, src colour, inv src colour, src alpha,
+   inv src alpha, dst alpha, inv dst alpha, dst colour, inv dst colour,
+   src alpha saturate */
+static int
+rivatnt_blend_factor(int f, uint32_t src, uint32_t dst, int ch)
+{
+    int sc = (src >> (ch * 8)) & 0xff, dc = (dst >> (ch * 8)) & 0xff;
+    int sa = src >> 24, da = dst >> 24;
+
+    switch (f) {
+    case 1: return 0;
+    case 3: return sc;
+    case 4: return 255 - sc;
+    case 5: return sa;
+    case 6: return 255 - sa;
+    case 7: return da;
+    case 8: return 255 - da;
+    case 9: return dc;
+    case 10: return 255 - dc;
+    case 11: return (ch == 3) ? 255 : ((sa < 255 - da) ? sa : (255 - da));
+    default: return 255;
+    }
+}
+
+static const uint8_t rivatnt_bayer4[4][4] = {
+    {  0,  8,  2, 10 },
+    { 12,  4, 14,  6 },
+    {  3, 11,  1,  9 },
+    { 15,  7, 13,  5 }
+};
+
+/* An A8R8G8B8 colour as a pixel of a 16-bit surface, ordered dithered. */
+static uint32_t
+rivatnt_d3d_pack16(int fmt, uint32_t c, int x, int y, int dither)
+{
+    int d = dither ? rivatnt_bayer4[y & 3][x & 3] : 8;
+    int r = (((c >> 16) & 0xff) * 31 * 16 / 255 + d) >> 4;
+    int b = ((c & 0xff) * 31 * 16 / 255 + d) >> 4;
+    int g;
+
+    if (fmt == 0x05) {
+        g = (((c >> 8) & 0xff) * 63 * 16 / 255 + d) >> 4;
+        return (r << 11) | (g << 5) | b;
+    }
+    g = (((c >> 8) & 0xff) * 31 * 16 / 255 + d) >> 4;
+    return ((fmt == 0x03) || ((fmt == 0x04) && (c >> 31)) ? 0x8000 : 0) | (r << 10) | (g << 5) | b;
+}
+
+/* Attributes interpolated across a triangle */
+enum {
+    ATTR_Z = 0,
+    ATTR_W,
+    ATTR_U0, ATTR_V0, ATTR_U1, ATTR_V1, /* times W if perspective */
+    ATTR_B, ATTR_G, ATTR_R, ATTR_A,
+    ATTR_SB, ATTR_SG, ATTR_SR, ATTR_FOG,
+    ATTR_NUM
+};
+
+static void
+rivatnt_d3d_pixel(rivatnt_t *rivatnt, rivatnt_d3d_t *s, int x, int y, const float *at, const float *dadx,
+                  const float *dady, uint32_t flat_color, uint32_t flat_spec)
+{
+    uint32_t c0 = s->control0, blend = s->blend;
+    uint32_t diffuse, spec, color, tex[2] = { 0, 0 };
+    uint32_t caddr, zaddr = 0, zval = 0, znew = 0, stencil = 0, dst = 0, out;
+    int      zbuf = 0, stencil_on = 0, stencil_write = 0;
+    int      persp = (blend >> 8) & 1;
+
+    /* Colours */
+    if (((blend >> 6) & 3) == 1) {
+        diffuse = flat_color;
+        spec    = flat_spec;
+    } else {
+        diffuse = (rivatnt_clamp8((int) (at[ATTR_A] + 0.5f)) << 24) | (rivatnt_clamp8((int) (at[ATTR_R] + 0.5f)) << 16) |
+                  (rivatnt_clamp8((int) (at[ATTR_G] + 0.5f)) << 8) | rivatnt_clamp8((int) (at[ATTR_B] + 0.5f));
+        spec    = (rivatnt_clamp8((int) (at[ATTR_FOG] + 0.5f)) << 24) | (rivatnt_clamp8((int) (at[ATTR_SR] + 0.5f)) << 16) |
+                  (rivatnt_clamp8((int) (at[ATTR_SG] + 0.5f)) << 8) | rivatnt_clamp8((int) (at[ATTR_SB] + 0.5f));
+    }
+
+    /* Textures, with the mipmap level from the screen space derivatives */
+    for (int i = 0; i < 2; i++) {
+        float u, v, dudx, dvdx, dudy, dvdy, rho, lod;
+        int   au = i ? ATTR_U1 : ATTR_U0, av = au + 1;
+
+        if (!s->use_tex[i])
+            continue;
+        if (persp && (at[ATTR_W] > 0.0f)) {
+            float w = at[ATTR_W], iw = 1.0f / w;
+
+            u    = at[au] * iw;
+            v    = at[av] * iw;
+            dudx = (dadx[au] - u * dadx[ATTR_W]) * iw;
+            dvdx = (dadx[av] - v * dadx[ATTR_W]) * iw;
+            dudy = (dady[au] - u * dady[ATTR_W]) * iw;
+            dvdy = (dady[av] - v * dady[ATTR_W]) * iw;
+        } else {
+            u    = at[au];
+            v    = at[av];
+            dudx = dadx[au];
+            dvdx = dadx[av];
+            dudy = dady[au];
+            dvdy = dady[av];
+        }
+        dudx *= (float) (1 << s->tex[i].logw);
+        dudy *= (float) (1 << s->tex[i].logw);
+        dvdx *= (float) (1 << s->tex[i].logh);
+        dvdy *= (float) (1 << s->tex[i].logh);
+        rho = dudx * dudx + dvdx * dvdx;
+        if (dudy * dudy + dvdy * dvdy > rho)
+            rho = dudy * dudy + dvdy * dvdy;
+        lod    = ((rho > 0.0f) ? (0.5f * log2f(rho)) : -16.0f) + s->tex[i].bias;
+        tex[i] = rivatnt_tex_sample(rivatnt, &s->tex[i], u, v, lod);
+    }
+
+    /* Texture blending */
+    if (s->dx6) {
+        uint32_t src[8] = { 0, 0, s->factor, diffuse, diffuse, tex[0], tex[1], 0 };
+
+        color  = rivatnt_combine(src, s->comb_color[0], 0) | rivatnt_combine(src, s->comb_alpha[0], 1);
+        src[4] = color;
+        color  = rivatnt_combine(src, s->comb_color[1], 0) | rivatnt_combine(src, s->comb_alpha[1], 1);
+    } else
+        color = rivatnt_tex_blend(s, tex[0], diffuse);
+
+    if (blend & (1 << 12)) { /* specular */
+        uint32_t c = color & 0xff000000;
+        for (int i = 0; i < 24; i += 8)
+            c |= (uint32_t) rivatnt_clamp8(((color >> i) & 0xff) + ((spec >> i) & 0xff)) << i;
+        color = c;
+    }
+    if (blend & (1 << 16)) { /* fog: the specular alpha is the fog factor */
+        int      f = spec >> 24;
+        uint32_t c = color & 0xff000000;
+        for (int i = 0; i < 24; i += 8)
+            c |= (uint32_t) (rivatnt_mul8((color >> i) & 0xff, f) + rivatnt_mul8((s->fog >> i) & 0xff, 255 - f)) << i;
+        color = c;
+    }
+
+    if ((c0 & (1 << 12)) && !rivatnt_d3d_test((c0 >> 8) & 0xf, color >> 24, c0 & 0xff))
+        return;
+
+    /* Stencil and Z */
+    if (s->zpitch) {
+        zaddr = s->zbase + y * s->zpitch + x * s->zbpp;
+        zbuf  = 1;
+        zval  = rivatnt_vram_read_px(rivatnt, zaddr, s->zbpp);
+    }
+    if (zbuf && (s->zbpp == 4)) {
+        stencil       = zval & 0xff;
+        stencil_on    = s->control1 & 1;
+        stencil_write = (c0 >> 25) & 1;
+        if (stencil_on) {
+            uint32_t mask = (s->control1 >> 16) & 0xff, ref = (s->control1 >> 8) & 0xff;
+
+            if (!rivatnt_d3d_test((s->control1 >> 4) & 0xf, ref & mask, stencil & mask)) {
+                if (stencil_write) {
+                    uint32_t wm = s->control1 >> 24;
+                    stencil     = (stencil & ~wm) | (rivatnt_stencil_op(s->control2 & 0xf, stencil, ref) & wm);
+                    rivatnt_vram_write_px(rivatnt, zaddr, 4, (zval & ~0xff) | stencil);
+                }
+                return;
+            }
+        }
+    }
+    if (zbuf && (c0 & (1 << 14))) {
+        float z = at[ATTR_Z];
+
+        if ((c0 & (1 << 23)) && (at[ATTR_W] > 0.0f)) /* Z_PERSPECTIVE: z was multiplied by W */
+            z /= at[ATTR_W];
+        z    = (z < 0.0f) ? 0.0f : ((z > 1.0f) ? 1.0f : z);
+        znew = (s->zbpp == 2) ? (uint32_t) (z * 65535.0f + 0.5f) : (uint32_t) (z * 16777215.0f + 0.5f);
+        if (!rivatnt_d3d_test((c0 >> 16) & 0xf, znew, (s->zbpp == 2) ? zval : (zval >> 8))) {
+            if (stencil_on && stencil_write) {
+                uint32_t ref = (s->control1 >> 8) & 0xff, wm = s->control1 >> 24;
+                stencil      = (stencil & ~wm) | (rivatnt_stencil_op((s->control2 >> 4) & 0xf, stencil, ref) & wm);
+                rivatnt_vram_write_px(rivatnt, zaddr, 4, (zval & ~0xff) | stencil);
+            }
+            return;
+        }
+    }
+    if (zbuf) {
+        uint32_t nz = zval;
+
+        if (stencil_on && stencil_write) {
+            uint32_t ref = (s->control1 >> 8) & 0xff, wm = s->control1 >> 24;
+            stencil      = (stencil & ~wm) | (rivatnt_stencil_op((s->control2 >> 8) & 0xf, stencil, ref) & wm);
+            nz           = (nz & ~0xff) | stencil;
+        }
+        if ((c0 & (1 << 14)) && (c0 & (1 << 24)))
+            nz = (s->zbpp == 2) ? znew : ((znew << 8) | (nz & 0xff));
+        if (nz != zval)
+            rivatnt_vram_write_px(rivatnt, zaddr, s->zbpp, nz);
+    }
+
+    /* Blending and the colour write */
+    if (s->cswz)
+        caddr = s->cbase + rivatnt_swizzle(x, y, s->swz_logw, s->swz_logh) * s->cbpp;
+    else
+        caddr = s->cbase + y * s->cpitch + x * s->cbpp;
+    if ((blend & (1 << 20)) || ((c0 & 0x3c000000) != 0x3c000000))
+        dst = rivatnt_surf_expand(s->cfmt, rivatnt_vram_read_px(rivatnt, caddr, s->cbpp));
+    if (blend & (1 << 20)) {
+        int      sf = (blend >> 24) & 0xf, df = blend >> 28;
+        uint32_t c  = 0;
+
+        for (int ch = 0; ch < 4; ch++) {
+            int v = rivatnt_mul8((color >> (ch * 8)) & 0xff, rivatnt_blend_factor(sf, color, dst, ch)) +
+                    rivatnt_mul8((dst >> (ch * 8)) & 0xff, rivatnt_blend_factor(df, color, dst, ch));
+            c |= (uint32_t) rivatnt_clamp8(v) << (ch * 8);
+        }
+        color = c;
+    }
+    /* ALPHA/RED/GREEN/BLUE_WRITE_ENABLE */
+    if ((c0 & 0x3c000000) != 0x3c000000) {
+        static const uint32_t ch_mask[4] = { 0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff };
+        for (int i = 0; i < 4; i++) {
+            if (!(c0 & (1 << (26 + i))))
+                color = (color & ~ch_mask[i]) | (dst & ch_mask[i]);
+        }
+    }
+    if (s->cbpp == 2)
+        out = rivatnt_d3d_pack16(s->cfmt, color, x, y, (c0 >> 22) & 1);
+    else
+        out = rivatnt_surf_pack(s->cfmt, color, color);
+    rivatnt_vram_write_px(rivatnt, caddr, s->cbpp, out);
+}
+
+static int64_t
+rivatnt_floor_div(int64_t a, int64_t b)
+{
+    int64_t q = a / b;
+
+    return ((a % b) && ((a < 0) != (b < 0))) ? (q - 1) : q;
+}
+
+/* Draw the triangle of vertices i0, i1, i2. Pixels are sampled at their
+   integer coordinates (the corner origin was taken out when the vertices
+   were loaded), with a top-left fill rule. i0 provides the flat colour. */
+static void
+rivatnt_d3d_triangle(rivatnt_t *rivatnt, int dx6, int i0, int i1, int i2)
+{
+    rivatnt_d3d_t s;
+    rivatnt_vtx_t v[3];
+    float         a[3][ATTR_NUM], dadx[ATTR_NUM], dady[ATTR_NUM], fx[3], fy[3], det;
+    int64_t       area, e_dx[3], e_dy[3], e_row[3];
+    int           e_bias[3];
+    int           xmin, xmax, ymin, ymax, cull, persp, zpersp;
+    uint32_t      limit;
+
+    if ((i0 == i1) || (i1 == i2) || (i0 == i2))
+        return;
+    rivatnt_d3d_load_vtx(rivatnt, dx6, i0, &v[0]);
+    rivatnt_d3d_load_vtx(rivatnt, dx6, i1, &v[1]);
+    rivatnt_d3d_load_vtx(rivatnt, dx6, i2, &v[2]);
+
+    area = (int64_t) (v[1].x - v[0].x) * (v[2].y - v[0].y) - (int64_t) (v[2].x - v[0].x) * (v[1].y - v[0].y);
+    if (!area)
+        return;
+
+    memset(&s, 0, sizeof(s));
+    s.dx6      = dx6;
+    s.control0 = PGR(NV_PGRAPH_CONTROL0);
+    s.control1 = PGR(NV_PGRAPH_CONTROL1);
+    s.control2 = PGR(NV_PGRAPH_CONTROL2);
+    s.blend    = PGR(NV_PGRAPH_BLEND);
+
+    /* CULLMODE: 2 culls clockwise (positive area with y down), 3 the other way */
+    cull = (s.control0 >> 20) & 3;
+    if (((cull == 2) && (area > 0)) || ((cull == 3) && (area < 0)))
+        return;
+    if (area < 0) {
+        rivatnt_vtx_t t = v[1];
+        v[1]            = v[2];
+        v[2]            = t;
+        area            = -area;
+    }
+
+    /* Colour and zeta buffers, and the clip */
+    s.cfmt   = rivatnt_surf_fmt(rivatnt, SURF_COLOR);
+    s.cbpp   = rivatnt_surf_bpp(s.cfmt);
+    s.cbase  = PGR(NV_PGRAPH_BBASE(SURF_COLOR)) + PGR(NV_PGRAPH_BOFFSET(SURF_COLOR));
+    s.cpitch = PGR(NV_PGRAPH_BPITCH(SURF_COLOR)) & 0xffff;
+    s.cswz   = (PGR(NV_PGRAPH_SURFACE) & 3) == 2;
+    s.x0     = (int16_t) PGR(NV_PGRAPH_ABS_UCLIP_XMIN);
+    s.y0     = (int16_t) PGR(NV_PGRAPH_ABS_UCLIP_YMIN);
+    s.x1     = (int16_t) PGR(NV_PGRAPH_ABS_UCLIP_XMAX);
+    s.y1     = (int16_t) PGR(NV_PGRAPH_ABS_UCLIP_YMAX);
+    if (s.x0 < 0)
+        s.x0 = 0;
+    if (s.y0 < 0)
+        s.y0 = 0;
+    if (s.cswz) {
+        s.swz_logw = (PGR(NV_PGRAPH_BSWIZZLE(0)) >> 16) & 0xf;
+        s.swz_logh = (PGR(NV_PGRAPH_BSWIZZLE(0)) >> 24) & 0xf;
+        if (s.x1 > (1 << s.swz_logw))
+            s.x1 = 1 << s.swz_logw;
+        if (s.y1 > (1 << s.swz_logh))
+            s.y1 = 1 << s.swz_logh;
+    } else {
+        if (!s.cpitch)
+            return;
+        if (s.x1 > (int) (s.cpitch / s.cbpp))
+            s.x1 = s.cpitch / s.cbpp;
+        limit = PGR(NV_PGRAPH_BLIMIT(SURF_COLOR)) & 0xffffff;
+        if (limit) {
+            uint32_t offset = PGR(NV_PGRAPH_BOFFSET(SURF_COLOR));
+            int      rows   = (offset > limit) ? 0 : (int) ((limit + 1 - offset) / s.cpitch);
+            if (s.y1 > rows)
+                s.y1 = rows;
+        }
+    }
+    if (rivatnt_surf_fmt(rivatnt, SURF_ZETA) && (PGR(NV_PGRAPH_BPITCH(SURF_ZETA)) & 0xffff)) {
+        s.zbpp   = (rivatnt_surf_fmt(rivatnt, SURF_ZETA) == 1) ? 2 : 4;
+        s.zbase  = PGR(NV_PGRAPH_BBASE(SURF_ZETA)) + PGR(NV_PGRAPH_BOFFSET(SURF_ZETA));
+        s.zpitch = PGR(NV_PGRAPH_BPITCH(SURF_ZETA)) & 0xffff;
+        limit    = PGR(NV_PGRAPH_BLIMIT(SURF_ZETA)) & 0xffffff;
+        if (limit) {
+            uint32_t offset = PGR(NV_PGRAPH_BOFFSET(SURF_ZETA));
+            int      rows   = (offset > limit) ? 0 : (int) ((limit + 1 - offset) / s.zpitch);
+            if (s.y1 > rows)
+                s.y1 = rows;
+        }
+    }
+
+    /* Bounding box of the pixel centres inside */
+    xmin = v[0].x;
+    xmax = v[0].x;
+    ymin = v[0].y;
+    ymax = v[0].y;
+    for (int i = 1; i < 3; i++) {
+        if (v[i].x < xmin) xmin = v[i].x;
+        if (v[i].x > xmax) xmax = v[i].x;
+        if (v[i].y < ymin) ymin = v[i].y;
+        if (v[i].y > ymax) ymax = v[i].y;
+    }
+    xmin = (xmin + 15) >> 4;
+    ymin = (ymin + 15) >> 4;
+    xmax >>= 4;
+    ymax >>= 4;
+    if (xmin < s.x0) xmin = s.x0;
+    if (ymin < s.y0) ymin = s.y0;
+    if (xmax >= s.x1) xmax = s.x1 - 1;
+    if (ymax >= s.y1) ymax = s.y1 - 1;
+    if ((xmin > xmax) || (ymin > ymax))
+        return;
+
+    /* Rest of the state */
+    s.factor        = PGR(NV_PGRAPH_COMBINE_FACTOR);
+    s.fog           = PGR(NV_PGRAPH_FOG_COLOR);
+    s.comb_alpha[0] = PGR(NV_PGRAPH_COMBINE_ALPHA(0));
+    s.comb_alpha[1] = PGR(NV_PGRAPH_COMBINE_ALPHA(1));
+    s.comb_color[0] = PGR(NV_PGRAPH_COMBINE_COLOR(0));
+    s.comb_color[1] = PGR(NV_PGRAPH_COMBINE_COLOR(1));
+    if (dx6) {
+        /* Only sample the textures the combiners read. */
+        for (int c = 0; c < 2; c++) {
+            for (int i = 0; i < 4; i++) {
+                int sel_a = (s.comb_alpha[c] >> (i * 8 + 2)) & 7, sel_c = (s.comb_color[c] >> (i * 8 + 2)) & 7;
+                if ((sel_a == 5) || (sel_c == 5))
+                    s.use_tex[0] = 1;
+                if ((sel_a == 6) || (sel_c == 6))
+                    s.use_tex[1] = 1;
+            }
+        }
+    } else
+        s.use_tex[0] = 1;
+    for (int i = 0; i < 2; i++) {
+        if (s.use_tex[i])
+            rivatnt_tex_setup(rivatnt, &s.tex[i], i);
+    }
+
+    /* Attribute planes */
+    persp  = (s.blend >> 8) & 1;
+    zpersp = (s.control0 >> 23) & 1;
+    for (int i = 0; i < 3; i++) {
+        float w = (v[i].w > 0.0f) ? v[i].w : 0.0f;
+        float tw = persp ? w : 1.0f;
+
+        fx[i]           = (float) v[i].x / 16.0f;
+        fy[i]           = (float) v[i].y / 16.0f;
+        a[i][ATTR_Z]    = zpersp ? v[i].z * w : v[i].z;
+        a[i][ATTR_W]    = w;
+        a[i][ATTR_U0]   = v[i].u[0] * tw;
+        a[i][ATTR_V0]   = v[i].v[0] * tw;
+        a[i][ATTR_U1]   = v[i].u[1] * tw;
+        a[i][ATTR_V1]   = v[i].v[1] * tw;
+        a[i][ATTR_B]    = (float) (v[i].color & 0xff);
+        a[i][ATTR_G]    = (float) ((v[i].color >> 8) & 0xff);
+        a[i][ATTR_R]    = (float) ((v[i].color >> 16) & 0xff);
+        a[i][ATTR_A]    = (float) (v[i].color >> 24);
+        a[i][ATTR_SB]   = (float) (v[i].spec & 0xff);
+        a[i][ATTR_SG]   = (float) ((v[i].spec >> 8) & 0xff);
+        a[i][ATTR_SR]   = (float) ((v[i].spec >> 16) & 0xff);
+        a[i][ATTR_FOG]  = (float) (v[i].spec >> 24);
+    }
+    det = (fx[1] - fx[0]) * (fy[2] - fy[0]) - (fx[2] - fx[0]) * (fy[1] - fy[0]);
+    for (int k = 0; k < ATTR_NUM; k++) {
+        float d1 = a[1][k] - a[0][k], d2 = a[2][k] - a[0][k];
+
+        dadx[k] = (d1 * (fy[2] - fy[0]) - d2 * (fy[1] - fy[0])) / det;
+        dady[k] = (d2 * (fx[1] - fx[0]) - d1 * (fx[2] - fx[0])) / det;
+    }
+
+    /* Edge functions, edge k opposite vertex k; inside is >= 0 after the
+       bias, which keeps pixels exactly on bottom and right edges out. */
+    for (int k = 0; k < 3; k++) {
+        rivatnt_vtx_t *pa = &v[(k + 1) % 3], *pb = &v[(k + 2) % 3];
+        int32_t        dx = pb->x - pa->x, dy = pb->y - pa->y;
+
+        e_dx[k]   = -(int64_t) dy * 16;
+        e_dy[k]   = (int64_t) dx * 16;
+        e_row[k]  = (int64_t) dx * (ymin * 16 - pa->y) - (int64_t) dy * (xmin * 16 - pa->x);
+        e_bias[k] = ((dy < 0) || ((dy == 0) && (dx > 0))) ? 0 : -1;
+    }
+
+    for (int y = ymin; y <= ymax; y++) {
+        int64_t kmin = 0, kmax = xmax - xmin;
+        float   at[ATTR_NUM];
+
+        for (int k = 0; k < 3; k++) {
+            int64_t r = -(e_row[k] + e_bias[k]);
+
+            if (e_dx[k] > 0) {
+                int64_t q = -rivatnt_floor_div(-r, e_dx[k]); /* ceil */
+                if (q > kmin)
+                    kmin = q;
+            } else if (e_dx[k] < 0) {
+                int64_t q = rivatnt_floor_div(r, e_dx[k]);
+                if (q < kmax)
+                    kmax = q;
+            } else if (r > 0)
+                kmax = -1;
+            e_row[k] += e_dy[k];
+        }
+        if (kmin > kmax)
+            continue;
+        for (int k = 0; k < ATTR_NUM; k++)
+            at[k] = a[0][k] + dadx[k] * ((float) (xmin + kmin) - fx[0]) + dady[k] * ((float) y - fy[0]);
+        for (int64_t i = kmin; i <= kmax; i++) {
+            rivatnt_d3d_pixel(rivatnt, &s, xmin + (int) i, y, at, dadx, dady, v[0].color, v[0].spec);
+            for (int k = 0; k < ATTR_NUM; k++)
+                at[k] += dadx[k];
+        }
+    }
+}
+
+/* DRAW_PRIMITIVE: two triangles of vertex indices, I0-I2 and I3-I5 */
+static void
+rivatnt_d3d_draw(rivatnt_t *rivatnt, int dx6, uint32_t data)
+{
+    int mask = dx6 ? 7 : 15;
+
+    rivatnt_d3d_triangle(rivatnt, dx6, data & mask, (data >> 4) & mask, (data >> 8) & mask);
+    rivatnt_d3d_triangle(rivatnt, dx6, (data >> 12) & mask, (data >> 16) & mask, (data >> 20) & mask);
+}
+
+/* Methods of the DX5 and DX6 triangle classes. They write the PGRAPH
+   state registers the way envytools describes. */
+static void
+rivatnt_d3d_method(rivatnt_t *rivatnt, int subc, int dx6, uint32_t mthd, uint32_t data)
+{
+    if (rivatnt_pgraph_ctx_method(rivatnt, ctx_d3d, subc, mthd, data))
+        return;
+
+    if (!dx6) {
+        switch (mthd) {
+        case 0x108: /* STALL_PIPE */
+            return;
+        case 0x300:
+            PGR(NV_PGRAPH_TEX_COLOR_KEY) = data;
+            return;
+        case 0x304:
+            PGR(NV_PGRAPH_TEX_OFFSET0) = PGR(NV_PGRAPH_TEX_OFFSET1) = data;
+            return;
+        case 0x308: {
+            uint32_t f = data & 0xfffff7a6;
+            if (((data >> 8) & 7) == 1) /* Y8 */
+                f &= ~0x700;
+            PGR(NV_PGRAPH_TEX_FORMAT(0)) = PGR(NV_PGRAPH_TEX_FORMAT(1)) = f;
+            return;
+        }
+        case 0x30c:
+            PGR(NV_PGRAPH_TEX_FILTER(0)) = PGR(NV_PGRAPH_TEX_FILTER(1)) = data & 0xffff9e1e;
+            return;
+        case 0x310:
+            PGR(NV_PGRAPH_BLEND) = data & 0xff1111ff;
+            return;
+        case 0x314:
+            /* No stencil; colour writes always on. ORIGIN goes elsewhere. */
+            PGR(NV_PGRAPH_CONTROL0)     = (data & 0xc1ff5fff) | (0x1e << 25);
+            PGR(NV_PGRAPH_CONTROL1)     = 0x80;
+            PGR(NV_PGRAPH_CONTROL2)     = 0x222;
+            PGR(NV_PGRAPH_DVD_COLORFMT) = (PGR(NV_PGRAPH_DVD_COLORFMT) & ~0xff) | ((data >> 13) & 1);
+            return;
+        case 0x318:
+            PGR(NV_PGRAPH_FOG_COLOR) = data & 0xffffff;
+            return;
+        }
+        if ((mthd >= 0x400) && (mthd < 0x600))
+            rivatnt_d3d_vertex(rivatnt, 0, (mthd - 0x400) >> 5, (mthd >> 2) & 7, data);
+        else if ((mthd >= 0x600) && (mthd < 0x700))
+            rivatnt_d3d_draw(rivatnt, 0, data);
+        else
+            pclog("[RIVA TNT] DX5 triangle method %04x %08x not implemented\n", mthd, data);
+        return;
+    }
+
+    switch (mthd) {
+    case 0x308:
+    case 0x30c:
+        PGR((mthd == 0x308) ? NV_PGRAPH_TEX_OFFSET0 : NV_PGRAPH_TEX_OFFSET1) = data;
+        return;
+    case 0x310:
+    case 0x314:
+        PGR(NV_PGRAPH_TEX_FORMAT((mthd >> 2) & 1)) = data & 0xfffff7a6;
+        return;
+    case 0x318:
+    case 0x31c:
+        PGR(NV_PGRAPH_TEX_FILTER((mthd >> 2) & 1)) = data & 0xffff9e1e;
+        return;
+    case 0x320:
+    case 0x32c:
+        PGR(NV_PGRAPH_COMBINE_ALPHA(mthd == 0x32c)) = data & 0xfd1d1d1d;
+        return;
+    case 0x324:
+    case 0x330:
+        PGR(NV_PGRAPH_COMBINE_COLOR(mthd == 0x330)) = data & 0xff1f1f1f;
+        return;
+    case 0x334:
+        PGR(NV_PGRAPH_COMBINE_FACTOR) = data;
+        return;
+    case 0x338:
+        PGR(NV_PGRAPH_BLEND) = data & 0xff1111f0;
+        return;
+    case 0x33c:
+        PGR(NV_PGRAPH_CONTROL0)     = data & 0xffff5fff;
+        PGR(NV_PGRAPH_DVD_COLORFMT) = (PGR(NV_PGRAPH_DVD_COLORFMT) & ~0xff) | ((data >> 13) & 1);
+        return;
+    case 0x340:
+        PGR(NV_PGRAPH_CONTROL1) = data & 0xfffffff1;
+        return;
+    case 0x344:
+        PGR(NV_PGRAPH_CONTROL2) = data & 0xfff;
+        return;
+    case 0x348:
+        PGR(NV_PGRAPH_FOG_COLOR) = data & 0xffffff;
+        return;
+    }
+    if ((mthd >= 0x400) && (mthd < 0x540))
+        rivatnt_d3d_vertex(rivatnt, 1, (mthd - 0x400) / 0x28, ((mthd - 0x400) % 0x28) >> 2, data);
+    else if ((mthd >= 0x540) && (mthd < 0x600))
+        rivatnt_d3d_draw(rivatnt, 1, data);
+    else
+        pclog("[RIVA TNT] DX6 triangle method %04x %08x not implemented\n", mthd, data);
+}
+
 static void
 rivatnt_pgraph_method(rivatnt_t *rivatnt, int subc, uint32_t mthd, uint32_t data)
 {
@@ -2084,6 +3446,124 @@ rivatnt_pgraph_method(rivatnt_t *rivatnt, int subc, uint32_t mthd, uint32_t data
             break;
         default:
             rivatnt_pgraph_ctx_method(rivatnt, ctx_notify_only, subc, mthd, data);
+            break;
+        }
+        return;
+
+    case 0x52: /* NV4_CONTEXT_SURFACE_SWIZZLED */
+        switch (mthd) {
+        case 0x184:
+            rivatnt_surf_set_dma(rivatnt, SURF_SWZ, data);
+            break;
+        case 0x300: {
+            static const int fmts[16] = { 0, 1, 2, 3, 5, 6, 7, 0xb, 9, 0xa, 0xc, 0xd, 0, 0, 0, 0 };
+            rivatnt_set_surf_fmt(rivatnt, SURF_SWZ, fmts[data & 0xf]);
+            PGR(NV_PGRAPH_BSWIZZLE(1)) = data & 0x0f0f0000; /* log2 width, height */
+            break;
+        }
+        case 0x304:
+            PGR(NV_PGRAPH_BOFFSET(SURF_SWZ)) = data & 0xffffff;
+            break;
+        default:
+            rivatnt_pgraph_ctx_method(rivatnt, ctx_notify_only, subc, mthd, data);
+            break;
+        }
+        return;
+
+    case 0x53: /* NV4_CONTEXT_SURFACES_3D: colour and zeta; the clip is the user clip */
+        switch (mthd) {
+        case 0x184:
+        case 0x188:
+            rivatnt_surf_set_dma(rivatnt, (mthd == 0x184) ? SURF_COLOR : SURF_ZETA, data);
+            break;
+        case 0x2f8: /* CLIP_HORIZONTAL: x, width */
+            PGR(NV_PGRAPH_ABS_UCLIP_XMIN) = (int16_t) data;
+            PGR(NV_PGRAPH_ABS_UCLIP_XMAX) = (int16_t) data + (data >> 16);
+            break;
+        case 0x2fc: /* CLIP_VERTICAL: y, height */
+            PGR(NV_PGRAPH_ABS_UCLIP_YMIN) = (int16_t) data;
+            PGR(NV_PGRAPH_ABS_UCLIP_YMAX) = (int16_t) data + (data >> 16);
+            break;
+        case 0x300: {
+            /* Colour formats X1R5G5B5 (Z, O), R5G6B5, X8R8G8B8 (Z, O),
+               X1A7R8G8B8 (Z, O), A8R8G8B8. Zeta is 16-bit with 16-bit
+               colour, else Z24S8. Type: 1 pitch, 2 swizzled. */
+            static const int fmts[16] = { 0, 2, 3, 5, 7, 0xb, 9, 0xa, 0xc, 0, 0, 0, 0, 0, 0, 0 };
+            int              f       = fmts[data & 0xf];
+            rivatnt_set_surf_fmt(rivatnt, SURF_COLOR, f);
+            rivatnt_set_surf_fmt(rivatnt, SURF_ZETA, !f ? 0 : ((rivatnt_surf_bpp(f) == 2) ? 1 : 2));
+            PGR(NV_PGRAPH_SURFACE)     = (PGR(NV_PGRAPH_SURFACE) & ~3) | ((data >> 8) & 3);
+            PGR(NV_PGRAPH_BSWIZZLE(0)) = data & 0x0f0f0000;
+            break;
+        }
+        case 0x304: /* CLIP_SIZE */
+            PGR(NV_PGRAPH_ABS_UCLIP_XMIN) = 0;
+            PGR(NV_PGRAPH_ABS_UCLIP_YMIN) = 0;
+            PGR(NV_PGRAPH_ABS_UCLIP_XMAX) = data & 0xffff;
+            PGR(NV_PGRAPH_ABS_UCLIP_YMAX) = data >> 16;
+            break;
+        case 0x308:
+            PGR(NV_PGRAPH_BPITCH(SURF_COLOR)) = data & 0xffff;
+            PGR(NV_PGRAPH_BPITCH(SURF_ZETA))  = data >> 16;
+            break;
+        case 0x30c:
+        case 0x310:
+            PGR(NV_PGRAPH_BOFFSET((mthd == 0x30c) ? SURF_COLOR : SURF_ZETA)) = data & 0xffffff;
+            break;
+        default:
+            rivatnt_pgraph_ctx_method(rivatnt, ctx_notify_only, subc, mthd, data);
+            break;
+        }
+        return;
+
+    case 0x54: /* NV4_DX5_TEXTURED_TRIANGLE */
+    case 0x55: /* NV4_DX6_MULTI_TEXTURE_TRIANGLE */
+        rivatnt_d3d_method(rivatnt, subc, grclass == 0x55, mthd, data);
+        return;
+
+    case 0x77: /* NV4_SCALED_IMAGE_FROM_MEMORY */
+        if (rivatnt_pgraph_ctx_method(rivatnt, ctx_sifm, subc, mthd, data))
+            return;
+        switch (mthd) {
+        case 0x300:
+            rivatnt_set_color_format(rivatnt, subc, rivatnt_sifm_format(data));
+            break;
+        case 0x308: /* CLIP_POINT, CLIP_SIZE: the other user clip */
+            PGR(NV_PGRAPH_ABS_UCLIPA_XMIN) = (int16_t) data;
+            PGR(NV_PGRAPH_ABS_UCLIPA_YMIN) = (int16_t) (data >> 16);
+            break;
+        case 0x30c:
+            PGR(NV_PGRAPH_ABS_UCLIPA_XMAX) = (int16_t) PGR(NV_PGRAPH_ABS_UCLIPA_XMIN) + (data & 0xffff);
+            PGR(NV_PGRAPH_ABS_UCLIPA_YMAX) = (int16_t) PGR(NV_PGRAPH_ABS_UCLIPA_YMIN) + (data >> 16);
+            break;
+        case 0x310:
+            rivatnt_pgraph_set_point(&rivatnt->d2.x, &rivatnt->d2.y, data);
+            break;
+        case 0x314:
+            rivatnt->d2.w_out = data & 0xffff;
+            rivatnt->d2.h_out = data >> 16;
+            break;
+        case 0x318:
+            rivatnt->d2.sifm_dudx = (int32_t) data;
+            break;
+        case 0x31c:
+            rivatnt->d2.sifm_dvdy = (int32_t) data;
+            break;
+        case 0x400:
+            rivatnt->d2.w_in = data & 0xffff;
+            rivatnt->d2.h_in = data >> 16;
+            break;
+        case 0x404: /* pitch, origin, interpolator */
+            rivatnt->d2.sifm_format = data;
+            break;
+        case 0x408:
+            rivatnt->d2.sifm_offset = data;
+            break;
+        case 0x40c:
+            rivatnt_sifm(rivatnt, data);
+            break;
+        default:
+            pclog("[RIVA TNT] SIFM method %04x %08x not implemented\n", mthd, data);
             break;
         }
         return;
@@ -2501,17 +3981,19 @@ rivatnt_pgraph_write(uint32_t addr, uint32_t val, void *p)
     }
 
     if ((addr == NV_PGRAPH_INTR) || (addr == NV_PGRAPH_FIFO) || (addr == NV_PGRAPH_CTX_CONTROL))
-        rivatnt_do_gpu_work(rivatnt);
+        rivatnt_gpu_kick(rivatnt);
 }
 
 static void
 rivatnt_do_gpu_work(rivatnt_t *rivatnt)
 {
+    int i;
+
     if (rivatnt->gpu_busy)
         return;
     rivatnt->gpu_busy = 1;
 
-    for (int i = 0; i < 64; i++) {
+    for (i = 0; i < 64; i++) {
         int progress = 0;
 
         while (rivatnt_pfifo_pull(rivatnt))
@@ -2524,6 +4006,31 @@ rivatnt_do_gpu_work(rivatnt_t *rivatnt)
     }
 
     rivatnt->gpu_busy = 0;
+
+    /* Still going: carry on later rather than hogging the CPU. */
+    if (i == 64)
+        rivatnt_gpu_kick(rivatnt);
+}
+
+/* Methods take a while to get through PFIFO and PGRAPH, and the RM relies on
+   that. Its graphics interrupt handler services a context switch by loading
+   the new channel and re-enabling the puller, and only then re-reads
+   NV_PGRAPH_INTR; a notify raised by that channel's next methods before then
+   gets paired with the context switch's stale exception data, which the RM
+   treats as a hang and recovers from by resetting PFIFO and PGRAPH. So the
+   work runs a little after the last register write that could start it. */
+#define RIVATNT_GPU_LATENCY_US 2
+
+static void
+rivatnt_gpu_kick(rivatnt_t *rivatnt)
+{
+    timer_set_delay_u64(&rivatnt->gpu_timer, RIVATNT_GPU_LATENCY_US * TIMER_USEC);
+}
+
+static void
+rivatnt_gpu_timer(void *p)
+{
+    rivatnt_do_gpu_work((rivatnt_t *) p);
 }
 
 void
@@ -2706,16 +4213,34 @@ rivatnt_pextdev_read(uint32_t addr, void *p)
     return 0;
 }
 
+/* NV_PCRTC_CONFIG START_ADDRESS_NON_VGA makes NV_PCRTC_START (a byte
+   address) the scanout start instead of the VGA start address registers.
+   Newer drivers switch to it at mode set and flip with it. */
+static void
+rivatnt_update_start(rivatnt_t *rivatnt)
+{
+    if (rivatnt->pcrtc.config & 1)
+        rivatnt->svga.memaddr_latch = (rivatnt->pcrtc.start & 0x1fffffc) >> 2;
+}
+
 uint32_t
 rivatnt_pcrtc_read(uint32_t addr, void *p)
 {
     rivatnt_t *rivatnt = (rivatnt_t *)p;
+    svga_t    *svga    = &rivatnt->svga;
+
     switch(addr)
     {
         case 0x600100:
             return rivatnt->pcrtc.intr;
         case 0x600140:
             return rivatnt->pcrtc.intr_en;
+        case 0x600800:
+            return rivatnt->pcrtc.start;
+        case 0x600804:
+            return rivatnt->pcrtc.config;
+        case 0x600808: /* RASTER: scanline, and bit 16 in vertical blank */
+            return (svga->vc & 0x7ff) | (svga->dispon ? 0 : 0x10000);
     }
     return 0;
 }
@@ -2733,6 +4258,14 @@ rivatnt_pcrtc_write(uint32_t addr, uint32_t val, void *p)
         case 0x600140:
             rivatnt->pcrtc.intr_en = val & 1;
             rivatnt_pmc_recompute_intr(rivatnt);
+            break;
+        case 0x600800:
+            rivatnt->pcrtc.start = val & 0x1fffffc;
+            rivatnt_update_start(rivatnt);
+            break;
+        case 0x600804:
+            rivatnt->pcrtc.config = val;
+            svga_recalctimings(&rivatnt->svga);
             break;
     }
 }
@@ -2858,6 +4391,49 @@ rivatnt_vga_window_write(uint32_t addr, int len, uint32_t val, void *p)
     }
 }
 
+/* TNTDBG BEGIN (temporary): the first few accesses to each register */
+static uint8_t tntdbg_count[2][0x1000000 >> 2];
+static uint32_t rivatnt_mmio_read_l_real(uint32_t addr, rivatnt_t *rivatnt);
+static void
+tntdbg_mmio(uint32_t addr, uint32_t val, int wr)
+{
+    static uint8_t rom_seen[16];
+
+    if ((addr >= 0x300000) && (addr < 0x310000)) {
+        if (!rom_seen[(addr >> 12) & 15]++)
+            pclog("[TNTDBG] ROM page %06x\n", addr & ~0xfff);
+        return;
+    }
+    if (tntlog_trace) { /* TNTLOG */
+        char     tr_buf[400]; /* TNTLOG */
+        int      tr_n = 0; /* TNTLOG */
+        for (int tr_i = 0; (tr_i < 160) && (tr_n < 360); tr_i++) { /* TNTLOG */
+            uint64_t tr_pa = mmutranslate_noabrt(cpu_state.seg_ss.base + ESP + tr_i * 4, 0); /* TNTLOG */
+            uint32_t tr_v; /* TNTLOG */
+            if (tr_pa == 0xffffffffffffffffULL) /* TNTLOG */
+                break; /* TNTLOG */
+            tr_v = mem_readl_phys((uint32_t) tr_pa); /* TNTLOG */
+            if ((tr_v >= 0xf80fb000) && (tr_v < 0xf82fb000)) /* TNTLOG */
+                tr_n += snprintf(tr_buf + tr_n, sizeof(tr_buf) - tr_n, " %x", tr_v - 0xf80fb000 + 0x10000); /* TNTLOG */
+        } /* TNTLOG */
+        tr_buf[tr_n] = 0; /* TNTLOG */
+        pclog("[TNTTR] %c %06x %08x stk%s\n", wr ? 'W' : 'R', addr, val, tr_buf); /* TNTLOG */
+        if ((wr && (addr == 0x000200)) || (++tntlog_trace > 40000)) /* TNTLOG */
+            tntlog_trace = 0; /* TNTLOG */
+    } /* TNTLOG */
+    if (wr && (addr == 0x000200)) {
+        memset(tntdbg_count, 0, sizeof(tntdbg_count));
+        memset(rom_seen, 0, sizeof(rom_seen));
+    }
+    if ((addr >= 0x700000) || ((addr >= 0x9400) && (addr <= 0x9410)))
+        return;
+    if (tntdbg_count[wr][addr >> 2] >= 6)
+        return;
+    tntdbg_count[wr][addr >> 2]++;
+    pclog("[TNTDBG] %c %06x %08x\n", wr ? 'W' : 'R', addr, val);
+}
+/* TNTDBG END */
+
 uint32_t
 rivatnt_mmio_read_l(uint32_t addr, void *p)
 {
@@ -2869,6 +4445,16 @@ rivatnt_mmio_read_l(uint32_t addr, void *p)
 
     if (rivatnt_is_vga_window(addr))
         return rivatnt_vga_window_read(addr, 4, p);
+    ret = rivatnt_mmio_read_l_real(addr, rivatnt); /* TNTDBG */
+    tntdbg_mmio(addr, ret, 0); /* TNTDBG */
+    return ret; /* TNTDBG */
+}
+
+static uint32_t /* TNTDBG */
+rivatnt_mmio_read_l_real(uint32_t addr, rivatnt_t *rivatnt) /* TNTDBG */
+{ /* TNTDBG */
+    void *p = rivatnt; /* TNTDBG */
+    uint32_t ret = 0; /* TNTDBG */
 
     addr &= 0xfffffc;
 
@@ -2939,6 +4525,7 @@ rivatnt_mmio_write_l(uint32_t addr, uint32_t val, void *p)
     addr &= 0xffffff;
 
     //pclog("[RIVA TNT] MMIO write %08x %08x\n", addr, val);
+    tntdbg_mmio(addr, val, 1); /* TNTDBG */
 
     if (rivatnt_is_vga_window(addr)) {
         rivatnt_vga_window_write(addr, 4, val, p);
@@ -3017,7 +4604,6 @@ uint8_t
 rivatnt_rma_in(uint16_t addr, void *p)
 {
     rivatnt_t *rivatnt = (rivatnt_t *)p;
-    svga_t *svga = &rivatnt->svga;
     uint8_t ret = 0;
 
     addr &= 0xff;
@@ -3044,7 +4630,7 @@ rivatnt_rma_in(uint16_t addr, void *p)
         if (rivatnt->rma.rma_dst_addr < 0x1000000)
             ret = rivatnt_mmio_read((rivatnt->rma.rma_dst_addr + (addr & 3)) & 0xffffff, rivatnt);
         else
-            ret = svga_read_linear((rivatnt->rma.rma_dst_addr - 0x1000000) & 0xffffff, svga);
+            ret = rivatnt_lfb_read((rivatnt->rma.rma_dst_addr + (addr & 3) - 0x1000000) & 0xffffff, rivatnt);
         break;
     }
 
@@ -3056,7 +4642,6 @@ void
 rivatnt_rma_out(uint16_t addr, uint8_t val, void *p)
 {
     rivatnt_t *rivatnt = (rivatnt_t *)p;
-    svga_t* svga = &rivatnt->svga;
 
     addr &= 0xff;
 
@@ -3109,7 +4694,7 @@ rivatnt_rma_out(uint16_t addr, uint8_t val, void *p)
         if (rivatnt->rma.rma_dst_addr < 0x1000000)
             rivatnt_mmio_write_l(rivatnt->rma.rma_dst_addr & 0xffffff, rivatnt->rma.rma_data, rivatnt);
         else
-            svga_writel_linear((rivatnt->rma.rma_dst_addr - 0x1000000) & 0xffffff, rivatnt->rma.rma_data, svga);
+            rivatnt_lfb_write_l((rivatnt->rma.rma_dst_addr - 0x1000000) & 0xffffff, rivatnt->rma.rma_data, rivatnt);
         break;
     }
 
@@ -3235,6 +4820,7 @@ rivatnt_recalctimings(svga_t *svga)
     rivatnt_t *rivatnt = (rivatnt_t *)svga->priv;
 
     svga->memaddr_latch += (svga->crtc[0x19] & 0x1f) << 16;
+    rivatnt_update_start(rivatnt);
     svga->rowoffset += (svga->crtc[0x19] & 0xe0) << 3;
     /* NV_CIO_CRE_LSR (CR25): bit 10 of the vertical timings, bit 6 of HBE */
     if (svga->crtc[0x25] & 0x01) svga->vtotal      += 0x400;
@@ -3294,6 +4880,17 @@ rivatnt_recalctimings(svga_t *svga)
 
     freq = (freq * v_n) / (v_m << v_p);
     if((svga->crtc[0x28] & 3) != 0) svga->clock = (cpuclock * (double)(1ull << 32)) / freq;
+
+    { /* TNTLOG */
+        static char last[160]; /* TNTLOG */
+        char cur[160]; /* TNTLOG */
+        snprintf(cur, sizeof(cur), "cr28 %02x bpp %d hdisp %d dispend %d rowoff %d ma %06x gdc6 %02x seq4 %02x ar10 %02x cfg %x", /* TNTLOG */
+                 svga->crtc[0x28], svga->bpp, svga->hdisp, svga->dispend, svga->rowoffset, svga->memaddr_latch, svga->gdcreg[6], svga->seqregs[4], svga->attrregs[0x10], rivatnt->pcrtc.config); /* TNTLOG */
+        if (strcmp(cur, last)) { /* TNTLOG */
+            pclog("[TNTLOG] %.3f MODE %s\n", (double) tsc / cpuclock, cur); /* TNTLOG */
+            strcpy(last, cur); /* TNTLOG */
+        } /* TNTLOG */
+    } /* TNTLOG */
 }
 
 void
@@ -3352,6 +4949,13 @@ static void
     memset(rivatnt, 0, sizeof(rivatnt_t));
     svga = &rivatnt->svga;
 
+    for (int i = 0; i < 2048; i++) {
+        rivatnt_swz_spread[i] = 0;
+        for (int b = 0; b < 11; b++)
+            rivatnt_swz_spread[i] |= ((i >> b) & 1) << (2 * b);
+    }
+
+    timer_add(&rivatnt->gpu_timer, rivatnt_gpu_timer, rivatnt, 0);
     timer_add(&rivatnt->ptimer_alarm_timer, rivatnt_ptimer_alarm_poll, rivatnt, 0);
     rivatnt->ptimer_tsc_base = tsc;
 
@@ -3371,7 +4975,7 @@ static void
 
     mem_mapping_add(&rivatnt->mmio_mapping, 0, 0, rivatnt_mmio_read, rivatnt_mmio_read_w, rivatnt_mmio_read_l, rivatnt_mmio_write, rivatnt_mmio_write_w, rivatnt_mmio_write_l,  NULL, MEM_MAPPING_EXTERNAL, rivatnt);
     mem_mapping_disable(&rivatnt->mmio_mapping);
-    mem_mapping_add(&rivatnt->linear_mapping, 0, 0, svga_read_linear, svga_readw_linear, svga_readl_linear, svga_write_linear, svga_writew_linear, svga_writel_linear,  NULL, MEM_MAPPING_EXTERNAL, &rivatnt->svga);
+    mem_mapping_add(&rivatnt->linear_mapping, 0, 0, rivatnt_lfb_read, rivatnt_lfb_read_w, rivatnt_lfb_read_l, rivatnt_lfb_write, rivatnt_lfb_write_w, rivatnt_lfb_write_l,  NULL, MEM_MAPPING_EXTERNAL, rivatnt);
     mem_mapping_disable(&rivatnt->linear_mapping);
 
     svga->vblank_start = rivatnt_vblank_start;
@@ -3417,7 +5021,8 @@ void
 rivatnt_close(void *p)
 {
     rivatnt_t *rivatnt = (rivatnt_t *)p;
-    
+
+    timer_disable(&rivatnt->gpu_timer);
     svga_close(&rivatnt->svga);
     
     free(rivatnt);
