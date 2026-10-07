@@ -387,7 +387,7 @@ op0F01_common(UNUSED(uint32_t fetchdat), int is32, int is286, UNUSED(int ea32))
 
             SEG_CHECK_READ(cpu_state.ea_seg);
             CHECK_READ(cpu_state.ea_seg, eaddr, eaddr);
-            (void)readmemb(cpu_state.ea_seg->base, eaddr);
+            (void)readmemb(easeg, eaddr);
 
             flushmmucache_nopc();
             return 0;
