@@ -466,3 +466,40 @@ follow-ups. The case lists and per-step CTest logs are in the parent directory.
 same fixture. `final-execute.csv` and `final-compile.csv` are the quick sweeps,
 and `application-build.log` records the application build. Use the comparison
 commands above with the saved case lists to repeat a screen.
+
+## Chunked REP MOVS/STOS, 2026-10-07
+
+The dynarec REP handlers now copy/fill cached, untracked RAM in chunks of at
+most 256 elements. Chunks stop at either operand's page, segment or address-size
+boundary and retain the existing strict cycle-budget exit. Byte, word and dword
+operations support both directions and both address sizes. Overlapping host
+ranges (including aliased guest pages) use ordered element copies, preserving
+REP's propagation behavior. MMIO, code-tracked writes, unaligned accesses,
+watchpoints, traps and translation misses use the existing scalar accesses.
+Two failed probes disable further probes for that invocation; a successful
+chunk permits retries at the next boundary. Counts below eight stay scalar.
+
+`rep_chunk_test` executes the production handlers and checks memory against an
+independent element-by-element oracle. Its 1,556 cases cover register/flag
+preservation, both cycle budgets, cold lookup charges, repeated restarts,
+segment overrides and limits, address wrapping, overlap/aliases, MMIO and
+tracked callbacks, traps/watchpoints, and partial progress before faults.
+The same assertions pass against the original handlers. All nine standalone
+CPU suites pass. The REP suite also passes with the old dynarec definitions,
+with `USE_GDBSTUB` (chunking disabled), and with GCC's undefined-behavior
+sanitizer in trap mode.
+
+The fixture's optional `--bench` and `--bench-fallback` modes time complete REP
+operations, including any cycle-budget restarts. A local Windows x64 comparison
+used GCC 15.2.0, `-O3 -fno-strict-aliasing`, the default x86-64 ISA target,
+logical CPU 4, 100 ms per case, and baseline/current/current/baseline order.
+For 256-element cached RAM operations, MOVS was about 26–57 times faster and
+STOS about 12–17 times faster across widths/directions. Overlap cases also
+improved. This is a handler microbenchmark, not a whole-VM speedup. Single-element
+cases were up to about 7% slower and the minimal MMIO MOVSB fixture up to about
+11% slower; no universal absence of regressions is claimed.
+
+Local evidence is in `build/rep-chunks/`: `comparison.json` records the baseline
+revision, compiler, executable hashes and per-case results; `final-*.csv` holds
+the paired raw measurements. `baseline-include/x86_ops_rep_dyn.h` preserves the
+original handlers for reproducing the comparison with the same fixture.

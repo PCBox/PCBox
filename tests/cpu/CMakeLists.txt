@@ -51,6 +51,18 @@ if(BUILD_TESTING AND ARCH STREQUAL "x86_64")
     add_test(NAME sse_entry_test COMMAND sse_entry_test)
 
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        add_executable(rep_chunk_test rep_chunk_test.c)
+        target_compile_definitions(rep_chunk_test PRIVATE USE_DYNAREC USE_NEW_DYNAREC USE_DEBUG_REGS_486)
+        target_include_directories(rep_chunk_test PRIVATE
+            ${CPU_SOURCE_ROOT}/src/include ${CPU_SOURCE_ROOT}/src/cpu
+            ${PROJECT_BINARY_DIR}/src/include)
+        target_compile_options(rep_chunk_test PRIVATE -ffunction-sections -fdata-sections
+            $<$<PLATFORM_ID:Windows>:-fno-asynchronous-unwind-tables>)
+        target_link_options(rep_chunk_test PRIVATE
+            $<$<PLATFORM_ID:Darwin>:-Wl,-dead_strip>
+            $<$<NOT:$<PLATFORM_ID:Darwin>>:-Wl,--gc-sections>)
+        add_test(NAME rep_chunk_test COMMAND rep_chunk_test)
+
         add_executable(cpu_fastpath_test cpu_fastpath_test.c
             ../../src/codegen_new/codegen_ops_misc.c
             ../../src/codegen_new/codegen_ops_arith.c

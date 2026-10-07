@@ -1,3 +1,30 @@
+#include "x86_rep_chunk.h"
+
+/* Keep the architectural register updates and restart decision in the REP
+   handler. In particular, assignments to CX/SI/DI preserve the upper halves.
+   Retry a miss once after a scalar access has had a chance to populate the
+   RAM lookups; avoid probing on every MMIO/unaligned iteration. */
+#define REP_MOVS_STOS_CHUNK(width, movs, CNT_REG, SRC_REG, DEST_REG)                 \
+    if (CNT_REG >= 8 && chunk_tries) {                                            \
+        uint32_t done = rep_movs_stos_chunk(CNT_REG, SRC_REG, DEST_REG,             \
+                            sizeof(CNT_REG) == 2 ? 0xffff : UINT32_MAX,            \
+                            width, movs, cycles_end);                             \
+        if (done) {                                                              \
+            chunk_tries = 2;                                                     \
+            uint32_t delta = done * width;                                        \
+            if (cpu_state.flags & D_FLAG)                                        \
+                delta = -delta;                                                  \
+            if (movs)                                                            \
+                SRC_REG += delta;                                                \
+            DEST_REG += delta;                                                   \
+            CNT_REG -= done;                                                     \
+            if (cycles < cycles_end)                                             \
+                break;                                                           \
+            continue;                                                            \
+        }                                                                        \
+        chunk_tries--;                                                           \
+    }
+
 #define REP_OPS(size, CNT_REG, SRC_REG, DEST_REG)                                                                 \
     static int opREP_INSB_##size(UNUSED(uint32_t fetchdat))                                                       \
     {                                                                                                             \
@@ -198,11 +225,13 @@
                                                                                                                   \
     static int opREP_MOVSB_##size(UNUSED(uint32_t fetchdat))                                                      \
     {                                                                                                             \
+        unsigned chunk_tries = 2;                                                                                 \
         int cycles_end = cycles - ((is386 && cpu_use_dynarec) ? 1000 : 100);                                      \
         addr64 = addr64_2 = 0x00000000;                                                                           \
         if (trap)                                                                                                 \
             cycles_end = cycles + 1; /*Force the instruction to end after only one iteration when trap flag set*/ \
         while (CNT_REG > 0) {                                                                                     \
+            REP_MOVS_STOS_CHUNK(1, 1, CNT_REG, SRC_REG, DEST_REG);                                                 \
             uint8_t temp;                                                                                         \
                                                                                                                   \
             SEG_CHECK_READ_REP(cpu_state.ea_seg);                                                                 \
@@ -243,12 +272,14 @@
     }                                                                                                             \
     static int opREP_MOVSW_##size(UNUSED(uint32_t fetchdat))                                                      \
     {                                                                                                             \
+        unsigned chunk_tries = 2;                                                                                 \
         int cycles_end = cycles - ((is386 && cpu_use_dynarec) ? 1000 : 100);                                      \
         addr64a[0] = addr64a[1] = 0x00000000;                                                                     \
         addr64a_2[0] = addr64a_2[1] = 0x00000000;                                                                 \
         if (trap)                                                                                                 \
             cycles_end = cycles + 1; /*Force the instruction to end after only one iteration when trap flag set*/ \
         while (CNT_REG > 0) {                                                                                     \
+            REP_MOVS_STOS_CHUNK(2, 1, CNT_REG, SRC_REG, DEST_REG);                                                 \
             uint16_t temp;                                                                                        \
                                                                                                                   \
             SEG_CHECK_READ_REP(cpu_state.ea_seg);                                                                 \
@@ -289,12 +320,14 @@
     }                                                                                                             \
     static int opREP_MOVSL_##size(UNUSED(uint32_t fetchdat))                                                      \
     {                                                                                                             \
+        unsigned chunk_tries = 2;                                                                                 \
         int cycles_end = cycles - ((is386 && cpu_use_dynarec) ? 1000 : 100);                                      \
         addr64a[0] = addr64a[1] = addr64a[2] = addr64a[3] = 0x00000000;                                           \
         addr64a_2[0] = addr64a_2[1] = addr64a_2[2] = addr64a_2[3] = 0x00000000;                                   \
         if (trap)                                                                                                 \
             cycles_end = cycles + 1; /*Force the instruction to end after only one iteration when trap flag set*/ \
         while (CNT_REG > 0) {                                                                                     \
+            REP_MOVS_STOS_CHUNK(4, 1, CNT_REG, SRC_REG, DEST_REG);                                                 \
             uint32_t temp;                                                                                        \
                                                                                                                   \
             SEG_CHECK_READ_REP(cpu_state.ea_seg);                                                                 \
@@ -336,10 +369,12 @@
                                                                                                                   \
     static int opREP_STOSB_##size(UNUSED(uint32_t fetchdat))                                                      \
     {                                                                                                             \
+        unsigned chunk_tries = 2;                                                                                 \
         int cycles_end = cycles - ((is386 && cpu_use_dynarec) ? 1000 : 100);                                      \
         if (trap)                                                                                                 \
             cycles_end = cycles + 1; /*Force the instruction to end after only one iteration when trap flag set*/ \
         while (CNT_REG > 0) {                                                                                     \
+            REP_MOVS_STOS_CHUNK(1, 0, CNT_REG, SRC_REG, DEST_REG);                                                 \
                                                                                                                   \
             SEG_CHECK_WRITE_REP(&cpu_state.seg_es);                                                               \
             CHECK_WRITE_REP(&cpu_state.seg_es, DEST_REG, DEST_REG);                                               \
@@ -365,10 +400,12 @@
     }                                                                                                             \
     static int opREP_STOSW_##size(UNUSED(uint32_t fetchdat))                                                      \
     {                                                                                                             \
+        unsigned chunk_tries = 2;                                                                                 \
         int cycles_end = cycles - ((is386 && cpu_use_dynarec) ? 1000 : 100);                                      \
         if (trap)                                                                                                 \
             cycles_end = cycles + 1; /*Force the instruction to end after only one iteration when trap flag set*/ \
         while (CNT_REG > 0) {                                                                                     \
+            REP_MOVS_STOS_CHUNK(2, 0, CNT_REG, SRC_REG, DEST_REG);                                                 \
                                                                                                                   \
             SEG_CHECK_WRITE_REP(&cpu_state.seg_es);                                                               \
             CHECK_WRITE_REP(&cpu_state.seg_es, DEST_REG, DEST_REG + 1UL);                                         \
@@ -394,10 +431,12 @@
     }                                                                                                             \
     static int opREP_STOSL_##size(UNUSED(uint32_t fetchdat))                                                      \
     {                                                                                                             \
+        unsigned chunk_tries = 2;                                                                                 \
         int cycles_end = cycles - ((is386 && cpu_use_dynarec) ? 1000 : 100);                                      \
         if (trap)                                                                                                 \
             cycles_end = cycles + 1; /*Force the instruction to end after only one iteration when trap flag set*/ \
         while (CNT_REG > 0) {                                                                                     \
+            REP_MOVS_STOS_CHUNK(4, 0, CNT_REG, SRC_REG, DEST_REG);                                                 \
                                                                                                                   \
             SEG_CHECK_WRITE_REP(&cpu_state.seg_es);                                                               \
             CHECK_WRITE_REP(&cpu_state.seg_es, DEST_REG, DEST_REG + 3UL);                                         \
@@ -757,6 +796,7 @@
 
 REP_OPS(a16, CX, SI, DI)
 REP_OPS(a32, ECX, ESI, EDI)
+#undef REP_MOVS_STOS_CHUNK
 REP_OPS_CMPS_SCAS(a16_NE, CX, SI, DI, 0)
 REP_OPS_CMPS_SCAS(a16_E, CX, SI, DI, 1)
 REP_OPS_CMPS_SCAS(a32_NE, ECX, ESI, EDI, 0)
