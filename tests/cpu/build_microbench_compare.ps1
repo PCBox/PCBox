@@ -42,6 +42,10 @@ foreach ($variant in @('baseline', 'current')) {
     $sourceRoot = if ($variant -eq 'baseline') { $baselineRoot } else { $repoRoot }
     $executable = Join-Path $outputRoot "$variant.exe"
     $arguments = $commonFlags + @("-I$sourceRoot/src/include", "-I$sourceRoot/src/cpu")
+    $codegenHeader = Get-Content -Raw -LiteralPath (Join-Path $sourceRoot 'src/codegen_new/codegen.h')
+    if ($codegenHeader -match 'codegen_check_seg_write\([^;]*x86seg\s*\*\s*seg\s*\);') {
+        $arguments += '-DBENCH_LEGACY_SEG_WRITE'
+    }
     $arguments += @($sources | ForEach-Object { Join-Path $sourceRoot $_ })
     $arguments += @('-o', $executable)
     & $compilerPath @arguments
@@ -53,6 +57,7 @@ foreach ($variant in @('baseline', 'current')) {
     baseline_ref = $BaselineRef; baseline_commit = $baselineCommit; current_commit = $currentCommit
     compiler = $compilerPath; compiler_version = (& $compilerPath --version | Select-Object -First 1)
     harness_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $repoRoot 'tests/cpu/cpu_microbench.c')).Hash
+    cases_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $repoRoot 'tests/cpu/cpu_microbench_cases.h')).Hash
     source_diff = (& git -C $repoRoot diff HEAD -- src/codegen_new src/cpu)
     builds = $builds
 } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $outputRoot 'build.json') -Encoding utf8

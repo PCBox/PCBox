@@ -115,9 +115,14 @@ void codegen_check_seg_read(codeblock_t *block, ir_data_t *ir, x86seg *seg)
     (void) block; (void) ir; (void) seg;
     CHECK(!(cr0 & 1));
 }
+#ifdef BENCH_LEGACY_SEG_WRITE
+void codegen_check_seg_write(codeblock_t *block, ir_data_t *ir, x86seg *seg)
+{
+#else
 void codegen_check_seg_write(codeblock_t *block, ir_data_t *ir, x86seg *seg, int addr_reg, int size)
 {
     (void) addr_reg; (void) size;
+#endif
     codegen_check_seg_read(block, ir, seg);
 }
 void codegen_check_seg_write_abs(codeblock_t *block, ir_data_t *ir, x86seg *seg, uint32_t addr, int size)
@@ -659,7 +664,16 @@ static __attribute__((noinline, aligned(64))) void (*compile_case(const bench_ca
         unsigned type = ir->uops[i].type;
         emitted_calls += (type & UOP_MASK) == (UOP_CALL_FUNC & UOP_MASK)
                       || (type & UOP_MASK) == (UOP_CALL_FUNC_RESULT & UOP_MASK);
-        emitted_memory += !!(type & UOP_TYPE_MEM);
+        /* Use the same accounting on revisions predating UOP_TYPE_MEM. */
+        switch (type & UOP_MASK) {
+            case UOP_MEM_LOAD_ABS & UOP_MASK: case UOP_MEM_LOAD_REG & UOP_MASK:
+            case UOP_MEM_STORE_ABS & UOP_MASK: case UOP_MEM_STORE_REG & UOP_MASK:
+            case UOP_MEM_STORE_IMM_8 & UOP_MASK: case UOP_MEM_STORE_IMM_16 & UOP_MASK:
+            case UOP_MEM_STORE_IMM_32 & UOP_MASK: case UOP_MEM_LOAD_SINGLE & UOP_MASK:
+            case UOP_MEM_LOAD_DOUBLE & UOP_MASK: case UOP_MEM_STORE_SINGLE & UOP_MASK:
+            case UOP_MEM_STORE_DOUBLE & UOP_MASK:
+                emitted_memory++;
+        }
         emitted_barriers += !!(type & (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER));
     }
     codegen_ir_compile(ir, &bench_block);
