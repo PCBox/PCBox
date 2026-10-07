@@ -15,6 +15,7 @@
 #    include "codegen_backend_x86-64_ops.h"
 #    include "codegen_backend_x86-64_ops_helpers.h"
 #    include "codegen_backend_x86-64_ops_sse.h"
+#    include "codegen_ir_defs.h"
 #    include "codegen_reg.h"
 #    include "x86.h"
 #    include "x86seg_common.h"
@@ -337,6 +338,78 @@ codegen_backend_mem_call(codeblock_t *block, int size, int is_float, int store, 
         build_store_call(block, size, is_float, callback, stack_adjust);
     else
         build_load_call(block, size, is_float, callback, stack_adjust);
+}
+
+/* ESI is the a32 address; data_offset points into the caller's block frame.
+   The caller has written back its live cache and reloads it after success,
+   so the callbacks may clobber the allocator's volatile GPRs. Keep the address
+   on our stack until both halves have completed. */
+void
+codegen_backend_mem_call_128(codeblock_t *block, int store, int data_offset)
+{
+#    if _WIN64
+    const int local_size = 48, address_offset = 32;
+#    else
+    const int local_size = 16, address_offset = 0;
+#    endif
+    uint32_t *abort[2];
+    int address_reg = store ? REG_EDI : REG_ECX;
+    int scratch_offset = data_offset + local_size;
+    host_x86_SUB64_REG_IMM(block, REG_RSP, local_size);
+    host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, address_offset, REG_ESI);
+    for (int half = 0; half < 2; half++) {
+        host_x86_MOV32_REG_BASE_OFFSET(block, REG_ESI, REG_RSP, address_offset);
+        if (half)
+            host_x86_ADD32_REG_IMM(block, REG_ESI, 8);
+        if (store)
+            host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, scratch_offset + half * 8);
+        /* Recheck after the first callback: it may install or invalidate the
+           next mapping. Unaligned halves retain the quad helper's timing. */
+        host_x86_MOV32_REG_REG(block, address_reg, REG_ESI);
+        host_x86_SHR32_IMM(block, REG_ESI, 12);
+        host_x86_MOV64_REG_IMM(block, REG_R8, (uintptr_t) (store ? writelookup2 : readlookup2));
+        host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RSI, REG_R8, REG_RSI, 3);
+        host_x86_TEST32_REG_IMM(block, address_reg, 7);
+        uint32_t *unaligned = host_x86_JNZ_long(block);
+        host_x86_CMP64_REG_IMM(block, REG_RSI, (uint32_t) -1);
+        uint32_t *miss = host_x86_JZ_long(block);
+        if (store)
+            host_x86_MOVQ_BASE_INDEX_XREG(block, REG_RSI, address_reg, REG_XMM_TEMP);
+        else
+            host_x86_MOVQ_XREG_BASE_INDEX(block, REG_XMM_TEMP, REG_RSI, address_reg);
+        host_x86_XOR32_REG_REG(block, REG_ESI, REG_ESI);
+        codegen_alloc_bytes(block, 5);
+        codegen_addbyte(block, 0xe9);
+        codegen_addlong(block, 0);
+        uint32_t *done = (uint32_t *) &block_write_data[block_pos - 4];
+        codegen_set_jump_dest(block, unaligned);
+        codegen_set_jump_dest(block, miss);
+#    if _WIN64
+        if (store) {
+            host_x86_MOVQ_REG_XREG(block, REG_RDX, REG_XMM_TEMP);
+            host_x86_MOV32_REG_REG(block, REG_ECX, REG_EDI);
+        }
+#    else
+        if (store)
+            host_x86_MOVQ_REG_XREG(block, REG_RSI, REG_XMM_TEMP);
+        else
+            host_x86_MOV32_REG_REG(block, REG_EDI, REG_ECX);
+#    endif
+        host_x86_CALL(block, store ? (void *) writememql : (void *) readmemql);
+        if (!store)
+            host_x86_MOVQ_XREG_REG(block, REG_XMM_TEMP, REG_RAX);
+        host_x86_MOVZX_REG_ABS_32_8(block, REG_ESI, &cpu_state.abrt);
+        host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
+        abort[half] = host_x86_JNZ_long(block);
+        codegen_set_jump_dest(block, done);
+        if (!store)
+            host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, scratch_offset + half * 8, REG_XMM_TEMP);
+    }
+    /* First-half stores remain visible on a second-half fault. Loads publish
+       their scratch result only after the caller checks the abort status. */
+    codegen_set_jump_dest(block, abort[0]);
+    codegen_set_jump_dest(block, abort[1]);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, local_size);
 }
 
 static void

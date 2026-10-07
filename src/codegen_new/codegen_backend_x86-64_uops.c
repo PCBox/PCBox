@@ -1738,7 +1738,7 @@ typedef struct mem_slow_site_t {
     codegen_mem_reg_state_t state;
     uint32_t *unaligned, *miss, *page_cross;
     void *access, *resume, *helper, *stub;
-    uop_t uop;
+    int data_reg;
     int size, cycles_reg, sse_invalidate, owner, users;
 } mem_slow_site_t;
 
@@ -1756,6 +1756,7 @@ codegen_MEM_SAME_STUB(const mem_slow_site_t *site, const mem_slow_site_t *other)
 {
     return site->helper == other->helper && site->size == other->size
            && site->cycles_reg == other->cycles_reg && site->sse_invalidate == other->sse_invalidate
+           && site->data_reg == other->data_reg
            && site->state.write_mask == other->state.write_mask
            && site->state.reload_mask == other->state.reload_mask
            && !memcmp(site->state.regs, other->state.regs, sizeof(site->state.regs));
@@ -1771,6 +1772,7 @@ codegen_MEM_STUB_HASH(const mem_slow_site_t *site)
     hash = (hash ^ site->size) * 16777619u;
     hash = (hash ^ (uint32_t) site->cycles_reg) * 16777619u;
     hash = (hash ^ site->sse_invalidate) * 16777619u;
+    hash = (hash ^ site->data_reg) * 16777619u;
     hash = (hash ^ site->state.write_mask) * 16777619u;
     hash = (hash ^ site->state.reload_mask) * 16777619u;
     /* Scalar word loads avoid a SIMD stack temporary (and Win64 frame
@@ -1794,10 +1796,9 @@ codegen_MEM_FIND_OWNERS(const codeblock_t *block)
     unsigned index_size = 0;
     for (int i = 0; i < mem_slow_count; i++) {
         mem_slow_site_t *site = &mem_slow_sites[i];
-        /* Keep direct continuations for dynamic TOP. Paired 128-bit accesses
-           retain two independently checked helpers. Neither shares stubs. */
-        if (site->size != 16 && ((block->flags & CODEBLOCK_STATIC_TOP)
-            || !(site->state.write_uses_top || site->state.reload_uses_top))) {
+        /* Dynamic TOP still needs a private continuation. */
+        if ((block->flags & CODEBLOCK_STATIC_TOP)
+            || !(site->state.write_uses_top || site->state.reload_uses_top)) {
             int limit = i < MEM_SLOW_LINEAR_SITES ? i : MEM_SLOW_LINEAR_SITES;
             for (int j = 0; j < limit; j++) {
                 if (codegen_MEM_SAME_STUB(site, &mem_slow_sites[j])) {
@@ -1913,27 +1914,37 @@ codegen_backend_mem_finish(codeblock_t *block)
         if (save_input)
             host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG1 + stack_offset);
         int store128 = site->size == 16 && site->helper == codegen_mem_store_quad;
-        int data_reg = HOST_REG_GET(store128 ? site->uop.src_reg_c_real : site->uop.dest_reg_a_real);
-        if (store128) {
+        int data_reg = site->data_reg;
+        if (store128)
             host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + stack_offset, data_reg);
-            host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ + stack_offset);
+        if (site->size == 16 && shared)
+            codegen_backend_mem_call_128(block, store128, STACK_TEMP_DQ + stack_offset);
+        else {
+            /* A private pair is smaller using the existing quad routines.
+               Save the a32 address instead of retaining the whole uop just
+               to reconstruct the second half after the first callback. */
+            if (site->size == 16) {
+                host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG0, REG_ESI);
+                if (store128)
+                    host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ);
+            }
+            codegen_MEM_CALL_PRECHECKED(block, site);
+            if (site->size == 16) {
+                host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
+                host_x86_JNZ(block, fault_exit);
+                if (!store128)
+                    host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ, REG_XMM_TEMP);
+                host_x86_MOV32_REG_BASE_OFFSET(block, REG_ESI, REG_RSP, STACK_ARG0);
+                host_x86_ADD32_REG_IMM(block, REG_ESI, 8);
+                if (store128)
+                    host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ + 8);
+                host_x86_CALL(block, site->helper);
+            }
         }
-        codegen_MEM_CALL_PRECHECKED(block, site);
         host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
         host_x86_JNZ(block, fault_exit);
-        if (site->size == 16) {
-            if (!store128)
-                host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + stack_offset, REG_XMM_TEMP);
-            codegen_MEM_ADDR_REG_OFFSET(block, &site->uop, HOST_REG_GET(site->uop.src_reg_a_real),
-                                       HOST_REG_GET(site->uop.src_reg_b_real), 8);
-            if (store128)
-                host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ + stack_offset + 8);
-            host_x86_CALL(block, site->helper);
-            host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-            host_x86_JNZ(block, fault_exit);
-            if (!store128)
-                host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + stack_offset + 8, REG_XMM_TEMP);
-        }
+        if (site->size == 16 && !shared && !store128)
+            host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + 8, REG_XMM_TEMP);
         if (save_result)
             host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG0 + stack_offset, REG_ECX);
         codegen_reg_sync_mem(block, &site->state, 1, stack_offset);
@@ -2003,9 +2014,11 @@ codegen_MEM_CAPTURE(uop_t *uop, int size, uint32_t *miss, void *helper)
         fatal("Too many memory slow paths\n");
     int owner = mem_slow_count++;
     mem_slow_site_t *site = &mem_slow_sites[owner];
-    *site = (mem_slow_site_t) { .owner = owner, .miss = miss, .uop = *uop,
+    *site = (mem_slow_site_t) { .owner = owner, .miss = miss,
         .resume = &block_write_data[block_pos], .helper = helper, .size = size,
         .cycles_reg = -1, .sse_invalidate = !!(uop->type & UOP_TYPE_SSE_INVALIDATE) };
+    if (size == 16)
+        site->data_reg = HOST_REG_GET(helper == codegen_mem_store_quad ? uop->src_reg_c_real : uop->dest_reg_a_real);
     codegen_reg_capture_mem(&site->state, uop->dest_reg_a);
     return site;
 }

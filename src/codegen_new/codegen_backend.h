@@ -25,6 +25,7 @@ struct uop_t;
 void codegen_backend_mem_begin(void);
 void codegen_backend_mem_finish(codeblock_t *block);
 void codegen_backend_mem_call(codeblock_t *block, int size, int is_float, int store, void *callback);
+void codegen_backend_mem_call_128(codeblock_t *block, int store, int data_offset);
 #endif
 
 #ifdef CODEGEN_BACKEND_HAS_SSE_RECHECK

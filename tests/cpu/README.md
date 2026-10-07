@@ -503,3 +503,48 @@ Local evidence is in `build/rep-chunks/`: `comparison.json` records the baseline
 revision, compiler, executable hashes and per-case results; `final-*.csv` holds
 the paired raw measurements. `baseline-include/x86_ops_rep_dyn.h` preserves the
 original handlers for reproducing the comparison with the same fixture.
+
+## Paired 128-bit memory helpers (2026-10-07)
+
+Compared against `b5cd05df4`, the paired helper shares compatible slow paths
+and uses the existing register snapshot instead of saving volatile GPRs again.
+Private sites keep the smaller pair of quad-helper calls. Memory-site records
+shrank from 192 to 120 bytes, saving 288 KiB of fixed compiler scratch storage.
+
+Windows x64, Ryzen 9 9950X, CPU 4, GCC 15.2.0, identical `-O2 -march=x86-64`
+builds and fixtures. The screen covered 134 cases with two counterbalanced
+rounds, seven 20 ms samples and 30 ms warmup. Compilation used one and 32
+operations per block. Longer repeats used eleven 60 ms samples and 100 ms
+warmup. Representative 32-operation compilation results from those repeats:
+
+| Case | Before (us/block) | After (us/block) | JIT bytes before / after |
+|---|---:|---:|---:|
+| Aligned load128 | 4.31 | 2.81 | 4344 / 2665 |
+| Aligned store128 | 4.08 | 2.52 | 4349 / 2612 |
+| Load128 miss, mixed register pressure | 11.35 | 4.96 | 9876 / 3353 |
+| Store128 miss, mixed register pressure | 11.31 | 4.47 | 9878 / 3135 |
+
+High-pressure miss execution improved from 6.66 to 4.81 ns/op for loads and
+6.82 to 4.44 ns/op for stores. Aligned RAM throughput was unchanged. One
+low-pressure store-miss matrix case remained 4% slower (3.99 to 4.15 ns/op).
+None of the compilation slowdowns flagged by the short screen reproduced as
+a classified regression in the longer repeats. Single-operation private pairs
+use four or five additional bytes; the large savings require shared sites.
+The scalar mixed-store compilation controls improved roughly 4-8%, including
+192-operation blocks, without changing their emitted byte counts.
+
+A separate paired run used `1da8cbe9b`, before all performance additions, with
+the same fixture. Aligned load/store compilation remains 47%/41% slower than
+that original baseline, and the two mixed-pressure cases remain 71%/64% slower.
+These changes reduce the earlier regressions; they do not eliminate them.
+
+All nine standalone suites pass, including 40,151 RAM/register cases covering
+faults on either half, callback mapping changes, partial stores, address wrap,
+register pressure and allocator boundaries. All 4,357 benchmark cases validate
+at one, 32 and 64 operations. The full Windows application builds. Other host
+ABIs and whole-VM throughput were not measured.
+
+Local results, source snapshots and rejected prototypes are under
+`build/mem128-20261007/`. `report.html` summarizes the comparisons;
+`final-v2/` contains the retained binaries, `build.json`, manifests, raw samples,
+execution/compilation screens, longer repeats and original-baseline comparisons.

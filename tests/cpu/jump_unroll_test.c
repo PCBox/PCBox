@@ -32,6 +32,7 @@ extern const uOpFn uop_handlers[];
 } while (0)
 
 cpu_state_t cpu_state;
+uintptr_t readlookup2[2097152], writelookup2[1048576];
 int timing_misaligned, cpu_cyrix_alignment;
 uint32_t cr4, pccache = UINT32_MAX;
 uint8_t *ram, *pccache2;
@@ -99,6 +100,8 @@ uint32_t readmemll(uint32_t addr)
 {
     return readmemwl(addr) | ((uint32_t) readmemwl(addr + 2) << 16);
 }
+uint64_t readmemql(uint32_t addr) { (void) addr; CHECK(0); return 0; }
+void writememql(uint32_t addr, uint64_t value) { (void) addr; (void) value; CHECK(0); }
 
 const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_MOV_IMM & UOP_MASK] = codegen_MOV_IMM,
