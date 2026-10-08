@@ -128,7 +128,11 @@ opFFREEP(uint32_t fetchdat)
 {
     FP_ENTER();
     cpu_state.pc++;
+#ifdef USE_NEW_DYNAREC
+    cpu_state.tag[(cpu_state.TOP + fetchdat) & 7] = TAG_EMPTY;
+#else
     cpu_state.tag[(cpu_state.TOP + fetchdat) & 7] = 3;
+#endif
     if (cpu_state.abrt)
         return 1;
     x87_pop();
@@ -223,6 +227,12 @@ FSTOR(void)
     if (cpu_state.MM_w4[0] == 0xffff && cpu_state.MM_w4[1] == 0xffff && cpu_state.MM_w4[2] == 0xffff && cpu_state.MM_w4[3] == 0xffff && cpu_state.MM_w4[4] == 0xffff && cpu_state.MM_w4[5] == 0xffff && cpu_state.MM_w4[6] == 0xffff && cpu_state.MM_w4[7] == 0xffff && !cpu_state.TOP && !(*p))
 #endif
         cpu_state.ismmx = 1;
+
+    /* The new recompiler compiles a block against the TOP it had on entry,
+       either fixed or as an offset it computes once. TOP loaded here can
+       differ from that, so the block ends: the next instruction then
+       starts one dispatched with the TOP it sees. */
+    CPU_BLOCK_END();
 
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.frstor) : (x87_timings.frstor * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.frstor) : (x87_concurrency.frstor * cpu_multi));
@@ -454,6 +464,8 @@ FSAVE(void)
 #endif
     cpu_state.TOP   = 0;
     cpu_state.ismmx = 0;
+    /* TOP reset: end the block, see FSTOR. */
+    CPU_BLOCK_END();
 
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fsave) : (x87_timings.fsave * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fsave) : (x87_concurrency.fsave * cpu_multi));
@@ -577,7 +589,7 @@ opFTST(UNUSED(uint32_t fetchdat))
 {
     FP_ENTER();
     cpu_state.pc++;
-    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3);
+    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);
     if (ST(0) == 0.0)
         cpu_state.npxs |= FPU_SW_C3;
     else if (ST(0) < 0.0)
@@ -593,7 +605,7 @@ opFTSTP(UNUSED(uint32_t fetchdat))
 {
     FP_ENTER();
     cpu_state.pc++;
-    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3);
+    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);
     if (ST(0) == 0.0)
         cpu_state.npxs |= FPU_SW_C3;
     else if (ST(0) < 0.0)
@@ -1030,6 +1042,8 @@ FLDENV(void)
             cpu_state.TOP = (cpu_state.npxs >> 11) & 7;
             break;
     }
+    /* TOP loaded from memory: end the block, see FSTOR. */
+    CPU_BLOCK_END();
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fldenv) : (x87_timings.fldenv * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fldenv) : (x87_concurrency.fldenv * cpu_multi));
     return cpu_state.abrt;

@@ -78,7 +78,7 @@ ropFCOM(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), uint3
 
     uop_FP_ENTER(ir);
     uop_FCOM(ir, IREG_temp0_W, IREG_ST(0), IREG_ST(src_reg));
-    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));
+    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3));
     uop_OR(ir, IREG_NPXS, IREG_NPXS, IREG_temp0_W);
 
     return op_pc;
@@ -90,7 +90,7 @@ ropFCOMP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
 
     uop_FP_ENTER(ir);
     uop_FCOM(ir, IREG_temp0_W, IREG_ST(0), IREG_ST(src_reg));
-    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));
+    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3));
     uop_OR(ir, IREG_NPXS, IREG_NPXS, IREG_temp0_W);
     fpu_POP(block, ir);
 
@@ -101,7 +101,7 @@ ropFCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint
 {
     uop_FP_ENTER(ir);
     uop_FCOM(ir, IREG_temp0_W, IREG_ST(0), IREG_ST(1));
-    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));
+    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3));
     uop_OR(ir, IREG_NPXS, IREG_NPXS, IREG_temp0_W);
     fpu_POP2(block, ir);
 
@@ -333,7 +333,7 @@ ropFUCOM(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), uint
 
     uop_FP_ENTER(ir);
     uop_FCOM(ir, IREG_temp0_W, IREG_ST(0), IREG_ST(src_reg));
-    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));
+    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3));
     uop_OR(ir, IREG_NPXS, IREG_NPXS, IREG_temp0_W);
 
     return op_pc;
@@ -345,7 +345,7 @@ ropFUCOMP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
 
     uop_FP_ENTER(ir);
     uop_FCOM(ir, IREG_temp0_W, IREG_ST(0), IREG_ST(src_reg));
-    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));
+    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3));
     uop_OR(ir, IREG_NPXS, IREG_NPXS, IREG_temp0_W);
     fpu_POP(block, ir);
 
@@ -356,7 +356,7 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
 {
     uop_FP_ENTER(ir);
     uop_FCOM(ir, IREG_temp0_W, IREG_ST(0), IREG_ST(1));
-    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));
+    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3));
     uop_OR(ir, IREG_NPXS, IREG_NPXS, IREG_temp0_W);
     fpu_POP2(block, ir);
 
@@ -397,7 +397,7 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
         CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         load_uop(ir, IREG_temp0_D, ireg_seg_base(target_seg), IREG_eaaddr);                    \
         uop_FCOM(ir, IREG_temp1_W, IREG_ST(0), IREG_temp0_D);                                  \
-        uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));           \
+        uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3)); \
         uop_OR(ir, IREG_NPXS, IREG_NPXS, IREG_temp1_W);                                        \
                                                                                                \
         return op_pc + 1;                                                                      \
@@ -415,7 +415,7 @@ ropFUCOMPP(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uin
         CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, end_offset);                      \
         load_uop(ir, IREG_temp0_D, ireg_seg_base(target_seg), IREG_eaaddr);                    \
         uop_FCOM(ir, IREG_temp1_W, IREG_ST(0), IREG_temp0_D);                                  \
-        uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));           \
+        uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3)); \
         uop_OR(ir, IREG_NPXS, IREG_NPXS, IREG_temp1_W);                                        \
         fpu_POP(block, ir);                                                                    \
                                                                                                \
@@ -563,7 +563,7 @@ ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE, 7)
         uop_MEM_LOAD_REG(ir, temp_reg, ireg_seg_base(target_seg), IREG_eaaddr);                \
         uop_MOV_DOUBLE_INT(ir, IREG_temp0_D, temp_reg);                                        \
         uop_FCOM(ir, IREG_temp1_W, IREG_ST(0), IREG_temp0_D);                                  \
-        uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));           \
+        uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3)); \
         uop_OR(ir, IREG_NPXS, IREG_NPXS, IREG_temp1_W);                                        \
                                                                                                \
         return op_pc + 1;                                                                      \
@@ -582,7 +582,7 @@ ropF_arith_mem(d, uop_MEM_LOAD_DOUBLE, 7)
         uop_MEM_LOAD_REG(ir, temp_reg, ireg_seg_base(target_seg), IREG_eaaddr);                \
         uop_MOV_DOUBLE_INT(ir, IREG_temp0_D, temp_reg);                                        \
         uop_FCOM(ir, IREG_temp1_W, IREG_ST(0), IREG_temp0_D);                                  \
-        uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));           \
+        uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3)); \
         uop_OR(ir, IREG_NPXS, IREG_NPXS, IREG_temp1_W);                                        \
         fpu_POP(block, ir);                                                                    \
                                                                                                \
@@ -735,7 +735,7 @@ ropFTST(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSE
 {
     uop_FP_ENTER(ir);
     uop_FTST(ir, IREG_temp0_W, IREG_ST(0));
-    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3));
+    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3));
     uop_OR(ir, IREG_NPXS, IREG_NPXS, IREG_temp0_W);
 
     return op_pc;

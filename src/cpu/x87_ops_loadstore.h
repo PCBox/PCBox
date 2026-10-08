@@ -111,7 +111,7 @@ opFISTTPiw_a16(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    seteaw((int16_t)ST(0));
+    seteaw(x87_ftrunc16(ST(0)));
     if (cpu_state.abrt)
         return 1;
     x87_pop();
@@ -126,7 +126,7 @@ opFISTTPiw_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    seteaw((int16_t)ST(0));
+    seteaw(x87_ftrunc16(ST(0)));
     if (cpu_state.abrt)
         return 1;
     x87_pop();

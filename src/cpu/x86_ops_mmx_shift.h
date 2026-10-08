@@ -492,12 +492,7 @@ opPSxxQ_imm(uint32_t fetchdat)
             else
                 dst->q >>= shift;
             break;
-        case 0x20: /*PSRAW*/
-            if (shift > 63)
-                shift = 63;
-
-            dst->sq >>= shift;
-            break;
+        /*There is no PSRAQ: 0F 73 /4 is undefined*/
         case 0x30: /*PSLLW*/
             if (shift > 63)
                 dst->q = 0;

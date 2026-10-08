@@ -209,7 +209,7 @@ ropF6(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchd
             uop_MOVSX(ir, IREG_temp2_W, reg);
             uop_IMUL(ir, IREG_temp1_W, IREG_temp1_W, IREG_temp2_W);
             uop_MOV(ir, IREG_AX, IREG_temp1_W);
-            uop_MOVZX(ir, IREG_flags_res, IREG_AX);
+            uop_MOVZX(ir, IREG_flags_res, IREG_AH);
             uop_MOV_IMM(ir, IREG_flags_op, FLAGS_IMUL8);
 
             codegen_flags_changed = 1;

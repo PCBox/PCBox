@@ -581,7 +581,11 @@ opLEAVE_w(UNUSED(uint32_t fetchdat))
     uint32_t tempESP = ESP;
     uint16_t temp;
 
-    SP   = BP;
+    /*The stack size, not the operand size, picks SP or ESP*/
+    if (stack32)
+        ESP = EBP;
+    else
+        SP = BP;
     temp = POP_W();
     if (cpu_state.abrt) {
         ESP = tempESP;
@@ -599,7 +603,11 @@ opLEAVE_l(UNUSED(uint32_t fetchdat))
     uint32_t tempESP = ESP;
     uint32_t temp;
 
-    ESP  = EBP;
+    /*The stack size, not the operand size, picks SP or ESP*/
+    if (stack32)
+        ESP = EBP;
+    else
+        SP = BP;
     temp = POP_L();
     if (cpu_state.abrt) {
         ESP = tempESP;
