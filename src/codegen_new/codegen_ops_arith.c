@@ -2379,10 +2379,11 @@ ropINCDEC(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
 {
     codegen_mark_code_present(block, cs + op_pc, 1);
     rebuild_c(ir);
+    if (fetchdat & 0x30) return 0;
 
     if ((fetchdat & 0xc0) == 0xc0) {
         uop_MOVZX(ir, IREG_flags_op1, IREG_8(fetchdat & 7));
-        if (fetchdat & 0x38) {
+        if ((fetchdat & 0x38) == 0x08) {
             uop_SUB_IMM(ir, IREG_8(fetchdat & 7), IREG_8(fetchdat & 7), 1);
             uop_MOV_IMM(ir, IREG_flags_op, FLAGS_DEC8);
         } else {
@@ -2399,7 +2400,7 @@ ropINCDEC(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
         codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 1);
         uop_MEM_LOAD_REG(ir, IREG_temp0_B, ireg_seg_base(target_seg), IREG_eaaddr);
 
-        if (fetchdat & 0x38) {
+        if ((fetchdat & 0x38) == 0x08) {
             uop_SUB_IMM(ir, IREG_temp1_B, IREG_temp0_B, 1);
         } else {
             uop_ADD_IMM(ir, IREG_temp1_B, IREG_temp0_B, 1);
@@ -2408,7 +2409,7 @@ ropINCDEC(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
         uop_MOVZX(ir, IREG_flags_op1, IREG_temp0_B);
         uop_MOVZX(ir, IREG_flags_res, IREG_temp1_B);
         uop_MOV_IMM(ir, IREG_flags_op2, 1);
-        if (fetchdat & 0x38) {
+        if ((fetchdat & 0x38) == 0x08) {
             uop_MOV_IMM(ir, IREG_flags_op, FLAGS_DEC8);
         } else {
             uop_MOV_IMM(ir, IREG_flags_op, FLAGS_INC8);
