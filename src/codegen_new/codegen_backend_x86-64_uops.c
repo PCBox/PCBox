@@ -1185,6 +1185,33 @@ codegen_CMP_SLT(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_PARITY(codeblock_t *block, uop_t *uop)
+{
+    int dest = HOST_REG_GET(uop->dest_reg_a_real);
+    int src = HOST_REG_GET(uop->src_reg_a_real);
+    /* Host PF only depends on the low byte, even with a dword TEST. */
+    host_x86_TEST32_REG(block, src, src);
+    host_x86_MOV32_REG_IMM(block, dest, 0);
+    codegen_alloc_bytes(block, 4);
+    if (dest >= 4)
+        codegen_addbyte(block, 0x40 | (dest >> 3));
+    codegen_addbyte3(block, 0x0f, uop->imm_data ? 0x9b : 0x9a, 0xc0 | (dest & 7)); /* SETNP / SETP */
+    return 0;
+}
+
+static int
+codegen_PARITY_JUMP(codeblock_t *block, uop_t *uop)
+{
+    int src = HOST_REG_GET(uop->src_reg_a_real);
+    host_x86_TEST32_REG(block, src, src);
+    codegen_alloc_bytes(block, 6);
+    codegen_addbyte2(block, 0x0f, uop->imm_data ? 0x8b : 0x8a); /* JNP / JP */
+    codegen_addlong(block, 0);
+    uop->p = &block_write_data[block_pos - 4];
+    return 0;
+}
+
+static int
 codegen_CMP_Z(codeblock_t *block, uop_t *uop)
 {
     int dest = HOST_REG_GET(uop->dest_reg_a_real);
@@ -5068,6 +5095,8 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_DIV_RESULT & UOP_MASK] = codegen_DIV_RESULT,
     [UOP_CMP_SLT & UOP_MASK] = codegen_CMP_SLT,
     [UOP_CMP_Z & UOP_MASK] = codegen_CMP_Z,
+    [UOP_PARITY & UOP_MASK] = codegen_PARITY,
+    [UOP_PARITY_JUMP & UOP_MASK] = codegen_PARITY_JUMP,
     [UOP_CMP_ULT & UOP_MASK] = codegen_CMP_ULT,
     [UOP_CALL_FUNC & UOP_MASK] = codegen_CALL_FUNC,
     [UOP_CALL_FUNC_RESULT &

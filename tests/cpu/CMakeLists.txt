@@ -71,6 +71,7 @@ if(BUILD_TESTING AND ARCH STREQUAL "x86_64")
         add_test(NAME rep_chunk_test COMMAND rep_chunk_test)
 
         add_executable(cpu_fastpath_test cpu_fastpath_test.c
+            ../../src/codegen_new/codegen_ops_branch.c
             ../../src/codegen_new/codegen_ops_misc.c
             ../../src/codegen_new/codegen_ops_arith.c
             ../../src/codegen_new/codegen_ops_setcc.c

@@ -374,6 +374,13 @@ setcc_gen_S(ir_data_t *ir, int invert)
 void
 setcc_gen_P(ir_data_t *ir, int invert)
 {
+#ifdef CODEGEN_BACKEND_HAS_PARITY
+    /* Multiply and rotate preserve PF rather than deriving it from res. */
+    if (codegen_flags_changed && flags_res_valid() && cpu_state.flags_op != FLAGS_IMUL8) {
+        uop_PARITY(ir, IREG_temp0, IREG_flags_res, invert);
+        return;
+    }
+#endif
     uop_CALL_FUNC_RESULT(ir, IREG_temp0, P_SET_01);
     if (invert)
         uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);

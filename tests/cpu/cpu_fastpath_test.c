@@ -5,6 +5,7 @@
 #define main cpu_microbench_main
 #include "cpu_microbench.c"
 #undef main
+#include "../../src/codegen_new/codegen_ops_branch.h"
 
 typedef void (*jit_fn)(void);
 typedef uint32_t (*translator)(codeblock_t *, ir_data_t *, uint8_t, uint32_t, uint32_t, uint32_t);
@@ -294,6 +295,7 @@ static void test_zero_conditions(void)
     /* Check all host byte encodings and dest/source overlap independently
        of the register allocator's choices in the instruction cases above. */
     const uint32_t values[] = {0, 1, 0x80000000, UINT32_MAX};
+    for (int parity = 0; parity < 2; parity++)
     for (int d = 0; d < CODEGEN_HOST_REGS; d++)
         for (int s = 0; s < CODEGEN_HOST_REGS; s++)
             for (int invert = 0; invert < 2; invert++)
@@ -305,17 +307,66 @@ static void test_zero_conditions(void)
                     host_x86_MOV32_REG_IMM(&bench_block, src, values[v]);
                     uop_t op = {.dest_reg_a_real = dest | IREG_SIZE_L, .src_reg_a_real = src | IREG_SIZE_L,
                                 .imm_data = invert};
-                    codegen_CMP_Z(&bench_block, &op);
+                    if (parity) codegen_PARITY(&bench_block, &op);
+                    else codegen_CMP_Z(&bench_block, &op);
                     host_x86_MOV32_ABS_REG(&bench_block, &EAX, dest);
                     host_x86_MOV32_ABS_REG(&bench_block, &EBX, src);
                     codegen_backend_epilogue(&bench_block);
                     flush_code();
                     ((jit_fn) bench_block.data)();
-                    CHECK(EAX == (unsigned) ((values[v] == 0) ^ invert));
+                    CHECK(EAX == (unsigned) ((parity ? v != 1 : values[v] == 0) ^ invert));
                     CHECK(EBX == (src == dest ? EAX : values[v]));
                     checks++;
                 }
 #endif
+}
+
+/* Compare low-byte parity independently of the emulator's lookup table,
+   including stale upper bits and branches that leave through the shared exit. */
+static void test_parity_conditions(void)
+{
+    const int ops[] = {FLAGS_ZN8, FLAGS_ADD16, FLAGS_SUB32, FLAGS_SHL32, FLAGS_ADC32,
+                       FLAGS_SBC32, FLAGS_SHRD16, FLAGS_UNKNOWN, FLAGS_ROL8,
+                       FLAGS_MUL32, FLAGS_IMUL8};
+    for (unsigned op = 0; op < sizeof(ops) / sizeof(ops[0]); op++)
+        for (int known = 0; known < 2; known++)
+            for (int invert = 0; invert < 2; invert++)
+                for (int form = 0; form < 4; form++) {
+                    ir_data_t *ir = begin_test("parity conditions");
+                    codegen_flags_changed = known;
+                    cpu_state.flags_op = ops[op];
+                    if (form == 0)
+                        bench_setcc[10 + invert](&bench_block, ir, 0, 0xc7, 0x300, 0x101);
+                    else if (form < 3)
+                        bench_cmov[form - 1][10 + invert](&bench_block, ir, 0, 0xda, 0x300, 0x101);
+                    else {
+                        instruction_bytes[0x101] = 0x20;
+                        if (invert) ropJNP_8(&bench_block, ir, 0, 0, 0x300, 0x101);
+                        else ropJP_8(&bench_block, ir, 0, 0, 0x300, 0x101);
+                        uop_MOV_IMM(ir, IREG_pc, 0x102);
+                    }
+                    jit_fn entry = finish_test(ir);
+                    for (unsigned i = 0; i < 512; i++) {
+                        uint32_t result = (random_u32() & 0xffffff00) | (i & 255);
+                        unsigned ones = 0;
+                        for (unsigned b = 0; b < 8; b++) ones += (result >> b) & 1;
+                        unsigned parity = op < 7 ? !(ones & 1) : (i >> 8);
+                        unsigned condition = parity ^ invert;
+                        cpu_state.flags_res = result;
+                        cpu_state.flags = 0x203 | ((i >> 8) ? P_FLAG : 0);
+                        uint16_t old_flags = cpu_state.flags;
+                        EBX = 0x12345678; EDX = 0xabcdef12;
+                        uint32_t expected = form == 0 ? (EBX & 0xffff00ff) | (condition << 8)
+                            : form == 1 ? (condition ? (EBX & 0xffff0000) | (EDX & 0xffff) : EBX)
+                            : (condition ? EDX : EBX);
+                        entry();
+                        if (form == 3) CHECK(cpu_state.pc == (condition ? 0x122 : 0x102));
+                        else CHECK(EBX == expected && EDX == 0xabcdef12);
+                        CHECK(cpu_state.flags_res == result && cpu_state.flags_op == ops[op]);
+                        CHECK(cpu_state.flags == old_flags);
+                        checks++;
+                    }
+                }
 }
 
 static void test_carry_faults(void)
@@ -813,6 +864,7 @@ int main(void)
     test_adc_sbb();
     test_signed_conditions();
     test_zero_conditions();
+    test_parity_conditions();
     test_incdec_carry();
     test_cmov_memory();
     test_umul_aliases();
