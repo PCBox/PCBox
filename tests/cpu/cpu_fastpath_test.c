@@ -236,6 +236,104 @@ static void test_signed_conditions(void)
 #endif
 }
 
+/* Signed arithmetic in a wider type provides an independent OF oracle. */
+static void test_overflow_conditions(void)
+{
+    const int groups[] = {FLAGS_ADD8, FLAGS_SUB8, FLAGS_INC8, FLAGS_DEC8, FLAGS_ADC8, FLAGS_SBC8};
+    const uint32_t edge[] = {0, 1, 0x7f, 0x80, 0xff, 0x7fff, 0x8000, 0xffff,
+                            0x7fffffff, 0x80000000, UINT32_MAX};
+    for (unsigned g = 0; g <= 6; g++)
+        for (unsigned width = 0; width < 3; width++)
+            for (int known = 0; known < 2; known++)
+                for (int invert = 0; invert < 2; invert++)
+                    for (int form = 0; form < 5; form++) {
+                        int op = g == 6 ? FLAGS_UNKNOWN : groups[g] + width;
+                        ir_data_t *ir = begin_test("overflow conditions");
+                        codegen_flags_changed = known;
+                        cpu_state.flags_op = op;
+                        if (form < 2)
+                            bench_setcc[invert](&bench_block, ir, 0, form ? 0xc7 : 0xc3, 0x300, 0x101);
+                        else if (form < 4)
+                            bench_cmov[form - 2][invert](&bench_block, ir, 0, 0xda, 0x300, 0x101);
+                        else {
+                            instruction_bytes[0x101] = 0x20;
+                            if (invert) ropJNO_8(&bench_block, ir, 0, 0, 0x300, 0x101);
+                            else ropJO_8(&bench_block, ir, 0, 0, 0x300, 0x101);
+                            uop_MOV_IMM(ir, IREG_pc, 0x102);
+                        }
+                        jit_fn entry = finish_test(ir);
+                        unsigned bits = 8u << width;
+                        uint32_t mask = UINT32_MAX >> (32 - bits);
+                        unsigned count = !width && g < 2 ? 65536 : 2048;
+                        for (unsigned i = 0; i < count; i++) {
+                            uint32_t a = (count == 65536 ? i >> 8 : i < 121 ? edge[i / 11] : random_u32()) & mask;
+                            uint32_t b = (g == 2 || g == 3 ? 1 : count == 65536 ? i : i < 121 ? edge[i % 11] : random_u32()) & mask;
+                            unsigned carry = g == 4 || g == 5 ? i & 1 : 0;
+                            int64_t sa = bits == 8 ? (int8_t) a : bits == 16 ? (int16_t) a : (int32_t) a;
+                            int64_t sb = bits == 8 ? (int8_t) b : bits == 16 ? (int16_t) b : (int32_t) b;
+                            int64_t result = g & 1 ? sa - sb - carry : sa + sb + carry;
+                            unsigned overflow = result < -(INT64_C(1) << (bits - 1)) || result >= (INT64_C(1) << (bits - 1));
+                            if (g == 6) overflow = i & 1;
+                            unsigned condition = overflow ^ invert;
+                            cpu_state.flags_op = op;
+                            cpu_state.flags_op1 = a;
+                            cpu_state.flags_op2 = b;
+                            cpu_state.flags_res = (uint32_t) result & mask;
+                            cpu_state.flags = 0x203 | ((i & 1) ? V_FLAG : 0);
+                            uint16_t old_flags = cpu_state.flags;
+                            uint32_t old_result = cpu_state.flags_res;
+                            EBX = 0x12345678; EDX = 0xabcdef12;
+                            uint32_t expected = form == 0 ? (EBX & 0xffffff00) | condition
+                                : form == 1 ? (EBX & 0xffff00ff) | (condition << 8)
+                                : form == 2 ? (condition ? (EBX & 0xffff0000) | (EDX & 0xffff) : EBX)
+                                            : (condition ? EDX : EBX);
+                            entry();
+                            if (form == 4) CHECK(cpu_state.pc == (condition ? 0x122 : 0x102));
+                            else CHECK(EBX == expected && EDX == 0xabcdef12);
+                            CHECK(cpu_state.flags == old_flags && cpu_state.flags_op == op);
+                            CHECK(cpu_state.flags_op1 == a && cpu_state.flags_op2 == b && cpu_state.flags_res == old_result);
+                            checks++;
+                        }
+                    }
+}
+
+#ifdef CODEGEN_BACKEND_HAS_OVERFLOW
+static void test_overflow_aliases(void)
+{
+    for (unsigned width = 0; width < 3; width++)
+        for (int subtract = 0; subtract < 2; subtract++)
+            for (int d = 0; d < CODEGEN_HOST_REGS; d++)
+                for (int a = 0; a < CODEGEN_HOST_REGS; a++)
+                    for (int b = 0; b < CODEGEN_HOST_REGS; b++)
+                        for (int invert = 0; invert < 2; invert++) {
+                            begin_test("overflow register aliases");
+                            unsigned bits = 8u << width;
+                            uint32_t sign = 1u << (bits - 1);
+                            uint32_t lhs_value = subtract ? sign : sign - 1;
+                            int dest = codegen_host_reg_list[d].reg;
+                            int lhs = codegen_host_reg_list[a].reg, rhs = codegen_host_reg_list[b].reg;
+                            codegen_backend_prologue(&bench_block);
+                            host_x86_MOV32_REG_IMM(&bench_block, lhs, lhs_value);
+                            host_x86_MOV32_REG_IMM(&bench_block, rhs, 1);
+                            uop_t op = {.dest_reg_a_real = dest | IREG_SIZE_L,
+                                        .src_reg_a_real = lhs | IREG_SIZE_L,
+                                        .src_reg_b_real = rhs | IREG_SIZE_L,
+                                        .imm_data = invert | (subtract << 1) | (width == 0 ? 4 : width == 1 ? 8 : 0)};
+                            codegen_OVERFLOW(&bench_block, &op);
+                            host_x86_MOV32_ABS_REG(&bench_block, &EAX, dest);
+                            host_x86_MOV32_ABS_REG(&bench_block, &EBX, lhs);
+                            host_x86_MOV32_ABS_REG(&bench_block, &EDX, rhs);
+                            codegen_backend_epilogue(&bench_block);
+                            flush_code();
+                            ((jit_fn) bench_block.data)();
+                            CHECK(EAX == (unsigned) ((a != b) ^ invert));
+                            CHECK(EBX == (d == a ? EAX : a == b ? 1 : lhs_value));
+                            CHECK(EDX == (d == b ? EAX : 1));
+                            checks++;
+                        }
+}
+#endif
+
 static void test_zero_conditions(void)
 {
     static const struct { int op; unsigned bits; int materialized; } producers[] = {
@@ -901,6 +999,10 @@ int main(void)
     test_conditions();
     test_adc_sbb();
     test_signed_conditions();
+    test_overflow_conditions();
+#ifdef CODEGEN_BACKEND_HAS_OVERFLOW
+    test_overflow_aliases();
+#endif
     test_zero_conditions();
     test_parity_conditions();
 #ifdef CODEGEN_BACKEND_HAS_CMOV_Z

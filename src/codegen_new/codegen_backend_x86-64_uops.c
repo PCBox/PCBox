@@ -1185,6 +1185,47 @@ codegen_CMP_SLT(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_OVERFLOW(codeblock_t *block, uop_t *uop)
+{
+    int dest = HOST_REG_GET(uop->dest_reg_a_real);
+    int a = HOST_REG_GET(uop->src_reg_a_real);
+    int b = HOST_REG_GET(uop->src_reg_b_real);
+    int size = uop->imm_data & 12;
+
+    if (size == 4) {
+        /* Read low bytes from dword allocations. Byte allocations would force
+           both lazy operands into the scarce legacy byte registers. */
+        if (!(uop->imm_data & 2)) {
+            host_x86_MOV32_REG_REG(block, REG_ECX, a);
+            a = REG_ECX;
+        }
+        codegen_alloc_bytes(block, 3);
+        if (a >= 4 || b >= 4)
+            codegen_addbyte(block, 0x40 | ((b & 8) >> 1) | ((a & 8) >> 3));
+        codegen_addbyte2(block, (uop->imm_data & 2) ? 0x38 : 0x00,
+                        0xc0 | ((b & 7) << 3) | (a & 7)); /* CMP / ADD r/m8, r8 */
+    } else if (uop->imm_data & 2) {
+        if (size == 8) host_x86_CMP16_REG_REG(block, a, b);
+        else host_x86_CMP32_REG_REG(block, a, b);
+    } else {
+        /* ECX is backend scratch; neither lazy operand may be modified. */
+        if (size == 8) {
+            host_x86_MOV16_REG_REG(block, REG_ECX, a);
+            host_x86_ADD16_REG_REG(block, REG_ECX, b);
+        } else {
+            host_x86_MOV32_REG_REG(block, REG_ECX, a);
+            host_x86_ADD32_REG_REG(block, REG_ECX, b);
+        }
+    }
+    host_x86_MOV32_REG_IMM(block, dest, 0); /* Preserve OF. */
+    codegen_alloc_bytes(block, 4);
+    if (dest >= 4)
+        codegen_addbyte(block, 0x40 | (dest >> 3));
+    codegen_addbyte3(block, 0x0f, (uop->imm_data & 1) ? 0x91 : 0x90, 0xc0 | (dest & 7)); /* SETNO / SETO */
+    return 0;
+}
+
+static int
 codegen_PARITY(codeblock_t *block, uop_t *uop)
 {
     int dest = HOST_REG_GET(uop->dest_reg_a_real);
@@ -5124,6 +5165,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_DIV_RESULT & UOP_MASK] = codegen_DIV_RESULT,
     [UOP_CMP_SLT & UOP_MASK] = codegen_CMP_SLT,
     [UOP_CMP_Z & UOP_MASK] = codegen_CMP_Z,
+    [UOP_OVERFLOW & UOP_MASK] = codegen_OVERFLOW,
     [UOP_CMOV_Z & UOP_MASK] = codegen_CMOV_Z,
     [UOP_PARITY & UOP_MASK] = codegen_PARITY,
     [UOP_PARITY_JUMP & UOP_MASK] = codegen_PARITY_JUMP,

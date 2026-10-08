@@ -16,6 +16,7 @@
 #include "codegen_ops_helpers.h"
 #include "codegen_ops_jit_wrappers.h"
 #include "codegen_ops_mov.h"
+#include "codegen_ops_setcc.h"
 
 static int
 NF_SET_01(void)
@@ -54,6 +55,18 @@ ropJO_common(UNUSED(codeblock_t *block), ir_data_t *ir, uint32_t dest_addr, UNUS
         case FLAGS_DEC32:
             jump_uop = uop_CMP_JNO_DEST(ir, IREG_flags_op1, IREG_flags_op2);
             break;
+
+#ifdef CODEGEN_BACKEND_HAS_OVERFLOW
+        case FLAGS_ADD8:
+        case FLAGS_ADD16:
+        case FLAGS_ADD32:
+        case FLAGS_INC8:
+        case FLAGS_INC16:
+        case FLAGS_INC32:
+            setcc_gen_O(ir, 0);
+            jump_uop = uop_CMP_IMM_JZ_DEST(ir, IREG_temp0, 0);
+            break;
+#endif
 
         case FLAGS_UNKNOWN:
         default:
@@ -94,6 +107,18 @@ ropJNO_common(UNUSED(codeblock_t *block), ir_data_t *ir, uint32_t dest_addr, UNU
         case FLAGS_DEC32:
             jump_uop = uop_CMP_JO_DEST(ir, IREG_flags_op1, IREG_flags_op2);
             break;
+
+#ifdef CODEGEN_BACKEND_HAS_OVERFLOW
+        case FLAGS_ADD8:
+        case FLAGS_ADD16:
+        case FLAGS_ADD32:
+        case FLAGS_INC8:
+        case FLAGS_INC16:
+        case FLAGS_INC32:
+            setcc_gen_O(ir, 0);
+            jump_uop = uop_CMP_IMM_JNZ_DEST(ir, IREG_temp0, 0);
+            break;
+#endif
 
         case FLAGS_UNKNOWN:
         default:

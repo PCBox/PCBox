@@ -62,7 +62,7 @@ LE_SET_01(void)
   straight-line code - the register allocator's version tracking can't merge
   register writes on converging paths, so no conditional jumps are allowed.*/
 
-static void
+void
 setcc_gen_O(ir_data_t *ir, int invert)
 {
     switch (codegen_flags_changed ? cpu_state.flags_op : FLAGS_UNKNOWN) {
@@ -72,6 +72,33 @@ setcc_gen_O(ir_data_t *ir, int invert)
             /*Overflow is always zero*/
             uop_MOV_IMM(ir, IREG_temp0, invert ? 1 : 0);
             break;
+
+#ifdef CODEGEN_BACKEND_HAS_OVERFLOW
+        case FLAGS_ADD8:
+        case FLAGS_INC8:
+            uop_OVERFLOW(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert | 4);
+            break;
+        case FLAGS_ADD16:
+        case FLAGS_INC16:
+            uop_OVERFLOW(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert | 8);
+            break;
+        case FLAGS_ADD32:
+        case FLAGS_INC32:
+            uop_OVERFLOW(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert);
+            break;
+        case FLAGS_SUB8:
+        case FLAGS_DEC8:
+            uop_OVERFLOW(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert | 6);
+            break;
+        case FLAGS_SUB16:
+        case FLAGS_DEC16:
+            uop_OVERFLOW(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert | 10);
+            break;
+        case FLAGS_SUB32:
+        case FLAGS_DEC32:
+            uop_OVERFLOW(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert | 2);
+            break;
+#endif
 
         case FLAGS_UNKNOWN:
         default:

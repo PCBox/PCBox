@@ -225,6 +225,11 @@ const uOpFn uop_handlers[UOP_MAX] = {
 #ifdef CODEGEN_BACKEND_HAS_CMP_Z
     [UOP_CMP_Z & UOP_MASK] = codegen_CMP_Z,
 #endif
+#ifdef CODEGEN_BACKEND_HAS_OVERFLOW
+    [UOP_OVERFLOW & UOP_MASK] = codegen_OVERFLOW,
+#endif
+    [UOP_CMP_JO_DEST & UOP_MASK] = codegen_CMP_JO_DEST,
+    [UOP_CMP_JNO_DEST & UOP_MASK] = codegen_CMP_JNO_DEST,
 #ifdef CODEGEN_BACKEND_HAS_CMOV_Z
     [UOP_CMOV_Z & UOP_MASK] = codegen_CMOV_Z,
 #endif

@@ -491,7 +491,11 @@
 /* Select src_b or src_a directly from (src_c == 0) ^ imm. */
 #define UOP_CMOV_Z (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x112)
 
-#define UOP_MAX     0x113
+/* Overflow from two dword sources, returned as a dword boolean. imm bit 0
+   inverts, bit 1 selects subtraction; bits 2-3 select width (0=32, 1=8, 2=16). */
+#define UOP_OVERFLOW (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x113)
+
+#define UOP_MAX     0x114
 
 #define UOP_INVALID 0xffff
 
@@ -1026,6 +1030,7 @@ extern int codegen_fp_enter(void);
 #define uop_MOV_INT_DOUBLE_64(ir, dst_reg, src_reg_d, src_reg_q, tag)    uop_gen_reg_dst_src3(UOP_MOV_INT_DOUBLE_64, ir, dst_reg, src_reg_d, src_reg_q, tag)
 #define uop_CMOVNZ(ir, dst_reg, old_reg, src_reg, cond_reg)              uop_gen_reg_dst_src3(UOP_CMOVNZ, ir, dst_reg, old_reg, src_reg, cond_reg)
 #define uop_CMOV_Z(ir, dst_reg, old_reg, src_reg, cond_reg, invert)      uop_gen_reg_dst_src3_imm(UOP_CMOV_Z, ir, dst_reg, old_reg, src_reg, cond_reg, invert)
+#define uop_OVERFLOW(ir, dst_reg, a, b, mode)                         uop_gen_reg_dst_src2_imm(UOP_OVERFLOW, ir, dst_reg, a, b, mode)
 #define uop_CMP_ULT(ir, dst_reg, a, b, invert)                         uop_gen_reg_dst_src2_imm(UOP_CMP_ULT, ir, dst_reg, a, b, invert)
 #define uop_CMP_SLT(ir, dst_reg, a, b, invert)                         uop_gen_reg_dst_src2_imm(UOP_CMP_SLT, ir, dst_reg, a, b, invert)
 #define uop_CMP_Z(ir, dst_reg, src_reg, invert)                        uop_gen_reg_dst_src_imm(UOP_CMP_Z, ir, dst_reg, src_reg, invert)
