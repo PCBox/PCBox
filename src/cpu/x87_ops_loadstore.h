@@ -727,7 +727,7 @@ opFSTs_a16(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    ts.s = (float) ST(0);
+    ts.s = x87_fround_single(ST(0));
     seteal(ts.i);
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fst_32) : (x87_timings.fst_32 * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fst_32) : (x87_concurrency.fst_32 * cpu_multi));
@@ -741,7 +741,7 @@ opFSTs_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    ts.s = (float) ST(0);
+    ts.s = x87_fround_single(ST(0));
     seteal(ts.i);
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fst_32) : (x87_timings.fst_32 * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fst_32) : (x87_concurrency.fst_32 * cpu_multi));
@@ -756,7 +756,7 @@ opFSTPs_a16(UNUSED(uint32_t fetchdat))
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    ts.s = (float) ST(0);
+    ts.s = x87_fround_single(ST(0));
     seteal(ts.i);
     if (cpu_state.abrt)
         return 1;
@@ -773,7 +773,7 @@ opFSTPs_a32(uint32_t fetchdat)
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
-    ts.s = (float) ST(0);
+    ts.s = x87_fround_single(ST(0));
     seteal(ts.i);
     if (cpu_state.abrt)
         return 1;

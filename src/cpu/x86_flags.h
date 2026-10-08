@@ -547,7 +547,7 @@ CF_SET(void)
         case FLAGS_MUL32:
             return cpu_state.flags_res != 0;
         case FLAGS_IMUL8: {
-            int32_t res = cpu_state.flags_res;
+            int32_t res = (int32_t)(int8_t)cpu_state.flags_op1 * (int32_t)(int8_t)cpu_state.flags_op2;
             return ((res >> 7) != 0 && (res >> 7) != -1);
         }
         case FLAGS_IMUL16: {
