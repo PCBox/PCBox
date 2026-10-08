@@ -302,7 +302,7 @@ loadseg(uint16_t seg, x86seg *s)
     if ((msw & 1) && !(cpu_state.eflags & VM_FLAG)) {
         if (!(seg & 0xfffc)) {
             if (s == &cpu_state.seg_ss) {
-                x86ss(NULL, 0);
+                x86gpf(NULL, 0);
 #ifdef USE_NEW_DYNAREC
                 return 1;
 #else
@@ -1066,7 +1066,7 @@ loadcscall(uint16_t seg)
                                 addr = newss & 0xfff8;
                                 dt   = (newss & 0x0004) ? &ldt : &gdt;
                                 if ((addr + 7) > dt->limit) {
-                                    fatal("Bigger than DT limit %04X %08X %04X CSC SS\n", newss, addr, dt->limit);
+                                    //fatal("Bigger than DT limit %04X %08X %04X CSC SS\n", newss, addr, dt->limit);
                                     x86ts(NULL, newss & ~3);
                                     return;
                                 }
@@ -1488,7 +1488,7 @@ pmoderetf(int is32, uint16_t off)
         }
         if (!(segdat2[2] & 0x8000)) {
             ESP = oldsp;
-            x86np("RETF loading SS not present", newss & 0xfffc);
+            x86ss("RETF loading SS not present", newss & 0xfffc);
             return;
         }
         if (DPL2 != (seg & 3)) {
@@ -2129,7 +2129,7 @@ pmodeiret(int is32)
             return;
         }
         if ((newss & 3) != (seg & 3)) {
-            SP = oldsp;
+            ESP = oldsp;
             x86gpf("pmodeiret(): New SS RPL > CS RPL", newss & 0xfffc);
             return;
         }
@@ -2145,7 +2145,7 @@ pmodeiret(int is32)
         }
         if (!(segdat2[2] & 0x8000)) {
             ESP = oldsp;
-            x86np("IRET loading SS not present", newss & 0xfffc);
+            x86ss("IRET loading SS not present", newss & 0xfffc);
             return;
         }
         SS = newss;

@@ -7,7 +7,7 @@ opINT3(UNUSED(uint32_t fetchdat))
     if (gdbstub_int3())
         return 1;
 #endif
-    if ((cr0 & 1) && (cpu_state.eflags & VM_FLAG) && (IOPL != 3)) {
+    if ((cr0 & 1) && (cpu_state.eflags & VM_FLAG)) {
         x86gpf(NULL, 0);
         return 1;
     }
@@ -22,7 +22,7 @@ opINT1(UNUSED(uint32_t fetchdat))
 {
     int cycles_old = cycles;
     UN_USED(cycles_old);
-    if ((cr0 & 1) && (cpu_state.eflags & VM_FLAG) && (IOPL != 3)) {
+    if ((cr0 & 1) && (cpu_state.eflags & VM_FLAG)) {
         x86gpf(NULL, 0);
         return 1;
     }
@@ -80,7 +80,7 @@ opINTO(UNUSED(uint32_t fetchdat))
     int cycles_old = cycles;
     UN_USED(cycles_old);
 
-    if ((cr0 & 1) && (cpu_state.eflags & VM_FLAG) && (IOPL != 3)) {
+    if ((cr0 & 1) && (cpu_state.eflags & VM_FLAG)) {
         x86gpf(NULL, 0);
         return 1;
     }

@@ -372,7 +372,7 @@ opMOV_DRx_r_a32(uint32_t fetchdat)
         return 1;
     }
 #endif
-    fetch_ea_16(fetchdat);
+    fetch_ea_32(fetchdat);
     switch (cpu_reg) {
         case 0 ... 3:
             dr[cpu_reg] = cpu_state.regs[cpu_rm].l;
