@@ -43,6 +43,8 @@ extern void fpu_log(const char *fmt, ...);
 #    endif
 #endif
 
+extern double exp_pow_table[0x800];
+
 #ifndef X87_INLINE_ASM
 static int rounding_modes[4] = { FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO };
 #endif
@@ -191,6 +193,45 @@ x87_pop(void)
     return t;
 }
 
+static __inline int32_t
+x87_fround32(double b)
+{
+    double da;
+    double dc;
+    int32_t a;
+    int32_t c;
+
+    switch ((cpu_state.npxc >> 10) & 3) {
+        case 0: /*Nearest*/
+            da = floor(b);
+            dc = floor(b + 1.0);
+            a = (int32_t) da;
+            c = (int32_t) dc;
+            if ((b - a) < (c - b))
+                return a;
+            else if ((b - a) > (c - b))
+                return c;
+            else
+                return (a & 1) ? c : a;
+        case 1: /*Down*/
+            da = floor(b);
+            return (int32_t) da;
+        case 2: /*Up*/
+            da = ceil(b);
+            return (int32_t) da;
+        case 3: /*Chop*/
+            return (int32_t) b;
+    }
+
+    return 0;
+}
+
+static __inline int64_t
+x87_fround32_64(double b)
+{
+    return (int64_t) x87_fround32(b);
+}
+
 static __inline int64_t
 x87_fround_nearest(double b)
 {
@@ -262,27 +303,6 @@ static __inline int64_t
 x87_fround16_64(double b)
 {
     return (int64_t) x87_fround16(b);
-}
-
-/*x87_fround16() for FIST m32: the integer indefinite is 0x80000000. Rounding
-  in 64 bits keeps the neighbours of INT32_MAX from overflowing on the way.*/
-static __inline int32_t
-x87_fround32(double b)
-{
-    int64_t r;
-
-    if (!((b > -2147483649.0) && (b < 2147483648.0)))
-        return INT32_MIN;
-    r = x87_fround(b);
-    if ((r < INT32_MIN) || (r > INT32_MAX))
-        return INT32_MIN;
-    return (int32_t) r;
-}
-
-static __inline int64_t
-x87_fround32_64(double b)
-{
-    return (int64_t) x87_fround32(b);
 }
 
 /*x87_fround16() for FISTTP, which always truncates. Truncation keeps every

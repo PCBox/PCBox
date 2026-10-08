@@ -352,6 +352,8 @@ static uint32_t fps_sample_elapsed_ms = 1000;
 extern int output;
 int        atfullspeed;
 
+extern double exp_pow_table[0x800];
+
 char  exe_path[2048]; /* path (dir) of executable */
 char  usr_path[1024]; /* path (dir) of user data */
 char  cfg_path[1024]; /* full path of config file */
@@ -1603,6 +1605,11 @@ pc_init_modules(void)
 
     lpt_set_3bc_used(0);
     lpt_set_next_inst(0);
+
+    for (c = 0; c <= 0x7ff; c++) {
+        int64_t exp = c - 1023; /* 1023 = BIAS64 */
+        exp_pow_table[c] = pow(2.0, (double) exp);
+    }
 
     if (do_nothing) {
         do_nothing = 0;

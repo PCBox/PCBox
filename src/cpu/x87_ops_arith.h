@@ -282,19 +282,6 @@ opFUCOMPP(UNUSED(uint32_t fetchdat))
 }
 
 #    ifndef OPS_286_386
-/*The ZF/PF/CF result of FCOMI and FUCOMI: unordered (a NaN) sets all three.*/
-static __inline uint16_t
-x87_comi_flags(double a, double b)
-{
-    if (isnan(a) || isnan(b))
-        return Z_FLAG | P_FLAG | C_FLAG;
-    if (a == b)
-        return Z_FLAG;
-    if (a < b)
-        return C_FLAG;
-    return 0;
-}
-
 static int
 opFCOMI(uint32_t fetchdat)
 {
@@ -303,7 +290,10 @@ opFCOMI(uint32_t fetchdat)
     flags_rebuild();
     cpu_state.flags &= ~(Z_FLAG | P_FLAG | C_FLAG);
     cpu_state.npxs &= ~FPU_SW_C1;
-    cpu_state.flags |= x87_comi_flags(ST(0), ST(fetchdat & 7));
+    if (ST(0) == ST(fetchdat & 7))
+        cpu_state.flags |= Z_FLAG;
+    else if (ST(0) < ST(fetchdat & 7))
+        cpu_state.flags |= C_FLAG;
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fcom) : (x87_timings.fcom * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fcom) : (x87_concurrency.fcom * cpu_multi));
     return 0;
@@ -316,7 +306,10 @@ opFCOMIP(uint32_t fetchdat)
     flags_rebuild();
     cpu_state.flags &= ~(Z_FLAG | P_FLAG | C_FLAG);
     cpu_state.npxs &= ~FPU_SW_C1;
-    cpu_state.flags |= x87_comi_flags(ST(0), ST(fetchdat & 7));
+    if (ST(0) == ST(fetchdat & 7))
+        cpu_state.flags |= Z_FLAG;
+    else if (ST(0) < ST(fetchdat & 7))
+        cpu_state.flags |= C_FLAG;
     x87_pop();
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fcom) : (x87_timings.fcom * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fcom) : (x87_concurrency.fcom * cpu_multi));
@@ -535,7 +528,10 @@ opFUCOMI(uint32_t fetchdat)
     flags_rebuild();
     cpu_state.flags &= ~(Z_FLAG | P_FLAG | C_FLAG);
     cpu_state.npxs &= ~FPU_SW_C1;
-    cpu_state.flags |= x87_comi_flags(ST(0), ST(fetchdat & 7));
+    if (ST(0) == ST(fetchdat & 7))
+        cpu_state.flags |= Z_FLAG;
+    else if (ST(0) < ST(fetchdat & 7))
+        cpu_state.flags |= C_FLAG;
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fucom) : (x87_timings.fucom * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fucom) : (x87_concurrency.fucom * cpu_multi));
     return 0;
@@ -548,7 +544,10 @@ opFUCOMIP(uint32_t fetchdat)
     flags_rebuild();
     cpu_state.flags &= ~(Z_FLAG | P_FLAG | C_FLAG);
     cpu_state.npxs &= ~FPU_SW_C1;
-    cpu_state.flags |= x87_comi_flags(ST(0), ST(fetchdat & 7));
+    if (ST(0) == ST(fetchdat & 7))
+        cpu_state.flags |= Z_FLAG;
+    else if (ST(0) < ST(fetchdat & 7))
+        cpu_state.flags |= C_FLAG;
     x87_pop();
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fucom) : (x87_timings.fucom * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fucom) : (x87_concurrency.fucom * cpu_multi));
