@@ -2520,6 +2520,16 @@ codegen_MOVSD(codeblock_t *block, uop_t *uop)
     return 0;
 }
 
+static void
+codegen_load_guest_sse_rounding(codeblock_t *block)
+{
+    host_x86_MOV32_REG_ABS(block, REG_ECX, &cpu_state.mxcsr);
+    host_x86_AND32_REG_IMM(block, REG_ECX, 0x6040);
+    host_x86_OR32_REG_IMM(block, REG_ECX, 0x1f80);
+    host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_TEMP_MXCSR, REG_ECX);
+    host_x86_LDMXCSR_BASE_OFFSET(block, REG_RSP, STACK_TEMP_MXCSR);
+}
+
 static int
 codegen_ADDPS(codeblock_t *block, uop_t *uop)
 {
@@ -2898,16 +2908,6 @@ static int
 codegen_RSQRTSS(codeblock_t *block, uop_t *uop)
 {
     return codegen_SSE_ARITH(block, uop, host_x86_RSQRTSS_XREG_XREG, "RSQRTSS", 0);
-}
-
-static void
-codegen_load_guest_sse_rounding(codeblock_t *block)
-{
-    host_x86_MOV32_REG_ABS(block, REG_ECX, &cpu_state.mxcsr);
-    host_x86_AND32_REG_IMM(block, REG_ECX, 0x6040);
-    host_x86_OR32_REG_IMM(block, REG_ECX, 0x1f80);
-    host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_TEMP_MXCSR, REG_ECX);
-    host_x86_LDMXCSR_BASE_OFFSET(block, REG_RSP, STACK_TEMP_MXCSR);
 }
 
 static int
