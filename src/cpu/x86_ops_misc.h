@@ -291,7 +291,7 @@ opF7_w_a16(uint32_t fetchdat)
     uint32_t templ;
     uint32_t templ2 = 0;
     int      tempws;
-    int      tempws2 = 0;
+    int64_t  tempws2 = 0;
     int16_t  temps16;
     uint16_t src;
     uint16_t dst;
@@ -376,9 +376,10 @@ opF7_w_a16(uint32_t fetchdat)
             PREFETCH_RUN((is486 && !cpu_iscyrix) ? 24 : 22, 2, rmdat, (cpu_mod == 3) ? 0 : 1, 0, 0, 0, 0);
             break;
         case 0x38: /*IDIV AX,w*/
-            tempws = (int) ((DX << 16) | AX);
+            tempws = (int32_t) (((uint32_t) DX << 16) | AX);
+            /*Divide in 64 bits: INT32_MIN / -1 traps on x86 hosts*/
             if (dst)
-                tempws2 = tempws / (int) ((int16_t) dst);
+                tempws2 = (int64_t) tempws / (int16_t) dst;
             temps16 = tempws2 & 0xffff;
             if ((dst != 0) && ((int) temps16 == tempws2)) {
                 DX = tempws % (int) ((int16_t) dst);
@@ -404,7 +405,7 @@ opF7_w_a32(uint32_t fetchdat)
     uint32_t templ;
     uint32_t templ2 = 0;
     int      tempws;
-    int      tempws2 = 1;
+    int64_t  tempws2 = 1;
     int16_t  temps16;
     uint16_t src;
     uint16_t dst;
@@ -490,9 +491,10 @@ opF7_w_a32(uint32_t fetchdat)
             PREFETCH_RUN((is486 && !cpu_iscyrix) ? 24 : 22, 2, rmdat, (cpu_mod == 3) ? 0 : 1, 0, 0, 0, 1);
             break;
         case 0x38: /*IDIV AX,w*/
-            tempws = (int) ((DX << 16) | AX);
+            tempws = (int32_t) (((uint32_t) DX << 16) | AX);
+            /*Divide in 64 bits: INT32_MIN / -1 traps on x86 hosts*/
             if (dst)
-                tempws2 = tempws / (int) ((int16_t) dst);
+                tempws2 = (int64_t) tempws / (int16_t) dst;
             temps16 = tempws2 & 0xffff;
             if ((dst != 0) && ((int) temps16 == tempws2)) {
                 DX = tempws % (int) ((int16_t) dst);

@@ -1819,6 +1819,13 @@ idivl(int32_t val)
     }
 
     num   = (((uint64_t) EDX) << 32) | EAX;
+
+    /*INT64_MIN / -1 traps on x86 hosts, and its quotient doesn't fit anyway*/
+    if ((num == INT64_MIN) && (val == -1)) {
+        divexcp();
+        return 1;
+    }
+
     quo   = num / val;
     rem   = num % val;
     quo32 = (int32_t) (quo & 0xFFFFFFFF);

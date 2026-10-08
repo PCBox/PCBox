@@ -128,7 +128,11 @@ opFFREEP(uint32_t fetchdat)
 {
     FP_ENTER();
     cpu_state.pc++;
+#ifdef USE_NEW_DYNAREC
+    cpu_state.tag[(cpu_state.TOP + fetchdat) & 7] = TAG_EMPTY;
+#else
     cpu_state.tag[(cpu_state.TOP + fetchdat) & 7] = 3;
+#endif
     if (cpu_state.abrt)
         return 1;
     x87_pop();
@@ -577,7 +581,7 @@ opFTST(UNUSED(uint32_t fetchdat))
 {
     FP_ENTER();
     cpu_state.pc++;
-    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3);
+    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);
     if (ST(0) == 0.0)
         cpu_state.npxs |= FPU_SW_C3;
     else if (ST(0) < 0.0)
@@ -593,7 +597,7 @@ opFTSTP(UNUSED(uint32_t fetchdat))
 {
     FP_ENTER();
     cpu_state.pc++;
-    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3);
+    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);
     if (ST(0) == 0.0)
         cpu_state.npxs |= FPU_SW_C3;
     else if (ST(0) < 0.0)

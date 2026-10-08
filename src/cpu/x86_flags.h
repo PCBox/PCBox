@@ -422,12 +422,12 @@ AF_SET(void)
             return ((cpu_state.flags_op1 & 0xF) + (cpu_state.flags_op2 & 0xF)) & 0x10;
 
 #ifdef USE_NEW_DYNAREC
+        /*A carry out of bit 3 leaves the low nibble below op1's, except when
+          op2's low nibble plus the carry in is exactly 16*/
         case FLAGS_ADC8:
-            return ((cpu_state.flags_res & 0xf) < (cpu_state.flags_op1 & 0xf)) || ((cpu_state.flags_res & 0xf) == (cpu_state.flags_op1 & 0xf) && cpu_state.flags_op2 == 0xff);
         case FLAGS_ADC16:
-            return ((cpu_state.flags_res & 0xf) < (cpu_state.flags_op1 & 0xf)) || ((cpu_state.flags_res & 0xf) == (cpu_state.flags_op1 & 0xf) && cpu_state.flags_op2 == 0xffff);
         case FLAGS_ADC32:
-            return ((cpu_state.flags_res & 0xf) < (cpu_state.flags_op1 & 0xf)) || ((cpu_state.flags_res & 0xf) == (cpu_state.flags_op1 & 0xf) && cpu_state.flags_op2 == 0xffffffff);
+            return ((cpu_state.flags_res & 0xf) < (cpu_state.flags_op1 & 0xf)) || ((cpu_state.flags_res & 0xf) == (cpu_state.flags_op1 & 0xf) && (cpu_state.flags_op2 & 0xf) == 0xf);
 #endif
 
         case FLAGS_SUB8:
