@@ -125,23 +125,41 @@ setcc_gen_carry_invert(ir_data_t *ir, int dest, int scratch, int invert)
             return;
 
         case FLAGS_SUB8:
+#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
+            uop_CMP_ULT(ir, dest, IREG_flags_op1_B, IREG_flags_op2_B, invert);
+            return;
+#else
             uop_MOVZX(ir, dest, IREG_flags_op1_B);
             uop_MOVZX(ir, scratch, IREG_flags_op2_B);
             uop_SUB(ir, dest, dest, scratch);
             uop_SHR_IMM(ir, dest, dest, 31); /*dest = (op1 < op2)*/
             break;
+#endif
 
         case FLAGS_SUB16:
+#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
+            uop_CMP_ULT(ir, dest, IREG_flags_op1_W, IREG_flags_op2_W, invert);
+            return;
+#else
             uop_MOVZX(ir, dest, IREG_flags_op1_W);
             uop_MOVZX(ir, scratch, IREG_flags_op2_W);
             uop_SUB(ir, dest, dest, scratch);
             uop_SHR_IMM(ir, dest, dest, 31);
             break;
+#endif
 
         case FLAGS_SUB32:
             setcc_gen_lt32(ir, dest, scratch, IREG_flags_op1, IREG_flags_op2, invert);
             return;
 
+#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
+        case FLAGS_ADD8:
+            uop_CMP_ULT(ir, dest, IREG_flags_res_B, IREG_flags_op1_B, invert);
+            return;
+        case FLAGS_ADD16:
+            uop_CMP_ULT(ir, dest, IREG_flags_res_W, IREG_flags_op1_W, invert);
+            return;
+#else
         case FLAGS_ADD8:
         case FLAGS_ADD16:
             /* ADD producers zero-extend both operands into the lazy state. */
@@ -149,6 +167,7 @@ setcc_gen_carry_invert(ir_data_t *ir, int dest, int scratch, int invert)
             uop_SHR_IMM(ir, dest, dest, cpu_state.flags_op == FLAGS_ADD8 ? 8 : 16);
             uop_AND_IMM(ir, dest, dest, 1);
             break;
+#endif
 
         case FLAGS_ADD32:
             setcc_gen_lt32(ir, dest, scratch, IREG_flags_res, IREG_flags_op1, invert);
@@ -258,6 +277,10 @@ setcc_gen_BE(ir_data_t *ir, int invert)
             break;
 
         case FLAGS_SUB8:
+#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
+            uop_CMP_ULT(ir, IREG_temp0, IREG_flags_op2_B, IREG_flags_op1_B, !invert);
+            break;
+#else
             uop_MOVZX(ir, IREG_temp0, IREG_flags_op2_B);
             uop_MOVZX(ir, IREG_temp1, IREG_flags_op1_B);
             uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
@@ -265,8 +288,13 @@ setcc_gen_BE(ir_data_t *ir, int invert)
             if (!invert)
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
+#endif
 
         case FLAGS_SUB16:
+#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
+            uop_CMP_ULT(ir, IREG_temp0, IREG_flags_op2_W, IREG_flags_op1_W, !invert);
+            break;
+#else
             uop_MOVZX(ir, IREG_temp0, IREG_flags_op2_W);
             uop_MOVZX(ir, IREG_temp1, IREG_flags_op1_W);
             uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
@@ -274,6 +302,7 @@ setcc_gen_BE(ir_data_t *ir, int invert)
             if (!invert)
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
+#endif
 
         case FLAGS_SUB32:
             setcc_gen_lt32(ir, IREG_temp0, IREG_temp1, IREG_flags_op2, IREG_flags_op1, !invert);
@@ -381,6 +410,10 @@ setcc_gen_L(ir_data_t *ir, int invert)
 
         case FLAGS_SUB8:
         case FLAGS_DEC8:
+#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
+            uop_CMP_SLT(ir, IREG_temp0, IREG_flags_op1_B, IREG_flags_op2_B, invert);
+            break;
+#else
             uop_MOVSX(ir, IREG_temp0, IREG_flags_op1_B);
             uop_MOVSX(ir, IREG_temp1, IREG_flags_op2_B);
             uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
@@ -388,9 +421,14 @@ setcc_gen_L(ir_data_t *ir, int invert)
             if (invert)
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
+#endif
 
         case FLAGS_SUB16:
         case FLAGS_DEC16:
+#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
+            uop_CMP_SLT(ir, IREG_temp0, IREG_flags_op1_W, IREG_flags_op2_W, invert);
+            break;
+#else
             uop_MOVSX(ir, IREG_temp0, IREG_flags_op1_W);
             uop_MOVSX(ir, IREG_temp1, IREG_flags_op2_W);
             uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
@@ -398,6 +436,7 @@ setcc_gen_L(ir_data_t *ir, int invert)
             if (invert)
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
+#endif
 
         case FLAGS_UNKNOWN:
         default:
@@ -420,6 +459,10 @@ setcc_gen_LE(ir_data_t *ir, int invert)
 #endif
         case FLAGS_SUB8:
         case FLAGS_DEC8:
+#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
+            uop_CMP_SLT(ir, IREG_temp0, IREG_flags_op2_B, IREG_flags_op1_B, !invert);
+            break;
+#else
             uop_MOVSX(ir, IREG_temp0, IREG_flags_op2_B);
             uop_MOVSX(ir, IREG_temp1, IREG_flags_op1_B);
             uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
@@ -427,9 +470,14 @@ setcc_gen_LE(ir_data_t *ir, int invert)
             if (!invert)
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
+#endif
 
         case FLAGS_SUB16:
         case FLAGS_DEC16:
+#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
+            uop_CMP_SLT(ir, IREG_temp0, IREG_flags_op2_W, IREG_flags_op1_W, !invert);
+            break;
+#else
             uop_MOVSX(ir, IREG_temp0, IREG_flags_op2_W);
             uop_MOVSX(ir, IREG_temp1, IREG_flags_op1_W);
             uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
@@ -437,6 +485,7 @@ setcc_gen_LE(ir_data_t *ir, int invert)
             if (!invert)
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
+#endif
 
         case FLAGS_UNKNOWN:
         default:

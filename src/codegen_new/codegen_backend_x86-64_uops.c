@@ -1141,11 +1141,25 @@ codegen_CMP_JZ_DEST(codeblock_t *block, uop_t *uop)
     return 0;
 }
 
+static void
+codegen_CMP_REGS(codeblock_t *block, uop_t *uop)
+{
+    int a = HOST_REG_GET(uop->src_reg_a_real);
+    int b = HOST_REG_GET(uop->src_reg_b_real);
+    int size = IREG_GET_SIZE(uop->src_reg_a_real);
+    if (REG_IS_B(size))
+        host_x86_CMP8_REG_REG(block, a, b);
+    else if (REG_IS_W(size))
+        host_x86_CMP16_REG_REG(block, a, b);
+    else
+        host_x86_CMP32_REG_REG(block, a, b);
+}
+
 static int
 codegen_CMP_ULT(codeblock_t *block, uop_t *uop)
 {
     int dest = HOST_REG_GET(uop->dest_reg_a_real);
-    host_x86_CMP32_REG_REG(block, HOST_REG_GET(uop->src_reg_a_real), HOST_REG_GET(uop->src_reg_b_real));
+    codegen_CMP_REGS(block, uop);
     /* Compare before writing dest, which may alias either operand. MOV
        clears the upper bits without changing CF; XOR would destroy it. */
     host_x86_MOV32_REG_IMM(block, dest, 0);
@@ -1160,7 +1174,7 @@ static int
 codegen_CMP_SLT(codeblock_t *block, uop_t *uop)
 {
     int dest = HOST_REG_GET(uop->dest_reg_a_real);
-    host_x86_CMP32_REG_REG(block, HOST_REG_GET(uop->src_reg_a_real), HOST_REG_GET(uop->src_reg_b_real));
+    codegen_CMP_REGS(block, uop);
     /* MOV preserves SF/OF, including when dest aliases an input. */
     host_x86_MOV32_REG_IMM(block, dest, 0);
     codegen_alloc_bytes(block, 4);

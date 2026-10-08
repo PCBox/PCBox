@@ -469,7 +469,8 @@
 #define UOP_PMAXSW   (UOP_TYPE_PARAMS_REGS | 0x109)
 #define UOP_PSADBW   (UOP_TYPE_PARAMS_REGS | 0x10a)
 
-/* 32-bit unsigned comparison: dest = (src_a < src_b) ^ imm (0 or 1). */
+/* Byte/word/dword comparisons with matching source widths and a dword
+   boolean destination: dest = (src_a < src_b) ^ imm (0 or 1). */
 #define UOP_CMP_ULT (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10b)
 #define UOP_CMP_SLT (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10c)
 

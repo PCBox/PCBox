@@ -179,29 +179,34 @@ static void test_adc_sbb(void)
 static void test_signed_conditions(void)
 {
     const uint32_t edge[] = {0, 1, 0x7fffffff, 0x80000000, 0x80000001, 0xfffffffe, 0xffffffff};
+    for (unsigned width = 0; width < 3; width++)
     for (int decrement = 0; decrement < 2; decrement++)
         for (int known = 0; known < 2; known++)
             for (int cond = 12; cond < 16; cond++)
                 for (int move = 0; move < 3; move++) {
                     ir_data_t *ir = begin_test("signed conditions");
-                    cpu_state.flags_op = decrement ? FLAGS_DEC32 : FLAGS_SUB32;
+                    cpu_state.flags_op = decrement ? FLAGS_DEC8 + width : FLAGS_SUB8 + width;
                     codegen_flags_changed = known;
                     if (move) bench_cmov[move - 1][cond](&bench_block, ir, 0, 0xda, 0x300, 0x101);
                     else bench_setcc[cond](&bench_block, ir, 0, 0xc3, 0x300, 0x101);
                     jit_fn entry = finish_test(ir);
-                    for (unsigned i = 0; i < 4145; i++) {
-                        uint32_t a = i < 49 ? edge[i / 7] : random_u32();
-                        uint32_t b = decrement ? 1 : i < 49 ? edge[i % 7] : random_u32();
-                        prepare_flags(FLAGS_SUB32, 32, a, b, 1);
-                        cpu_state.flags_op = decrement ? FLAGS_DEC32 : FLAGS_SUB32;
+                    unsigned bits = 8u << width;
+                    uint32_t mask = UINT32_MAX >> (32 - bits);
+                    for (unsigned i = 0; i < (width ? 4145u : 65536u); i++) {
+                        uint32_t a = (width ? (i < 49 ? edge[i / 7] : random_u32()) : i >> 8) & mask;
+                        uint32_t b = decrement ? 1 : (width ? (i < 49 ? edge[i % 7] : random_u32()) : i) & mask;
+                        prepare_flags(FLAGS_SUB8 + width, bits, a, b, 1);
+                        cpu_state.flags_op = decrement ? FLAGS_DEC8 + width : FLAGS_SUB8 + width;
                         EDX = 0xabcdef12; EBX = 0x12345678;
-                        unsigned condition = (cond < 14 ? (int32_t) a < (int32_t) b : (int32_t) a <= (int32_t) b) ^ (cond & 1);
+                        int32_t sa = bits == 8 ? (int8_t) a : bits == 16 ? (int16_t) a : (int32_t) a;
+                        int32_t sb = bits == 8 ? (int8_t) b : bits == 16 ? (int16_t) b : (int32_t) b;
+                        unsigned condition = (cond < 14 ? sa < sb : sa <= sb) ^ (cond & 1);
                         uint32_t expected = move == 2 ? (condition ? EDX : EBX)
                             : move == 1 ? (condition ? (EBX & 0xffff0000) | (EDX & 0xffff) : EBX)
                             : (EBX & 0xffffff00) | condition;
                         entry();
                         CHECK(EBX == expected && EDX == 0xabcdef12);
-                        CHECK(cpu_state.flags_op1 == a && cpu_state.flags_op2 == b && cpu_state.flags_res == a - b);
+                        CHECK(cpu_state.flags_op1 == a && cpu_state.flags_op2 == b && cpu_state.flags_res == ((a - b) & mask));
                         CHECK(cpu_state.flags & C_FLAG);
                         checks++;
                     }
