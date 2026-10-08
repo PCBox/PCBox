@@ -54,7 +54,6 @@ static uint8_t memory[8192];
 static unsigned next_chunk, cases, helper_calls, fault_on_call, padding;
 static uint32_t observed_eax, observed_xmm[4], aborted, expected_oldpc;
 static unsigned exception, memory_control;
-static void (*memory_callback)(uint32_t addr, unsigned size, int store);
 static unsigned cycle_mode;
 static cpu_state_t fault_state;
 static uint64_t saved_r13;
@@ -87,11 +86,9 @@ check_slow_owners(const codeblock_t *block)
         owners[i] = i;
         for (int j = 0; j < i; j++) {
             const mem_slow_site_t *other = &mem_slow_sites[j];
-            if (!(block->flags & CODEBLOCK_STATIC_TOP)
-                && (site->state.write_uses_top || site->state.reload_uses_top))
+            if (site->size == 16 || (!(block->flags & CODEBLOCK_STATIC_TOP)
+                && (site->state.write_uses_top || site->state.reload_uses_top)))
                 break;
-            if (site->data_reg != other->data_reg)
-                continue;
             if (site->helper == other->helper && site->size == other->size
                 && site->cycles_reg == other->cycles_reg && site->sse_invalidate == other->sse_invalidate
                 && site->state.write_mask == other->state.write_mask
@@ -165,7 +162,7 @@ run_slow_index(void)
     CHECK(mem_slow_sites[31].owner == 30);
 
     /* Exercise each equality-key component independently, both before and
-       after switching to the index. Dynamic-TOP states stay private. */
+       after switching to the index. Paired and dynamic-TOP states stay private. */
     for (int dynamic = 0; dynamic < 2; dynamic++) {
         cases++;
         codegen_backend_mem_begin();
@@ -187,10 +184,6 @@ run_slow_index(void)
                 site->state.regs[8] = IREG_ST(0);
                 site->state.write_mask = site->state.reload_mask = 1 << 8;
                 site->state.write_uses_top = site->state.reload_uses_top = 1;
-            }
-            if (key == 24) {
-                site->size = 16;
-                site->data_reg = REG_XMM15;
             }
         }
         codegen_MEM_FIND_OWNERS(&test_block);
@@ -217,11 +210,6 @@ void x86gpf(char *message, uint16_t error)
 {
     CHECK(message == NULL && error == 0);
     record_exception(13);
-}
-void x86ss(char *message, uint16_t error)
-{
-    CHECK(message == NULL && error == 0);
-    record_exception(12);
 }
 
 /* Backend initialization allocates metadata here; executable chunks still
@@ -288,8 +276,6 @@ static uint64_t
 access_memory(uint32_t addr, uint64_t value, unsigned size, int store)
 {
     helper_calls++;
-    if (memory_callback)
-        memory_callback(addr, size, store);
     CHECK(cpu_state.oldpc == expected_oldpc);
     CHECK(addr + size <= sizeof(memory));
     cycles -= 5;
@@ -310,9 +296,6 @@ access_memory(uint32_t addr, uint64_t value, unsigned size, int store)
         cpu_state.ST[cpu_state.TOP] += 0.25;
         for (int lane = 0; lane < 4; lane++)
             cpu_state.XMM[7].l[lane] += 5;
-    } else if (memory_control == 5 || memory_control == 6) {
-        uintptr_t mapping = memory_control == 5 ? (uintptr_t) memory : (uintptr_t) -1;
-        readlookup2[(addr + 8) >> 12] = writelookup2[(addr + 8) >> 12] = mapping;
     }
     if (helper_calls == fault_on_call) {
         cpu_state.abrt = 1;
@@ -325,15 +308,14 @@ access_memory(uint32_t addr, uint64_t value, unsigned size, int store)
         memcpy(&value, memory + addr, size);
     }
     /* A real C callback may freely destroy these registers. */
-    __asm__ volatile("mov $0, %%r8d\n\t"
-                     "mov $0x13579bdf, %%r10d\n\t"
+    __asm__ volatile("mov $0x13579bdf, %%r10d\n\t"
                      "mov $0x2468ace0, %%r11d\n\t"
                      "pxor %%xmm1, %%xmm1\n\t"
                      "pxor %%xmm2, %%xmm2\n\t"
                      "pxor %%xmm3, %%xmm3\n\t"
                      "pxor %%xmm4, %%xmm4\n\t"
                      "pxor %%xmm5, %%xmm5"
-                     : : : "r8", "r10", "r11", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5");
+                     : : : "r10", "r11", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5");
 #ifndef _WIN32
     __asm__ volatile("pxor %%xmm6, %%xmm6\n\tpxor %%xmm7, %%xmm7"
                      : : : "xmm6", "xmm7");
@@ -349,88 +331,6 @@ void writemembl(uint32_t addr, uint8_t value) { access_memory(addr, value, 1, 1)
 void writememwl(uint32_t addr, uint16_t value) { access_memory(addr, value, 2, 1); }
 void writememll(uint32_t addr, uint32_t value) { access_memory(addr, value, 4, 1); }
 void writememql(uint32_t addr, uint64_t value) { access_memory(addr, value, 8, 1); }
-
-static void
-run_pair_lookup(void)
-{
-    /* Emit the paired helper directly to isolate lookup ordering from the
-       block's initial 16-byte RAM check. Register/fault exits run below. */
-    const struct {
-        uint32_t addr;
-        int first_mapped, second_mapped, control, calls;
-    } modes[] = {
-        { 4088, 0, 1, 0, 1 },
-        { 4088, 1, 0, 0, 1 },
-        { 4088, 0, 0, 5, 1 }, /* First callback installs the second mapping. */
-        { 4088, 0, 1, 6, 2 }, /* First callback removes the second mapping. */
-        { UINT32_MAX - 7, 1, 1, 0, 0 },
-        { UINT32_MAX - 7, 1, 0, 0, 1 },
-        { 4093, 1, 1, 0, 2 }, /* Each unaligned half must charge its timing. */
-    };
-    for (int store = 0; store < 2; store++) {
-        for (unsigned mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
-            for (unsigned fault = 0; fault <= modes[mode].calls; fault++) {
-                cases++;
-                memset(&cpu_state, 0, sizeof(cpu_state));
-                memset(readlookup2, 0xff, sizeof(readlookup2));
-                memset(writelookup2, 0xff, sizeof(writelookup2));
-                for (unsigned i = 0; i < sizeof(memory); i++)
-                    memory[i] = i * 37 + (i >> 8);
-                uint8_t expected[sizeof(memory)];
-                memcpy(expected, memory, sizeof(memory));
-                uint64_t data[] = { UINT64_C(0x0123456789abcdef), UINT64_C(0xfedcba9876543210) };
-                uint32_t addr = modes[mode].addr;
-                unsigned first_offset = addr & 8191;
-                unsigned second_offset = (addr + 8) & 8191;
-                uintptr_t first_map = (uintptr_t) memory + first_offset - addr;
-                if (modes[mode].first_mapped)
-                    readlookup2[addr >> 12] = writelookup2[addr >> 12] = first_map;
-                if (modes[mode].second_mapped)
-                    readlookup2[(addr + 8) >> 12] = writelookup2[(addr + 8) >> 12] = (uintptr_t) memory;
-                helper_calls = 0;
-                fault_on_call = fault;
-                memory_control = modes[mode].control;
-                expected_oldpc = cpu_state.oldpc = 0x1234;
-                cycles = 1000;
-                timing_misaligned = 3;
-                cpu_cyrix_alignment = 0;
-                int first_calls = !modes[mode].first_mapped || (addr & 7);
-                int first_ok = !fault || !first_calls || fault > 1;
-                next_chunk = 0;
-                memset(&test_block, 0, sizeof(test_block));
-                uint8_t *entry = start_code();
-                codegen_backend_prologue(&test_block);
-                host_x86_MOV32_REG_IMM(&test_block, REG_ESI, addr);
-                host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) data);
-                host_x86_MOVDQU_XREG_BASE_OFFSET(&test_block, REG_XMM_TEMP, REG_RDI, 0);
-                host_x86_MOVDQU_BASE_OFFSET_XREG(&test_block, REG_RSP, STACK_TEMP_DQ, REG_XMM_TEMP);
-                codegen_backend_mem_call_128(&test_block, store, STACK_TEMP_DQ);
-                host_x86_MOVDQU_XREG_BASE_OFFSET(&test_block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ);
-                host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) data);
-                host_x86_MOVDQU_BASE_OFFSET_XREG(&test_block, REG_RDI, 0, REG_XMM_TEMP);
-                codegen_backend_epilogue(&test_block);
-#ifdef _WIN32
-                CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
-#else
-                __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
-#endif
-                ((void (*)(void)) entry)();
-                if (store) {
-                    if (first_ok) memcpy(expected + first_offset, &data[0], 8);
-                    if (!fault) memcpy(expected + second_offset, &data[1], 8);
-                    CHECK(!memcmp(expected, memory, sizeof(memory)));
-                } else {
-                    if (first_ok) CHECK(!memcmp(&data[0], expected + first_offset, 8));
-                    if (!fault) CHECK(!memcmp(&data[1], expected + second_offset, 8));
-                }
-                CHECK(helper_calls == (fault ? fault : modes[mode].calls));
-                CHECK(cpu_state.abrt == !!fault);
-                CHECK(cycles == 1000 - (int) helper_calls * ((addr & 7) ? 8 : 5));
-            }
-        }
-    }
-    fault_on_call = memory_control = timing_misaligned = 0;
-}
 
 #define UOP_TEST_OBSERVE 0x1f
 #define UOP_TEST_PADDING 0x1e
@@ -456,7 +356,7 @@ clobber_call_helper(void)
 static int
 test_div_helper(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, clobber_div_helper, 0);
+    return codegen_DIV_HELPER(block, uop, clobber_div_helper);
 }
 
 static int
@@ -493,12 +393,7 @@ pad_code(codeblock_t *block, uop_t *uop)
     return 0;
 }
 
-#ifndef RAM_UOP_HANDLERS
-#    define RAM_UOP_HANDLERS uop_handlers
-#endif
-const uOpFn RAM_UOP_HANDLERS[UOP_MAX] = {
-    [UOP_CMP_JB & UOP_MASK] = codegen_CMP_JB,
-    [UOP_CMP_JNBE & UOP_MASK] = codegen_CMP_JNBE,
+const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_MOV & UOP_MASK] = codegen_MOV,
     [UOP_MOV_IMM & UOP_MASK] = codegen_MOV_IMM,
     [UOP_ADD_IMM & UOP_MASK] = codegen_ADD_IMM,
@@ -1098,9 +993,6 @@ run_backend_init(void)
         uint8_t *entry = start_code();
         codegen_backend_prologue(&test_block);
         host_x86_JMP(&test_block, gpf ? codegen_gpf_rout : codegen_exit_rout);
-        /* Finalize the block's restore target even when every path exits
-           through the shared dispatcher. */
-        codegen_backend_epilogue(&test_block);
 #ifdef _WIN32
         CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
 #else
@@ -1225,92 +1117,10 @@ run_memory_sequence(int kind, unsigned fault, unsigned pad, int dynamic_top, int
 }
 
 static void
-run_paired_operands(int store, unsigned fault, unsigned pad)
-{
-    cases++;
-    memset(&cpu_state, 0, sizeof(cpu_state));
-    memset(&test_block, 0, sizeof(test_block));
-    memset(readlookup2, 0xff, sizeof(readlookup2));
-    memset(writelookup2, 0xff, sizeof(writelookup2));
-    for (unsigned i = 0; i < sizeof(memory); i++) memory[i] = i ^ (i >> 4);
-    next_chunk = helper_calls = aborted = memory_control = 0;
-    fault_on_call = fault;
-    expected_oldpc = 0x1234;
-    cpu_state.oldpc = expected_oldpc;
-    cycles = 1000;
-    EAX = 64;
-    EBX = 128;
-    cpu_state.seg_ss.base = 256;
-    for (int r = 0; r < 2; r++)
-        for (int lane = 0; lane < 4; lane++)
-            cpu_state.XMM[r].l[lane] = 10 + r * 4 + lane;
-    uint8_t expected_memory[sizeof(memory)];
-    memcpy(expected_memory, memory, sizeof(memory));
-    uint32_t expected_xmm[2][4];
-    for (int r = 0; r < 2; r++)
-        for (int lane = 0; lane < 4; lane++)
-            expected_xmm[r][lane] = cpu_state.XMM[r].l[lane] * 2;
-
-    start_code();
-    build_loadstore_routines(&test_block);
-    codegen_exit_rout = start_code();
-    host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &aborted);
-    host_x86_MOV32_BASE_OFFSET_IMM(&test_block, REG_RDI, 0, 1);
-    codegen_backend_epilogue(&test_block);
-    codegen_reg_reset();
-    ir_data_t *ir = codegen_ir_init();
-    test_block.flags = CODEBLOCK_STATIC_TOP;
-    for (int r = 0; r < 2; r++) uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
-    uop_gen_imm(UOP_TEST_PADDING, ir, pad);
-    unsigned calls = 0;
-    for (int i = 0; i < 32; i++) {
-        int seg = i & 1 ? IREG_SS_base : IREG_DS_base;
-        int addr = i & 2 ? IREG_EBX : IREG_EAX;
-        uint32_t offset = i & 4 ? (uint32_t) -8 : 16;
-        int r = (i >> 3) & 1;
-        if (store)
-            uop_MEM_STORE_REG_OFFSET(ir, seg, addr, offset, IREG_XMM(r));
-        else
-            uop_MEM_LOAD_REG_OFFSET(ir, IREG_XMM(r), seg, addr, offset);
-        if (fault && calls == fault) continue;
-        uint32_t address = (i & 1 ? 256 : 0) + (i & 2 ? 128 : 64) + offset;
-        uint8_t value[16];
-        for (int half = 0; half < 2; half++) {
-            if (++calls == fault) break;
-            if (store) memcpy(expected_memory + address + half * 8, (uint8_t *) expected_xmm[r] + half * 8, 8);
-            else memcpy(value + half * 8, expected_memory + address + half * 8, 8);
-        }
-        if (!store && (!fault || calls < fault)) memcpy(expected_xmm[r], value, sizeof(value));
-    }
-    /* Keep both address registers and segments live across every access.
-       Different operands can then have the same writeback/reload snapshot. */
-    const int keep[] = { IREG_EAX, IREG_EBX, IREG_DS_base, IREG_SS_base };
-    for (unsigned r = 0; r < sizeof(keep) / sizeof(keep[0]); r++) uop_ADD_IMM(ir, keep[r], keep[r], 0);
-    start_code();
-    codegen_ir_compile(ir, &test_block);
-    int shared = 0;
-    for (int i = 0; i < mem_slow_count; i++) shared += mem_slow_sites[i].users > 1;
-    CHECK(shared > 0);
-#ifdef _WIN32
-    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
-#else
-    __builtin___clear_cache((char *) code_memory, (char *) code_memory + CODE_SIZE);
-#endif
-    ((void (*)(void)) test_block.data)();
-    CHECK(helper_calls == calls && aborted == !!fault && cpu_state.abrt == !!fault);
-    CHECK(cycles == 1000 - (int) calls * 5);
-    CHECK(EAX == 64 && EBX == 128 && cpu_state.seg_ds.base == 0 && cpu_state.seg_ss.base == 256);
-    CHECK(!memcmp(memory, expected_memory, sizeof(memory)));
-    for (int r = 0; r < 2; r++) CHECK(!memcmp(cpu_state.XMM[r].l, expected_xmm[r], 16));
-    fault_on_call = 0;
-}
-
-static void
 run_movs(int size, int a32, int backward, int wrap, unsigned mapped, unsigned fault)
 {
     cases++;
     memset(&cpu_state, 0, sizeof(cpu_state));
-    cpu_state.seg_ds.limit_high = cpu_state.seg_es.limit_high = UINT32_MAX;
     memset(&test_block, 0, sizeof(test_block));
     memset(memory, 0xa5, sizeof(memory));
     memset(readlookup2, 0xff, sizeof(readlookup2));
@@ -1418,9 +1228,6 @@ run_indexed_sequence(unsigned fault, int mapped)
     uop_MOV_IMM(ir, IREG_eaaddr, 64);
     uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, -1);
     for (unsigned i = 0; i < 64; i++) {
-        /* Change the live register set halfway through, keeping more than
-           the linear-prefix number of distinct slow-path snapshots. */
-        if (i == 32) uop_ADD_IMM(ir, IREG_flags_op1, IREG_flags_op1, 1);
         unsigned r = ((i + 1) * 2654435761u) >> 29;
         uop_ADD_IMM(ir, IREG_32(r), IREG_32(r), i + 1);
         uop_PADDD(ir, IREG_XMM(r), IREG_XMM(r), IREG_XMM(r));
@@ -1462,7 +1269,6 @@ run_indexed_sequence(unsigned fault, int mapped)
     CHECK(helper_calls == (fault ? fault : mapped ? 0 : 64));
     CHECK(aborted == !!fault && cpu_state.abrt == !!fault);
     CHECK(cpu_state.oldpc == expected_oldpc && cycles == 999 - !fault - 5 * (int) helper_calls);
-    CHECK(cpu_state.flags_op1 == (!fault || fault > 32));
     fault_on_call = 0;
 }
 
@@ -1478,11 +1284,6 @@ main(void)
     CHECK(code_memory != MAP_FAILED);
 #endif
     run_backend_init();
-    run_pair_lookup();
-    for (int store = 0; store < 2; store++)
-        for (unsigned pad = 0; pad < BLOCK_MAX; pad += 127)
-            for (unsigned fault = 0; fault <= 64; fault++)
-                run_paired_operands(store, fault, pad);
     run_indexed_sequence(0, 1);
     for (unsigned fault = 0; fault <= 64; fault++) run_indexed_sequence(fault, 0);
     for (int size = 1; size <= 4; size *= 2)

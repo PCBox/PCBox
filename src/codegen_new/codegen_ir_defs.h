@@ -24,11 +24,6 @@
 /*Set during emission when a memory helper must invalidate an earlier SSE check.*/
 #define UOP_TYPE_SSE_INVALIDATE (1 << 23)
 
-/* The preceding straight-line access left a reusable RAM page lookup. */
-#define UOP_TYPE_MEM_REUSE (1 << 22)
-/* The address operands also have the same IR versions and displacement. */
-#define UOP_TYPE_MEM_SAME_ADDR (1 << 21)
-
 /*uOP uses source and dest registers*/
 #define UOP_TYPE_PARAMS_REGS (1 << 28)
 /*uOP uses pointer*/
@@ -474,33 +469,7 @@
 #define UOP_PMAXSW   (UOP_TYPE_PARAMS_REGS | 0x109)
 #define UOP_PSADBW   (UOP_TYPE_PARAMS_REGS | 0x10a)
 
-/* Byte/word/dword comparisons with matching source widths and a dword
-   boolean destination: dest = (src_a < src_b) ^ imm (0 or 1). */
-#define UOP_CMP_ULT (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10b)
-#define UOP_CMP_SLT (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10c)
-
-/* DIVMOD returns a fault status and leaves quotient/remainder in backend
-   scratch. Read both results immediately after the exception branch, before
-   emitting another memory operation or helper call on the success path.
-   imm_data holds the quotient width, with bit 8 selecting signed division. */
-#define UOP_DIVMOD (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10d)
-#define UOP_DIV_RESULT (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10e)
-
-/* 32-bit zero comparison: dest = (src_a == 0) ^ imm (0 or 1). */
-#define UOP_CMP_Z (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x10f)
-
-/* Even parity of the low byte, optionally inverted by imm (0 or 1). */
-#define UOP_PARITY (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x110)
-#define UOP_PARITY_JUMP (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | UOP_TYPE_PARAMS_POINTER | UOP_TYPE_ORDER_BARRIER | UOP_TYPE_JUMP | 0x111)
-
-/* Select src_b or src_a directly from (src_c == 0) ^ imm. */
-#define UOP_CMOV_Z (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x112)
-
-/* Overflow from two dword sources, returned as a dword boolean. imm bit 0
-   inverts, bit 1 selects subtraction; bits 2-3 select width (0=32, 1=8, 2=16). */
-#define UOP_OVERFLOW (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x113)
-
-#define UOP_MAX     0x114
+#define UOP_MAX     0x10b
 
 #define UOP_INVALID 0xffff
 
@@ -885,8 +854,6 @@ extern int codegen_fp_enter(void);
 #define uop_UMUL(ir, dst_reg, src_reg_a, src_reg_b)              uop_gen_reg_dst_src2(UOP_UMUL, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_UMUL_HI(ir, dst_reg, src_reg_a, src_reg_b)           uop_gen_reg_dst_src2(UOP_UMUL_HI, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_UDIV_CHECK(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, bits) uop_gen_reg_dst_src3_imm(UOP_UDIV_CHECK, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, bits)
-#define uop_DIVMOD(ir, dst_reg, low, high, divisor, mode) uop_gen_reg_dst_src3_imm(UOP_DIVMOD, ir, dst_reg, low, high, divisor, mode)
-#define uop_DIV_RESULT(ir, dst_reg, remainder) uop_gen_reg_dst_imm(UOP_DIV_RESULT, ir, dst_reg, remainder)
 #define uop_IDIV_CHECK(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, bits) uop_gen_reg_dst_src3_imm(UOP_IDIV_CHECK, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c, bits)
 #define uop_UDIV(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)    uop_gen_reg_dst_src3(UOP_UDIV, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)
 #define uop_UMOD(ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)    uop_gen_reg_dst_src3(UOP_UMOD, ir, dst_reg, src_reg_a, src_reg_b, src_reg_c)
@@ -1034,13 +1001,6 @@ extern int codegen_fp_enter(void);
 #define uop_MOV_INT_DOUBLE(ir, dst_reg, src_reg /*, nrc, orc*/)          uop_gen_reg_dst_src1(UOP_MOV_INT_DOUBLE, ir, dst_reg, src_reg /*, nrc, orc*/)
 #define uop_MOV_INT_DOUBLE_64(ir, dst_reg, src_reg_d, src_reg_q, tag)    uop_gen_reg_dst_src3(UOP_MOV_INT_DOUBLE_64, ir, dst_reg, src_reg_d, src_reg_q, tag)
 #define uop_CMOVNZ(ir, dst_reg, old_reg, src_reg, cond_reg)              uop_gen_reg_dst_src3(UOP_CMOVNZ, ir, dst_reg, old_reg, src_reg, cond_reg)
-#define uop_CMOV_Z(ir, dst_reg, old_reg, src_reg, cond_reg, invert)      uop_gen_reg_dst_src3_imm(UOP_CMOV_Z, ir, dst_reg, old_reg, src_reg, cond_reg, invert)
-#define uop_OVERFLOW(ir, dst_reg, a, b, mode)                         uop_gen_reg_dst_src2_imm(UOP_OVERFLOW, ir, dst_reg, a, b, mode)
-#define uop_CMP_ULT(ir, dst_reg, a, b, invert)                         uop_gen_reg_dst_src2_imm(UOP_CMP_ULT, ir, dst_reg, a, b, invert)
-#define uop_CMP_SLT(ir, dst_reg, a, b, invert)                         uop_gen_reg_dst_src2_imm(UOP_CMP_SLT, ir, dst_reg, a, b, invert)
-#define uop_CMP_Z(ir, dst_reg, src_reg, invert)                        uop_gen_reg_dst_src_imm(UOP_CMP_Z, ir, dst_reg, src_reg, invert)
-#define uop_PARITY(ir, dst_reg, src_reg, invert)                       uop_gen_reg_dst_src_imm(UOP_PARITY, ir, dst_reg, src_reg, invert)
-#define uop_PARITY_JUMP(ir, src_reg, invert)                           uop_gen_reg_src1_imm(UOP_PARITY_JUMP, ir, src_reg, invert)
 
 #define uop_NOP_BARRIER(ir)                                              uop_gen(UOP_NOP_BARRIER, ir)
 

@@ -35,7 +35,7 @@ static host_reg_set_t host_reg_set;
 static host_reg_set_t host_fp_reg_set;
 static int            host_int_regs_low_only;
 #ifdef CODEGEN_BACKEND_HAS_MEM_REGS
-static uint32_t       mem_dest_write_mask;
+static uint16_t       mem_dest_write_mask;
 #endif
 
 uint64_t dirty_ir_regs[2] = { 0, 0 };
@@ -735,18 +735,6 @@ codegen_reg_alloc_register(ir_reg_t dest_reg_a, ir_reg_t src_reg_a, ir_reg_t src
         alloc_dest_reg(dest_reg_a, dest_reference);
 }
 
-/* Reading a guest SIMD value loads (and therefore clobbers) a host XMM too.
-   Track allocation, not just arithmetic destinations, for the Win64 ABI. */
-static ir_host_reg_t
-allocated_host_reg(host_reg_set_t *reg_set, int c, ir_reg_t ir_reg)
-{
-#ifdef CODEGEN_BACKEND_HAS_SELECTIVE_XMM
-    if (reg_set == &host_fp_reg_set)
-        codegen_win64_xmm_used |= 1u << reg_set->reg_list[c].reg;
-#endif
-    return reg_set->reg_list[c].reg | IREG_GET_SIZE(ir_reg.reg);
-}
-
 ir_host_reg_t
 codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_idx)
 {
@@ -819,7 +807,7 @@ codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_id
 
     if (host_reg_idx)
         *host_reg_idx = c;
-    return allocated_host_reg(reg_set, c, ir_reg);
+    return reg_set->reg_list[c].reg | IREG_GET_SIZE(ir_reg.reg);
 }
 
 ir_host_reg_t
@@ -848,7 +836,7 @@ codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t ir_reg)
         reg_set->regs[c].reg     = ir_reg.reg;
         reg_set->regs[c].version = ir_reg.version;
         reg_set->dirty[c]        = 1;
-        return allocated_host_reg(reg_set, c, ir_reg);
+        return reg_set->reg_list[c].reg | IREG_GET_SIZE(ir_reg.reg);
     }
 
     /*Search for previous version in host register*/
@@ -899,7 +887,7 @@ codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t ir_reg)
     reg_set->regs[c].reg     = ir_reg.reg;
     reg_set->regs[c].version = ir_reg.version;
     reg_set->dirty[c]        = 1;
-    return allocated_host_reg(reg_set, c, ir_reg);
+    return reg_set->reg_list[c].reg | IREG_GET_SIZE(ir_reg.reg);
 }
 
 #ifdef CODEGEN_BACKEND_HAS_MOV_IMM

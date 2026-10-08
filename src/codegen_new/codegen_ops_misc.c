@@ -12,13 +12,11 @@
 #include "386_common.h"
 #include "codegen.h"
 #include "codegen_accumulate.h"
-#include "codegen_backend.h"
 #include "codegen_ir.h"
 #include "codegen_ops.h"
 #include "codegen_ops_helpers.h"
 #include "codegen_ops_jit_wrappers.h"
 #include "codegen_ops_misc.h"
-#include "codegen_ops_setcc.h"
 
 static JIT_WRAPPER void
 jit_div_exception(void)
@@ -44,29 +42,6 @@ div_exception_if(ir_data_t *ir, int status_reg)
     uop_CALL_FUNC(ir, jit_div_exception);
     uop_JMP(ir, codegen_exit_rout);
     uop_set_jump_dest(ir, no_exception);
-}
-
-static void
-div_compute(ir_data_t *ir, int low, int high, int divisor, int bits, int is_signed)
-{
-#ifdef CODEGEN_BACKEND_HAS_DIVMOD
-    uop_DIVMOD(ir, IREG_temp3, low, high, divisor, bits | (is_signed ? 0x100 : 0));
-    div_exception_if(ir, IREG_temp3);
-    uop_DIV_RESULT(ir, IREG_temp3, 0);
-    uop_DIV_RESULT(ir, IREG_temp1, 1);
-#else
-    if (is_signed) {
-        uop_IDIV_CHECK(ir, IREG_temp3, low, high, divisor, bits);
-        div_exception_if(ir, IREG_temp3);
-        uop_IDIV(ir, IREG_temp3, low, high, divisor);
-        uop_IMOD(ir, IREG_temp1, low, high, divisor);
-    } else {
-        uop_UDIV_CHECK(ir, IREG_temp3, low, high, divisor, bits);
-        div_exception_if(ir, IREG_temp3);
-        uop_UDIV(ir, IREG_temp3, low, high, divisor);
-        uop_UMOD(ir, IREG_temp1, low, high, divisor);
-    }
-#endif
 }
 
 static void
@@ -219,7 +194,10 @@ ropF6(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchd
             uop_MOVZX(ir, IREG_temp2, reg);
             uop_MOVZX(ir, IREG_temp0, IREG_AX);
             uop_MOV_IMM(ir, IREG_temp1, 0);
-            div_compute(ir, IREG_temp0, IREG_temp1, IREG_temp2, 8, 0);
+            uop_UDIV_CHECK(ir, IREG_temp3, IREG_temp0, IREG_temp1, IREG_temp2, 8);
+            div_exception_if(ir, IREG_temp3);
+            uop_UDIV(ir, IREG_temp3, IREG_temp0, IREG_temp1, IREG_temp2);
+            uop_UMOD(ir, IREG_temp1, IREG_temp0, IREG_temp1, IREG_temp2);
             uop_MOV(ir, IREG_AL, IREG_temp3_B);
             uop_MOV(ir, IREG_AH, IREG_temp1_B);
             div8_success_flags(ir);
@@ -229,7 +207,10 @@ ropF6(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchd
             uop_MOVSX(ir, IREG_temp2, reg);
             uop_MOVSX(ir, IREG_temp0, IREG_AX);
             uop_SAR_IMM(ir, IREG_temp1, IREG_temp0, 31);
-            div_compute(ir, IREG_temp0, IREG_temp1, IREG_temp2, 8, 1);
+            uop_IDIV_CHECK(ir, IREG_temp3, IREG_temp0, IREG_temp1, IREG_temp2, 8);
+            div_exception_if(ir, IREG_temp3);
+            uop_IDIV(ir, IREG_temp3, IREG_temp0, IREG_temp1, IREG_temp2);
+            uop_IMOD(ir, IREG_temp1, IREG_temp0, IREG_temp1, IREG_temp2);
             uop_MOV(ir, IREG_AL, IREG_temp3_B);
             uop_MOV(ir, IREG_AH, IREG_temp1_B);
             div8_success_flags(ir);
@@ -339,7 +320,10 @@ ropF7_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
             uop_SHL_IMM(ir, IREG_temp1, IREG_temp1, 16);
             uop_OR(ir, IREG_temp0, IREG_temp0, IREG_temp1);
             uop_MOV_IMM(ir, IREG_temp1, 0);
-            div_compute(ir, IREG_temp0, IREG_temp1, IREG_temp2, 16, 0);
+            uop_UDIV_CHECK(ir, IREG_temp3, IREG_temp0, IREG_temp1, IREG_temp2, 16);
+            div_exception_if(ir, IREG_temp3);
+            uop_UDIV(ir, IREG_temp3, IREG_temp0, IREG_temp1, IREG_temp2);
+            uop_UMOD(ir, IREG_temp1, IREG_temp0, IREG_temp1, IREG_temp2);
             uop_MOV(ir, IREG_AX, IREG_temp3_W);
             uop_MOV(ir, IREG_DX, IREG_temp1_W);
             div16_success_flags(ir);
@@ -352,7 +336,10 @@ ropF7_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
             uop_SHL_IMM(ir, IREG_temp1, IREG_temp1, 16);
             uop_OR(ir, IREG_temp0, IREG_temp0, IREG_temp1);
             uop_SAR_IMM(ir, IREG_temp1, IREG_temp0, 31);
-            div_compute(ir, IREG_temp0, IREG_temp1, IREG_temp2, 16, 1);
+            uop_IDIV_CHECK(ir, IREG_temp3, IREG_temp0, IREG_temp1, IREG_temp2, 16);
+            div_exception_if(ir, IREG_temp3);
+            uop_IDIV(ir, IREG_temp3, IREG_temp0, IREG_temp1, IREG_temp2);
+            uop_IMOD(ir, IREG_temp1, IREG_temp0, IREG_temp1, IREG_temp2);
             uop_MOV(ir, IREG_AX, IREG_temp3_W);
             uop_MOV(ir, IREG_DX, IREG_temp1_W);
             div16_success_flags(ir);
@@ -449,14 +436,20 @@ ropF7_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
             return op_pc + 1;
 
         case 0x30: /*DIV*/
-            div_compute(ir, IREG_EAX, IREG_EDX, reg, 32, 0);
+            uop_UDIV_CHECK(ir, IREG_temp3, IREG_EAX, IREG_EDX, reg, 32);
+            div_exception_if(ir, IREG_temp3);
+            uop_UDIV(ir, IREG_temp3, IREG_EAX, IREG_EDX, reg);
+            uop_UMOD(ir, IREG_temp1, IREG_EAX, IREG_EDX, reg);
             uop_MOV(ir, IREG_EAX, IREG_temp3);
             uop_MOV(ir, IREG_EDX, IREG_temp1);
             div32_success_flags(ir);
             return op_pc + 1;
 
         case 0x38: /*IDIV*/
-            div_compute(ir, IREG_EAX, IREG_EDX, reg, 32, 1);
+            uop_IDIV_CHECK(ir, IREG_temp3, IREG_EAX, IREG_EDX, reg, 32);
+            div_exception_if(ir, IREG_temp3);
+            uop_IDIV(ir, IREG_temp3, IREG_EAX, IREG_EDX, reg);
+            uop_IMOD(ir, IREG_temp1, IREG_EAX, IREG_EDX, reg);
             uop_MOV(ir, IREG_EAX, IREG_temp3);
             uop_MOV(ir, IREG_EDX, IREG_temp1);
             div32_success_flags(ir);
@@ -466,6 +459,32 @@ ropF7_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
             break;
     }
     return 0;
+}
+
+static void
+rebuild_c(ir_data_t *ir)
+{
+    int needs_rebuild = 1;
+
+    if (codegen_flags_changed) {
+        switch (cpu_state.flags_op) {
+            case FLAGS_INC8:
+            case FLAGS_INC16:
+            case FLAGS_INC32:
+            case FLAGS_DEC8:
+            case FLAGS_DEC16:
+            case FLAGS_DEC32:
+                needs_rebuild = 0;
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    if (needs_rebuild) {
+        uop_CALL_FUNC(ir, jit_flags_rebuild_c);
+    }
 }
 
 uint32_t
@@ -499,7 +518,7 @@ ropFF_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
 
     switch (fetchdat & 0x38) {
         case 0x00: /*INC*/
-            setcc_rebuild_c(ir);
+            rebuild_c(ir);
             codegen_flags_changed = 1;
 
             if ((fetchdat & 0xc0) == 0xc0) {
@@ -519,7 +538,7 @@ ropFF_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
             return op_pc + 1;
 
         case 0x08: /*DEC*/
-            setcc_rebuild_c(ir);
+            rebuild_c(ir);
             codegen_flags_changed = 1;
 
             if ((fetchdat & 0xc0) == 0xc0) {
@@ -606,7 +625,7 @@ ropFF_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
 
     switch (fetchdat & 0x38) {
         case 0x00: /*INC*/
-            setcc_rebuild_c(ir);
+            rebuild_c(ir);
             codegen_flags_changed = 1;
 
             if ((fetchdat & 0xc0) == 0xc0) {
@@ -626,7 +645,7 @@ ropFF_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
             return op_pc + 1;
 
         case 0x08: /*DEC*/
-            setcc_rebuild_c(ir);
+            rebuild_c(ir);
             codegen_flags_changed = 1;
 
             if ((fetchdat & 0xc0) == 0xc0) {

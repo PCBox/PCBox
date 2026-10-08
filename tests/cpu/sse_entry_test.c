@@ -40,9 +40,6 @@ void fatal(const char *fmt, ...)
 
 uint8_t *codeblock_allocator_get_ptr(struct mem_block_t *block) { (void)block; return code_buffer; }
 void codegen_backend_prologue(codeblock_t *block) { (void)block; }
-#ifdef CODEGEN_BACKEND_HAS_SELECTIVE_XMM
-void codegen_backend_ir_prologue(codeblock_t *block) { (void)block; }
-#endif
 void codegen_backend_epilogue(codeblock_t *block) { (void)block; }
 void codegen_backend_mem_begin(void) { }
 void codegen_backend_mem_finish(codeblock_t *block) { (void)block; }
