@@ -128,29 +128,20 @@ codegen_allocator_allocate(mem_block_t *parent, int code_block)
     uint32_t     block_nr;
 
     if (!mem_block_free_list) {
-        if (mem_code_block_head == mem_code_block_tail) {
-            fatal("Out of memory blocks!\n");
-        } else {
-            mem_code_block_t* mem_code_block = mem_code_block_head;
-            while (mem_code_block) {
-                /* Capture next before deleting: codegen_delete_block() frees
-                   this node via remove_from_block_list(), which nulls its
-                   ->next, so reading it after would end the walk early. */
-                mem_code_block_t *next = mem_code_block->next;
-                if (code_block != mem_code_block->number) {
-                    codegen_delete_block(&codeblock[mem_code_block->number]);
-                }
-                mem_code_block = next;
-            }
-
-            if (mem_block_free_list)
-                goto block_allocate;
-
-            fatal("Out of memory blocks!\n");
+        mem_code_block_t *oldest = mem_code_block_head;
+        /* One guest block may own several chunks. Stop once it has freed
+           space instead of throwing away the rest of the compiled cache. */
+        while (oldest && !mem_block_free_list) {
+            /* Deletion unlinks this node and clears its next pointer. */
+            mem_code_block_t *next = oldest->next;
+            if (oldest->number != code_block)
+                codegen_delete_block(&codeblock[oldest->number]);
+            oldest = next;
         }
+        if (!mem_block_free_list)
+            fatal("Out of memory blocks!\n");
     }
 
-block_allocate:
     /*Remove from free list*/
     block_nr            = mem_block_free_list;
     block               = &mem_blocks[block_nr - 1];

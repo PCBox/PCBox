@@ -41,6 +41,13 @@ if(ARCH STREQUAL "x86_64" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(BUILD_TESTING AND ARCH STREQUAL "x86_64")
+    add_executable(codegen_allocator_test codegen_allocator_test.c)
+    target_compile_definitions(codegen_allocator_test PRIVATE USE_NEW_DYNAREC)
+    target_include_directories(codegen_allocator_test PRIVATE
+        ${CPU_SOURCE_ROOT}/src/include ${CPU_SOURCE_ROOT}/src/cpu
+        ${PROJECT_BINARY_DIR}/src/include)
+    add_test(NAME codegen_allocator_test COMMAND codegen_allocator_test)
+
     add_executable(sse_entry_test sse_entry_test.c)
     target_compile_definitions(sse_entry_test PRIVATE USE_NEW_DYNAREC)
     target_include_directories(sse_entry_test PRIVATE
