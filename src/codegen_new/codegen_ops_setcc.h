@@ -1,11 +1,5 @@
-/* Carry leaves 0 or 1 in dest and may clobber scratch. Both must be distinct
-   32-bit temporaries, so ADC/SBB can preserve operands already in temp0/2. */
-void setcc_gen_carry(ir_data_t *ir, int dest, int scratch);
-void setcc_rebuild_c(ir_data_t *ir);
-
 /*Condition generators shared with the x87 FCMOVcc ops. These leave 0 or 1 in
   IREG_temp0, and may clobber IREG_temp1.*/
-void setcc_gen_O(ir_data_t *ir, int invert);
 void setcc_gen_B(ir_data_t *ir, int invert);
 void setcc_gen_E(ir_data_t *ir, int invert);
 void setcc_gen_BE(ir_data_t *ir, int invert);

@@ -20,7 +20,7 @@
 } while (0)
 
 cpu_state_t cpu_state;
-uintptr_t readlookup2[2097152], writelookup2[1048576];
+uintptr_t readlookup2[2097152];
 uint8_t *ram, *block_write_data;
 int block_pos, cpu_block_end;
 int timing_misaligned, cpu_cyrix_alignment;
@@ -45,10 +45,6 @@ static uint8_t *code_memory;
 static uint8_t memory[8192], result[16];
 static const uint8_t sentinel[16] = { 0x55, 0xaa, 0x33, 0xcc };
 static uint32_t helper_calls, fault_on_call, aborted;
-
-/* Shared pairs run with real callbacks in ram_register_test. */
-uint64_t readmemql(uint32_t addr) { (void) addr; CHECK(0); return 0; }
-void writememql(uint32_t addr, uint64_t value) { (void) addr; (void) value; CHECK(0); }
 
 void fatal(const char *fmt, ...)
 {
@@ -178,7 +174,7 @@ int main(void)
     run_load(0, 0xfffffff0, 0x30, 0, 0, 0, 0); /* 32-bit address wrap. */
     readlookup2[1] = (uintptr_t) -1;
     run_load(0, 4096 - 16, 0, 0, 0, 0, 0); /* Last vector in mapped page. */
-    run_load(0, 4096 - 8, 0, 0, 0, 2, 0);  /* Private pairs use both quad helpers. */
+    run_load(0, 4096 - 8, 0, 0, 0, 2, 0);  /* Crossing uses both helpers. */
     run_load(0, 33, 0, 0, 0, 0, 0); /* Unaligned vectors within a page are inlined. */
     run_load(0, 32, 0, 1, 0, 2, 0); /* Keep the 16-bit path. */
     run_load(0, 0x10000, 32, 1, 0, 2, 0);

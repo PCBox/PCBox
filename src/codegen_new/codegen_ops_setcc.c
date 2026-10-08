@@ -62,7 +62,7 @@ LE_SET_01(void)
   straight-line code - the register allocator's version tracking can't merge
   register writes on converging paths, so no conditional jumps are allowed.*/
 
-void
+static void
 setcc_gen_O(ir_data_t *ir, int invert)
 {
     switch (codegen_flags_changed ? cpu_state.flags_op : FLAGS_UNKNOWN) {
@@ -73,33 +73,6 @@ setcc_gen_O(ir_data_t *ir, int invert)
             uop_MOV_IMM(ir, IREG_temp0, invert ? 1 : 0);
             break;
 
-#ifdef CODEGEN_BACKEND_HAS_OVERFLOW
-        case FLAGS_ADD8:
-        case FLAGS_INC8:
-            uop_OVERFLOW(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert | 4);
-            break;
-        case FLAGS_ADD16:
-        case FLAGS_INC16:
-            uop_OVERFLOW(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert | 8);
-            break;
-        case FLAGS_ADD32:
-        case FLAGS_INC32:
-            uop_OVERFLOW(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert);
-            break;
-        case FLAGS_SUB8:
-        case FLAGS_DEC8:
-            uop_OVERFLOW(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert | 6);
-            break;
-        case FLAGS_SUB16:
-        case FLAGS_DEC16:
-            uop_OVERFLOW(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert | 10);
-            break;
-        case FLAGS_SUB32:
-        case FLAGS_DEC32:
-            uop_OVERFLOW(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert | 2);
-            break;
-#endif
-
         case FLAGS_UNKNOWN:
         default:
             uop_CALL_FUNC_RESULT(ir, IREG_temp0, O_SET_01);
@@ -109,182 +82,54 @@ setcc_gen_O(ir_data_t *ir, int invert)
     }
 }
 
-/* Unsigned 32-bit comparison without a control-flow join. Keep it as one
-   operation where supported, avoiding both a helper call and a long IR
-   expansion for this common producer/consumer pair. */
-static void
-setcc_gen_lt32(ir_data_t *ir, int dest, int scratch, int a, int b, int invert)
-{
-#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
-    (void) scratch;
-    uop_CMP_ULT(ir, dest, a, b, invert);
-#else
-    /* The sign of a-b alone fails across bit 31. Borrow is
-       (a ^ ((a ^ b) | ((a - b) ^ b))) >> 31. */
-    /* XOR is a two-address operation on the x86 backends. */
-    uop_MOV(ir, dest, a);
-    uop_XOR(ir, dest, dest, b);
-    uop_SUB(ir, scratch, a, b);
-    uop_XOR(ir, scratch, scratch, b);
-    uop_OR(ir, dest, dest, scratch);
-    uop_XOR(ir, dest, dest, a);
-    if (invert) {
-        /* Flip the sign bit in scratch before extracting it. Keeping dest
-           to five writes fits the version headroom after REG_VERSION_MAX;
-           a sixth write could wrap before this instruction ends the block.
-           ADD supports a distinct source/destination on every backend. */
-        uop_ADD_IMM(ir, scratch, dest, 0x80000000u);
-        uop_SHR_IMM(ir, dest, scratch, 31);
-    } else
-        uop_SHR_IMM(ir, dest, dest, 31);
-#endif
-}
-
-static void
-setcc_gen_carry_invert(ir_data_t *ir, int dest, int scratch, int invert)
+void
+setcc_gen_B(ir_data_t *ir, int invert)
 {
     switch (codegen_flags_changed ? cpu_state.flags_op : FLAGS_UNKNOWN) {
         case FLAGS_ZN8:
         case FLAGS_ZN16:
         case FLAGS_ZN32:
-            /* Keep both SETB and SETNB as one constant move. */
-            uop_MOV_IMM(ir, dest, invert ? 1 : 0);
-            return;
+            /*Carry is always zero*/
+            uop_MOV_IMM(ir, IREG_temp0, invert ? 1 : 0);
+            break;
 
         case FLAGS_SUB8:
-#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
-            uop_CMP_ULT(ir, dest, IREG_flags_op1_B, IREG_flags_op2_B, invert);
-            return;
-#else
-            uop_MOVZX(ir, dest, IREG_flags_op1_B);
-            uop_MOVZX(ir, scratch, IREG_flags_op2_B);
-            uop_SUB(ir, dest, dest, scratch);
-            uop_SHR_IMM(ir, dest, dest, 31); /*dest = (op1 < op2)*/
+            uop_MOVZX(ir, IREG_temp0, IREG_flags_op1_B);
+            uop_MOVZX(ir, IREG_temp1, IREG_flags_op2_B);
+            uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
+            uop_SHR_IMM(ir, IREG_temp0, IREG_temp0, 31); /*temp0 = (op1 < op2)*/
+            if (invert)
+                uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
-#endif
 
         case FLAGS_SUB16:
-#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
-            uop_CMP_ULT(ir, dest, IREG_flags_op1_W, IREG_flags_op2_W, invert);
-            return;
-#else
-            uop_MOVZX(ir, dest, IREG_flags_op1_W);
-            uop_MOVZX(ir, scratch, IREG_flags_op2_W);
-            uop_SUB(ir, dest, dest, scratch);
-            uop_SHR_IMM(ir, dest, dest, 31);
-            break;
-#endif
-
-        case FLAGS_SUB32:
-            setcc_gen_lt32(ir, dest, scratch, IREG_flags_op1, IREG_flags_op2, invert);
-            return;
-
-#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
-        case FLAGS_ADD8:
-            uop_CMP_ULT(ir, dest, IREG_flags_res_B, IREG_flags_op1_B, invert);
-            return;
-        case FLAGS_ADD16:
-            uop_CMP_ULT(ir, dest, IREG_flags_res_W, IREG_flags_op1_W, invert);
-            return;
-#else
-        case FLAGS_ADD8:
-        case FLAGS_ADD16:
-            /* ADD producers zero-extend both operands into the lazy state. */
-            uop_ADD(ir, dest, IREG_flags_op1, IREG_flags_op2);
-            uop_SHR_IMM(ir, dest, dest, cpu_state.flags_op == FLAGS_ADD8 ? 8 : 16);
-            uop_AND_IMM(ir, dest, dest, 1);
-            break;
-#endif
-
-        case FLAGS_ADD32:
-            setcc_gen_lt32(ir, dest, scratch, IREG_flags_res, IREG_flags_op1, invert);
-            return;
-
-        case FLAGS_INC8:
-        case FLAGS_INC16:
-        case FLAGS_INC32:
-        case FLAGS_DEC8:
-        case FLAGS_DEC16:
-        case FLAGS_DEC32:
-            /* INC/DEC keep carry in the materialized flags word. */
-            uop_MOVZX(ir, dest, IREG_flags);
-            uop_AND_IMM(ir, dest, dest, C_FLAG);
+            uop_MOVZX(ir, IREG_temp0, IREG_flags_op1_W);
+            uop_MOVZX(ir, IREG_temp1, IREG_flags_op2_W);
+            uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
+            uop_SHR_IMM(ir, IREG_temp0, IREG_temp0, 31);
+            if (invert)
+                uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
 
         case FLAGS_UNKNOWN:
         default:
-            uop_CALL_FUNC_RESULT(ir, dest, B_SET_01);
+            uop_CALL_FUNC_RESULT(ir, IREG_temp0, B_SET_01);
+            if (invert)
+                uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
     }
-    if (invert)
-        uop_XOR_IMM(ir, dest, dest, 1);
-}
-
-void
-setcc_gen_carry(ir_data_t *ir, int dest, int scratch)
-{
-    setcc_gen_carry_invert(ir, dest, scratch, 0);
-}
-
-void
-setcc_rebuild_c(ir_data_t *ir)
-{
-    switch (codegen_flags_changed ? cpu_state.flags_op : FLAGS_UNKNOWN) {
-        case FLAGS_INC8:
-        case FLAGS_INC16:
-        case FLAGS_INC32:
-        case FLAGS_DEC8:
-        case FLAGS_DEC16:
-        case FLAGS_DEC32:
-            return;
-
-        case FLAGS_ZN8:
-        case FLAGS_ZN16:
-        case FLAGS_ZN32:
-            uop_AND_IMM(ir, IREG_flags, IREG_flags, ~C_FLAG);
-            return;
-
-        case FLAGS_ADD8:
-        case FLAGS_ADD16:
-        case FLAGS_ADD32:
-        case FLAGS_SUB8:
-        case FLAGS_SUB16:
-        case FLAGS_SUB32:
-            /* Group FF already has its memory operand in temp0. Leave
-               temp0/1 available for that operand and the INC/DEC result. */
-            setcc_gen_carry(ir, IREG_temp2, IREG_temp3);
-            uop_AND_IMM(ir, IREG_flags, IREG_flags, ~C_FLAG);
-            uop_OR(ir, IREG_flags, IREG_flags, IREG_temp2_W);
-            return;
-
-        default:
-            uop_CALL_FUNC(ir, jit_flags_rebuild_c);
-            return;
-    }
-}
-
-void
-setcc_gen_B(ir_data_t *ir, int invert)
-{
-    setcc_gen_carry_invert(ir, IREG_temp0, IREG_temp1, invert);
 }
 
 void
 setcc_gen_E(ir_data_t *ir, int invert)
 {
     if (codegen_flags_changed && flags_res_valid()) {
-#ifdef CODEGEN_BACKEND_HAS_CMP_Z
-        /* The lazy result is already masked to the guest operand width.
-           Keep the zero test in one uop instead of expanding -x | x. */
-        uop_CMP_Z(ir, IREG_temp0, IREG_flags_res, invert);
-#else
         uop_MOV_IMM(ir, IREG_temp0, 0);
         uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_flags_res);
         uop_OR(ir, IREG_temp0, IREG_temp0, IREG_flags_res);
         uop_SHR_IMM(ir, IREG_temp0, IREG_temp0, 31); /*temp0 = (flags_res != 0)*/
         if (!invert)
             uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
-#endif
     } else {
         uop_CALL_FUNC_RESULT(ir, IREG_temp0, E_SET_01);
         if (invert)
@@ -304,10 +149,6 @@ setcc_gen_BE(ir_data_t *ir, int invert)
             break;
 
         case FLAGS_SUB8:
-#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
-            uop_CMP_ULT(ir, IREG_temp0, IREG_flags_op2_B, IREG_flags_op1_B, !invert);
-            break;
-#else
             uop_MOVZX(ir, IREG_temp0, IREG_flags_op2_B);
             uop_MOVZX(ir, IREG_temp1, IREG_flags_op1_B);
             uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
@@ -315,24 +156,14 @@ setcc_gen_BE(ir_data_t *ir, int invert)
             if (!invert)
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
-#endif
 
         case FLAGS_SUB16:
-#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
-            uop_CMP_ULT(ir, IREG_temp0, IREG_flags_op2_W, IREG_flags_op1_W, !invert);
-            break;
-#else
             uop_MOVZX(ir, IREG_temp0, IREG_flags_op2_W);
             uop_MOVZX(ir, IREG_temp1, IREG_flags_op1_W);
             uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
             uop_SHR_IMM(ir, IREG_temp0, IREG_temp0, 31);
             if (!invert)
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
-            break;
-#endif
-
-        case FLAGS_SUB32:
-            setcc_gen_lt32(ir, IREG_temp0, IREG_temp1, IREG_flags_op2, IREG_flags_op1, !invert);
             break;
 
         case FLAGS_UNKNOWN:
@@ -401,13 +232,6 @@ setcc_gen_S(ir_data_t *ir, int invert)
 void
 setcc_gen_P(ir_data_t *ir, int invert)
 {
-#ifdef CODEGEN_BACKEND_HAS_PARITY
-    /* Multiply and rotate preserve PF rather than deriving it from res. */
-    if (codegen_flags_changed && flags_res_valid() && cpu_state.flags_op != FLAGS_IMUL8) {
-        uop_PARITY(ir, IREG_temp0, IREG_flags_res, invert);
-        return;
-    }
-#endif
     uop_CALL_FUNC_RESULT(ir, IREG_temp0, P_SET_01);
     if (invert)
         uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
@@ -417,12 +241,6 @@ static void
 setcc_gen_L(ir_data_t *ir, int invert)
 {
     switch (codegen_flags_changed ? cpu_state.flags_op : FLAGS_UNKNOWN) {
-#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
-        case FLAGS_SUB32:
-        case FLAGS_DEC32:
-            uop_CMP_SLT(ir, IREG_temp0, IREG_flags_op1, IREG_flags_op2, invert);
-            break;
-#endif
         case FLAGS_ZN8:
             /*V flag is always clear. Condition is true if N is set*/
             uop_MOVZX(ir, IREG_temp0, IREG_flags_res_B);
@@ -444,10 +262,6 @@ setcc_gen_L(ir_data_t *ir, int invert)
 
         case FLAGS_SUB8:
         case FLAGS_DEC8:
-#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
-            uop_CMP_SLT(ir, IREG_temp0, IREG_flags_op1_B, IREG_flags_op2_B, invert);
-            break;
-#else
             uop_MOVSX(ir, IREG_temp0, IREG_flags_op1_B);
             uop_MOVSX(ir, IREG_temp1, IREG_flags_op2_B);
             uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
@@ -455,14 +269,9 @@ setcc_gen_L(ir_data_t *ir, int invert)
             if (invert)
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
-#endif
 
         case FLAGS_SUB16:
         case FLAGS_DEC16:
-#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
-            uop_CMP_SLT(ir, IREG_temp0, IREG_flags_op1_W, IREG_flags_op2_W, invert);
-            break;
-#else
             uop_MOVSX(ir, IREG_temp0, IREG_flags_op1_W);
             uop_MOVSX(ir, IREG_temp1, IREG_flags_op2_W);
             uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
@@ -470,7 +279,6 @@ setcc_gen_L(ir_data_t *ir, int invert)
             if (invert)
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
-#endif
 
         case FLAGS_UNKNOWN:
         default:
@@ -485,18 +293,8 @@ static void
 setcc_gen_LE(ir_data_t *ir, int invert)
 {
     switch (codegen_flags_changed ? cpu_state.flags_op : FLAGS_UNKNOWN) {
-#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
-        case FLAGS_SUB32:
-        case FLAGS_DEC32:
-            uop_CMP_SLT(ir, IREG_temp0, IREG_flags_op2, IREG_flags_op1, !invert);
-            break;
-#endif
         case FLAGS_SUB8:
         case FLAGS_DEC8:
-#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
-            uop_CMP_SLT(ir, IREG_temp0, IREG_flags_op2_B, IREG_flags_op1_B, !invert);
-            break;
-#else
             uop_MOVSX(ir, IREG_temp0, IREG_flags_op2_B);
             uop_MOVSX(ir, IREG_temp1, IREG_flags_op1_B);
             uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
@@ -504,14 +302,9 @@ setcc_gen_LE(ir_data_t *ir, int invert)
             if (!invert)
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
-#endif
 
         case FLAGS_SUB16:
         case FLAGS_DEC16:
-#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
-            uop_CMP_SLT(ir, IREG_temp0, IREG_flags_op2_W, IREG_flags_op1_W, !invert);
-            break;
-#else
             uop_MOVSX(ir, IREG_temp0, IREG_flags_op2_W);
             uop_MOVSX(ir, IREG_temp1, IREG_flags_op1_W);
             uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_temp1);
@@ -519,7 +312,6 @@ setcc_gen_LE(ir_data_t *ir, int invert)
             if (!invert)
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
             break;
-#endif
 
         case FLAGS_UNKNOWN:
         default:
@@ -560,11 +352,14 @@ cmov_select(ir_data_t *ir, int dest_reg, int src_reg)
 }
 
 static uint32_t
-ropCMOV_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc,
+ropCMOV_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_pc,
                void (*gen_cond)(ir_data_t *ir, int invert), int invert, int is_32)
 {
     int dest_reg;
     int src_reg;
+
+    if ((fetchdat & 0xc0) != 0xc0)
+        return 0;
 
     codegen_mark_code_present(block, cs + op_pc, 1);
 
@@ -576,31 +371,8 @@ ropCMOV_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op
         src_reg  = IREG_16(fetchdat & 7);
     }
 
-    if ((fetchdat & 0xc0) != 0xc0) {
-        x86seg *target_seg;
-
-        uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
-        target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
-        codegen_check_seg_read(block, ir, target_seg);
-        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, is_32 ? 3 : 1);
-        /* CMOV reads memory even when the condition is false. Keep the value
-           outside temp0/temp1, which the condition generators use. */
-        src_reg = is_32 ? IREG_temp2 : IREG_temp2_W;
-        uop_MEM_LOAD_REG(ir, src_reg, ireg_seg_base(target_seg), IREG_eaaddr);
-    }
-
-#ifdef CODEGEN_BACKEND_HAS_CMOV_Z
-    if ((fetchdat & 0xc0) == 0xc0 && gen_cond == setcc_gen_E &&
-        codegen_flags_changed && flags_res_valid()) {
-        /* Register CMOV can consume the lazy result without a boolean
-           temporary. Keep memory loads on the existing allocation path. */
-        uop_CMOV_Z(ir, dest_reg, dest_reg, src_reg, IREG_flags_res, invert);
-    } else
-#endif
-    {
-        gen_cond(ir, invert);
-        cmov_select(ir, dest_reg, src_reg);
-    }
+    gen_cond(ir, invert);
+    cmov_select(ir, dest_reg, src_reg);
 
     return op_pc + 1;
 }
@@ -639,20 +411,20 @@ ropSET(NLE, setcc_gen_LE, 1)
                                ir_data_t *ir,                           \
                                UNUSED(uint8_t opcode),                  \
                                uint32_t fetchdat,                       \
-                               uint32_t op_32,                          \
+                               UNUSED(uint32_t op_32),                  \
                                uint32_t op_pc)                          \
     {                                                                   \
-        return ropCMOV_common(block, ir, fetchdat, op_32, op_pc, gen, invert, 0); \
+        return ropCMOV_common(block, ir, fetchdat, op_pc, gen, invert, 0); \
     }                                                                   \
                                                                         \
     uint32_t ropCMOV##cond##_l(codeblock_t *block,                      \
                                ir_data_t *ir,                           \
                                UNUSED(uint8_t opcode),                  \
                                uint32_t fetchdat,                       \
-                               uint32_t op_32,                          \
+                               UNUSED(uint32_t op_32),                  \
                                uint32_t op_pc)                          \
     {                                                                   \
-        return ropCMOV_common(block, ir, fetchdat, op_32, op_pc, gen, invert, 1); \
+        return ropCMOV_common(block, ir, fetchdat, op_pc, gen, invert, 1); \
     }
 
 ropCMOV(O,   setcc_gen_O,  0)

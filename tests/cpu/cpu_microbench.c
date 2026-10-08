@@ -24,28 +24,19 @@
 #    undef REG_DWORD
 #    undef REG_QWORD
 #endif
-/* Keep hot compilation entry points on stable boundaries in paired builds. */
-void codegen_reg_reset(void) __attribute__((aligned(64)));
-void codegen_ir_compile(ir_data_t *ir, codeblock_t *block) __attribute__((aligned(64)));
 #include "../../src/codegen_new/codegen_reg.c"
 extern const uOpFn uop_handlers[];
 #include "../../src/codegen_new/codegen_ir.c"
 #include "../../src/codegen_new/codegen_ops_jump.h"
 #include "../../src/codegen_new/codegen_ops_mov.h"
-#include "../../src/codegen_new/codegen_ops_arith.h"
-#include "../../src/codegen_new/codegen_ops_setcc.h"
-#include "../../src/codegen_new/codegen_ops_misc.h"
-#include "x86_flags.h"
-#include "../../src/codegen_new/codegen_ops_jit_wrappers.h"
 
 #ifndef CPU_BENCH_BUILD
 #    define CPU_BENCH_BUILD "standalone"
 #endif
 enum { CODE_SIZE = 1024 * 1024, CHUNK_SIZE = 4096, RAM_SIZE = 16 * 1024 * 1024,
-       MAX_CASES = 16384, MAX_SAMPLES = 99 };
+       MAX_CASES = 1024, MAX_SAMPLES = 99 };
 enum { MEMORY, INTEGER_ADD, MMX_ADD, SSE_INTEGER, SSE_ADD, SSE_MUL, SSE_ENTRY, EMPTY,
-       INTEGER_XOR, INTEGER_MUL, INTEGER_SHIFT, SSE_SCALAR_ADD, SSE_SHUFFLE, JMP_LOOP, MOVS, MIXED_STORES,
-       FRONTEND_FLAGS, CONDITIONS, CARRY_INCDEC, CMOV_MEMORY, MULTIPLY, DIVIDE, POINTER_CHASE };
+       INTEGER_XOR, INTEGER_MUL, INTEGER_SHIFT, SSE_SCALAR_ADD, SSE_SHUFFLE, JMP_LOOP, MOVS, MIXED_STORES };
 enum { REG_FORM, ABS_FORM, IMM_FORM, SINGLE_FORM, DOUBLE_FORM };
 
 typedef struct {
@@ -55,17 +46,10 @@ typedef struct {
     int lookup_miss, gpr_pressure, simd_pressure, dynamic_top, loop_body;
     unsigned stride, body_ops;
     int address32, backward, phased_stores;
-    int producer, condition, unknown_flags, boundary;
 } bench_case_t;
 
-/* Keep synthetic data/helper placement stable across emitter changes. Small
-   unrelated text/data shifts otherwise change cache-line splits in the test
-   callbacks, obscuring the cost of the generated code we want to compare. */
-_Alignas(64) cpu_state_t cpu_state;
-#define BENCH_CALLBACK __attribute__((aligned(64)))
+cpu_state_t cpu_state;
 uint32_t cr4;
-int tempc;
-uint8_t znptable8[256];
 uint16_t cpu_cur_status;
 int timing_misaligned = 3, cpu_cyrix_alignment;
 uintptr_t readlookup2[2097152], writelookup2[1048576];
@@ -85,11 +69,7 @@ static bench_case_t cases[MAX_CASES];
 static const char *active_case = "initialization";
 static int verifying;
 static unsigned helper_calls;
-static unsigned emitted_uops, emitted_calls, emitted_memory, emitted_barriers, frontend_fallbacks;
-static uint8_t instruction_bytes[8192];
-#ifdef CPU_FASTPATH_TEST
-static int test_fault_access; /* 1: read abort, 2: write abort */
-#endif
+static uint8_t instruction_bytes[4096];
 uint32_t pccache;
 uint8_t *pccache2 = instruction_bytes;
 static const int pressure_regs[] = { IREG_ECX, IREG_EDX, IREG_ESI, IREG_EDI, IREG_EBP, IREG_ESP };
@@ -115,14 +95,9 @@ void codegen_check_seg_read(codeblock_t *block, ir_data_t *ir, x86seg *seg)
     (void) block; (void) ir; (void) seg;
     CHECK(!(cr0 & 1));
 }
-#ifdef BENCH_LEGACY_SEG_WRITE
-void codegen_check_seg_write(codeblock_t *block, ir_data_t *ir, x86seg *seg)
-{
-#else
 void codegen_check_seg_write(codeblock_t *block, ir_data_t *ir, x86seg *seg, int addr_reg, int size)
 {
     (void) addr_reg; (void) size;
-#endif
     codegen_check_seg_read(block, ir, seg);
 }
 void codegen_check_seg_write_abs(codeblock_t *block, ir_data_t *ir, x86seg *seg, uint32_t addr, int size)
@@ -133,10 +108,10 @@ void codegen_check_seg_write_abs(codeblock_t *block, ir_data_t *ir, x86seg *seg,
 x86seg *codegen_generate_ea(ir_data_t *ir, x86seg *seg, uint32_t fetchdat, int ssegs,
                           uint32_t *pc, uint32_t op32, int offset)
 {
-    /* These fixtures supply the ModR/M [EAX] form directly. */
-    CHECK((fetchdat & 0xc7) == 0 && (op32 & 0x200));
-    uop_MOV(ir, IREG_eaaddr, IREG_EAX);
-    return &cpu_state.seg_ds;
+    (void) ir; (void) seg; (void) fetchdat; (void) ssegs;
+    (void) pc; (void) op32; (void) offset;
+    fatal("unexpected generic effective-address decoder call\n");
+    return NULL;
 }
 
 void x86illegal(void) { fatal("unexpected #UD\n"); }
@@ -176,7 +151,6 @@ static uint8_t *start_code(void)
 {
     bench_block.head_mem_block = codegen_allocator_allocate(NULL, 0);
     block_write_data = codeblock_allocator_get_ptr(bench_block.head_mem_block);
-    bench_block.data = block_write_data;
     block_pos = 0;
     return block_write_data;
 }
@@ -189,12 +163,6 @@ static uint64_t access_memory(uint32_t addr, uint64_t value, unsigned size, int 
         helper_calls++;
         CHECK(addr <= RAM_SIZE - size);
     }
-#ifdef CPU_FASTPATH_TEST
-    if (test_fault_access == (store ? 2 : 1)) {
-        cpu_state.abrt = 14;
-        return 0;
-    }
-#endif
     if (addr & (size - 1))
         cycles = (int32_t) ((uint32_t) cycles - timing_misaligned);
     if (store)
@@ -205,73 +173,20 @@ static uint64_t access_memory(uint32_t addr, uint64_t value, unsigned size, int 
     }
     return value;
 }
-BENCH_CALLBACK uint8_t readmembl(uint32_t addr) { return access_memory(addr, 0, 1, 0); }
-BENCH_CALLBACK uint16_t readmemwl(uint32_t addr) { return access_memory(addr, 0, 2, 0); }
-BENCH_CALLBACK uint32_t readmemll(uint32_t addr) { return access_memory(addr, 0, 4, 0); }
-BENCH_CALLBACK uint64_t readmemql(uint32_t addr) { return access_memory(addr, 0, 8, 0); }
-BENCH_CALLBACK void writemembl(uint32_t addr, uint8_t value) { access_memory(addr, value, 1, 1); }
-BENCH_CALLBACK void writememwl(uint32_t addr, uint16_t value) { access_memory(addr, value, 2, 1); }
-BENCH_CALLBACK void writememll(uint32_t addr, uint32_t value) { access_memory(addr, value, 4, 1); }
-BENCH_CALLBACK void writememql(uint32_t addr, uint64_t value) { access_memory(addr, value, 8, 1); }
+uint8_t readmembl(uint32_t addr) { return access_memory(addr, 0, 1, 0); }
+uint16_t readmemwl(uint32_t addr) { return access_memory(addr, 0, 2, 0); }
+uint32_t readmemll(uint32_t addr) { return access_memory(addr, 0, 4, 0); }
+uint64_t readmemql(uint32_t addr) { return access_memory(addr, 0, 8, 0); }
+void writemembl(uint32_t addr, uint8_t value) { access_memory(addr, value, 1, 1); }
+void writememwl(uint32_t addr, uint16_t value) { access_memory(addr, value, 2, 1); }
+void writememll(uint32_t addr, uint32_t value) { access_memory(addr, value, 4, 1); }
+void writememql(uint32_t addr, uint64_t value) { access_memory(addr, value, 8, 1); }
 
 const uOpFn uop_handlers[UOP_MAX] = {
-#ifdef CODEGEN_BACKEND_HAS_DIVMOD
-    [UOP_DIVMOD & UOP_MASK] = codegen_DIVMOD,
-    [UOP_DIV_RESULT & UOP_MASK] = codegen_DIV_RESULT,
-#endif
-#ifdef CODEGEN_BACKEND_HAS_CMP_SLT
-    [UOP_CMP_SLT & UOP_MASK] = codegen_CMP_SLT,
-#endif
-#ifdef CODEGEN_BACKEND_HAS_CMP_Z
-    [UOP_CMP_Z & UOP_MASK] = codegen_CMP_Z,
-#endif
-#ifdef CODEGEN_BACKEND_HAS_OVERFLOW
-    [UOP_OVERFLOW & UOP_MASK] = codegen_OVERFLOW,
-#endif
-    [UOP_CMP_JO_DEST & UOP_MASK] = codegen_CMP_JO_DEST,
-    [UOP_CMP_JNO_DEST & UOP_MASK] = codegen_CMP_JNO_DEST,
-#ifdef CODEGEN_BACKEND_HAS_CMOV_Z
-    [UOP_CMOV_Z & UOP_MASK] = codegen_CMOV_Z,
-#endif
-#ifdef CODEGEN_BACKEND_HAS_PARITY
-    [UOP_PARITY & UOP_MASK] = codegen_PARITY,
-    [UOP_PARITY_JUMP & UOP_MASK] = codegen_PARITY_JUMP,
-#endif
-    [UOP_MOVSX & UOP_MASK] = codegen_MOVSX,
-    [UOP_SAR_IMM & UOP_MASK] = codegen_SAR_IMM,
-    [UOP_AND & UOP_MASK] = codegen_AND,
-    [UOP_UMUL & UOP_MASK] = codegen_UMUL,
-    [UOP_UMUL_HI & UOP_MASK] = codegen_UMUL_HI,
-    [UOP_IMUL & UOP_MASK] = codegen_IMUL,
-    [UOP_IMUL_HI & UOP_MASK] = codegen_IMUL_HI,
-    [UOP_UDIV_CHECK & UOP_MASK] = codegen_UDIV_CHECK,
-    [UOP_IDIV_CHECK & UOP_MASK] = codegen_IDIV_CHECK,
-    [UOP_UDIV & UOP_MASK] = codegen_UDIV,
-    [UOP_UMOD & UOP_MASK] = codegen_UMOD,
-    [UOP_IDIV & UOP_MASK] = codegen_IDIV,
-    [UOP_IMOD & UOP_MASK] = codegen_IMOD,
-    [UOP_CMP_IMM_JZ_DEST & UOP_MASK] = codegen_CMP_IMM_JZ_DEST,
-#ifdef CODEGEN_BACKEND_HAS_CMP_ULT
-    [UOP_CMP_ULT & UOP_MASK] = codegen_CMP_ULT,
-#endif
     [UOP_MOV & UOP_MASK] = codegen_MOV,
     [UOP_MOV_IMM & UOP_MASK] = codegen_MOV_IMM,
     [UOP_MOV_PTR & UOP_MASK] = codegen_MOV_PTR,
     [UOP_CALL_FUNC & UOP_MASK] = codegen_CALL_FUNC,
-    [UOP_CALL_FUNC_RESULT & UOP_MASK] = codegen_CALL_FUNC_RESULT,
-    [UOP_MOVZX & UOP_MASK] = codegen_MOVZX,
-    [UOP_ADD & UOP_MASK] = codegen_ADD,
-    [UOP_SUB & UOP_MASK] = codegen_SUB,
-    [UOP_SUB_IMM & UOP_MASK] = codegen_SUB_IMM,
-    [UOP_XOR & UOP_MASK] = codegen_XOR,
-    [UOP_OR & UOP_MASK] = codegen_OR,
-    [UOP_SHR_IMM & UOP_MASK] = codegen_SHR_IMM,
-    [UOP_CMOVNZ & UOP_MASK] = codegen_CMOVNZ,
-    [UOP_CMP_JB & UOP_MASK] = codegen_CMP_JB,
-    [UOP_CMP_JNBE & UOP_MASK] = codegen_CMP_JNBE,
-    [UOP_MOVZX_REG_PTR_8 & UOP_MASK] = codegen_MOVZX_REG_PTR_8,
-    [UOP_MOVZX_REG_PTR_16 & UOP_MASK] = codegen_MOVZX_REG_PTR_16,
-    [UOP_MOV_REG_PTR & UOP_MASK] = codegen_MOV_REG_PTR,
     [UOP_ADD_IMM & UOP_MASK] = codegen_ADD_IMM,
     [UOP_XOR_IMM & UOP_MASK] = codegen_XOR_IMM,
     [UOP_IMUL_IMM & UOP_MASK] = codegen_IMUL_IMM,
@@ -310,8 +225,6 @@ static bench_case_t *add_case(const char *name, int kind)
     return c;
 }
 
-#include "cpu_microbench_cases.h"
-
 static void make_cases(void)
 {
     static const char *locations[] = { "aligned", "unaligned", "cacheline-split", "page-end", "page-split", "lookup-miss" };
@@ -319,14 +232,6 @@ static void make_cases(void)
     static const uint32_t working_sets[] = { 32768, 1024 * 1024, RAM_SIZE };
     char name[128];
     add_case("control/empty-block", EMPTY);
-    /* These use instruction translators, including lazy flags and C-call
-       barriers. Backend-only ADD/IMUL cases cannot measure that overhead. */
-    const char *flag_cases[] = { "cmp32-adc32", "cmp32-sbb32", "add32-adc32",
-                                "cmp32-setb", "cmp32-setbe", "cmp32-cmovb32" };
-    for (unsigned i = 0; i < sizeof(flag_cases) / sizeof(flag_cases[0]); i++) {
-        snprintf(name, sizeof(name), "frontend/%s", flag_cases[i]);
-        add_case(name, FRONTEND_FLAGS)->form = i;
-    }
     for (int store = 0; store < 2; store++) {
         for (int size = 1; size <= 16; size *= 2) {
             for (int location = 0; location < 6; location++) {
@@ -481,8 +386,7 @@ static void make_cases(void)
                     c->address32 = a32;
                     c->backward = backward;
                     c->lookup_miss = miss;
-    }
-    make_extended_cases();
+                }
 }
 
 static int memory_reg(const bench_case_t *c)
@@ -493,11 +397,6 @@ static int memory_reg(const bench_case_t *c)
 
 static void emit_memory(ir_data_t *ir, const bench_case_t *c)
 {
-    if (c->boundary == 1) {
-        int jump = uop_CMP_IMM_JNZ_DEST(ir, IREG_EAX, 0);
-        uop_set_jump_dest(ir, jump);
-    } else if (c->boundary == 2)
-        uop_CALL_FUNC(ir, bench_barrier);
     int reg = memory_reg(c);
     if (c->entry_checks) uop_SSE_ENTER(ir);
     if (c->form == ABS_FORM) {
@@ -528,11 +427,6 @@ static void emit_memory(ir_data_t *ir, const bench_case_t *c)
 
 static void prepare_codegen(void)
 {
-    for (unsigned i = 0; i < 256; i++) {
-        unsigned ones = 0;
-        for (unsigned v = i; v; v >>= 1) ones += v & 1;
-        znptable8[i] = (i == 0 ? Z_FLAG : 0) | (i & 0x80 ? N_FLAG : 0) | (ones & 1 ? 0 : P_FLAG);
-    }
     next_chunk = 0;
     memset(&bench_block, 0, sizeof(bench_block));
     start_code();
@@ -551,15 +445,12 @@ static void flush_code(void)
 #endif
 }
 
-static __attribute__((noinline, aligned(64))) void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned *work_ops, unsigned *copies))(void)
+static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned *work_ops, unsigned *copies))(void)
 {
     next_chunk = first_codegen_chunk;
     memset(&bench_block, 0, sizeof(bench_block));
-    start_code();
+    uint8_t *entry = start_code();
     codegen_reg_reset();
-    cpu_block_end = 0;
-    codegen_flags_changed = 0;
-    frontend_fallbacks = 0;
     ir_data_t *ir = codegen_ir_init();
     bench_block.flags = CODEBLOCK_HAS_FPU | (c->dynamic_top ? 0 : CODEBLOCK_STATIC_TOP);
     bench_block.TOP = cpu_state.TOP;
@@ -580,33 +471,7 @@ static __attribute__((noinline, aligned(64))) void (*compile_case(const bench_ca
     for (unsigned i = 0; i < (c->kind == EMPTY ? 0 : body_ops); i++) {
         int r = i % c->live_regs;
         switch (c->kind) {
-            case CONDITIONS: case CARRY_INCDEC: case CMOV_MEMORY: case MULTIPLY: case DIVIDE: case POINTER_CHASE:
-                emit_extended(ir, c, i);
-                if (cpu_block_end) body_ops = i + 1;
-                break;
             case MEMORY: emit_memory(ir, c); break;
-            case FRONTEND_FLAGS:
-                if (c->form == 2)
-                    ropADD_l_rm(&bench_block, ir, 0x03, 0xc1, 0x300, 0x101); /* ADD EAX,ECX */
-                else
-                    ropCMP_l_rm(&bench_block, ir, 0x3b, 0xc1, 0x300, 0x101); /* CMP EAX,ECX */
-                /* The emulator interprets each instruction while translating;
-                   reproduce only its flags-producer metadata here. */
-                cpu_state.flags_op = c->form == 2 ? FLAGS_ADD32 : FLAGS_SUB32;
-                if (c->form == 0 || c->form == 2)
-                    ropADC_l_rm(&bench_block, ir, 0x13, 0xda, 0x300, 0x103); /* ADC EBX,EDX */
-                else if (c->form == 1)
-                    ropSBB_l_rm(&bench_block, ir, 0x1b, 0xda, 0x300, 0x103);
-                else if (c->form == 3)
-                    ropSETB(&bench_block, ir, 0x92, 0xc3, 0x300, 0x103);
-                else if (c->form == 4)
-                    ropSETBE(&bench_block, ir, 0x96, 0xc3, 0x300, 0x103);
-                else
-                    ropCMOVB_l(&bench_block, ir, 0x42, 0xda, 0x300, 0x103);
-                /* Like the decoder, stop at the allocator's version/refcount
-                   limit. The reported operation count uses the actual pairs. */
-                if (cpu_block_end) body_ops = i + 1;
-                break;
             case MIXED_STORES: {
                 /* Changing guest/host mappings generates distinct snapshots,
                    unlike a repeated load with one stable allocator state. */
@@ -673,38 +538,15 @@ static __attribute__((noinline, aligned(64))) void (*compile_case(const bench_ca
     }
     *copies = codegen_unroll_count ? codegen_unroll_count : 1;
     *work_ops = c->kind == EMPTY ? 1 : body_ops * *copies;
-    emitted_uops = ir->wr_pos;
-    emitted_calls = emitted_memory = emitted_barriers = 0;
-    for (int i = 0; i < ir->wr_pos; i++) {
-        unsigned type = ir->uops[i].type;
-        emitted_calls += (type & UOP_MASK) == (UOP_CALL_FUNC & UOP_MASK)
-                      || (type & UOP_MASK) == (UOP_CALL_FUNC_RESULT & UOP_MASK);
-        /* Use the same accounting on revisions predating UOP_TYPE_MEM. */
-        switch (type & UOP_MASK) {
-            case UOP_MEM_LOAD_ABS & UOP_MASK: case UOP_MEM_LOAD_REG & UOP_MASK:
-            case UOP_MEM_STORE_ABS & UOP_MASK: case UOP_MEM_STORE_REG & UOP_MASK:
-            case UOP_MEM_STORE_IMM_8 & UOP_MASK: case UOP_MEM_STORE_IMM_16 & UOP_MASK:
-            case UOP_MEM_STORE_IMM_32 & UOP_MASK: case UOP_MEM_LOAD_SINGLE & UOP_MASK:
-            case UOP_MEM_LOAD_DOUBLE & UOP_MASK: case UOP_MEM_STORE_SINGLE & UOP_MASK:
-            case UOP_MEM_STORE_DOUBLE & UOP_MASK:
-                emitted_memory++;
-        }
-        emitted_barriers += !!(type & (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER));
-    }
     codegen_ir_compile(ir, &bench_block);
     /* Allocated payload, including unused tails, excludes the shared helpers. */
     *jit_bytes = (next_chunk - first_codegen_chunk - 1) * MEM_BLOCK_SIZE + block_pos;
-    /* The dispatcher enters through data, which can follow a compacted
-       prologue inside the first allocator chunk. */
-    return (void (*)(void)) bench_block.data;
+    return (void (*)(void)) entry;
 }
 
 static void reset_state(const bench_case_t *c, int timed)
 {
     memset(&cpu_state, 0, sizeof(cpu_state));
-    /* MOVS now emits the production segment-limit checks. Give the fixture
-       valid segments instead of relying on those checks being absent. */
-    cpu_state.seg_ds.limit_high = cpu_state.seg_es.limit_high = cpu_state.seg_ss.limit_high = UINT32_MAX;
     cr4 = CR4_OSFXSR;
     cpu_state.old_fp_control = 0x1f80;
     cpu_state.new_fp_control = 0x1f80;
@@ -716,7 +558,6 @@ static void reset_state(const bench_case_t *c, int timed)
         for (int lane = 0; lane < 4; lane++)
             cpu_state.XMM[i].l[lane] = 0x12345678 + i + lane;
     }
-    reset_extended(c);
     if (c->kind == MEMORY) {
         EAX = c->address;
         EBX = 0x12345678;
@@ -738,7 +579,6 @@ static void reset_state(const bench_case_t *c, int timed)
 static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned work_ops)
 {
     memset(memory, 0xa5, sizeof(memory));
-    if (c->kind == POINTER_CHASE) prepare_chase(c);
     reset_state(c, 0);
     if (c->kind == MOVS) {
         for (unsigned i = 0; i < 4096; i++) memory[i] = (uint8_t) (i ^ (i >> 8));
@@ -810,8 +650,6 @@ static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned wo
             }
             CHECK(helper_calls == 0);
         }
-    } else if (c->kind >= CONDITIONS) {
-        validate_extended(c, &expected, work_ops);
     } else if (c->kind == MOVS) {
         int step = c->backward ? -c->size : c->size;
         CHECK(ESI == c->address + work_ops * step && EDI == ESI + 4096);
@@ -843,26 +681,6 @@ static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned wo
         CHECK(!memcmp(cpu_state.MM, expected.MM, sizeof(expected.MM)));
         CHECK(helper_calls == (c->lookup_miss ? block_ops : 0));
         CHECK(cycles == expected._cycles - c->cached_cycles * 2);
-    } else if (c->kind == FRONTEND_FLAGS) {
-        for (unsigned i = 0; i < work_ops; i++) {
-            uint32_t a = expected.regs[0].l, b = expected.regs[1].l;
-            unsigned carry;
-            if (c->form == 2) {
-                uint64_t sum = (uint64_t) a + b;
-                expected.regs[0].l = (uint32_t) sum;
-                carry = sum >> 32;
-            } else
-                carry = a < b;
-            if (c->form == 0 || c->form == 2)
-                expected.regs[3].l += expected.regs[2].l + carry;
-            else if (c->form == 1)
-                expected.regs[3].l -= expected.regs[2].l + carry;
-            else if (c->form == 3 || c->form == 4)
-                expected.regs[3].b.l = c->form == 3 ? carry : a <= b;
-            else if (carry)
-                expected.regs[3].l = expected.regs[2].l;
-        }
-        CHECK(!memcmp(cpu_state.regs, expected.regs, sizeof(expected.regs)));
     } else if (c->kind == JMP_LOOP) {
         for (unsigned i = 0; i < work_ops; i++) {
             if (c->loop_body)
@@ -916,20 +734,16 @@ static double now_ns(void)
 #endif
 }
 
-/* Keep one consistently aligned timing loop in both builds. Inlining it into
-   calibration but not sampling, or changing its cache-line offset when JIT
-   code grows, otherwise confounds these very short generated blocks. Keep
-   entry/writeback/exit costs; never subtract an empty-loop result. */
-static __attribute__((noinline, aligned(64))) double
-measure(void (*entry)(void), unsigned iterations)
+/* Keep the call boundary in the measurement: real blocks also have entry,
+   register load/writeback and exit costs. Never subtract an empty-loop result. */
+static double measure(void (*entry)(void), unsigned iterations)
 {
     double begin = now_ns();
     for (unsigned i = 0; i < iterations; i++) entry();
     return now_ns() - begin;
 }
 
-static __attribute__((noinline, aligned(64))) double
-measure_compilation(const bench_case_t *c, unsigned iterations)
+static double measure_compilation(const bench_case_t *c, unsigned iterations)
 {
     unsigned bytes, ops, copies;
     double begin = now_ns();
@@ -960,9 +774,6 @@ static void load_baseline(const char *path)
     unsigned ops, iterations, samples, matched = 0;
     double median;
     while (fgets(line, sizeof(line), f)) {
-        unsigned requested;
-        if (sscanf(line, "# block_ops=%u;", &requested) == 1 && requested != block_ops)
-            fatal("baseline requested block size differs\n");
         if (line[0] == '#' && strstr(line, "measure=compile"))
             fatal("cannot use a compilation baseline for execution timings\n");
         if (line[0] == '#' || !strncmp(line, "case,", 5)) continue;
@@ -970,8 +781,7 @@ static void load_baseline(const char *path)
             !isfinite(median) || median <= 0) fatal("invalid baseline row\n");
         for (unsigned i = 0; i < case_count; i++) {
             if (strcmp(name, cases[i].name)) continue;
-            if (cases[i].kind == FRONTEND_FLAGS ? (!ops || ops > block_ops)
-                : cases[i].kind != JMP_LOOP && ops != (cases[i].kind == EMPTY ? 1 : block_ops))
+            if (cases[i].kind != JMP_LOOP && ops != (cases[i].kind == EMPTY ? 1 : block_ops))
                 fatal("baseline block size differs for %s\n", name);
             if (baseline[i]) fatal("duplicate baseline row for %s\n", name);
             baseline[i] = median;
@@ -1005,19 +815,18 @@ int main(int argc, char **argv)
 {
     unsigned samples = 21, sample_ms = 75, warmup_ms = 100;
     const char *filter = "", *exact_case = NULL, *csv_path = NULL, *baseline_path = NULL;
-    int list = 0, validate_only = 0, affinity_cpu = -1;
+    int list = 0, affinity_cpu = -1;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--help")) {
             puts("cpu_microbench [--filter substring] [--samples 3..99] [--sample-ms 1..1000]\n"
                  "               [--block-ops 1..64] [--csv result.csv] [--baseline old.csv]\n"
                  "               [--case exact-name] [--warmup-ms 0..5000] [--cpu 0..63 (Windows)]\n"
-                 "               [--list] [--quick] [--validate-only]\n"
+                 "               [--list] [--quick]\n"
                  "               [--measure execute|compile] (compile: ns/block; compile/ cases accept up to 192 ops)\n"
                  "Lower ns/op is better. Positive baseline delta means slower.\n"
                  "Measures generated blocks, not a complete guest CPU or emulated MHz.");
             return 0;
         } else if (!strcmp(argv[i], "--list")) list = 1;
-        else if (!strcmp(argv[i], "--validate-only")) validate_only = 1;
         else if (!strcmp(argv[i], "--quick")) { samples = 3; sample_ms = 1; warmup_ms = 1; }
         else {
             const char *option = argv[i];
@@ -1054,7 +863,6 @@ int main(int argc, char **argv)
         strcpy(c->name, "compile/phased-stores");
     }
     if (measure_compile && baseline_path) fatal("use the paired runner for compilation comparisons\n");
-    if (validate_only && (csv_path || baseline_path)) fatal("validation-only does not produce timings\n");
     unsigned selected = 0;
     for (unsigned i = 0; i < case_count; i++) {
         if (!strstr(cases[i].name, filter)) continue;
@@ -1096,7 +904,7 @@ int main(int argc, char **argv)
     if (csv) {
         metadata(csv);
         fprintf(csv, "# samples=%u; target_ms=%u; warmup_ms=%u; affinity_cpu=%d\n", samples, sample_ms, warmup_ms, affinity_cpu);
-        fputs("case,ops_per_block,iterations,samples,median_ns,min_ns,p95_ns,helpers_per_block,jit_bytes,mean_ns,stddev_ns,cv_pct,mad_ns,max_ns,body_ops,unroll_copies,measured_ms,measure,slow_sites,slow_stubs,ir_uops,call_uops,memory_uops,barrier_uops,frontend_fallbacks", csv);
+        fputs("case,ops_per_block,iterations,samples,median_ns,min_ns,p95_ns,helpers_per_block,jit_bytes,mean_ns,stddev_ns,cv_pct,mad_ns,max_ns,body_ops,unroll_copies,measured_ms,measure,slow_sites,slow_stubs", csv);
         for (unsigned i = 0; i < samples; i++) fprintf(csv, ",sample_%u_ns", i + 1);
         fputc('\n', csv);
     }
@@ -1114,12 +922,6 @@ int main(int argc, char **argv)
         void (*entry)(void) = compile_case(c, &jit_bytes, &ops, &copies);
         flush_code();
         unsigned calls = validate(c, entry, ops);
-        if (validate_only) {
-            printf("%s: validated\n", c->name);
-            readlookup2[c->address >> 12] = writelookup2[c->address >> 12] = (uintptr_t) memory;
-            if (c->kind == MOVS) writelookup2[1] = (uintptr_t) memory;
-            continue;
-        }
         unsigned divisor = measure_compile ? 1 : ops;
         int slow_sites = -1, slow_stubs = -1;
 #ifdef CODEGEN_BACKEND_HAS_MEM_STUBS
@@ -1129,8 +931,7 @@ int main(int argc, char **argv)
 #endif
         /* Warm the code/data and calibrate enough work to amortize the timer.
            Reset state outside timing; floating-point timing inputs stay finite. */
-        unsigned minimum_iterations = measure_compile ? 1 : 1024;
-        unsigned iterations = minimum_iterations;
+        unsigned iterations = 1024;
         double elapsed;
         do {
             reset_state(c, 1);
@@ -1139,7 +940,7 @@ int main(int argc, char **argv)
             iterations *= 2;
         } while (1);
         double estimate = ceil(iterations * sample_ms * 1e6 / elapsed);
-        iterations = estimate > (1u << 28) ? (1u << 28) : estimate < minimum_iterations ? minimum_iterations : (unsigned) estimate;
+        iterations = estimate > (1u << 28) ? (1u << 28) : estimate < 1024 ? 1024 : (unsigned) estimate;
         double warm_end = now_ns() + warmup_ms * 1e6;
         do {
             reset_state(c, 1);
@@ -1179,7 +980,6 @@ int main(int argc, char **argv)
             fprintf(csv, ",%.9f,%.9f,%.6f,%.9f,%.9f,%u,%u,%.3f,%s,%d,%d", mean, stddev, stddev / mean * 100,
                     mad, sorted[samples - 1], c->body_ops ? c->body_ops : block_ops, copies, measured_ms,
                     measure_compile ? "compile" : "execute", slow_sites, slow_stubs);
-            fprintf(csv, ",%u,%u,%u,%u,%u", emitted_uops, emitted_calls, emitted_memory, emitted_barriers, frontend_fallbacks);
             for (unsigned s = 0; s < samples; s++) fprintf(csv, ",%.9f", values[s]);
             fputc('\n', csv);
             CHECK(fflush(csv) == 0);
@@ -1198,8 +998,7 @@ int main(int argc, char **argv)
 #else
     CHECK(munmap(code_memory, CODE_SIZE) == 0);
 #endif
-    puts(validate_only ? "All selected cases validated. No timings collected."
-                       : measure_compile ? "All selected cases validated. Compilation timed; execution excluded."
+    puts(measure_compile ? "All selected cases validated. Compilation timed; execution excluded."
                          : "All selected cases validated. Compilation and validation excluded from timings.");
     return 0;
 }

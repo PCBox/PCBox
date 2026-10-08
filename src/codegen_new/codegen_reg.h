@@ -451,9 +451,7 @@ struct ir_data_t;
    IR versions do not affect these backing-state transfers. */
 typedef struct codegen_mem_reg_state_t {
     uint8_t regs[CODEGEN_HOST_REGS + CODEGEN_HOST_FP_REGS];
-    /* The x64 backend has 8 GPRs plus 15 SIMD registers. A 16-bit mask
-       drops the last seven SIMD slots on helper and fault paths. */
-    uint32_t write_mask, reload_mask;
+    uint16_t write_mask, reload_mask;
     uint8_t write_uses_top, reload_uses_top;
 } codegen_mem_reg_state_t;
 
