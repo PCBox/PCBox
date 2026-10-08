@@ -300,15 +300,17 @@ ropLEAVE_16(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), U
 {
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
 
+    /*The stack size, not the operand size, picks SP or ESP*/
     if (stack32) {
         CHECK_STACK_LIMITS(block, ir, IREG_EBP, 2);
         uop_MEM_LOAD_REG(ir, IREG_temp0_W, IREG_SS_base, IREG_EBP);
+        uop_ADD_IMM(ir, IREG_ESP, IREG_EBP, 2);
     } else {
         uop_MOVZX(ir, IREG_eaaddr, IREG_BP);
         CHECK_STACK_LIMITS(block, ir, IREG_eaaddr, 2);
         uop_MEM_LOAD_REG(ir, IREG_temp0_W, IREG_SS_base, IREG_eaaddr);
+        uop_ADD_IMM(ir, IREG_SP, IREG_BP, 2);
     }
-    uop_ADD_IMM(ir, IREG_SP, IREG_BP, 2);
     uop_MOV(ir, IREG_BP, IREG_temp0_W);
 
     return op_pc;
@@ -318,15 +320,17 @@ ropLEAVE_32(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), U
 {
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
 
+    /*The stack size, not the operand size, picks SP or ESP*/
     if (stack32) {
         CHECK_STACK_LIMITS(block, ir, IREG_EBP, 4);
         uop_MEM_LOAD_REG(ir, IREG_temp0, IREG_SS_base, IREG_EBP);
+        uop_ADD_IMM(ir, IREG_ESP, IREG_EBP, 4);
     } else {
         uop_MOVZX(ir, IREG_eaaddr, IREG_BP);
         CHECK_STACK_LIMITS(block, ir, IREG_eaaddr, 4);
         uop_MEM_LOAD_REG(ir, IREG_temp0, IREG_SS_base, IREG_eaaddr);
+        uop_ADD_IMM(ir, IREG_SP, IREG_BP, 4);
     }
-    uop_ADD_IMM(ir, IREG_ESP, IREG_EBP, 4);
     uop_MOV(ir, IREG_EBP, IREG_temp0);
 
     return op_pc;

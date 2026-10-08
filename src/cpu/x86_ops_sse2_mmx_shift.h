@@ -155,12 +155,7 @@ opPSxxQ_xmm_imm(uint32_t fetchdat)
                 }
             }
             break;
-        case 0x20: /*PSRAQ*/
-            if (shift > 63)
-                shift = 63;
-            cpu_state.XMM[reg].sq[0] >>= shift;
-            cpu_state.XMM[reg].sq[1] >>= shift;
-            break;
+        /*There is no PSRAQ: 66 0F 73 /4 is undefined*/
         case 0x30: /*PSLLQ*/
             if (shift > 63) {
                 cpu_state.XMM[reg].q[0] = 0;

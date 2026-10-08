@@ -169,6 +169,29 @@ ropFILDq(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
     return op_pc + 1;
 }
 
+/*ST(0) rounded to 16 bits in IREG_temp0_W. A result outside -32768..32767
+  stores the integer indefinite (0x8000), as the chip does with IE masked, so
+  convert to 32 bits and replace an out-of-range value. Straight-line, as the
+  register allocator can't merge writes from converging paths. Uses
+  IREG_temp0-2.*/
+static void
+fist_w_value(ir_data_t *ir)
+{
+    uop_MOV_INT_DOUBLE(ir, IREG_temp0, IREG_ST(0));
+    /*temp1 = (temp0 + 0x8000) >> 16, zero only when temp0 fits in 16 bits*/
+    uop_ADD_IMM(ir, IREG_temp1, IREG_temp0, 0x8000);
+    uop_SHR_IMM(ir, IREG_temp1, IREG_temp1, 16);
+    /*temp1 = all ones when out of range, else zero*/
+    uop_MOV_IMM(ir, IREG_temp2, 0);
+    uop_SUB(ir, IREG_temp2, IREG_temp2, IREG_temp1);
+    uop_OR(ir, IREG_temp1, IREG_temp1, IREG_temp2);
+    uop_SAR_IMM(ir, IREG_temp1, IREG_temp1, 31);
+    /*temp0 ^= (temp0 ^ 0x8000) & mask*/
+    uop_XOR_IMM(ir, IREG_temp2, IREG_temp0, 0x8000);
+    uop_AND(ir, IREG_temp2, IREG_temp2, IREG_temp1);
+    uop_XOR(ir, IREG_temp0, IREG_temp0, IREG_temp2);
+}
+
 uint32_t
 ropFISTw(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
@@ -179,7 +202,7 @@ ropFISTw(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
     op_pc--;
     target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
     codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 2);
-    uop_MOV_INT_DOUBLE(ir, IREG_temp0_W, IREG_ST(0));
+    fist_w_value(ir);
     uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0_W);
     /* FIST leaves ST(0) where it is: its tag stays as it was. */
 
@@ -195,7 +218,7 @@ ropFISTPw(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
     op_pc--;
     target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
     codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 2);
-    uop_MOV_INT_DOUBLE(ir, IREG_temp0_W, IREG_ST(0));
+    fist_w_value(ir);
     uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0_W);
     uop_MOV_IMM(ir, IREG_tag(0), TAG_EMPTY);
     fpu_POP(block, ir);

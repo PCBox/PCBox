@@ -96,9 +96,8 @@ ropPSxxQ_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
         case 0x10: /*PSRLQ*/
             uop_PSRLQ_IMM(ir, IREG_MM(reg), IREG_MM(reg), shift);
             break;
-        case 0x20: /*PSRAQ*/
-            uop_PSRAQ_IMM(ir, IREG_MM(reg), IREG_MM(reg), shift);
-            break;
+        /*There is no PSRAQ: 0F 73 /4 is undefined, so leave it to the
+          interpreter to raise #UD*/
         case 0x30: /*PSLLQ*/
             uop_PSLLQ_IMM(ir, IREG_MM(reg), IREG_MM(reg), shift);
             break;

@@ -212,6 +212,18 @@ do_seg_v86_init(x86seg *s)
     s->limit_high = 0xffff;
 }
 
+/* Load a null selector the way protected mode does, even while VM is still set. */
+static void
+load_null_seg(x86seg *s)
+{
+    s->seg     = 0;
+    s->access  = 0x80;
+    s->ar_high = 0x10;
+    s->base    = -1;
+    if (s == &cpu_state.seg_ds)
+        cpu_cur_status |= CPU_STATUS_NOTFLATDS;
+}
+
 static void
 check_seg_valid(x86seg *s)
 {
@@ -548,10 +560,6 @@ loadcs(uint16_t seg)
             cpl_override = 0;
         } else {
             /* System segment */
-            if (!(segdat[2] & 0x8000)) {
-                x86np("Load CS system seg not present", seg & 0xfffc);
-                return;
-            }
             switch (segdat[2] & 0x0f00) {
                 default:
                     x86gpf("Load CS system segment has bits 0-3 of access rights set", seg & 0xfffc);
@@ -643,10 +651,6 @@ loadcsjmp(uint16_t seg, uint32_t old_pc)
 #endif
             cycles -= timing_jmp_pm;
         } else { /* System segment */
-            if (!(segdat[2] & 0x8000)) {
-                x86np("Load CS JMP system selector not present", seg & 0xfffc);
-                return;
-            }
             type  = segdat[2] & 0x0f00;
             newpc = segdat[0];
             if (type & 0x0800)
@@ -732,8 +736,12 @@ loadcsjmp(uint16_t seg, uint32_t old_pc)
                     cycles -= timing_jmp_pm_gate;
                     break;
 
-                case 0x100: /* 286 Task gate */
-                case 0x900: /* 386 Task gate */
+                case 0x100: /* 286 TSS */
+                case 0x900: /* 386 TSS */
+                    if (!(segdat[2] & 0x8000)) {
+                        x86np("Load CS JMP TSS not present", seg & 0xfffc);
+                        return;
+                    }
                     cpu_state.pc = old_pc;
                     optype       = JMP;
                     cpl_override = 1;
@@ -743,7 +751,7 @@ loadcsjmp(uint16_t seg, uint32_t old_pc)
                     return;
 
                 default:
-                    x86gpf("Load CS JMP call gate selector unknown type", 0);
+                    x86gpf("Load CS JMP system selector unknown type", seg & 0xfffc);
                     return;
             }
         }
@@ -1722,10 +1730,14 @@ pmodeint(int num, int soft)
                                 }
                                 if (cpu_state.abrt)
                                     return;
-                                op_loadseg(0, &cpu_state.seg_ds);
-                                op_loadseg(0, &cpu_state.seg_es);
-                                op_loadseg(0, &cpu_state.seg_fs);
-                                op_loadseg(0, &cpu_state.seg_gs);
+                                /* The data segment registers are left holding null selectors,
+                                   unusable until protected mode code reloads them. VM is still
+                                   set at this point, so op_loadseg() would instead load them as
+                                   usable V86 segments with a base of 0. */
+                                load_null_seg(&cpu_state.seg_ds);
+                                load_null_seg(&cpu_state.seg_es);
+                                load_null_seg(&cpu_state.seg_fs);
+                                load_null_seg(&cpu_state.seg_gs);
                             }
                             is586 ? PUSHL(oldss) : PUSHL_SEL(oldss);
                             PUSHL(oldsp);

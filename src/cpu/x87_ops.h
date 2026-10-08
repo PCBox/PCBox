@@ -193,45 +193,6 @@ x87_pop(void)
     return t;
 }
 
-static __inline int16_t
-x87_fround16(double b)
-{
-    double da;
-    double dc;
-    int16_t a;
-    int16_t c;
-
-    switch ((cpu_state.npxc >> 10) & 3) {
-        case 0: /*Nearest*/
-            da = floor(b);
-            dc = floor(b + 1.0);
-            a = (int16_t) da;
-            c = (int16_t) dc;
-            if ((b - a) < (c - b))
-                return a;
-            else if ((b - a) > (c - b))
-                return c;
-            else
-                return (a & 1) ? c : a;
-        case 1: /*Down*/
-            da = floor(b);
-            return (int16_t) da;
-        case 2: /*Up*/
-            da = ceil(b);
-            return (int16_t) da;
-        case 3: /*Chop*/
-            return (int16_t) b;
-    }
-
-    return 0;
-}
-
-static __inline int64_t
-x87_fround16_64(double b)
-{
-    return (int64_t) x87_fround16(b);
-}
-
 static __inline int32_t
 x87_fround32(double b)
 {
@@ -320,6 +281,38 @@ x87_fround(double b)
     }
 
     return 0LL;
+}
+
+/*A value outside -32768..32767 after rounding, or a NaN, stores the integer
+  indefinite (0x8000) as the chip does with IE masked. The range is checked on
+  the double first: converting an out-of-range double is undefined on the host.*/
+static __inline int16_t
+x87_fround16(double b)
+{
+    int64_t r;
+
+    if (!((b > -32769.0) && (b < 32768.0)))
+        return (int16_t) 0x8000;
+    r = x87_fround(b);
+    if ((r < -32768) || (r > 32767))
+        return (int16_t) 0x8000;
+    return (int16_t) r;
+}
+
+static __inline int64_t
+x87_fround16_64(double b)
+{
+    return (int64_t) x87_fround16(b);
+}
+
+/*x87_fround16() for FISTTP, which always truncates. Truncation keeps every
+  value in (-32769, 32768) in range.*/
+static __inline int16_t
+x87_ftrunc16(double b)
+{
+    if (!((b > -32769.0) && (b < 32768.0)))
+        return (int16_t) 0x8000;
+    return (int16_t) b;
 }
 
 static __inline double
