@@ -39,25 +39,59 @@ opFNOP(UNUSED(uint32_t fetchdat))
     return 0;
 }
 
+/*ST(1) gets the unbiased exponent and ST(0) the significand, in [1, 2) with
+  the sign kept. A double denormal is normal in the chip's 80-bit registers,
+  so frexp()'s true exponent is the one it reports. Zero gives -infinity and
+  the zero-divide exception, which stores both results even when unmasked;
+  infinity gives +infinity and a NaN propagates to both.*/
 static int
 opFXTRACT(UNUSED(uint32_t fetchdat))
 {
-    x87_conv_t test;
-    int64_t    exp80;
-    int64_t    exp80final;
-    double     mant;
+    double st0;
+    double exponent;
+    double significand;
+    int    e;
 
     FP_ENTER();
     cpu_state.pc++;
-    test.eind.d = ST(0);
-    exp80       = test.eind.ll & 0x7ff0000000000000LL;
-    exp80final  = (exp80 >> 52) - BIAS64;
-    mant        = test.eind.d / exp_pow_table[exp80 >> 52];
-    ST(0)       = (double) exp80final;
+    st0 = ST(0);
+    if (isnan(st0)) {
+        exponent    = st0;
+        significand = st0;
+    } else if (isinf(st0)) {
+        exponent    = INFINITY;
+        significand = st0;
+    } else if (st0 == 0.0) {
+        exponent    = -INFINITY;
+        significand = st0;
+        cpu_state.npxs |= FPU_SW_Zero_Div;
+    } else {
+        significand = frexp(st0, &e) * 2.0;
+        exponent    = (double) (e - 1);
+    }
+    ST(0) = exponent;
     FP_TAG_VALID;
-    x87_push(mant);
+    x87_push(significand);
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fxtract) : (x87_timings.fxtract * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fxtract) : (x87_concurrency.fxtract * cpu_multi));
+    /*Raised as x87_div() raises it.*/
+    if (st0 == 0.0) {
+#ifdef FPU_8087
+        if (!(cpu_state.npxc & (FPU_CW_Zero_Div | 0x80))) {
+            cpu_state.npxs |= 0x80;
+            nmi = 1;
+            return 1;
+        }
+#else
+        if (!(cpu_state.npxc & FPU_CW_Zero_Div)) {
+            if (is486 && (cr0 & 0x20))
+                new_ne = 1;
+            else
+                picint(1 << 13);
+            return 1;
+        }
+#endif
+    }
     return 0;
 }
 
@@ -632,8 +666,11 @@ opFXAM(UNUSED(uint32_t fetchdat))
 #endif
     else switch (fpclassify(ST(0)))
     {
+        /*A double denormal is a normal number in the chip's 80-bit registers,
+          and x87_from80() flushes the 80-bit denormals themselves to zero.*/
         case FP_SUBNORMAL:
-            cpu_state.npxs |= FPU_SW_C2 | FPU_SW_C3;
+        case FP_NORMAL:
+            cpu_state.npxs |= FPU_SW_C2;
             break;
         case FP_NAN:
             cpu_state.npxs |= FPU_SW_C0;
@@ -644,11 +681,9 @@ opFXAM(UNUSED(uint32_t fetchdat))
         case FP_ZERO:
             cpu_state.npxs |= FPU_SW_C3;
             break;
-        case FP_NORMAL:
-            cpu_state.npxs |= FPU_SW_C2;
-            break;
     }
-    if (ST(0) < 0.0)
+    /*The sign bit itself: -0.0 and negative NaNs compare as not below zero.*/
+    if (signbit(ST(0)))
         cpu_state.npxs |= FPU_SW_C1;
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fxam) : (x87_timings.fxam * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fxam) : (x87_concurrency.fxam * cpu_multi));
@@ -828,22 +863,56 @@ opFINCSTP(UNUSED(uint32_t fetchdat))
     return 0;
 }
 
+/*FPREM truncates the quotient and FPREM1 rounds it to nearest; the remainder
+  is exact either way, as fmod() and remquo() give it. C0, C3 and C1 take the
+  low three bits of the quotient's magnitude. An exponent difference of 64 or
+  more is reduced only partly, by a multiple of 32 bits as the chip does, with
+  C2 set so the guest loops again (the quotient bits are then undefined).*/
+static __inline void
+x87_fprem(int nearest)
+{
+    double st0 = ST(0);
+    double st1 = ST(1);
+    double r;
+    int    quo = 0;
+    int    q;
+
+    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);
+    if (isfinite(st0) && isfinite(st1) && (st0 != 0.0) && (st1 != 0.0) && ((ilogb(st0) - ilogb(st1)) >= 64)) {
+        ST(0) = fmod(st0, ldexp(st1, ((ilogb(st0) - ilogb(st1)) & ~31) - 32));
+        cpu_state.npxs |= FPU_SW_C2;
+        return;
+    }
+
+    r = remquo(st0, st1, &quo);
+    q = (quo < 0) ? -quo : quo;
+    if (!nearest) {
+        double rn = r;
+
+        r = fmod(st0, st1);
+        /*Rounding to nearest went one further from zero than truncating; only
+          the low bits are kept, so this wraps 0 to 7 as it should.*/
+        if (r != rn)
+            q--;
+    }
+    if (isnan(r))
+        q = 0;
+    ST(0) = r;
+    if (q & 4)
+        cpu_state.npxs |= FPU_SW_C0;
+    if (q & 2)
+        cpu_state.npxs |= FPU_SW_C3;
+    if (q & 1)
+        cpu_state.npxs |= FPU_SW_C1;
+}
+
 static int
 opFPREM(UNUSED(uint32_t fetchdat))
 {
-    int64_t temp64;
     FP_ENTER();
     cpu_state.pc++;
-    temp64 = (int64_t) (ST(0) / ST(1));
-    ST(0)  = ST(0) - (ST(1) * (double) temp64);
+    x87_fprem(0);
     FP_TAG_VALID;
-    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);
-    if (temp64 & 4)
-        cpu_state.npxs |= FPU_SW_C0;
-    if (temp64 & 2)
-        cpu_state.npxs |= FPU_SW_C3;
-    if (temp64 & 1)
-        cpu_state.npxs |= FPU_SW_C1;
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fprem) : (x87_timings.fprem * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fprem) : (x87_concurrency.fprem * cpu_multi));
     return 0;
@@ -852,19 +921,10 @@ opFPREM(UNUSED(uint32_t fetchdat))
 static int
 opFPREM1(UNUSED(uint32_t fetchdat))
 {
-    int64_t temp64;
     FP_ENTER();
     cpu_state.pc++;
-    temp64 = (int64_t) (ST(0) / ST(1));
-    ST(0)  = ST(0) - (ST(1) * (double) temp64);
+    x87_fprem(1);
     FP_TAG_VALID;
-    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);
-    if (temp64 & 4)
-        cpu_state.npxs |= FPU_SW_C0;
-    if (temp64 & 2)
-        cpu_state.npxs |= FPU_SW_C3;
-    if (temp64 & 1)
-        cpu_state.npxs |= FPU_SW_C1;
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fprem1) : (x87_timings.fprem1 * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fprem1) : (x87_concurrency.fprem1 * cpu_multi));
     return 0;
@@ -1155,6 +1215,9 @@ FSTENV(void)
             writememl(easeg, cpu_state.eaaddr + 24, cpu_state.fpu_DS);
             break;
     }
+    /*Once stored, the environment's exceptions are all masked.*/
+    if (!cpu_state.abrt)
+        cpu_state.npxc |= FPU_CW_Exceptions_Mask;
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fstenv) : (x87_timings.fstenv * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fstenv) : (x87_concurrency.fstenv * cpu_multi));
     return cpu_state.abrt;

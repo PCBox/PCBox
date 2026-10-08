@@ -322,35 +322,49 @@ FBLD_a32(uint32_t fetchdat)
 }
 #endif
 
+/*FBSTP's store: ST(0) rounded by RC to an 18-digit packed BCD integer, the
+  sign in the top bit of byte 9. Out of range, an infinity or a NaN stores the
+  BCD indefinite (FFFF C000 0000 0000 0000) and sets IE, as with IE masked.*/
+static __inline void
+x87_fbstp(void)
+{
+    double   st0     = ST(0);
+    int      invalid = 1;
+    uint64_t lo      = 0xc000000000000000ULL;
+    uint16_t hi      = 0xffff;
+
+    /*Checked on the double first: x87_fround() must stay in int64 range.*/
+    if (fabs(st0) < 1e18) {
+        int64_t  r   = x87_fround(st0);
+        uint64_t mag = (r < 0) ? -(uint64_t) r : (uint64_t) r;
+
+        if (mag <= 999999999999999999ULL) {
+            invalid = 0;
+            lo      = 0;
+            for (int i = 0; i < 16; i++) {
+                lo |= (mag % 10) << (i * 4);
+                mag /= 10;
+            }
+            hi = (uint16_t) ((mag % 10) | ((mag / 10) << 4));
+            if (signbit(st0))
+                hi |= 0x8000;
+        }
+    }
+    writememl(easeg, cpu_state.eaaddr, lo & 0xffffffff);
+    writememl(easeg, cpu_state.eaaddr + 4, lo >> 32);
+    writememw(easeg, cpu_state.eaaddr + 8, hi);
+    if (invalid && !cpu_state.abrt)
+        cpu_state.npxs |= FPU_SW_Invalid;
+}
+
 static int
 FBSTP_a16(UNUSED(uint32_t fetchdat))
 {
-    double  dt;
-    double tempd;
-    int    c;
     FP_ENTER();
     fetch_ea_16(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
     CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
-    tempd = ST(0);
-    if (tempd < 0.0)
-        tempd = -tempd;
-    for (c = 0; c < 9; c++) {
-        dt = floor(fmod(tempd, 10.0));
-        uint8_t tempc = (uint8_t) dt;
-        tempd -= floor(fmod(tempd, 10.0));
-        tempd /= 10.0;
-        dt = floor(fmod(tempd, 10.0));
-        tempc |= ((uint8_t) dt) << 4;
-        tempd -= floor(fmod(tempd, 10.0));
-        tempd /= 10.0;
-        writememb(easeg, cpu_state.eaaddr + c, tempc);
-    }
-    dt = floor(fmod(tempd, 10.0));
-    tempc = (uint8_t) dt;
-    if (ST(0) < 0.0)
-        tempc |= 0x80;
-    writememb(easeg, cpu_state.eaaddr + 9, tempc);
+    x87_fbstp();
     if (cpu_state.abrt)
         return 1;
     x87_pop();
@@ -362,28 +376,11 @@ FBSTP_a16(UNUSED(uint32_t fetchdat))
 static int
 FBSTP_a32(uint32_t fetchdat)
 {
-    double tempd;
-    int    c;
     FP_ENTER();
     fetch_ea_32(fetchdat);
     SEG_CHECK_WRITE(cpu_state.ea_seg);
     CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + 9UL);
-    tempd = ST(0);
-    if (tempd < 0.0)
-        tempd = -tempd;
-    for (c = 0; c < 9; c++) {
-        uint8_t tempc = (uint8_t) floor(fmod(tempd, 10.0));
-        tempd -= floor(fmod(tempd, 10.0));
-        tempd /= 10.0;
-        tempc |= ((uint8_t) floor(fmod(tempd, 10.0))) << 4;
-        tempd -= floor(fmod(tempd, 10.0));
-        tempd /= 10.0;
-        writememb(easeg, cpu_state.eaaddr + c, tempc);
-    }
-    tempc = (uint8_t) floor(fmod(tempd, 10.0));
-    if (ST(0) < 0.0)
-        tempc |= 0x80;
-    writememb(easeg, cpu_state.eaaddr + 9, tempc);
+    x87_fbstp();
     if (cpu_state.abrt)
         return 1;
     x87_pop();

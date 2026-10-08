@@ -648,7 +648,7 @@ flags_res_valid(void)
 {
     if ((cpu_state.flags_op == FLAGS_UNKNOWN) || ((cpu_state.flags_op >= FLAGS_ROL8) && (cpu_state.flags_op <= FLAGS_ROR32))
         || (cpu_state.flags_op == FLAGS_MUL8) || (cpu_state.flags_op == FLAGS_MUL16) || (cpu_state.flags_op == FLAGS_MUL32)
-        || (cpu_state.flags_op == FLAGS_IMUL16) || (cpu_state.flags_op == FLAGS_IMUL32))
+        || (cpu_state.flags_op == FLAGS_IMUL8) ||(cpu_state.flags_op == FLAGS_IMUL16) || (cpu_state.flags_op == FLAGS_IMUL32))
         return 0;
 
     return 1;
