@@ -430,9 +430,10 @@ opENTER_w(uint32_t fetchdat)
     int instr_cycles = 0;
 #endif
     uint16_t tempw;
+    uint32_t walk;
 
     offset = getwordf();
-    count  = (fetchdat >> 16) & 0xff;
+    count  = (fetchdat >> 16) & 0x1f; /*The nesting level is taken mod 32*/
     cpu_state.pc++;
     tempEBP = EBP;
     tempESP = ESP;
@@ -441,12 +442,14 @@ opENTER_w(uint32_t fetchdat)
     if (cpu_state.abrt)
         return 1;
     frame_ptr = ESP;
+    walk      = stack32 ? EBP : BP;
 
     if (count > 0) {
         while (--count) {
-            BP -= 2;
-            if (!stack_cr(BP, 2))
-                tempw = readmemw(ss, BP);
+            /*The stack size, not the operand size, picks BP or EBP*/
+            walk = stack32 ? (walk - 2) : ((walk - 2) & 0xffff);
+            if (!stack_cr(walk, 2))
+                tempw = readmemw(ss, walk);
             if (cpu_state.abrt) {
                 ESP = tempESP;
                 EBP = tempEBP;
@@ -509,9 +512,10 @@ opENTER_l(uint32_t fetchdat)
     int instr_cycles = 0;
 #endif
     uint32_t templ;
+    uint32_t walk;
 
     offset = getwordf();
-    count  = (fetchdat >> 16) & 0xff;
+    count  = (fetchdat >> 16) & 0x1f; /*The nesting level is taken mod 32*/
     cpu_state.pc++;
     tempEBP = EBP;
     tempESP = ESP;
@@ -520,12 +524,14 @@ opENTER_l(uint32_t fetchdat)
     if (cpu_state.abrt)
         return 1;
     frame_ptr = ESP;
+    walk      = stack32 ? EBP : BP;
 
     if (count > 0) {
         while (--count) {
-            EBP -= 4;
-            if (!stack_cr(EBP, 4))
-                templ = readmeml(ss, EBP);
+            /*The stack size, not the operand size, picks BP or EBP*/
+            walk = stack32 ? (walk - 4) : ((walk - 4) & 0xffff);
+            if (!stack_cr(walk, 4))
+                templ = readmeml(ss, walk);
             if (cpu_state.abrt) {
                 ESP = tempESP;
                 EBP = tempEBP;

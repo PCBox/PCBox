@@ -315,20 +315,22 @@
         return 1;                                                                                                                                                        \
     }
 
-#define CHECK_WRITE_REP(chseg, low, high)                                        \
-    if ((low < (chseg)->limit_low) || (high > (chseg)->limit_high)) {            \
-        if ((chseg) == &cpu_state.seg_ss)                                        \
-            x86ss(NULL, 0);                                                      \
-        else                                                                     \
-            x86gpf("Limit check (WRITE REP)", 0);                                \
-        break;                                                                   \
-    }                                                                            \
-    if (msw & 1 && !(cpu_state.eflags & VM_FLAG) && !((chseg)->access & 0x80)) { \
-        if ((chseg) == &cpu_state.seg_ss)                                        \
-            x86ss(NULL, (chseg)->seg & 0xfffc);                                  \
-        else                                                                     \
-            x86np("Write (REP) to seg not present", (chseg)->seg & 0xfffc);      \
-        break;                                                                   \
+/*As CHECK_WRITE_COMMON: a read-only data segment or a code segment refuses
+  the write as well as an out-of-limit address.*/
+#define CHECK_WRITE_REP(chseg, low, high)                                                                                                                                \
+    if ((low < (chseg)->limit_low) || (high > (chseg)->limit_high) || !((chseg)->access & 2) || ((msw & 1) && !(cpu_state.eflags & VM_FLAG) && ((chseg)->access & 8))) { \
+        if ((chseg) == &cpu_state.seg_ss)                                                                                                                                \
+            x86ss(NULL, 0);                                                                                                                                              \
+        else                                                                                                                                                             \
+            x86gpf("Limit check (WRITE REP)", 0);                                                                                                                        \
+        break;                                                                                                                                                           \
+    }                                                                                                                                                                    \
+    if (msw & 1 && !(cpu_state.eflags & VM_FLAG) && !((chseg)->access & 0x80)) {                                                                                         \
+        if ((chseg) == &cpu_state.seg_ss)                                                                                                                                \
+            x86ss(NULL, (chseg)->seg & 0xfffc);                                                                                                                          \
+        else                                                                                                                                                             \
+            x86np("Write (REP) to seg not present", (chseg)->seg & 0xfffc);                                                                                              \
+        break;                                                                                                                                                           \
     }
 
 #define NOTRM                                         \

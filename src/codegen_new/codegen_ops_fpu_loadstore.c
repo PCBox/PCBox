@@ -53,11 +53,16 @@ ropFLDd(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
     return op_pc + 1;
 }
 
+/*Narrowing to single precision rounds by RC, which the host conversion
+  doesn't follow: leave directed modes to the interpreter, as the arithmetic
+  ops do (RC != nearest is part of the block key).*/
 uint32_t
 ropFSTs(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     x86seg *target_seg;
 
+    if ((cpu_state.npxc >> 10) & 3)
+        return 0;
     uop_FP_ENTER(ir);
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
     op_pc--;
@@ -72,6 +77,8 @@ ropFSTPs(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
 {
     x86seg *target_seg;
 
+    if ((cpu_state.npxc >> 10) & 3)
+        return 0;
     uop_FP_ENTER(ir);
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
     op_pc--;

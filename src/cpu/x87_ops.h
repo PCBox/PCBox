@@ -315,6 +315,36 @@ x87_ftrunc16(double b)
     return (int16_t) b;
 }
 
+/*b narrowed to single precision as FST m32 stores it, rounded by RC rather
+  than the host's mode. The nearest single is one of the two around b, so a
+  directed mode at most steps it once; this also covers overflow (infinity
+  steps back to the largest finite value) and underflow.*/
+static __inline float
+x87_fround_single(double b)
+{
+    float f = (float) b;
+
+    if (isnan(b) || ((double) f == b))
+        return f;
+
+    switch ((cpu_state.npxc >> 10) & 3) {
+        case 1: /*Down*/
+            if ((double) f > b)
+                f = nextafterf(f, -INFINITY);
+            break;
+        case 2: /*Up*/
+            if ((double) f < b)
+                f = nextafterf(f, INFINITY);
+            break;
+        case 3: /*Chop*/
+            if (fabs((double) f) > fabs(b))
+                f = nextafterf(f, 0.0f);
+            break;
+    }
+
+    return f;
+}
+
 static __inline double
 x87_ld80(void)
 {
