@@ -2533,7 +2533,9 @@ codegen_ADDPS(codeblock_t *block, uop_t *uop)
     if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b)) {
         if (dest_reg != src_reg_a)
             host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        codegen_load_guest_sse_rounding(block);
         host_x86_ADDPS_XREG_XREG(block, dest_reg, src_reg_b);
+        host_x86_LDMXCSR(block, &cpu_state.old_fp_control);
     }
 #    ifdef RECOMPILER_DEBUG
     else
@@ -2555,7 +2557,9 @@ codegen_ADDPD(codeblock_t *block, uop_t *uop)
     if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b)) {
         if (dest_reg != src_reg_a)
             host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        codegen_load_guest_sse_rounding(block);
         host_x86_ADDPD_XREG_XREG(block, dest_reg, src_reg_b);
+        host_x86_LDMXCSR(block, &cpu_state.old_fp_control);
     }
 #    ifdef RECOMPILER_DEBUG
     else
@@ -2577,7 +2581,9 @@ codegen_ADDSS(codeblock_t *block, uop_t *uop)
     if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b)) {
         if (dest_reg != src_reg_a)
             host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        codegen_load_guest_sse_rounding(block);
         host_x86_ADDSS_XREG_XREG(block, dest_reg, src_reg_b);
+        host_x86_LDMXCSR(block, &cpu_state.old_fp_control);
     }
 #    ifdef RECOMPILER_DEBUG
     else
@@ -2599,7 +2605,9 @@ codegen_ADDSD(codeblock_t *block, uop_t *uop)
     if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && (REG_IS_DQ(src_size_b) || REG_IS_Q(src_size_b))) {
         if (dest_reg != src_reg_a)
             host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        codegen_load_guest_sse_rounding(block);
         host_x86_ADDSD_XREG_XREG(block, dest_reg, src_reg_b);
+        host_x86_LDMXCSR(block, &cpu_state.old_fp_control);
     }
 #    ifdef RECOMPILER_DEBUG
     else
@@ -2621,7 +2629,9 @@ codegen_SSE_ARITH(codeblock_t *block, uop_t *uop, void (*host_func)(codeblock_t 
     if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && (REG_IS_DQ(src_size_b) || (allow_q_src && REG_IS_Q(src_size_b)))) {
         if (dest_reg != src_reg_a)
             host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        codegen_load_guest_sse_rounding(block);
         host_func(block, dest_reg, src_reg_b);
+        host_x86_LDMXCSR(block, &cpu_state.old_fp_control);
     }
 #    ifdef RECOMPILER_DEBUG
     else
@@ -2818,7 +2828,11 @@ codegen_SQRTPS(codeblock_t *block, uop_t *uop)
     int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
 
     if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size))
+    {
+        codegen_load_guest_sse_rounding(block);
         host_x86_SQRTPS_XREG_XREG(block, dest_reg, src_reg);
+        host_x86_LDMXCSR(block, &cpu_state.old_fp_control);
+    }
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("SQRTPS %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
@@ -2841,7 +2855,11 @@ codegen_RCPPS(codeblock_t *block, uop_t *uop)
     int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
 
     if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size))
+    {
+        codegen_load_guest_sse_rounding(block);
         host_x86_RCPPS_XREG_XREG(block, dest_reg, src_reg);
+        host_x86_LDMXCSR(block, &cpu_state.old_fp_control);
+    }
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("RCPPS %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
@@ -2864,7 +2882,11 @@ codegen_RSQRTPS(codeblock_t *block, uop_t *uop)
     int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
 
     if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size))
+    {
+        codegen_load_guest_sse_rounding(block);
         host_x86_RSQRTPS_XREG_XREG(block, dest_reg, src_reg);
+        host_x86_LDMXCSR(block, &cpu_state.old_fp_control);
+    }
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("RSQRTPS %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);

@@ -35,8 +35,12 @@ opAAM(uint32_t fetchdat)
 {
     int base = getbytef();
 
-    if (!base || !cpu_isintel)
+    if (!cpu_isintel)
         base = 10;
+    if (!base) {
+        x86_int(0); /*#DE, as a divide by zero*/
+        return 1;
+    }
     AH = AL / base;
     AL %= base;
     setznp8(AL);
