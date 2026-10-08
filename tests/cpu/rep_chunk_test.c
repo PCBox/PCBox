@@ -28,6 +28,7 @@ cpu_state_t cpu_state;
 int is386 = 1, is486 = 1, cpu_use_dynarec = 1, trap, cpu_block_end;
 uint32_t dr[8], addr64, addr64_2, addr64a[8], addr64a_2[8];
 uint8_t high_page;
+int is_compare;
 static int fopcode;
 static int checkio(uint32_t port, int mask);
 uintptr_t readlookup2[2097152], writelookup2[1048576];
@@ -63,6 +64,7 @@ static void map_page(uint32_t linear, uint32_t backing, int mode)
     page_mode[page] = mode;
     readlookup2[page] = mode == RAM || mode == TRACKED || mode == WRITE_FAULT
                            ? (uintptr_t) (memory + backing) - linear : LOOKUP_INV;
+    readlookup2[1048576 | page] = readlookup2[page];
     writelookup2[page] = mode == RAM || mode == READ_FAULT
                             ? (uintptr_t) (memory + backing) - linear : LOOKUP_INV;
     page_lookup[page] = mode == TRACKED ? &tracked_page : NULL;
@@ -91,7 +93,7 @@ static void warm_page(uint32_t linear, int write)
     if (page_mode[page] != COLD)
         return;
     uintptr_t base = (uintptr_t) (memory + physical_page[page]) - (linear & ~0xfffu);
-    uintptr_t *lookup = write ? &writelookup2[page] : &readlookup2[page];
+    uintptr_t *lookup = write ? &writelookup2[page] : &readlookup2[page | (is_compare ? 1048576 : 0)];
     if (*lookup == (uintptr_t) LOOKUP_INV) {
         *lookup = base;
         cycles -= 9; /* addreadlookup/addwritelookup charge */
@@ -122,6 +124,15 @@ uint32_t readmemll_no_mmut(uint32_t a, uint32_t *p) { (void) p; return read_slow
 void writemembl_no_mmut(uint32_t a, uint32_t p, uint8_t v) { (void) p; write_slow(a, v, 1); }
 void writememwl_no_mmut(uint32_t a, uint32_t *p, uint16_t v) { (void) p; write_slow(a, v, 2); }
 void writememll_no_mmut(uint32_t a, uint32_t *p, uint32_t v) { (void) p; write_slow(a, v, 4); }
+static uint32_t load(uint32_t a, unsigned width)
+{
+    uint32_t translated[4];
+    do_mmutranslate(a, translated, width, 0);
+    return cpu_state.abrt ? 0 : read_slow(a, width);
+}
+uint8_t readmembl(uint32_t a) { return load(a, 1); }
+uint16_t readmemwl(uint32_t a) { return load(a, 2); }
+uint32_t readmemll(uint32_t a) { return load(a, 4); }
 static void store(uint32_t a, uint32_t v, unsigned width)
 {
     uint32_t translated[4];
@@ -161,7 +172,7 @@ static void reset(int a32, int backwards, uint32_t source, uint32_t destination,
     ECX = count | (a32 ? 0 : 0xcdef0000);
     cycles = 100000;
     is386 = is486 = cpu_use_dynarec = 1;
-    trap = cpu_block_end = 0;
+    trap = cpu_block_end = is_compare = 0;
     slow_reads = slow_writes = translations = watched = 0;
     fault_address = 0;
     for (unsigned i = 0; i < RAM_SIZE; i++)
@@ -387,6 +398,248 @@ static void test_restart_and_split_faults(void)
             }
 }
 
+static OpFn compare_handlers[2][2][2][3] = {
+    {{{opREP_SCASB_a16_NE, opREP_SCASW_a16_NE, opREP_SCASL_a16_NE},
+      {opREP_SCASB_a16_E, opREP_SCASW_a16_E, opREP_SCASL_a16_E}},
+     {{opREP_SCASB_a32_NE, opREP_SCASW_a32_NE, opREP_SCASL_a32_NE},
+      {opREP_SCASB_a32_E, opREP_SCASW_a32_E, opREP_SCASL_a32_E}}},
+    {{{opREP_CMPSB_a16_NE, opREP_CMPSW_a16_NE, opREP_CMPSL_a16_NE},
+      {opREP_CMPSB_a16_E, opREP_CMPSW_a16_E, opREP_CMPSL_a16_E}},
+     {{opREP_CMPSB_a32_NE, opREP_CMPSW_a32_NE, opREP_CMPSL_a32_NE},
+      {opREP_CMPSB_a32_E, opREP_CMPSW_a32_E, opREP_CMPSL_a32_E}}}
+};
+
+static uint32_t compare_value(uint32_t address, unsigned width)
+{
+    uint32_t value = 0;
+    for (unsigned b = 0; b < width; b++)
+        value |= (uint32_t) memory[physical(address + b)] << (b * 8);
+    return value;
+}
+
+static void compare_pattern(int a32, unsigned width, int equal, uint32_t stop)
+{
+    uint32_t mask = a32 ? UINT32_MAX : 0xffff;
+    uint32_t src = ESI & mask, dst = EDI & mask;
+    int step = cpu_state.flags & D_FLAG ? -(int) width : (int) width;
+    for (uint32_t i = 0; i < (ECX & mask); i++) {
+        uint32_t v = EAX ^ (!equal) ^ (i == stop);
+        for (unsigned b = 0; b < width; b++) {
+            memory[physical(cpu_state.ea_seg->base + src + b)] = EAX >> (b * 8);
+            memory[physical(es + dst + b)] = v >> (b * 8);
+        }
+        src = (src + step) & mask;
+        dst = (dst + step) & mask;
+    }
+}
+
+static void compare_check(int cmps, int a32, unsigned width, int equal,
+                          uint32_t max_done, int abort, int extra_cycles)
+{
+    cpu_state_t before = cpu_state;
+    uint32_t mask = a32 ? UINT32_MAX : 0xffff;
+    uint32_t value_mask = UINT32_MAX >> (32 - width * 8);
+    uint32_t count = ECX & mask, src = ESI & mask, dst = EDI & mask;
+    uint32_t done = 0, lhs = 0, rhs = 0;
+    int z = equal, step = cpu_state.flags & D_FLAG ? -(int) width : (int) width;
+    int cost = cmps ? (is486 ? 7 : 9) : (is486 ? 5 : 8);
+    while (done < max_done && done < count && z == equal) {
+        lhs = cmps ? compare_value(cpu_state.ea_seg->base + src, width) : EAX & value_mask;
+        rhs = compare_value(es + dst, width);
+        z = lhs == rhs;
+        src = (src + step) & mask;
+        dst = (dst + step) & mask;
+        done++;
+    }
+    memcpy(expected, memory, sizeof(memory));
+    int result = compare_handlers[cmps][a32][equal][width == 1 ? 0 : width == 2 ? 1 : 2](0);
+    CHECK(cpu_state.abrt == abort);
+    CHECK(ECX == ((before.regs[1].l & ~mask) | (count - done)));
+    CHECK(EDI == ((before.regs[7].l & ~mask) | dst));
+    CHECK(ESI == (cmps ? ((before.regs[6].l & ~mask) | src) : before.regs[6].l));
+    CHECK(cycles == before._cycles - (int) done * cost - extra_cycles);
+    CHECK(cpu_state.flags == before.flags && cpu_state.eflags == before.eflags);
+    CHECK(EAX == before.regs[0].l && is_compare == 0);
+    if (done) {
+        CHECK(cpu_state.flags_op == (width == 1 ? FLAGS_SUB8 : width == 2 ? FLAGS_SUB16 : FLAGS_SUB32));
+        CHECK(cpu_state.flags_op1 == lhs && cpu_state.flags_op2 == rhs);
+        CHECK(cpu_state.flags_res == ((lhs - rhs) & value_mask));
+    } else {
+        CHECK(cpu_state.flags_op == before.flags_op && cpu_state.flags_op1 == before.flags_op1);
+        CHECK(cpu_state.flags_op2 == before.flags_op2 && cpu_state.flags_res == before.flags_res);
+    }
+    int restart = count > done && z == equal && !(cmps && abort);
+    CHECK(cpu_block_end == restart);
+    CHECK(cpu_state.pc == (restart ? before.oldpc : before.pc));
+    CHECK(result == (restart || abort ? 1 : 0));
+    CHECK(memcmp(expected, memory, sizeof(memory)) == 0);
+    checks++;
+}
+
+static void test_comparisons(void)
+{
+    const uint32_t counts[] = {0, 1, 2, 7, 8, 16, 200, 201, 202, 257};
+    const uint32_t stops[] = {0, 1, 7, 15, 199, 200, 201, UINT32_MAX};
+    for (int cmps = 0; cmps < 2; cmps++)
+        for (int a32 = 0; a32 < 2; a32++)
+            for (int back = 0; back < 2; back++)
+                for (unsigned width = 1; width <= 4; width *= 2)
+                    for (int equal = 0; equal < 2; equal++) {
+                        for (unsigned c = 0; c < sizeof(counts) / sizeof(counts[0]); c++)
+                            for (unsigned stop = 0; stop < sizeof(stops) / sizeof(stops[0]); stop++)
+                                for (int old_cpu = 0; old_cpu < 2; old_cpu++) {
+                                    active_case = "CMPS/SCAS stop position and cycle budget";
+                                    reset(a32, back, 0x4800, 0x8800, counts[c]);
+                                    compare_pattern(a32, width, equal, stops[stop]);
+                                    is486 = !old_cpu;
+                                    compare_check(cmps, a32, width, equal, cmps ? 1 : 1000 / (is486 ? 5 : 8) + 1, 0, 0);
+                                }
+                        for (int mode = 0; mode < 7; mode++) {
+                            active_case = "CMPS/SCAS fallback and restart";
+                            reset(a32, back, 0x4800 + (mode == 2), 0x8800 + (mode == 2), 32);
+                            compare_pattern(a32, width, equal, 29);
+                            if (mode == 1 || mode == 3) {
+                                map_page(0x4000, 0x4000, mode == 1 ? MMIO : COLD);
+                                map_page(0x8000, 0x8000, mode == 1 ? MMIO : COLD);
+                            }
+                            if (mode == 4) dr[7] = 1;
+                            if (mode == 5) trap = 1;
+                            if (mode == 6) cpu_state.flags |= T_FLAG;
+                            int first = 1;
+                            do {
+                                cpu_state.pc = 0x1237;
+                                cpu_block_end = 0;
+                                compare_check(cmps, a32, width, equal, cmps || trap ? 1 : 201, 0,
+                                              first && mode == 3 ? (cmps ? 18 : 9) : 0);
+                                first = 0;
+                            } while (cpu_block_end);
+                            CHECK((ECX & (a32 ? UINT32_MAX : 0xffff)) == 2);
+                            if (mode == 4) CHECK(watched > 0);
+                            if (mode == 1) CHECK(slow_reads > 0);
+                        }
+                        active_case = "CMPS/SCAS non-flat segments and source override";
+                        reset(a32, back, 0x4800, 0x8800, 32);
+                        cpu_state.seg_fs = cpu_state.seg_ds;
+                        cpu_state.ea_seg = &cpu_state.seg_fs;
+                        cpu_state.seg_fs.base = 0x10000;
+                        cpu_state.seg_es.base = 0x20000;
+                        compare_pattern(a32, width, equal, UINT32_MAX);
+                        compare_check(cmps, a32, width, equal, cmps ? 1 : 201, 0, 0);
+                        if (cmps) {
+                            active_case = "CMPS uses the source cache independently of the primary cache";
+                            reset(a32, back, 0x4800, 0x8800, 32);
+                            compare_pattern(a32, width, equal, UINT32_MAX);
+                            readlookup2[4] = LOOKUP_INV;
+                            compare_check(1, a32, width, equal, 1, 0, 0);
+                            CHECK(translations == 0 && slow_reads == 0);
+                            reset(a32, back, 0x4800, 0x8800, 32);
+                            compare_pattern(a32, width, equal, UINT32_MAX);
+                            page_mode[4] = COLD;
+                            readlookup2[1048576 | 4] = LOOKUP_INV;
+                            compare_check(1, a32, width, equal, 1, 0, 9);
+                            CHECK(readlookup2[1048576 | 4] != (uintptr_t) LOOKUP_INV);
+                        }
+                        active_case = "CMPS/SCAS page and address-size wrap";
+                        uint32_t start = back ? 4 * width : (a32 ? 0u : 0x10000u) - 4 * width;
+                        reset(a32, back, 0x4800, start, 16);
+                        compare_pattern(a32, width, equal, UINT32_MAX);
+                        do {
+                            cpu_state.pc = 0x1237;
+                            cpu_block_end = 0;
+                            compare_check(cmps, a32, width, equal, cmps ? 1 : 201, 0, 0);
+                        } while (cpu_block_end);
+                    }
+}
+
+static void test_comparison_faults(void)
+{
+    for (int cmps = 0; cmps < 2; cmps++)
+        for (int a32 = 0; a32 < 2; a32++)
+            for (int back = 0; back < 2; back++)
+                for (unsigned width = 1; width <= 4; width *= 2)
+                    for (int equal = 0; equal < 2; equal++) {
+                        active_case = "SCAS boundary faults preserve the last completed comparison";
+                        if (!cmps) {
+                            for (int page = 0; page < 2; page++) {
+                                uint32_t dst = back ? 0x8000 + 7 * width : 0x9000 - 8 * width;
+                                reset(a32, back, 0x4800, dst, 32);
+                                compare_pattern(a32, width, equal, UINT32_MAX);
+                                if (page) map_page(back ? 0x7000 : 0x9000, 0x9000, READ_FAULT);
+                                else if (back) cpu_state.seg_es.limit_low = 0x8000;
+                                else cpu_state.seg_es.limit_high = 0x8fff;
+                                compare_check(0, a32, width, equal, 8, page ? ABRT_PF : ABRT_GPF, 0);
+                            }
+                        }
+                        active_case = "CMPS/SCAS first-element faults leave flags and count intact";
+                        for (int fault = 0; fault < 4; fault++) {
+                            reset(a32, back, 0x4800, 0x8800, 32);
+                            if (fault == 0) cpu_state.seg_es.base = UINT32_MAX;
+                            if (fault == 1) cpu_state.seg_es.access &= ~0x80;
+                            if (fault == 2) map_page(0x8000, 0x8000, READ_FAULT);
+                            if (fault == 3) {
+                                if (width == 1) continue;
+                                EDI = (EDI & 0xffff0000) | 0x8fff;
+                                map_page(0x9000, 0x9000, READ_FAULT);
+                            }
+                            compare_check(cmps, a32, width, equal, 0,
+                                          fault == 0 ? ABRT_GPF : fault == 1 ? ABRT_NP : ABRT_PF, 0);
+                        }
+                        if (cmps) {
+                            active_case = "CMPS checks destination before source and reads neither on fault";
+                            reset(a32, back, 0x4800, 0x8800, 32);
+                            map_page(0x4000, 0x4000, READ_FAULT);
+                            map_page(0x8000, 0x8000, READ_FAULT);
+                            compare_check(1, a32, width, equal, 0, ABRT_PF, 0);
+                            CHECK(fault_address == 0x8800 && slow_reads == 0);
+                            reset(a32, back, 0x4800, 0x8800, 32);
+                            map_page(0x4000, 0x4000, READ_FAULT);
+                            map_page(0x8000, 0x8000, MMIO);
+                            compare_check(1, a32, width, equal, 0, ABRT_PF, 0);
+                            CHECK(fault_address == 0x4800 && slow_reads == 0);
+                        }
+                    }
+}
+
+static void benchmark_comparisons(int selected)
+{
+    const unsigned lengths[] = {1, 16, 256, 4096};
+    int case_id = 0;
+    puts("operation,width,direction,equal,kind,count,ns_per_element");
+    for (int cmps = 0; cmps < 2; cmps++)
+        for (unsigned width = 1; width <= 4; width *= 2)
+            for (int back = 0; back < 2; back++)
+                for (int equal = 0; equal < 2; equal++)
+                    for (unsigned c = 0; c < 6; c++) {
+                        if (selected >= 0 && case_id++ != selected) continue;
+                        unsigned count = c < 4 ? lengths[c] : 256;
+                        unsigned misalign = c == 4 && width > 1;
+                        reset(1, back, 0x8800 + misalign, 0x18800 + misalign, count);
+                        compare_pattern(1, width, equal, UINT32_MAX);
+                        if (c == 5) {
+                            for (unsigned a = 0x4000; a < 0x10000; a += 4096) map_page(a, a, MMIO);
+                            for (unsigned a = 0x14000; a < 0x20000; a += 4096) map_page(a, a, MMIO);
+                        }
+                        OpFn fn = compare_handlers[cmps][1][equal][width == 1 ? 0 : width == 2 ? 1 : 2];
+                        uint64_t iterations = 0;
+                        clock_t start = clock(), elapsed;
+                        do {
+                            for (int i = 0; i < 128; i++) {
+                                ESI = 0x8800 + misalign;
+                                EDI = 0x18800 + misalign;
+                                ECX = count;
+                                cycles = 100000;
+                                do { fn(0); } while (ECX);
+                                iterations++;
+                            }
+                            elapsed = clock() - start;
+                        } while (elapsed < CLOCKS_PER_SEC / 10);
+                        printf("%s,%u,%s,%u,%s,%u,%.4f\n", cmps ? "cmps" : "scas", width,
+                               back ? "backward" : "forward", equal,
+                               c == 4 ? "unaligned" : c == 5 ? "mmio" : "ram", count,
+                               (double) elapsed * 1e9 / CLOCKS_PER_SEC / iterations / count);
+                    }
+}
+
 static void benchmark(void)
 {
     const unsigned lengths[] = {1, 16, 256, 4096};
@@ -465,6 +718,12 @@ int main(int argc, char **argv)
         benchmark_fallbacks();
         return 0;
     }
+    if ((argc == 2 || argc == 3) && !strcmp(argv[1], "--bench-compare")) {
+        benchmark_comparisons(argc == 3 ? atoi(argv[2]) : -1);
+        return 0;
+    }
+    test_comparisons();
+    test_comparison_faults();
     test_matrix();
     test_boundaries();
     test_fallbacks();

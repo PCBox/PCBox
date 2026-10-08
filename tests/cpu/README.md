@@ -591,3 +591,69 @@ application builds. Local binaries, source diffs, raw samples and comparisons
 are under `build/compile-cost-20261008/`: `zero-compare/` holds the retained
 builds, `compile/` and `execute/` the screens, and `followup-compile/` and
 `followup-execute/` the longer repeats.
+
+## Narrow conditions and REP scans (2026-10-08)
+
+Five separate changes extend the x86-64 paths above:
+
+- Byte/word unsigned and signed conditions use native comparisons.
+- Known parity uses host PF for SETcc, CMOV and JP/JNP.
+- Register CMOVE/CMOVNE consumes the lazy result directly. Memory operands keep
+  the previous path: fusing those too caused a repeatable RAM slowdown, despite
+  producing less code. Their loads remain unconditional.
+- Known ADD/INC/SUB/DEC overflow uses host arithmetic. ADC/SBB and unknown flags
+  retain their helper paths. Byte operands use the low bytes of dword register
+  allocations to avoid forcing both lazy operands into legacy byte registers.
+- SCAS batches cached RAM comparisons within the original cycle budget, page,
+  segment and address-size bounds. CMPS retains its one-element service boundary
+  and uses its separate source cache without setting `is_compare` on RAM hits.
+
+Each JIT comparison uses the commit immediately before that change, the same
+fixture and GCC 15.2.0 `-O2 -march=x86-64` builds on the Ryzen 9 9950X, CPU 4.
+Screens use 32 operations per block, two counterbalanced rounds, eleven 30 ms
+samples and 40 ms warmup. These are selected microbenchmarks, not whole-VM gains.
+
+| Change | Sampled execution time | Sampled compilation time |
+|---|---|---|
+| Narrow comparisons | Byte cases 10-21% lower; word cases roughly unchanged | 24-31% lower |
+| Known parity | 48-77% lower | 15-43% lower |
+| Register zero CMOV | Dword cases 30% lower; word cases roughly unchanged | 16-19% lower |
+| Known overflow | 61-87% lower | Word/dword cases 20-37% lower; byte cases 10-17% higher |
+
+The overflow byte compilation regression is a real tradeoff, despite removing
+helper calls and reducing emitted code. Longer repeats use fifteen 75 ms samples
+and 100 ms warmup. They confirm the execution gains and the byte CMP compilation
+regression; the byte ADD compilation timing remains noisier. The unchanged RAM
+load128 compilation control is about 3% higher in the repeat and does not meet
+the consistency threshold. Unknown-overflow execution remains unchanged.
+
+Local source snapshots, binaries, raw samples and rejected variants are under
+`build/five-optimizations-20261008/`. The retained JIT comparisons are `1-narrow/`,
+`2-parity/`, `3-cmov-register/` and `4-overflow-dword/`; the last directory also
+contains the longer `followup-compile/` and `followup-execute/` comparisons.
+
+The REP fixture adds `--bench-compare [case-index]`: 144 SCAS/CMPS combinations
+cover byte/word/dword, both directions and repeat conditions, short and long RAM
+ranges, unaligned accesses and MMIO. An optional zero-based case index allows
+baseline/current execution to be paired per case instead of timing the entire
+baseline matrix before the current one. The REP baseline is `c6d902e2a`, with
+identical fixtures and `-O2` builds. Results are under `5-rep/`.
+
+The retained REP run (`paired-v2-comparison.csv`) pairs each selected case before
+moving to the next, with four rounds, alternating executable order, 100 ms per
+case and CPU 4 affinity. Medians across both repeat conditions, widths and
+directions reduce SCAS time by 53% for 16-element RAM scans and 76% for 4,096
+items. Single-element SCAS remains unchanged. CMPS RAM medians improve 3-4%;
+its main benefit is removing source-cache bookkeeping from the common path,
+not batching guest instructions. MMIO medians remain within 1%. No case in the
+paired screen regresses by more than 5% in every round. The `unaligned` byte
+case is naturally aligned; exclude it when assessing word/dword fallbacks.
+
+All ten CPU suites pass after each change and on the final merged tree. The
+final runs include 8,781,856 fast-path executions and 15,916 REP cases. REP checks
+cover stop positions, both directions, address-size wrap, non-flat segments,
+independent source/destination read caches, cold lookups, MMIO, watchpoints,
+traps, page/segment faults, restart PCs, lazy flags and exact cycle accounting.
+All 4,357 JIT benchmark cases validate at block sizes one, 32 and 64. The full
+Windows application builds. Whole-VM throughput and other host ABIs were not
+measured.

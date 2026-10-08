@@ -552,6 +552,28 @@
         return cpu_state.abrt;                                                                                    \
     }
 
+/* SCAS already loops within one handler invocation. CMPS deliberately keeps
+   its one-comparison return to the CPU loop and only speeds up cached reads. */
+#define REP_SCAS_CHUNK(width, CNT_REG, DEST_REG, FV)                               \
+    if (chunk_tries && CNT_REG >= 8) {                                            \
+        uint32_t done = rep_scas_chunk(CNT_REG, DEST_REG,                          \
+                            sizeof(CNT_REG) == 2 ? 0xffff : UINT32_MAX,            \
+                            width, FV, cycles_end);                               \
+        if (done) {                                                              \
+            chunk_tries = 2;                                                     \
+            uint32_t delta = done * width;                                        \
+            if (cpu_state.flags & D_FLAG)                                        \
+                delta = -delta;                                                  \
+            DEST_REG += delta;                                                   \
+            CNT_REG -= done;                                                     \
+            tempz = !!ZF_SET();                                                  \
+            if (cycles < cycles_end)                                             \
+                break;                                                           \
+            continue;                                                            \
+        }                                                                        \
+        chunk_tries--;                                                           \
+    }
+
 #define REP_OPS_CMPS_SCAS(size, CNT_REG, SRC_REG, DEST_REG, FV)                                                   \
     static int opREP_CMPSB_##size(UNUSED(uint32_t fetchdat))                                                      \
     {                                                                                                             \
@@ -577,9 +599,7 @@
                 return 1;                                                                                         \
                                                                                                                   \
             temp = readmemb_n(es, DEST_REG, addr64);                                                              \
-            is_compare = 1;                                                                                       \
-            temp2 = readmemb_n2(cpu_state.ea_seg->base, SRC_REG, addr64_2);                                       \
-            is_compare = 0;                                                                                       \
+            temp2 = rep_cmps_read(SRC_REG, 1, &addr64_2);                                                        \
                                                                                                                   \
             if (cpu_state.flags & D_FLAG) {                                                                       \
                 DEST_REG--;                                                                                       \
@@ -625,9 +645,7 @@
                 return 1;                                                                                         \
                                                                                                                   \
             temp = readmemw_n(es, DEST_REG, addr64a);                                                             \
-            is_compare = 1;                                                                                       \
-            temp2 = readmemw_n2(cpu_state.ea_seg->base, SRC_REG, addr64a_2);                                      \
-            is_compare = 0;                                                                                       \
+            temp2 = rep_cmps_read(SRC_REG, 2, addr64a_2);                                                        \
                                                                                                                   \
             if (cpu_state.flags & D_FLAG) {                                                                       \
                 DEST_REG -= 2;                                                                                    \
@@ -673,9 +691,7 @@
                 return 1;                                                                                         \
                                                                                                                   \
             temp = readmeml_n(es, DEST_REG, addr64a);                                                             \
-            is_compare = 1;                                                                                       \
-            temp2 = readmeml_n2(cpu_state.ea_seg->base, SRC_REG, addr64a_2);                                      \
-            is_compare = 0;                                                                                       \
+            temp2 = rep_cmps_read(SRC_REG, 4, addr64a_2);                                                        \
                                                                                                                   \
             if (cpu_state.flags & D_FLAG) {                                                                       \
                 DEST_REG -= 4;                                                                                    \
@@ -699,12 +715,14 @@
                                                                                                                   \
     static int opREP_SCASB_##size(UNUSED(uint32_t fetchdat))                                                      \
     {                                                                                                             \
+        int chunk_tries = 2;                                                                                     \
         int tempz;                                                                                                \
         int cycles_end = cycles - 1000;                                                                           \
         if (trap)                                                                                                 \
             cycles_end = cycles + 1; /*Force the instruction to end after only one iteration when trap flag set*/ \
         tempz = FV;                                                                                               \
         while ((CNT_REG > 0) && (FV == tempz)) {                                                                  \
+            REP_SCAS_CHUNK(1, CNT_REG, DEST_REG, FV)                                                             \
             SEG_CHECK_READ_REP(&cpu_state.seg_es);                                                                \
             CHECK_READ_REP(&cpu_state.seg_es, DEST_REG, DEST_REG);                                                \
             uint8_t temp = readmemb(es, DEST_REG);                                                                \
@@ -731,12 +749,14 @@
     }                                                                                                             \
     static int opREP_SCASW_##size(UNUSED(uint32_t fetchdat))                                                      \
     {                                                                                                             \
+        int chunk_tries = 2;                                                                                     \
         int tempz;                                                                                                \
         int cycles_end = cycles - 1000;                                                                           \
         if (trap)                                                                                                 \
             cycles_end = cycles + 1; /*Force the instruction to end after only one iteration when trap flag set*/ \
         tempz = FV;                                                                                               \
         while ((CNT_REG > 0) && (FV == tempz)) {                                                                  \
+            REP_SCAS_CHUNK(2, CNT_REG, DEST_REG, FV)                                                             \
             SEG_CHECK_READ_REP(&cpu_state.seg_es);                                                                \
             CHECK_READ_REP(&cpu_state.seg_es, DEST_REG, DEST_REG + 1UL);                                          \
             uint16_t temp = readmemw(es, DEST_REG);                                                               \
@@ -763,12 +783,14 @@
     }                                                                                                             \
     static int opREP_SCASL_##size(UNUSED(uint32_t fetchdat))                                                      \
     {                                                                                                             \
+        int chunk_tries = 2;                                                                                     \
         int tempz;                                                                                                \
         int cycles_end = cycles - 1000;                                                                           \
         if (trap)                                                                                                 \
             cycles_end = cycles + 1; /*Force the instruction to end after only one iteration when trap flag set*/ \
         tempz = FV;                                                                                               \
         while ((CNT_REG > 0) && (FV == tempz)) {                                                                  \
+            REP_SCAS_CHUNK(4, CNT_REG, DEST_REG, FV)                                                             \
             SEG_CHECK_READ_REP(&cpu_state.seg_es);                                                                \
             CHECK_READ_REP(&cpu_state.seg_es, DEST_REG, DEST_REG + 3UL);                                          \
             uint32_t temp = readmeml(es, DEST_REG);                                                               \
@@ -801,6 +823,7 @@ REP_OPS_CMPS_SCAS(a16_NE, CX, SI, DI, 0)
 REP_OPS_CMPS_SCAS(a16_E, CX, SI, DI, 1)
 REP_OPS_CMPS_SCAS(a32_NE, ECX, ESI, EDI, 0)
 REP_OPS_CMPS_SCAS(a32_E, ECX, ESI, EDI, 1)
+#undef REP_SCAS_CHUNK
 
 static int
 opREPNE(uint32_t fetchdat)
