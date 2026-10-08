@@ -222,6 +222,9 @@ const uOpFn uop_handlers[UOP_MAX] = {
 #ifdef CODEGEN_BACKEND_HAS_CMP_SLT
     [UOP_CMP_SLT & UOP_MASK] = codegen_CMP_SLT,
 #endif
+#ifdef CODEGEN_BACKEND_HAS_CMP_Z
+    [UOP_CMP_Z & UOP_MASK] = codegen_CMP_Z,
+#endif
     [UOP_MOVSX & UOP_MASK] = codegen_MOVSX,
     [UOP_SAR_IMM & UOP_MASK] = codegen_SAR_IMM,
     [UOP_AND & UOP_MASK] = codegen_AND,

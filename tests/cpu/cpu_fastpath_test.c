@@ -230,6 +230,89 @@ static void test_signed_conditions(void)
 #endif
 }
 
+static void test_zero_conditions(void)
+{
+    static const struct { int op; unsigned bits; int materialized; } producers[] = {
+        {FLAGS_ZN8, 8}, {FLAGS_ZN16, 16}, {FLAGS_ZN32, 32},
+        {FLAGS_ADD8, 8}, {FLAGS_ADD16, 16}, {FLAGS_ADD32, 32},
+        {FLAGS_SUB8, 8}, {FLAGS_SUB16, 16}, {FLAGS_SUB32, 32},
+        {FLAGS_INC8, 8}, {FLAGS_INC16, 16}, {FLAGS_INC32, 32},
+        {FLAGS_DEC8, 8}, {FLAGS_DEC16, 16}, {FLAGS_DEC32, 32},
+        {FLAGS_SHL8, 8}, {FLAGS_SHL16, 16}, {FLAGS_SHL32, 32},
+        {FLAGS_SHR8, 8}, {FLAGS_SHR16, 16}, {FLAGS_SHR32, 32},
+        {FLAGS_SAR8, 8}, {FLAGS_SAR16, 16}, {FLAGS_SAR32, 32},
+        {FLAGS_ADC8, 8}, {FLAGS_ADC16, 16}, {FLAGS_ADC32, 32},
+        {FLAGS_SBC8, 8}, {FLAGS_SBC16, 16}, {FLAGS_SBC32, 32},
+        {FLAGS_SHRD16, 16}, {FLAGS_SHRD32, 32},
+        {FLAGS_UNKNOWN, 32, 1}, {FLAGS_ROL32, 32, 1}, {FLAGS_ROR32, 32, 1},
+        {FLAGS_MUL32, 32, 1}, {FLAGS_IMUL32, 32, 1}
+    };
+    for (unsigned p = 0; p < sizeof(producers) / sizeof(producers[0]); p++)
+        for (int known = 0; known < 2; known++)
+            for (int invert = 0; invert < 2; invert++)
+                for (int form = 0; form < 4; form++) {
+                    ir_data_t *ir = begin_test("zero conditions");
+                    codegen_flags_changed = known;
+                    cpu_state.flags_op = producers[p].op;
+                    if (form < 2)
+                        bench_setcc[4 + invert](&bench_block, ir, 0, form ? 0xc7 : 0xc3, 0x300, 0x101);
+                    else
+                        bench_cmov[form - 2][4 + invert](&bench_block, ir, 0, 0xda, 0x300, 0x101);
+                    jit_fn entry = finish_test(ir);
+                    for (unsigned i = 0; i < 256; i++) {
+                        uint32_t result = i % 4 == 0 ? 0 : i % 4 == 1 ? 1u << (producers[p].bits - 1)
+                                                                    : random_u32();
+                        result &= UINT32_MAX >> (32 - producers[p].bits);
+                        cpu_state.flags_res = result;
+                        cpu_state.flags_op1 = 0xdeadbeef;
+                        cpu_state.flags_op2 = 0x12345678;
+                        /* Deliberately disagree with the lazy result on half
+                           the inputs, so stale materialized ZF cannot pass. */
+                        cpu_state.flags = 0x203 | ((i & 1) ? Z_FLAG : 0);
+                        uint16_t old_flags = cpu_state.flags;
+                        unsigned condition = (producers[p].materialized ? (i & 1) : result == 0) ^ invert;
+                        EBX = 0x87654321;
+                        EDX = 0xabcdef12;
+                        uint32_t expected = form == 0 ? (EBX & 0xffffff00) | condition
+                            : form == 1 ? (EBX & 0xffff00ff) | (condition << 8)
+                            : form == 2 ? (condition ? (EBX & 0xffff0000) | (EDX & 0xffff) : EBX)
+                                        : (condition ? EDX : EBX);
+                        entry();
+                        CHECK(EBX == expected && EDX == 0xabcdef12);
+                        CHECK(cpu_state.flags == old_flags && cpu_state.flags_op == producers[p].op);
+                        CHECK(cpu_state.flags_res == result && cpu_state.flags_op1 == 0xdeadbeef
+                              && cpu_state.flags_op2 == 0x12345678);
+                        checks++;
+                    }
+                }
+#ifdef CODEGEN_BACKEND_HAS_CMP_Z
+    /* Check all host byte encodings and dest/source overlap independently
+       of the register allocator's choices in the instruction cases above. */
+    const uint32_t values[] = {0, 1, 0x80000000, UINT32_MAX};
+    for (int d = 0; d < CODEGEN_HOST_REGS; d++)
+        for (int s = 0; s < CODEGEN_HOST_REGS; s++)
+            for (int invert = 0; invert < 2; invert++)
+                for (unsigned v = 0; v < sizeof(values) / sizeof(values[0]); v++) {
+                    begin_test("zero compare aliases");
+                    int dest = codegen_host_reg_list[d].reg, src = codegen_host_reg_list[s].reg;
+                    codegen_backend_prologue(&bench_block);
+                    host_x86_MOV32_REG_IMM(&bench_block, dest, UINT32_MAX);
+                    host_x86_MOV32_REG_IMM(&bench_block, src, values[v]);
+                    uop_t op = {.dest_reg_a_real = dest | IREG_SIZE_L, .src_reg_a_real = src | IREG_SIZE_L,
+                                .imm_data = invert};
+                    codegen_CMP_Z(&bench_block, &op);
+                    host_x86_MOV32_ABS_REG(&bench_block, &EAX, dest);
+                    host_x86_MOV32_ABS_REG(&bench_block, &EBX, src);
+                    codegen_backend_epilogue(&bench_block);
+                    flush_code();
+                    ((jit_fn) bench_block.data)();
+                    CHECK(EAX == (unsigned) ((values[v] == 0) ^ invert));
+                    CHECK(EBX == (src == dest ? EAX : values[v]));
+                    checks++;
+                }
+#endif
+}
+
 static void test_carry_faults(void)
 {
     for (int subtract = 0; subtract <= 1; subtract++) {
@@ -724,6 +807,7 @@ int main(void)
     test_conditions();
     test_adc_sbb();
     test_signed_conditions();
+    test_zero_conditions();
     test_incdec_carry();
     test_cmov_memory();
     test_umul_aliases();

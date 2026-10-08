@@ -548,3 +548,46 @@ Local results, source snapshots and rejected prototypes are under
 `build/mem128-20261007/`. `report.html` summarizes the comparisons;
 `final-v2/` contains the retained binaries, `build.json`, manifests, raw samples,
 execution/compilation screens, longer repeats and original-baseline comparisons.
+
+## Cache eviction and zero conditions (2026-10-08)
+
+The allocator now stops eviction as soon as a guest block frees a chunk. An
+eight-chunk fixture checks that extending a full cache evicts one older block
+instead of seven, including multi-chunk victims, the active block at either
+list end, and repeated reuse. The microbenchmark supplies its own code arena,
+so it does not measure this change's effect on whole-VM recompilation.
+
+The zero-condition comparison uses `15550bedb` as its baseline. Known lazy
+results use one `CMP_Z` uop instead of four or five arithmetic uops; unknown
+flags retain the helper path. Windows x64, Ryzen 9 9950X, CPU 4, GCC 15.2.0,
+identical `-O2 -march=x86-64` builds and fixtures. The screen covers 32 affected
+cases and ten controls, with two counterbalanced rounds of eleven 40 ms
+samples and 50 ms warmup. Compilation covers one and 32 operations per block;
+execution uses 32. Follow-ups use fifteen 75 ms samples and 100 ms warmup.
+
+Representative follow-up compilation results, with 32 producer/consumer pairs
+per block and known dword CMP flags:
+
+| Consumer | Before (us/block) | After (us/block) | IR uops before / after | JIT bytes before / after |
+|---|---:|---:|---:|---:|
+| SETE | 6.90 | 3.87 | 320 / 192 | 1030 / 829 |
+| SETNE | 6.17 | 3.87 | 288 / 192 | 980 / 829 |
+| CMOVE | 7.72 | 4.44 | 320 / 192 | 1209 / 980 |
+| CMOVNE | 6.89 | 4.36 | 288 / 192 | 1085 / 980 |
+
+SETE execution improves from 0.305 to 0.237 ns/pair; SETNE and CMOVNE improve
+about 13%. CMOVE improves in the screen, but its longer repeat is noisy.
+No execution case is classified as a regression. There is a compilation
+tradeoff: the unchanged aligned load128 control with live cycles consistently
+increases from 2.95 to 3.15 us/block (6.9%), with identical IR and JIT bytes.
+The corresponding store control increases about 6%, but does not pass the
+consistency threshold. Some other unchanged controls improve, so their gains
+should not be attributed to the new uop. These are binary- and workload-specific
+microbenchmarks, not whole-VM speedups.
+
+All ten CPU suites pass, including 1,907,952 fast-path executions. All 4,357
+microbenchmark cases validate at block sizes one, 32 and 64. The full Windows
+application builds. Local binaries, source diffs, raw samples and comparisons
+are under `build/compile-cost-20261008/`: `zero-compare/` holds the retained
+builds, `compile/` and `execute/` the screens, and `followup-compile/` and
+`followup-execute/` the longer repeats.

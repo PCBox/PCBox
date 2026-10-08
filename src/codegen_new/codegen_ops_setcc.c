@@ -227,12 +227,18 @@ void
 setcc_gen_E(ir_data_t *ir, int invert)
 {
     if (codegen_flags_changed && flags_res_valid()) {
+#ifdef CODEGEN_BACKEND_HAS_CMP_Z
+        /* The lazy result is already masked to the guest operand width.
+           Keep the zero test in one uop instead of expanding -x | x. */
+        uop_CMP_Z(ir, IREG_temp0, IREG_flags_res, invert);
+#else
         uop_MOV_IMM(ir, IREG_temp0, 0);
         uop_SUB(ir, IREG_temp0, IREG_temp0, IREG_flags_res);
         uop_OR(ir, IREG_temp0, IREG_temp0, IREG_flags_res);
         uop_SHR_IMM(ir, IREG_temp0, IREG_temp0, 31); /*temp0 = (flags_res != 0)*/
         if (!invert)
             uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1);
+#endif
     } else {
         uop_CALL_FUNC_RESULT(ir, IREG_temp0, E_SET_01);
         if (invert)
