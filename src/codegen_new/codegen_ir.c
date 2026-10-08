@@ -62,11 +62,73 @@ duplicate_uop(ir_data_t *ir, uop_t *uop, int offset)
     }
 }
 
+#ifdef CODEGEN_BACKEND_HAS_MEM_LOOKUP_REUSE
+/* Only these operations preserve the backend's lookup scratch registers.
+   Keep this an allowlist: a new uop must not silently inherit that promise.
+   -1 preserves the cache; 0 invalidates; 1/2 selects read/write lookups. */
+static inline int
+codegen_mem_lookup_kind(const uop_t *uop)
+{
+    if (uop->type & (UOP_TYPE_BARRIER | UOP_TYPE_JUMP_DEST | UOP_TYPE_JUMP))
+        return 0;
+    switch (uop->type & UOP_MASK) {
+        case UOP_MEM_LOAD_REG & UOP_MASK:
+            if (uop->is_a16 && IREG_GET_SIZE(uop->dest_reg_a.reg) == IREG_SIZE_DQ)
+                return 0;
+            return 1;
+        case UOP_MEM_LOAD_ABS & UOP_MASK:
+        case UOP_MEM_LOAD_SINGLE & UOP_MASK:
+        case UOP_MEM_LOAD_DOUBLE & UOP_MASK:
+            return 1;
+        case UOP_MEM_STORE_REG & UOP_MASK:
+            if (uop->is_a16 && IREG_GET_SIZE(uop->src_reg_c.reg) == IREG_SIZE_DQ)
+                return 0;
+            return 2;
+        case UOP_MEM_STORE_ABS & UOP_MASK:
+        case UOP_MEM_STORE_IMM_8 & UOP_MASK:
+        case UOP_MEM_STORE_IMM_16 & UOP_MASK:
+        case UOP_MEM_STORE_IMM_32 & UOP_MASK:
+        case UOP_MEM_STORE_SINGLE & UOP_MASK:
+        case UOP_MEM_STORE_DOUBLE & UOP_MASK:
+            return 2;
+        case UOP_ADD_IMM & UOP_MASK:
+        case UOP_SUB_IMM & UOP_MASK:
+            /* A page-sized stride has no useful locality for this cache. */
+            if ((int32_t) uop->imm_data >= 4096 || (int32_t) uop->imm_data <= -4096)
+                return 0;
+            return uop->type & UOP_TYPE_ORDER_BARRIER ? 0 : -1;
+        case UOP_MOV_IMM & UOP_MASK:
+        case UOP_MOV & UOP_MASK:
+        case UOP_MOVZX & UOP_MASK:
+        case UOP_MOVSX & UOP_MASK:
+        case UOP_ADD & UOP_MASK:
+        case UOP_ADD_LSHIFT & UOP_MASK:
+        case UOP_SUB & UOP_MASK:
+        case UOP_AND & UOP_MASK:
+        case UOP_AND_IMM & UOP_MASK:
+        case UOP_OR & UOP_MASK:
+        case UOP_OR_IMM & UOP_MASK:
+        case UOP_XOR & UOP_MASK:
+        case UOP_XOR_IMM & UOP_MASK:
+        case UOP_SHL_IMM & UOP_MASK:
+        case UOP_SHR_IMM & UOP_MASK:
+        case UOP_SAR_IMM & UOP_MASK:
+            return uop->type & UOP_TYPE_ORDER_BARRIER ? 0 : -1;
+        default:
+            return 0;
+    }
+}
+#endif
+
 void
 codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
 {
     int jump_target_at_end = -1;
     int c;
+#ifdef CODEGEN_BACKEND_HAS_MEM_LOOKUP_REUSE
+    int mem_lookup = 0;
+    const uop_t *last_mem = NULL;
+#endif
 #ifdef CODEGEN_HAS_SSE
     enum { SSE_UNCHECKED, SSE_CHECKED, SSE_AFTER_MEMORY };
     int sse_entered = SSE_UNCHECKED;
@@ -92,7 +154,11 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
     codegen_reg_process_dead_list(ir);
     block_write_data = codeblock_allocator_get_ptr(block->head_mem_block);
     block_pos        = 0;
+#ifdef CODEGEN_BACKEND_HAS_SELECTIVE_XMM
+    codegen_backend_ir_prologue(block);
+#else
     codegen_backend_prologue(block);
+#endif
 #ifdef CODEGEN_BACKEND_HAS_MEM_STUBS
     codegen_backend_mem_begin();
 #endif
@@ -141,6 +207,25 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
 #endif
         )
             sse_entered = SSE_UNCHECKED;
+#endif
+
+#ifdef CODEGEN_BACKEND_HAS_MEM_LOOKUP_REUSE
+        uop->type &= ~(UOP_TYPE_MEM_REUSE | UOP_TYPE_MEM_SAME_ADDR);
+        int lookup = codegen_mem_lookup_kind(uop);
+        if (lookup > 0 && lookup == mem_lookup) {
+            uop->type |= UOP_TYPE_MEM_REUSE;
+            if ((uop->type & UOP_MASK) == (last_mem->type & UOP_MASK)
+                && uop->src_reg_a.reg == last_mem->src_reg_a.reg
+                && uop->src_reg_a.version == last_mem->src_reg_a.version
+                && uop->src_reg_b.reg == last_mem->src_reg_b.reg
+                && uop->src_reg_b.version == last_mem->src_reg_b.version
+                && uop->imm_data == last_mem->imm_data && uop->is_a16 == last_mem->is_a16)
+                uop->type |= UOP_TYPE_MEM_SAME_ADDR;
+        }
+        if (lookup >= 0) {
+            mem_lookup = lookup;
+            last_mem = lookup ? uop : NULL;
+        }
 #endif
 
         /* Keep the IR barriers for fault-state liveness. Inline SSE checks

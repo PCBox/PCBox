@@ -79,6 +79,41 @@ codegen_udiv_check_bits(uint32_t low, uint32_t high, uint32_t divisor, uint32_t 
     return (codegen_div_u64(low, high) / divisor) > max_quotient;
 }
 
+/* Called inside an arithmetic uop: live XMM values must survive. The last
+   scratch word supplies the quotient width and signedness; the first two
+   receive results only after the overflow check has passed. */
+static __attribute__((noinline, target("general-regs-only"))) uint32_t
+codegen_divmod(uint32_t low, uint32_t high, uint32_t divisor, uint32_t *result)
+{
+    unsigned bits = result[2] & 0xff;
+
+    if (!divisor)
+        return 1;
+    if (result[2] & 0x100) {
+        int64_t dividend = ((int64_t) (int32_t) high * INT64_C(0x100000000)) + low;
+        int32_t divs = (int32_t) divisor;
+        int64_t limit = INT64_C(1) << (bits - 1);
+        int64_t quotient;
+
+        if (dividend == INT64_MIN && divs == -1)
+            return 1;
+        quotient = dividend / divs;
+        if (quotient < -limit || quotient >= limit)
+            return 1;
+        result[0] = (uint32_t) quotient;
+        result[1] = (uint32_t) (dividend % divs);
+    } else {
+        uint64_t dividend = ((uint64_t) high << 32) | low;
+        uint64_t quotient = dividend / divisor;
+
+        if (quotient > (UINT32_MAX >> (32 - bits)))
+            return 1;
+        result[0] = (uint32_t) quotient;
+        result[1] = (uint32_t) (dividend % divisor);
+    }
+    return 0;
+}
+
 static uint32_t
 codegen_idiv_check_bits(uint32_t low, uint32_t high, uint32_t divisor, uint32_t bits)
 {
@@ -273,7 +308,7 @@ codegen_DIV_HELPER_LOAD_ARG(codeblock_t *block, int dst_reg, int src_reg, int sa
 }
 
 static int
-codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
+codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper, int divmod)
 {
     int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
     int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
@@ -297,6 +332,9 @@ codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
         const int saved_eax_offset = 24;
 #    endif
 
+        if (divmod)
+            host_x86_MOV32_BASE_OFFSET_IMM(block, REG_RSP, STACK_TEMP_DQ + 8, uop->imm_data);
+
         /* These helpers run inside an arithmetic uop, without a register
            barrier. Preserve the allocator's caller-saved integer registers. */
         host_x86_PUSH(block, REG_R10);
@@ -308,12 +346,28 @@ codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
         codegen_DIV_HELPER_LOAD_ARG(block, REG_ECX, src_reg_a, saved_eax_offset, saved_edx_offset);
         codegen_DIV_HELPER_LOAD_ARG(block, REG_EDX, src_reg_b, saved_eax_offset, saved_edx_offset);
         codegen_DIV_HELPER_LOAD_ARG(block, REG_R8, src_reg_c, saved_eax_offset, saved_edx_offset);
+        if (divmod) {
+            codegen_alloc_bytes(block, 8);
+            codegen_addbyte4(block, 0x4c, 0x8d, 0x8c, 0x24); /* LEA R9,[RSP+scratch] */
+            codegen_addlong(block, local_size + 32 + STACK_TEMP_DQ);
+        }
 #    else
         codegen_DIV_HELPER_LOAD_ARG(block, REG_EDI, src_reg_a, saved_eax_offset, saved_edx_offset);
         codegen_DIV_HELPER_LOAD_ARG(block, REG_ESI, src_reg_b, saved_eax_offset, saved_edx_offset);
         codegen_DIV_HELPER_LOAD_ARG(block, REG_EDX, src_reg_c, saved_eax_offset, saved_edx_offset);
+        if (divmod) {
+            codegen_alloc_bytes(block, 8);
+            codegen_addbyte4(block, 0x48, 0x8d, 0x8c, 0x24); /* LEA RCX,[RSP+scratch] */
+            codegen_addlong(block, local_size + 32 + STACK_TEMP_DQ);
+        }
 #    endif
-        host_x86_CALL(block, helper);
+        if (divmod) {
+            /* The generic far-call emitter uses R9, our fourth Win64 argument. */
+            host_x86_MOV64_REG_IMM(block, REG_RAX, (uintptr_t) helper);
+            codegen_alloc_bytes(block, 2);
+            codegen_addbyte2(block, 0xff, 0xd0); /* CALL RAX */
+        } else
+            host_x86_CALL(block, helper);
         host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, result_offset, REG_EAX);
         host_x86_MOV32_REG_BASE_OFFSET(block, REG_EDX, REG_RSP, saved_edx_offset);
         host_x86_MOV32_REG_BASE_OFFSET(block, REG_EAX, REG_RSP, saved_eax_offset);
@@ -326,6 +380,20 @@ codegen_DIV_HELPER(codeblock_t *block, uop_t *uop, void *helper)
     else
         fatal("DIV helper size mismatch: dest_size=%x, src_size_a=%x, src_size_b=%x, src_size_c=%x\n", dest_size, src_size_a, src_size_b, src_size_c);
 #    endif
+    return 0;
+}
+
+static int
+codegen_DIVMOD(codeblock_t *block, uop_t *uop)
+{
+    return codegen_DIV_HELPER(block, uop, codegen_divmod, 1);
+}
+
+static int
+codegen_DIV_RESULT(codeblock_t *block, uop_t *uop)
+{
+    host_x86_MOV32_REG_BASE_OFFSET(block, HOST_REG_GET(uop->dest_reg_a_real), REG_RSP,
+                                  STACK_TEMP_DQ + 4 * uop->imm_data);
     return 0;
 }
 
@@ -490,69 +558,8 @@ codegen_IMUL_HI(codeblock_t *block, uop_t *uop)
 static int
 codegen_UMUL(codeblock_t *block, uop_t *uop)
 {
-    int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
-    int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
-    int src_reg_b  = HOST_REG_GET(uop->src_reg_b_real);
-    int dest_size  = IREG_GET_SIZE(uop->dest_reg_a_real);
-    int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
-    int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
-
-    if (REG_IS_L(dest_size) && REG_IS_L(src_size_a) && REG_IS_L(src_size_b)) {
-        int mul_reg = src_reg_b;
-
-        host_x86_PUSH(block, REG_RAX);
-        host_x86_PUSH(block, REG_RDX);
-        if ((src_reg_b == REG_EAX) && (src_reg_a != REG_EAX)) {
-            mul_reg = (src_reg_a == REG_ECX) ? REG_EDX : REG_ECX;
-            host_x86_MOV32_REG_REG(block, mul_reg, REG_EAX);
-        }
-        if (src_reg_a != REG_EAX)
-            host_x86_MOV32_REG_REG(block, REG_EAX, src_reg_a);
-        host_x86_MUL32_REG(block, mul_reg);
-
-        if (dest_reg == REG_EDX) {
-            host_x86_MOV32_REG_REG(block, REG_EDX, REG_EAX);
-            host_x86_ADD64_REG_IMM(block, REG_RSP, 8);
-            host_x86_POP(block, REG_RAX);
-        } else if (dest_reg == REG_EAX) {
-            host_x86_POP(block, REG_RDX);
-            host_x86_ADD64_REG_IMM(block, REG_RSP, 8);
-        } else {
-            host_x86_MOV32_REG_REG(block, dest_reg, REG_EAX);
-            host_x86_POP(block, REG_RDX);
-            host_x86_POP(block, REG_RAX);
-        }
-    } else if (REG_IS_W(dest_size) && REG_IS_W(src_size_a) && REG_IS_W(src_size_b)) {
-        int mul_reg = src_reg_b;
-
-        host_x86_PUSH(block, REG_RAX);
-        host_x86_PUSH(block, REG_RDX);
-        if ((src_reg_b == REG_EAX) && (src_reg_a != REG_EAX)) {
-            mul_reg = (src_reg_a == REG_ECX) ? REG_EDX : REG_ECX;
-            host_x86_MOV16_REG_REG(block, mul_reg, REG_EAX);
-        }
-        if (src_reg_a != REG_EAX)
-            host_x86_MOV16_REG_REG(block, REG_EAX, src_reg_a);
-        host_x86_MUL16_REG(block, mul_reg);
-
-        if (dest_reg == REG_EDX) {
-            host_x86_MOV16_REG_REG(block, REG_EDX, REG_EAX);
-            host_x86_ADD64_REG_IMM(block, REG_RSP, 8);
-            host_x86_POP(block, REG_RAX);
-        } else if (dest_reg == REG_EAX) {
-            host_x86_POP(block, REG_RDX);
-            host_x86_ADD64_REG_IMM(block, REG_RSP, 8);
-        } else {
-            host_x86_MOV16_REG_REG(block, dest_reg, REG_EAX);
-            host_x86_POP(block, REG_RDX);
-            host_x86_POP(block, REG_RAX);
-        }
-    }
-#    ifdef RECOMPILER_DEBUG
-    else
-        fatal("UMUL size mismatch: dest_size=%x, src_size_a=%x, src_size_b=%x\n", dest_size, src_size_a, src_size_b);
-#    endif
-    return 0;
+    /* Signedness only affects the high half; guest flags are handled by IR. */
+    return codegen_IMUL(block, uop);
 }
 
 static int
@@ -601,37 +608,37 @@ codegen_UMUL_HI(codeblock_t *block, uop_t *uop)
 static int
 codegen_UDIV_CHECK(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, codegen_udiv_check_helper(uop->imm_data));
+    return codegen_DIV_HELPER(block, uop, codegen_udiv_check_helper(uop->imm_data), 0);
 }
 
 static int
 codegen_IDIV_CHECK(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, codegen_idiv_check_helper(uop->imm_data));
+    return codegen_DIV_HELPER(block, uop, codegen_idiv_check_helper(uop->imm_data), 0);
 }
 
 static int
 codegen_UDIV(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, codegen_udiv_quot);
+    return codegen_DIV_HELPER(block, uop, codegen_udiv_quot, 0);
 }
 
 static int
 codegen_UMOD(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, codegen_umod_rem);
+    return codegen_DIV_HELPER(block, uop, codegen_umod_rem, 0);
 }
 
 static int
 codegen_IDIV(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, codegen_idiv_quot);
+    return codegen_DIV_HELPER(block, uop, codegen_idiv_quot, 0);
 }
 
 static int
 codegen_IMOD(codeblock_t *block, uop_t *uop)
 {
-    return codegen_DIV_HELPER(block, uop, codegen_imod_rem);
+    return codegen_DIV_HELPER(block, uop, codegen_imod_rem, 0);
 }
 
 static int
@@ -1131,6 +1138,161 @@ codegen_CMP_JZ_DEST(codeblock_t *block, uop_t *uop)
 #    endif
     uop->p = host_x86_JZ_long(block);
 
+    return 0;
+}
+
+static void
+codegen_CMP_REGS(codeblock_t *block, uop_t *uop)
+{
+    int a = HOST_REG_GET(uop->src_reg_a_real);
+    int b = HOST_REG_GET(uop->src_reg_b_real);
+    int size = IREG_GET_SIZE(uop->src_reg_a_real);
+    if (REG_IS_B(size))
+        host_x86_CMP8_REG_REG(block, a, b);
+    else if (REG_IS_W(size))
+        host_x86_CMP16_REG_REG(block, a, b);
+    else
+        host_x86_CMP32_REG_REG(block, a, b);
+}
+
+static int
+codegen_CMP_ULT(codeblock_t *block, uop_t *uop)
+{
+    int dest = HOST_REG_GET(uop->dest_reg_a_real);
+    codegen_CMP_REGS(block, uop);
+    /* Compare before writing dest, which may alias either operand. MOV
+       clears the upper bits without changing CF; XOR would destroy it. */
+    host_x86_MOV32_REG_IMM(block, dest, 0);
+    codegen_alloc_bytes(block, 4);
+    if (dest >= 4)
+        codegen_addbyte(block, 0x40 | (dest >> 3)); /* REX for low-byte registers */
+    codegen_addbyte3(block, 0x0f, uop->imm_data ? 0x93 : 0x92, 0xc0 | (dest & 7)); /* SETAE / SETB */
+    return 0;
+}
+
+static int
+codegen_CMP_SLT(codeblock_t *block, uop_t *uop)
+{
+    int dest = HOST_REG_GET(uop->dest_reg_a_real);
+    codegen_CMP_REGS(block, uop);
+    /* MOV preserves SF/OF, including when dest aliases an input. */
+    host_x86_MOV32_REG_IMM(block, dest, 0);
+    codegen_alloc_bytes(block, 4);
+    if (dest >= 4)
+        codegen_addbyte(block, 0x40 | (dest >> 3));
+    codegen_addbyte3(block, 0x0f, uop->imm_data ? 0x9d : 0x9c, 0xc0 | (dest & 7)); /* SETGE / SETL */
+    return 0;
+}
+
+static int
+codegen_OVERFLOW(codeblock_t *block, uop_t *uop)
+{
+    int dest = HOST_REG_GET(uop->dest_reg_a_real);
+    int a = HOST_REG_GET(uop->src_reg_a_real);
+    int b = HOST_REG_GET(uop->src_reg_b_real);
+    int size = uop->imm_data & 12;
+
+    if (size == 4) {
+        /* Read low bytes from dword allocations. Byte allocations would force
+           both lazy operands into the scarce legacy byte registers. */
+        if (!(uop->imm_data & 2)) {
+            host_x86_MOV32_REG_REG(block, REG_ECX, a);
+            a = REG_ECX;
+        }
+        codegen_alloc_bytes(block, 3);
+        if (a >= 4 || b >= 4)
+            codegen_addbyte(block, 0x40 | ((b & 8) >> 1) | ((a & 8) >> 3));
+        codegen_addbyte2(block, (uop->imm_data & 2) ? 0x38 : 0x00,
+                        0xc0 | ((b & 7) << 3) | (a & 7)); /* CMP / ADD r/m8, r8 */
+    } else if (uop->imm_data & 2) {
+        if (size == 8) host_x86_CMP16_REG_REG(block, a, b);
+        else host_x86_CMP32_REG_REG(block, a, b);
+    } else {
+        /* ECX is backend scratch; neither lazy operand may be modified. */
+        if (size == 8) {
+            host_x86_MOV16_REG_REG(block, REG_ECX, a);
+            host_x86_ADD16_REG_REG(block, REG_ECX, b);
+        } else {
+            host_x86_MOV32_REG_REG(block, REG_ECX, a);
+            host_x86_ADD32_REG_REG(block, REG_ECX, b);
+        }
+    }
+    host_x86_MOV32_REG_IMM(block, dest, 0); /* Preserve OF. */
+    codegen_alloc_bytes(block, 4);
+    if (dest >= 4)
+        codegen_addbyte(block, 0x40 | (dest >> 3));
+    codegen_addbyte3(block, 0x0f, (uop->imm_data & 1) ? 0x91 : 0x90, 0xc0 | (dest & 7)); /* SETNO / SETO */
+    return 0;
+}
+
+static int
+codegen_PARITY(codeblock_t *block, uop_t *uop)
+{
+    int dest = HOST_REG_GET(uop->dest_reg_a_real);
+    int src = HOST_REG_GET(uop->src_reg_a_real);
+    /* Host PF only depends on the low byte, even with a dword TEST. */
+    host_x86_TEST32_REG(block, src, src);
+    host_x86_MOV32_REG_IMM(block, dest, 0);
+    codegen_alloc_bytes(block, 4);
+    if (dest >= 4)
+        codegen_addbyte(block, 0x40 | (dest >> 3));
+    codegen_addbyte3(block, 0x0f, uop->imm_data ? 0x9b : 0x9a, 0xc0 | (dest & 7)); /* SETNP / SETP */
+    return 0;
+}
+
+static int
+codegen_PARITY_JUMP(codeblock_t *block, uop_t *uop)
+{
+    int src = HOST_REG_GET(uop->src_reg_a_real);
+    host_x86_TEST32_REG(block, src, src);
+    codegen_alloc_bytes(block, 6);
+    codegen_addbyte2(block, 0x0f, uop->imm_data ? 0x8b : 0x8a); /* JNP / JP */
+    codegen_addlong(block, 0);
+    uop->p = &block_write_data[block_pos - 4];
+    return 0;
+}
+
+static int
+codegen_CMP_Z(codeblock_t *block, uop_t *uop)
+{
+    int dest = HOST_REG_GET(uop->dest_reg_a_real);
+    int src = HOST_REG_GET(uop->src_reg_a_real);
+    host_x86_TEST32_REG(block, src, src);
+    /* Dest may alias src. Clear it after TEST, preserving ZF for SETcc. */
+    host_x86_MOV32_REG_IMM(block, dest, 0);
+    codegen_alloc_bytes(block, 4);
+    if (dest >= 4)
+        codegen_addbyte(block, 0x40 | (dest >> 3));
+    codegen_addbyte3(block, 0x0f, uop->imm_data ? 0x95 : 0x94, 0xc0 | (dest & 7)); /* SETNE / SETE */
+    return 0;
+}
+
+static int
+codegen_CMOV_Z(codeblock_t *block, uop_t *uop)
+{
+    int dest = HOST_REG_GET(uop->dest_reg_a_real);
+    int old = HOST_REG_GET(uop->src_reg_a_real);
+    int src = HOST_REG_GET(uop->src_reg_b_real);
+    int cond = HOST_REG_GET(uop->src_reg_c_real);
+    int word = REG_IS_W(IREG_GET_SIZE(uop->dest_reg_a_real));
+    int invert = !!uop->imm_data;
+
+    /* Test before touching dest, which can also hold the condition. */
+    host_x86_TEST32_REG(block, cond, cond);
+    if (dest == src) {
+        /* Dest already holds the taken value; select old on the other arm. */
+        src = old;
+        invert = !invert;
+    } else if (dest != old) {
+        if (word) host_x86_MOV16_REG_REG(block, dest, old);
+        else host_x86_MOV32_REG_REG(block, dest, old);
+    }
+    codegen_alloc_bytes(block, 5);
+    if (word)
+        codegen_addbyte(block, 0x66);
+    if ((dest | src) & 8)
+        codegen_addbyte(block, 0x40 | ((dest & 8) >> 1) | ((src & 8) >> 3));
+    codegen_addbyte3(block, 0x0f, invert ? 0x45 : 0x44, 0xc0 | ((dest & 7) << 3) | (src & 7));
     return 0;
 }
 
@@ -1645,18 +1807,62 @@ codegen_LOAD_SEG(codeblock_t *block, uop_t *uop)
     return 0;
 }
 
-/* ESI stays the linear address until the slow path calls a helper;
-   ECX/XMM0 keep the existing data ABI (including high-byte register moves).
-   Only the reserved RDI/R8 scratch registers are used for the lookup. */
+static int mem_slow_count, mem_slow_active;
+
+/* These registers are fixed by the memory ABI. Reserve the whole lookup at
+   once: separate emitter calls add noticeable cost when compiling RAM code. */
 static uint32_t *
-codegen_MEM_SCALAR_LOOKUP(codeblock_t *block, uintptr_t *lookup, int size, uint32_t **unaligned)
+codegen_MEM_READ_PAGE(codeblock_t *block, uintptr_t *lookup, int refill)
 {
-    host_x86_MOV32_REG_REG(block, REG_EDI, REG_ESI);
-    host_x86_SHR32_IMM(block, REG_EDI, 12);
-    host_x86_MOV64_REG_IMM(block, REG_R8, (uintptr_t) lookup);
-    host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RDI, REG_R8, REG_RDI, 3);
-    host_x86_CMP64_REG_IMM(block, REG_RDI, (uint32_t) -1);
-    uint32_t *miss = host_x86_JZ_long(block);
+    codegen_alloc_bytes(block, refill ? 27 : 31);
+    if (refill)
+        codegen_addbyte3(block, 0x45, 0x8b, 0xc1);       /* MOV R8D,R9D */
+    else {
+        codegen_addbyte3(block, 0x44, 0x8b, 0xc6);       /* MOV R8D,ESI */
+        codegen_addbyte4(block, 0x41, 0xc1, 0xe8, 12);   /* SHR R8D,12 */
+    }
+    codegen_addbyte2(block, 0x49, 0xb9);                /* MOV R9,lookup */
+    codegen_addquad(block, (uintptr_t) lookup);
+    codegen_addbyte4(block, 0x4b, 0x8b, 0x3c, 0xc1);   /* MOV RDI,[R9+R8*8] */
+    codegen_addbyte4(block, 0x48, 0x83, 0xff, 0xff);   /* CMP RDI,-1 */
+    codegen_addbyte2(block, 0x0f, 0x84);                /* JE missing */
+    codegen_addlong(block, 0);
+    return (uint32_t *) &block_write_data[block_pos - 4];
+}
+
+/* R8D is the cached guest page and RDI its host bias. R9 remains scratch
+   for absolute CPU-state loads and the lookup-table address. Only reuse within
+   an IR region whose emitters preserve R8/RDI; read/write tables never mix. */
+static uint32_t *
+codegen_MEM_LOOKUP(codeblock_t *block, uop_t *uop, uintptr_t *lookup, void **lookup_resume)
+{
+    *lookup_resume = NULL;
+    if (mem_slow_active && (uop->type & UOP_TYPE_MEM_REUSE)) {
+        if (uop->type & UOP_TYPE_MEM_SAME_ADDR) {
+            /* An unchanged address only needs the callback invalidation check. */
+            codegen_alloc_bytes(block, 10);
+            codegen_addbyte4(block, 0x41, 0x83, 0xf8, 0xff); /* CMP R8D,-1 */
+            codegen_addbyte2(block, 0x0f, 0x84);             /* JE refill */
+        } else {
+            codegen_alloc_bytes(block, 16);
+            codegen_addbyte3(block, 0x44, 0x8b, 0xce);      /* MOV R9D,ESI */
+            codegen_addbyte4(block, 0x41, 0xc1, 0xe9, 12);  /* SHR R9D,12 */
+            codegen_addbyte3(block, 0x45, 0x3b, 0xc8);      /* CMP R9D,R8D */
+            codegen_addbyte2(block, 0x0f, 0x85);            /* JNE refill */
+        }
+        codegen_addlong(block, 0);
+        /* A cache hit falls through. Emit the table lookup after the block. */
+        *lookup_resume = &block_write_data[block_pos];
+        return (uint32_t *) &block_write_data[block_pos - 4];
+    }
+    return codegen_MEM_READ_PAGE(block, lookup, 0);
+}
+
+/* ESI stays the linear address; ECX/XMM0 retain the existing data ABI. */
+static uint32_t *
+codegen_MEM_SCALAR_LOOKUP(codeblock_t *block, uop_t *uop, uintptr_t *lookup, int size, uint32_t **unaligned, void **lookup_resume)
+{
+    uint32_t *miss = codegen_MEM_LOOKUP(block, uop, lookup, lookup_resume);
     *unaligned = NULL;
     if (size > 1) {
         /* Aligned accesses cannot cross a page. Keep their fall-through path
@@ -1697,19 +1903,19 @@ codegen_MEM_SLOW_LEAVE(codeblock_t *block, uop_t *uop)
     codegen_reg_reload_mem(block, uop->dest_reg_a);
     if (dynamic_top)
         host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG0);
+    /* No guest page has this tag. Never carry a mapping across a callback. */
+    host_x86_MOV32_REG_IMM(block, REG_R8, UINT32_MAX);
 }
 
 typedef struct mem_slow_site_t {
     codegen_mem_reg_state_t state;
     uint32_t *unaligned, *miss, *page_cross;
-    void *access, *resume, *helper, *stub;
-    uop_t uop;
-    int size, cycles_reg, sse_invalidate, owner, users;
+    void *access, *resume, *helper, *stub, *lookup_resume;
+    int data_reg;
+    int size, cycles_reg, sse_invalidate, owner, users, same_address;
 } mem_slow_site_t;
 
 static mem_slow_site_t mem_slow_sites[UOP_NR_MAX];
-static int mem_slow_count, mem_slow_active;
-
 /* Preserve the cheap contiguous search for early matches. Index only stubs
    not found in that bounded prefix, so common repeated accesses need no hash.
    Entries store owner + 1; zero is empty. At most half the table is occupied. */
@@ -1721,6 +1927,7 @@ codegen_MEM_SAME_STUB(const mem_slow_site_t *site, const mem_slow_site_t *other)
 {
     return site->helper == other->helper && site->size == other->size
            && site->cycles_reg == other->cycles_reg && site->sse_invalidate == other->sse_invalidate
+           && site->data_reg == other->data_reg
            && site->state.write_mask == other->state.write_mask
            && site->state.reload_mask == other->state.reload_mask
            && !memcmp(site->state.regs, other->state.regs, sizeof(site->state.regs));
@@ -1736,7 +1943,9 @@ codegen_MEM_STUB_HASH(const mem_slow_site_t *site)
     hash = (hash ^ site->size) * 16777619u;
     hash = (hash ^ (uint32_t) site->cycles_reg) * 16777619u;
     hash = (hash ^ site->sse_invalidate) * 16777619u;
-    hash = (hash ^ site->state.write_mask ^ ((uint32_t) site->state.reload_mask << 16)) * 16777619u;
+    hash = (hash ^ site->data_reg) * 16777619u;
+    hash = (hash ^ site->state.write_mask) * 16777619u;
+    hash = (hash ^ site->state.reload_mask) * 16777619u;
     /* Scalar word loads avoid a SIMD stack temporary (and Win64 frame
        realignment) in the surrounding emitter. Do not read snapshot padding. */
     unsigned n = 0;
@@ -1758,10 +1967,9 @@ codegen_MEM_FIND_OWNERS(const codeblock_t *block)
     unsigned index_size = 0;
     for (int i = 0; i < mem_slow_count; i++) {
         mem_slow_site_t *site = &mem_slow_sites[i];
-        /* Keep direct continuations for dynamic TOP. Paired 128-bit accesses
-           retain two independently checked helpers. Neither shares stubs. */
-        if (site->size != 16 && ((block->flags & CODEBLOCK_STATIC_TOP)
-            || !(site->state.write_uses_top || site->state.reload_uses_top))) {
+        /* Dynamic TOP still needs a private continuation. */
+        if ((block->flags & CODEBLOCK_STATIC_TOP)
+            || !(site->state.write_uses_top || site->state.reload_uses_top)) {
             int limit = i < MEM_SLOW_LINEAR_SITES ? i : MEM_SLOW_LINEAR_SITES;
             for (int j = 0; j < limit; j++) {
                 if (codegen_MEM_SAME_STUB(site, &mem_slow_sites[j])) {
@@ -1852,7 +2060,8 @@ codegen_backend_mem_finish(codeblock_t *block)
         int stack_offset = shared ? 16 : 0;
         void *fault_exit = shared ? shared_exit : codegen_exit_rout;
         if (!shared) {
-            codegen_set_jump_dest(block, site->miss);
+            if (!site->lookup_resume)
+                codegen_set_jump_dest(block, site->miss);
             if (site->page_cross)
                 codegen_set_jump_dest(block, site->page_cross);
         }
@@ -1877,27 +2086,37 @@ codegen_backend_mem_finish(codeblock_t *block)
         if (save_input)
             host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG1 + stack_offset);
         int store128 = site->size == 16 && site->helper == codegen_mem_store_quad;
-        int data_reg = HOST_REG_GET(store128 ? site->uop.src_reg_c_real : site->uop.dest_reg_a_real);
-        if (store128) {
+        int data_reg = site->data_reg;
+        if (store128)
             host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + stack_offset, data_reg);
-            host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ + stack_offset);
+        if (site->size == 16 && shared)
+            codegen_backend_mem_call_128(block, store128, STACK_TEMP_DQ + stack_offset);
+        else {
+            /* A private pair is smaller using the existing quad routines.
+               Save the a32 address instead of retaining the whole uop just
+               to reconstruct the second half after the first callback. */
+            if (site->size == 16) {
+                host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG0, REG_ESI);
+                if (store128)
+                    host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ);
+            }
+            codegen_MEM_CALL_PRECHECKED(block, site);
+            if (site->size == 16) {
+                host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
+                host_x86_JNZ(block, fault_exit);
+                if (!store128)
+                    host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ, REG_XMM_TEMP);
+                host_x86_MOV32_REG_BASE_OFFSET(block, REG_ESI, REG_RSP, STACK_ARG0);
+                host_x86_ADD32_REG_IMM(block, REG_ESI, 8);
+                if (store128)
+                    host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ + 8);
+                host_x86_CALL(block, site->helper);
+            }
         }
-        codegen_MEM_CALL_PRECHECKED(block, site);
         host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
         host_x86_JNZ(block, fault_exit);
-        if (site->size == 16) {
-            if (!store128)
-                host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + stack_offset, REG_XMM_TEMP);
-            codegen_MEM_ADDR_REG_OFFSET(block, &site->uop, HOST_REG_GET(site->uop.src_reg_a_real),
-                                       HOST_REG_GET(site->uop.src_reg_b_real), 8);
-            if (store128)
-                host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ + stack_offset + 8);
-            host_x86_CALL(block, site->helper);
-            host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-            host_x86_JNZ(block, fault_exit);
-            if (!store128)
-                host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + stack_offset + 8, REG_XMM_TEMP);
-        }
+        if (site->size == 16 && !shared && !store128)
+            host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + 8, REG_XMM_TEMP);
         if (save_result)
             host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG0 + stack_offset, REG_ECX);
         codegen_reg_sync_mem(block, &site->state, 1, stack_offset);
@@ -1905,6 +2124,8 @@ codegen_backend_mem_finish(codeblock_t *block)
             host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG0 + stack_offset);
         if (site->size == 16 && !store128)
             host_x86_MOVDQU_XREG_BASE_OFFSET(block, data_reg, REG_RSP, STACK_TEMP_DQ + stack_offset);
+        /* Helpers and register reloads may clobber both cache registers. */
+        host_x86_MOV32_REG_IMM(block, REG_R8, UINT32_MAX);
         if (shared) {
             host_x86_ADD64_REG_IMM(block, REG_RSP, 8);
             host_x86_RET(block);
@@ -1915,30 +2136,54 @@ codegen_backend_mem_finish(codeblock_t *block)
         mem_slow_site_t *site = &mem_slow_sites[i];
         mem_slow_site_t *owner = &mem_slow_sites[site->owner];
         int shared = owner->users > 1;
-        if (!shared && !site->unaligned)
+        if (!shared && !site->unaligned && !site->lookup_resume)
             continue;
+        uint32_t *miss = site->miss;
+        uint32_t *refill_cross = NULL;
+        if (site->lookup_resume) {
+            codegen_set_jump_dest(block, miss);
+            /* Repeated crossing accesses need the helper regardless of the
+               first page's mapping. Avoid refilling and returning to the hot
+               path just to discover the same crossing again. */
+            if (site->same_address && site->size > 1 && site->size < 16) {
+                host_x86_MOV32_REG_REG(block, REG_R9, REG_ESI);
+                host_x86_AND32_REG_IMM(block, REG_R9, 0xfff);
+                host_x86_CMP32_REG_IMM(block, REG_R9, 0x1000 - site->size);
+                refill_cross = host_x86_JA_long(block);
+            }
+            int store = site->helper == codegen_mem_store_byte || site->helper == codegen_mem_store_word
+                        || site->helper == codegen_mem_store_long || site->helper == codegen_mem_store_quad
+                        || site->helper == codegen_mem_store_single || site->helper == codegen_mem_store_double;
+            miss = codegen_MEM_READ_PAGE(block, store ? writelookup2 : readlookup2, !site->same_address);
+            host_x86_JMP(block, site->lookup_resume);
+            if (!shared) {
+                *miss = (uintptr_t) owner->stub - ((uintptr_t) miss + 4);
+                if (refill_cross)
+                    *refill_cross = (uintptr_t) owner->stub - ((uintptr_t) refill_cross + 4);
+            }
+        }
         uint32_t *cross = NULL;
         if (site->unaligned) {
             /* Page-contained unaligned RAM stays on a direct branch path.
                Sharing this small path added call overhead to common hits. */
             codegen_set_jump_dest(block, site->unaligned);
-            host_x86_MOV32_REG_REG(block, REG_R8, REG_ESI);
-            host_x86_AND32_REG_IMM(block, REG_R8, 0xfff);
-            host_x86_CMP32_REG_IMM(block, REG_R8, 0x1000 - site->size);
+            host_x86_MOV32_REG_REG(block, REG_R9, REG_ESI);
+            host_x86_AND32_REG_IMM(block, REG_R9, 0xfff);
+            host_x86_CMP32_REG_IMM(block, REG_R9, 0x1000 - site->size);
             cross = host_x86_JA_long(block);
             if (timing_misaligned) {
                 uint32_t *no_penalty = NULL;
                 if (cpu_cyrix_alignment && site->size < 8) {
-                    host_x86_AND32_REG_IMM(block, REG_R8, 7);
-                    host_x86_CMP32_REG_IMM(block, REG_R8, 8 - site->size);
+                    host_x86_AND32_REG_IMM(block, REG_R9, 7);
+                    host_x86_CMP32_REG_IMM(block, REG_R9, 8 - site->size);
                     no_penalty = host_x86_JBE_long(block);
                 }
                 if (site->cycles_reg >= 0)
                     host_x86_SUB32_REG_IMM(block, site->cycles_reg, timing_misaligned);
                 else {
-                    host_x86_MOV32_REG_ABS(block, REG_R8, &cycles);
-                    host_x86_SUB32_REG_IMM(block, REG_R8, timing_misaligned);
-                    host_x86_MOV32_ABS_REG(block, &cycles, REG_R8);
+                    host_x86_MOV32_REG_ABS(block, REG_R9, &cycles);
+                    host_x86_SUB32_REG_IMM(block, REG_R9, timing_misaligned);
+                    host_x86_MOV32_ABS_REG(block, &cycles, REG_R9);
                 }
                 if (no_penalty)
                     codegen_set_jump_dest(block, no_penalty);
@@ -1951,7 +2196,9 @@ codegen_backend_mem_finish(codeblock_t *block)
         }
         if (!shared)
             continue;
-        codegen_set_jump_dest(block, site->miss);
+        codegen_set_jump_dest(block, miss);
+        if (refill_cross)
+            codegen_set_jump_dest(block, refill_cross);
         if (site->page_cross)
             codegen_set_jump_dest(block, site->page_cross);
         host_x86_CALL(block, owner->stub);
@@ -1961,27 +2208,30 @@ codegen_backend_mem_finish(codeblock_t *block)
 }
 
 static mem_slow_site_t *
-codegen_MEM_CAPTURE(uop_t *uop, int size, uint32_t *miss, void *helper)
+codegen_MEM_CAPTURE(uop_t *uop, int size, uint32_t *miss, void *helper, void *lookup_resume)
 {
     if (mem_slow_count == UOP_NR_MAX)
         fatal("Too many memory slow paths\n");
     int owner = mem_slow_count++;
     mem_slow_site_t *site = &mem_slow_sites[owner];
-    *site = (mem_slow_site_t) { .owner = owner, .miss = miss, .uop = *uop,
-        .resume = &block_write_data[block_pos], .helper = helper, .size = size,
+    *site = (mem_slow_site_t) { .owner = owner, .miss = miss,
+        .resume = &block_write_data[block_pos], .helper = helper, .size = size, .lookup_resume = lookup_resume,
+        .same_address = !!(uop->type & UOP_TYPE_MEM_SAME_ADDR),
         .cycles_reg = -1, .sse_invalidate = !!(uop->type & UOP_TYPE_SSE_INVALIDATE) };
+    if (size == 16)
+        site->data_reg = HOST_REG_GET(helper == codegen_mem_store_quad ? uop->src_reg_c_real : uop->dest_reg_a_real);
     codegen_reg_capture_mem(&site->state, uop->dest_reg_a);
     return site;
 }
 
 static void
 codegen_MEM_SCALAR_SLOW_PATH(codeblock_t *block, uop_t *uop, int size,
-                             uint32_t *unaligned, uint32_t *miss, void *access, void *helper)
+                             uint32_t *unaligned, uint32_t *miss, void *access, void *helper, void *lookup_resume)
 {
     if (mem_slow_active) {
         /* Capture after marking cycles dirty for the conditional penalty. */
         int cycles_reg = unaligned && timing_misaligned ? codegen_reg_get_dirty_host_reg(IREG_cycles) : -1;
-        mem_slow_site_t *site = codegen_MEM_CAPTURE(uop, size, miss, helper);
+        mem_slow_site_t *site = codegen_MEM_CAPTURE(uop, size, miss, helper, lookup_resume);
         site->unaligned = unaligned;
         site->access = access;
         site->cycles_reg = cycles_reg;
@@ -1997,9 +2247,9 @@ codegen_MEM_SCALAR_SLOW_PATH(codeblock_t *block, uop_t *uop, int size,
         codegen_set_jump_dest(block, unaligned);
         /* RDI still holds the valid RAM mapping. Only a crossing access
            needs the helper to translate/check the second page. */
-        host_x86_MOV32_REG_REG(block, REG_R8, REG_ESI);
-        host_x86_AND32_REG_IMM(block, REG_R8, 0xfff);
-        host_x86_CMP32_REG_IMM(block, REG_R8, 0x1000 - size);
+        host_x86_MOV32_REG_REG(block, REG_R9, REG_ESI);
+        host_x86_AND32_REG_IMM(block, REG_R9, 0xfff);
+        host_x86_CMP32_REG_IMM(block, REG_R9, 0x1000 - size);
         uint32_t *page_cross = host_x86_JA_long(block);
 
         if (timing_misaligned) {
@@ -2007,17 +2257,17 @@ codegen_MEM_SCALAR_SLOW_PATH(codeblock_t *block, uop_t *uop, int size,
                Cyrix word/dword accesses pay at eight-byte boundaries only. */
             uint32_t *no_penalty = NULL;
             if (cpu_cyrix_alignment && size < 8) {
-                host_x86_AND32_REG_IMM(block, REG_R8, 7);
-                host_x86_CMP32_REG_IMM(block, REG_R8, 8 - size);
+                host_x86_AND32_REG_IMM(block, REG_R9, 7);
+                host_x86_CMP32_REG_IMM(block, REG_R9, 8 - size);
                 no_penalty = host_x86_JBE_long(block);
             }
             int cycles_reg = codegen_reg_get_dirty_host_reg(IREG_cycles);
             if (cycles_reg >= 0)
                 host_x86_SUB32_REG_IMM(block, cycles_reg, timing_misaligned);
             else {
-                host_x86_MOV32_REG_ABS(block, REG_R8, &cycles);
-                host_x86_SUB32_REG_IMM(block, REG_R8, timing_misaligned);
-                host_x86_MOV32_ABS_REG(block, &cycles, REG_R8);
+                host_x86_MOV32_REG_ABS(block, REG_R9, &cycles);
+                host_x86_SUB32_REG_IMM(block, REG_R9, timing_misaligned);
+                host_x86_MOV32_ABS_REG(block, &cycles, REG_R9);
             }
             if (no_penalty)
                 codegen_set_jump_dest(block, no_penalty);
@@ -2038,7 +2288,8 @@ static void
 codegen_MEM_LOAD_SCALAR(codeblock_t *block, uop_t *uop, int size, int is_float, void *helper)
 {
     uint32_t *unaligned;
-    uint32_t *miss = codegen_MEM_SCALAR_LOOKUP(block, readlookup2, size, &unaligned);
+    void *lookup_resume;
+    uint32_t *miss = codegen_MEM_SCALAR_LOOKUP(block, uop, readlookup2, size, &unaligned, &lookup_resume);
     void *access = &block_write_data[block_pos];
 
     if (size == 1)
@@ -2052,7 +2303,7 @@ codegen_MEM_LOAD_SCALAR(codeblock_t *block, uop_t *uop, int size, int is_float, 
     else
         host_x86_MOVQ_XREG_BASE_INDEX(block, REG_XMM_TEMP, REG_RDI, REG_RSI);
 
-    codegen_MEM_SCALAR_SLOW_PATH(block, uop, size, unaligned, miss, access, helper);
+    codegen_MEM_SCALAR_SLOW_PATH(block, uop, size, unaligned, miss, access, helper, lookup_resume);
 }
 
 static void
@@ -2061,7 +2312,8 @@ codegen_MEM_STORE_SCALAR(codeblock_t *block, uop_t *uop, int size, int is_float,
     /* Code pages and device memory have no direct write mapping, so they
        still pass through the helper for dirty tracking and device effects. */
     uint32_t *unaligned;
-    uint32_t *miss = codegen_MEM_SCALAR_LOOKUP(block, writelookup2, size, &unaligned);
+    void *lookup_resume;
+    uint32_t *miss = codegen_MEM_SCALAR_LOOKUP(block, uop, writelookup2, size, &unaligned, &lookup_resume);
     void *access = &block_write_data[block_pos];
 
     if (size == 1)
@@ -2075,7 +2327,7 @@ codegen_MEM_STORE_SCALAR(codeblock_t *block, uop_t *uop, int size, int is_float,
     else
         host_x86_MOVQ_BASE_INDEX_XREG(block, REG_RDI, REG_RSI, REG_XMM_TEMP);
 
-    codegen_MEM_SCALAR_SLOW_PATH(block, uop, size, unaligned, miss, access, helper);
+    codegen_MEM_SCALAR_SLOW_PATH(block, uop, size, unaligned, miss, access, helper, lookup_resume);
 }
 
 static int
@@ -2133,21 +2385,14 @@ codegen_MEM_LOAD_REG(codeblock_t *block, uop_t *uop)
             host_x86_CMP32_REG_IMM(block, REG_ECX, 0x00000ff0);
             uint32_t *page_cross_offset = host_x86_JA_long(block);
 
-            /* RAM page table lookup */
-            host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
-            host_x86_SHR32_IMM(block, REG_ECX, 12);
-            host_x86_MOV64_REG_IMM(block, REG_RDI, (uintptr_t) readlookup2);
-            host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RDI, REG_RDI, REG_RCX, 3);
-
-            /* Ensure full 64-bit check against invalid lookup entry ((uintptr_t)-1) */
-            host_x86_CMP64_REG_IMM(block, REG_RDI, (uintptr_t) -1);
-            uint32_t *miss_offset = host_x86_JZ_long(block);
+            void *lookup_resume;
+            uint32_t *miss_offset = codegen_MEM_LOOKUP(block, uop, readlookup2, &lookup_resume);
 
             /* Perform direct 128-bit unaligned load from host RAM */
             host_x86_MOVDQU_XREG_BASE_INDEX(block, dest_reg, REG_RDI, REG_RSI);
 
             if (mem_slow_active) {
-                mem_slow_site_t *site = codegen_MEM_CAPTURE(uop, 16, miss_offset, codegen_mem_load_quad);
+                mem_slow_site_t *site = codegen_MEM_CAPTURE(uop, 16, miss_offset, codegen_mem_load_quad, lookup_resume);
                 site->page_cross = page_cross_offset;
                 return 0;
             }
@@ -2335,21 +2580,14 @@ codegen_MEM_STORE_REG(codeblock_t *block, uop_t *uop)
             host_x86_CMP32_REG_IMM(block, REG_ECX, 0x00000ff0);
             uint32_t *page_cross_offset = host_x86_JA_long(block);
 
-            /* RAM page table lookup */
-            host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
-            host_x86_SHR32_IMM(block, REG_ECX, 12);
-            host_x86_MOV64_REG_IMM(block, REG_RDI, (uintptr_t) writelookup2);
-            host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RDI, REG_RDI, REG_RCX, 3);
-
-            /* Ensure full 64-bit check against invalid lookup entry ((uintptr_t)-1) */
-            host_x86_CMP64_REG_IMM(block, REG_RDI, (uintptr_t) -1);
-            uint32_t *miss_offset = host_x86_JZ_long(block);
+            void *lookup_resume;
+            uint32_t *miss_offset = codegen_MEM_LOOKUP(block, uop, writelookup2, &lookup_resume);
 
             /* Perform direct 128-bit unaligned store to host RAM */
             host_x86_MOVDQU_BASE_INDEX_XREG(block, REG_RDI, REG_RSI, src_reg);
 
             if (mem_slow_active) {
-                mem_slow_site_t *site = codegen_MEM_CAPTURE(uop, 16, miss_offset, codegen_mem_store_quad);
+                mem_slow_site_t *site = codegen_MEM_CAPTURE(uop, 16, miss_offset, codegen_mem_store_quad, lookup_resume);
                 site->page_cross = page_cross_offset;
                 return 0;
             }
@@ -5008,6 +5246,15 @@ codegen_XOR_IMM(codeblock_t *block, uop_t *uop)
 }
 
 const uOpFn uop_handlers[UOP_MAX] = {
+    [UOP_DIVMOD & UOP_MASK] = codegen_DIVMOD,
+    [UOP_DIV_RESULT & UOP_MASK] = codegen_DIV_RESULT,
+    [UOP_CMP_SLT & UOP_MASK] = codegen_CMP_SLT,
+    [UOP_CMP_Z & UOP_MASK] = codegen_CMP_Z,
+    [UOP_OVERFLOW & UOP_MASK] = codegen_OVERFLOW,
+    [UOP_CMOV_Z & UOP_MASK] = codegen_CMOV_Z,
+    [UOP_PARITY & UOP_MASK] = codegen_PARITY,
+    [UOP_PARITY_JUMP & UOP_MASK] = codegen_PARITY_JUMP,
+    [UOP_CMP_ULT & UOP_MASK] = codegen_CMP_ULT,
     [UOP_CALL_FUNC & UOP_MASK] = codegen_CALL_FUNC,
     [UOP_CALL_FUNC_RESULT &
         UOP_MASK]

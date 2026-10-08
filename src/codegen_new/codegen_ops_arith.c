@@ -15,11 +15,16 @@
 #include "codegen_ops_arith.h"
 #include "codegen_ops_helpers.h"
 #include "codegen_ops_jit_wrappers.h"
+#include "codegen_ops_setcc.h"
 
 static inline void
 get_cf(ir_data_t *ir, int dest_reg)
 {
-    uop_CALL_FUNC_RESULT(ir, dest_reg, jit_CF_SET);
+    /* Group-immediate forms can already have an operand in temp0 and an
+       immediate in temp2. Use the result temporary as scratch only before
+       computing that result; do not clobber their live operands for CF. */
+    int scratch = dest_reg == IREG_temp1 ? IREG_temp2 : IREG_temp1;
+    setcc_gen_carry(ir, dest_reg, scratch);
 }
 
 uint32_t
@@ -2290,36 +2295,10 @@ rop83_l(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
     return op_pc + 2;
 }
 
-static void
-rebuild_c(ir_data_t *ir)
-{
-    int needs_rebuild = 1;
-
-    if (codegen_flags_changed) {
-        switch (cpu_state.flags_op) {
-            case FLAGS_INC8:
-            case FLAGS_INC16:
-            case FLAGS_INC32:
-            case FLAGS_DEC8:
-            case FLAGS_DEC16:
-            case FLAGS_DEC32:
-                needs_rebuild = 0;
-                break;
-
-            default:
-                break;
-        }
-    }
-
-    if (needs_rebuild) {
-        uop_CALL_FUNC(ir, jit_flags_rebuild_c);
-    }
-}
-
 uint32_t
 ropINC_r16(UNUSED(UNUSED(codeblock_t *block)), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    rebuild_c(ir);
+    setcc_rebuild_c(ir);
 
     uop_MOVZX(ir, IREG_flags_op1, IREG_16(opcode & 7));
     uop_ADD_IMM(ir, IREG_16(opcode & 7), IREG_16(opcode & 7), 1);
@@ -2333,7 +2312,7 @@ ropINC_r16(UNUSED(UNUSED(codeblock_t *block)), ir_data_t *ir, UNUSED(uint8_t opc
 uint32_t
 ropINC_r32(UNUSED(UNUSED(codeblock_t *block)), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    rebuild_c(ir);
+    setcc_rebuild_c(ir);
 
     uop_MOV(ir, IREG_flags_op1, IREG_32(opcode & 7));
     uop_ADD_IMM(ir, IREG_32(opcode & 7), IREG_32(opcode & 7), 1);
@@ -2348,7 +2327,7 @@ ropINC_r32(UNUSED(UNUSED(codeblock_t *block)), ir_data_t *ir, UNUSED(uint8_t opc
 uint32_t
 ropDEC_r16(UNUSED(codeblock_t *block), ir_data_t *ir, uint8_t opcode, UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    rebuild_c(ir);
+    setcc_rebuild_c(ir);
 
     uop_MOVZX(ir, IREG_flags_op1, IREG_16(opcode & 7));
     uop_SUB_IMM(ir, IREG_16(opcode & 7), IREG_16(opcode & 7), 1);
@@ -2362,7 +2341,7 @@ ropDEC_r16(UNUSED(codeblock_t *block), ir_data_t *ir, uint8_t opcode, UNUSED(uin
 uint32_t
 ropDEC_r32(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    rebuild_c(ir);
+    setcc_rebuild_c(ir);
 
     uop_MOV(ir, IREG_flags_op1, IREG_32(opcode & 7));
     uop_SUB_IMM(ir, IREG_32(opcode & 7), IREG_32(opcode & 7), 1);
@@ -2378,7 +2357,7 @@ uint32_t
 ropINCDEC(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     codegen_mark_code_present(block, cs + op_pc, 1);
-    rebuild_c(ir);
+    setcc_rebuild_c(ir);
     if (fetchdat & 0x30) return 0;
 
     if ((fetchdat & 0xc0) == 0xc0) {

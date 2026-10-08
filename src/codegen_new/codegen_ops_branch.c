@@ -16,6 +16,7 @@
 #include "codegen_ops_helpers.h"
 #include "codegen_ops_jit_wrappers.h"
 #include "codegen_ops_mov.h"
+#include "codegen_ops_setcc.h"
 
 static int
 NF_SET_01(void)
@@ -54,6 +55,18 @@ ropJO_common(UNUSED(codeblock_t *block), ir_data_t *ir, uint32_t dest_addr, UNUS
         case FLAGS_DEC32:
             jump_uop = uop_CMP_JNO_DEST(ir, IREG_flags_op1, IREG_flags_op2);
             break;
+
+#ifdef CODEGEN_BACKEND_HAS_OVERFLOW
+        case FLAGS_ADD8:
+        case FLAGS_ADD16:
+        case FLAGS_ADD32:
+        case FLAGS_INC8:
+        case FLAGS_INC16:
+        case FLAGS_INC32:
+            setcc_gen_O(ir, 0);
+            jump_uop = uop_CMP_IMM_JZ_DEST(ir, IREG_temp0, 0);
+            break;
+#endif
 
         case FLAGS_UNKNOWN:
         default:
@@ -94,6 +107,18 @@ ropJNO_common(UNUSED(codeblock_t *block), ir_data_t *ir, uint32_t dest_addr, UNU
         case FLAGS_DEC32:
             jump_uop = uop_CMP_JO_DEST(ir, IREG_flags_op1, IREG_flags_op2);
             break;
+
+#ifdef CODEGEN_BACKEND_HAS_OVERFLOW
+        case FLAGS_ADD8:
+        case FLAGS_ADD16:
+        case FLAGS_ADD32:
+        case FLAGS_INC8:
+        case FLAGS_INC16:
+        case FLAGS_INC32:
+            setcc_gen_O(ir, 0);
+            jump_uop = uop_CMP_IMM_JNZ_DEST(ir, IREG_temp0, 0);
+            break;
+#endif
 
         case FLAGS_UNKNOWN:
         default:
@@ -535,8 +560,15 @@ ropJP_common(UNUSED(codeblock_t *block), ir_data_t *ir, uint32_t dest_addr, UNUS
 {
     int jump_uop;
 
-    uop_CALL_FUNC_RESULT(ir, IREG_temp0, jit_PF_SET);
-    jump_uop = uop_CMP_IMM_JZ_DEST(ir, IREG_temp0, 0);
+#ifdef CODEGEN_BACKEND_HAS_PARITY
+    if (codegen_flags_changed && flags_res_valid() && cpu_state.flags_op != FLAGS_IMUL8)
+        jump_uop = uop_PARITY_JUMP(ir, IREG_flags_res, 1);
+    else
+#endif
+    {
+        uop_CALL_FUNC_RESULT(ir, IREG_temp0, jit_PF_SET);
+        jump_uop = uop_CMP_IMM_JZ_DEST(ir, IREG_temp0, 0);
+    }
     uop_MOV_IMM(ir, IREG_pc, dest_addr);
     uop_JMP(ir, codegen_exit_rout);
     uop_set_jump_dest(ir, jump_uop);
@@ -547,8 +579,15 @@ ropJNP_common(UNUSED(codeblock_t *block), ir_data_t *ir, uint32_t dest_addr, UNU
 {
     int jump_uop;
 
-    uop_CALL_FUNC_RESULT(ir, IREG_temp0, jit_PF_SET);
-    jump_uop = uop_CMP_IMM_JNZ_DEST(ir, IREG_temp0, 0);
+#ifdef CODEGEN_BACKEND_HAS_PARITY
+    if (codegen_flags_changed && flags_res_valid() && cpu_state.flags_op != FLAGS_IMUL8)
+        jump_uop = uop_PARITY_JUMP(ir, IREG_flags_res, 0);
+    else
+#endif
+    {
+        uop_CALL_FUNC_RESULT(ir, IREG_temp0, jit_PF_SET);
+        jump_uop = uop_CMP_IMM_JNZ_DEST(ir, IREG_temp0, 0);
+    }
     uop_MOV_IMM(ir, IREG_pc, dest_addr);
     uop_JMP(ir, codegen_exit_rout);
     uop_set_jump_dest(ir, jump_uop);

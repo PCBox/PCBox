@@ -17,6 +17,8 @@ import statistics as stats
 import subprocess
 import time
 
+STRUCTURE = ("slow_sites", "slow_stubs", "ir_uops", "call_uops", "memory_uops", "barrier_uops", "frontend_fallbacks")
+
 
 def read_result(path):
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -81,6 +83,10 @@ def collect(output, jobs, rounds, labels):
             summary = dict(case=name, block_ops=block_ops, measure=sources[0]["measure"], **pooled[label])
             summary.update({key: int(sources[0][key]) for key in
                             ("ops_per_block", "jit_bytes", "helpers_per_block", "body_ops", "unroll_copies")})
+            for key in STRUCTURE:
+                if len({row.get(key, "-1") for row in sources}) != 1:
+                    raise ValueError(f"Generated structure changed between rounds: {name} {key}")
+                summary[key] = int(sources[0].get(key, -1))
             summary.update(rounds=rounds, iterations_per_run=json.dumps([int(r["iterations"]) for r in sources]),
                            measured_ms=sum(float(r["measured_ms"]) for r in sources))
             summary.update({f"sample_{s + 1}_ns": value for s, value in enumerate(values)})
@@ -112,6 +118,9 @@ def collect(output, jobs, rounds, labels):
                                current_jit_bytes=int(source["current"]["jit_bytes"]),
                                baseline_unroll_copies=int(source["baseline"]["unroll_copies"]),
                                current_unroll_copies=int(source["current"]["unroll_copies"])))
+        for key in STRUCTURE:
+            for label in ("baseline", "current"):
+                comparison[-1][f"{label}_{key}"] = int(source[label].get(key, -1))
     for label, rows in summaries.items():
         write_csv(output / f"{label}.csv", rows)
     write_csv(output / "samples.csv", observations)

@@ -25,12 +25,15 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot export baseline sources' }
 if ($LASTEXITCODE -ne 0) { throw 'Cannot extract baseline sources' }
 # Backport only the fixture. The baseline emulator sources stay at their commit.
 Copy-Item -LiteralPath (Join-Path $repoRoot 'tests/cpu/cpu_microbench.c') -Destination (Join-Path $baselineRoot 'tests/cpu/cpu_microbench.c')
+Copy-Item -LiteralPath (Join-Path $repoRoot 'tests/cpu/cpu_microbench_cases.h') -Destination (Join-Path $baselineRoot 'tests/cpu/cpu_microbench_cases.h')
 $compilerPath = (Get-Command $Compiler -ErrorAction Stop).Source
 $env:PATH = (Split-Path $compilerPath) + [IO.Path]::PathSeparator + $env:PATH
 $commonFlags = @('-O2', '-g', '-DNDEBUG', '-std=gnu11', '-fomit-frame-pointer', '-fno-strict-aliasing',
     '-m64', '-march=x86-64', '-msse2', '-mfpmath=sse', '-mstackrealign', '-ffunction-sections',
     '-fdata-sections', '-fno-asynchronous-unwind-tables', '-DUSE_DYNAREC', '-DUSE_NEW_DYNAREC', '-Wl,--gc-sections')
 $sources = @('tests/cpu/cpu_microbench.c', 'src/codegen_new/codegen_ops_jump.c',
+    'src/codegen_new/codegen_ops_misc.c',
+    'src/codegen_new/codegen_ops_arith.c', 'src/codegen_new/codegen_ops_setcc.c',
     'src/codegen_new/codegen_ops_mov.c',
     'src/codegen_new/codegen_ops_helpers.c', 'src/codegen_new/codegen_block.c',
     'src/codegen_new/codegen_backend_x86-64_ops.c', 'src/codegen_new/codegen_backend_x86-64_ops_sse.c')
@@ -39,6 +42,10 @@ foreach ($variant in @('baseline', 'current')) {
     $sourceRoot = if ($variant -eq 'baseline') { $baselineRoot } else { $repoRoot }
     $executable = Join-Path $outputRoot "$variant.exe"
     $arguments = $commonFlags + @("-I$sourceRoot/src/include", "-I$sourceRoot/src/cpu")
+    $codegenHeader = Get-Content -Raw -LiteralPath (Join-Path $sourceRoot 'src/codegen_new/codegen.h')
+    if ($codegenHeader -match 'codegen_check_seg_write\([^;]*x86seg\s*\*\s*seg\s*\);') {
+        $arguments += '-DBENCH_LEGACY_SEG_WRITE'
+    }
     $arguments += @($sources | ForEach-Object { Join-Path $sourceRoot $_ })
     $arguments += @('-o', $executable)
     & $compilerPath @arguments
@@ -50,6 +57,7 @@ foreach ($variant in @('baseline', 'current')) {
     baseline_ref = $BaselineRef; baseline_commit = $baselineCommit; current_commit = $currentCommit
     compiler = $compilerPath; compiler_version = (& $compilerPath --version | Select-Object -First 1)
     harness_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $repoRoot 'tests/cpu/cpu_microbench.c')).Hash
+    cases_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $repoRoot 'tests/cpu/cpu_microbench_cases.h')).Hash
     source_diff = (& git -C $repoRoot diff HEAD -- src/codegen_new src/cpu)
     builds = $builds
 } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $outputRoot 'build.json') -Encoding utf8

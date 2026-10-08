@@ -20,7 +20,7 @@
 } while (0)
 
 cpu_state_t cpu_state;
-uintptr_t writelookup2[1048576];
+uintptr_t readlookup2[2097152], writelookup2[1048576];
 uint8_t *ram, *block_write_data;
 int block_pos, cpu_block_end;
 int timing_misaligned, cpu_cyrix_alignment;
@@ -48,6 +48,10 @@ static const uint8_t test_data[16] = {
     0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00
 };
 static uint32_t helper_calls, fault_on_call, aborted;
+
+/* Shared pairs run with real callbacks in ram_register_test. */
+uint64_t readmemql(uint32_t addr) { (void) addr; CHECK(0); return 0; }
+void writememql(uint32_t addr, uint64_t value) { (void) addr; (void) value; CHECK(0); }
 
 void fatal(const char *fmt, ...)
 {
@@ -167,7 +171,7 @@ int main(void)
     writelookup2[1] = (uintptr_t) -1;
     run_store(0, 4096 - 16, 0, 0, 0, 0, 0); /* Last vector in mapped page. */
 
-    /* Slow path fallback: page boundary crossing (requires 2 quad stores) */
+    /* Private pairs use both quad helpers. */
     run_store(0, 4096 - 8, 0, 0, 0, 2, 0);
 
     /* 16-bit addressing bypasses fast path */

@@ -51,6 +51,9 @@ static uint64_t saved_gprs[5];
 static const int gprs[] = { REG_EAX, REG_EBX, REG_EDX, REG_R14, REG_R15 };
 static const uint64_t initial_data = UINT64_C(0x89abcdef76543210);
 
+uint64_t readmemql(uint32_t addr) { (void) addr; CHECK(0); return 0; }
+void writememql(uint32_t addr, uint64_t value) { (void) addr; (void) value; CHECK(0); }
+
 void fatal(const char *fmt, ...)
 {
     va_list ap;

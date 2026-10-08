@@ -19,6 +19,20 @@
 #define CODEGEN_BACKEND_HAS_SSE_REGS
 #define CODEGEN_BACKEND_HAS_SSE_RECHECK
 #define CODEGEN_BACKEND_HAS_MEM_STUBS
+#define CODEGEN_BACKEND_HAS_MEM_LOOKUP_REUSE
+#define CODEGEN_BACKEND_HAS_CMP_ULT
+#define CODEGEN_BACKEND_HAS_CMP_SLT
+#define CODEGEN_BACKEND_HAS_CMP_Z
+#define CODEGEN_BACKEND_HAS_PARITY
+#define CODEGEN_BACKEND_HAS_OVERFLOW
+#define CODEGEN_BACKEND_HAS_CMOV_Z
+#define CODEGEN_BACKEND_HAS_DIVMOD
+
+#ifdef _WIN64
+#    define CODEGEN_BACKEND_HAS_SELECTIVE_XMM
+/* The allocator records every XMM register loaded or written by this block. */
+extern uint16_t codegen_win64_xmm_used;
+#endif
 
 #define CODEGEN_HAS_SSE
 
