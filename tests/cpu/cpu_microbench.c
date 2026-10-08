@@ -225,6 +225,9 @@ const uOpFn uop_handlers[UOP_MAX] = {
 #ifdef CODEGEN_BACKEND_HAS_CMP_Z
     [UOP_CMP_Z & UOP_MASK] = codegen_CMP_Z,
 #endif
+#ifdef CODEGEN_BACKEND_HAS_CMOV_Z
+    [UOP_CMOV_Z & UOP_MASK] = codegen_CMOV_Z,
+#endif
 #ifdef CODEGEN_BACKEND_HAS_PARITY
     [UOP_PARITY & UOP_MASK] = codegen_PARITY,
     [UOP_PARITY_JUMP & UOP_MASK] = codegen_PARITY_JUMP,

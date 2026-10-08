@@ -562,8 +562,18 @@ ropCMOV_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op
         uop_MEM_LOAD_REG(ir, src_reg, ireg_seg_base(target_seg), IREG_eaaddr);
     }
 
-    gen_cond(ir, invert);
-    cmov_select(ir, dest_reg, src_reg);
+#ifdef CODEGEN_BACKEND_HAS_CMOV_Z
+    if ((fetchdat & 0xc0) == 0xc0 && gen_cond == setcc_gen_E &&
+        codegen_flags_changed && flags_res_valid()) {
+        /* Register CMOV can consume the lazy result without a boolean
+           temporary. Keep memory loads on the existing allocation path. */
+        uop_CMOV_Z(ir, dest_reg, dest_reg, src_reg, IREG_flags_res, invert);
+    } else
+#endif
+    {
+        gen_cond(ir, invert);
+        cmov_select(ir, dest_reg, src_reg);
+    }
 
     return op_pc + 1;
 }

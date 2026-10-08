@@ -369,6 +369,44 @@ static void test_parity_conditions(void)
                 }
 }
 
+#ifdef CODEGEN_BACKEND_HAS_CMOV_Z
+static void test_zero_cmov_aliases(void)
+{
+    /* Exercise all physical overlaps, including a destination that already
+       holds the selected source or the lazy result. Word CMOV keeps its high half. */
+    for (int word = 0; word < 2; word++)
+        for (int d = 0; d < CODEGEN_HOST_REGS; d++)
+            for (int a = 0; a < CODEGEN_HOST_REGS; a++)
+                for (int b = 0; b < CODEGEN_HOST_REGS; b++)
+                    for (int c = 0; c < CODEGEN_HOST_REGS; c++)
+                        for (int invert = 0; invert < 2; invert++)
+                            for (int zero = 0; zero < 2; zero++) {
+                                begin_test("zero CMOV aliases");
+                                codegen_backend_prologue(&bench_block);
+                                uint32_t values[CODEGEN_HOST_REGS];
+                                for (int r = 0; r < CODEGEN_HOST_REGS; r++) {
+                                    values[r] = r == c ? (zero ? 0 : 0x80000000u) : 0x12348000u + r;
+                                    host_x86_MOV32_REG_IMM(&bench_block, codegen_host_reg_list[r].reg, values[r]);
+                                }
+                                int size = word ? IREG_SIZE_W : IREG_SIZE_L;
+                                uop_t op = {.dest_reg_a_real = codegen_host_reg_list[d].reg | size,
+                                    .src_reg_a_real = codegen_host_reg_list[a].reg | size,
+                                    .src_reg_b_real = codegen_host_reg_list[b].reg | size,
+                                    .src_reg_c_real = codegen_host_reg_list[c].reg | IREG_SIZE_L,
+                                    .imm_data = invert};
+                                codegen_CMOV_Z(&bench_block, &op);
+                                host_x86_MOV32_ABS_REG(&bench_block, &EAX, codegen_host_reg_list[d].reg);
+                                codegen_backend_epilogue(&bench_block);
+                                flush_code();
+                                ((jit_fn) bench_block.data)();
+                                uint32_t expected = values[(zero ^ invert) ? b : a];
+                                if (word) expected = (values[d] & 0xffff0000) | (expected & 0xffff);
+                                CHECK(EAX == expected);
+                                checks++;
+                            }
+}
+#endif
+
 static void test_carry_faults(void)
 {
     for (int subtract = 0; subtract <= 1; subtract++) {
@@ -865,6 +903,9 @@ int main(void)
     test_signed_conditions();
     test_zero_conditions();
     test_parity_conditions();
+#ifdef CODEGEN_BACKEND_HAS_CMOV_Z
+    test_zero_cmov_aliases();
+#endif
     test_incdec_carry();
     test_cmov_memory();
     test_umul_aliases();

@@ -1227,6 +1227,35 @@ codegen_CMP_Z(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_CMOV_Z(codeblock_t *block, uop_t *uop)
+{
+    int dest = HOST_REG_GET(uop->dest_reg_a_real);
+    int old = HOST_REG_GET(uop->src_reg_a_real);
+    int src = HOST_REG_GET(uop->src_reg_b_real);
+    int cond = HOST_REG_GET(uop->src_reg_c_real);
+    int word = REG_IS_W(IREG_GET_SIZE(uop->dest_reg_a_real));
+    int invert = !!uop->imm_data;
+
+    /* Test before touching dest, which can also hold the condition. */
+    host_x86_TEST32_REG(block, cond, cond);
+    if (dest == src) {
+        /* Dest already holds the taken value; select old on the other arm. */
+        src = old;
+        invert = !invert;
+    } else if (dest != old) {
+        if (word) host_x86_MOV16_REG_REG(block, dest, old);
+        else host_x86_MOV32_REG_REG(block, dest, old);
+    }
+    codegen_alloc_bytes(block, 5);
+    if (word)
+        codegen_addbyte(block, 0x66);
+    if ((dest | src) & 8)
+        codegen_addbyte(block, 0x40 | ((dest & 8) >> 1) | ((src & 8) >> 3));
+    codegen_addbyte3(block, 0x0f, invert ? 0x45 : 0x44, 0xc0 | ((dest & 7) << 3) | (src & 7));
+    return 0;
+}
+
+static int
 codegen_CMOVNZ(codeblock_t *block, uop_t *uop)
 {
     int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
@@ -5095,6 +5124,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_DIV_RESULT & UOP_MASK] = codegen_DIV_RESULT,
     [UOP_CMP_SLT & UOP_MASK] = codegen_CMP_SLT,
     [UOP_CMP_Z & UOP_MASK] = codegen_CMP_Z,
+    [UOP_CMOV_Z & UOP_MASK] = codegen_CMOV_Z,
     [UOP_PARITY & UOP_MASK] = codegen_PARITY,
     [UOP_PARITY_JUMP & UOP_MASK] = codegen_PARITY_JUMP,
     [UOP_CMP_ULT & UOP_MASK] = codegen_CMP_ULT,
