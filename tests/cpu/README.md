@@ -657,3 +657,74 @@ traps, page/segment faults, restart PCs, lazy flags and exact cycle accounting.
 All 4,357 JIT benchmark cases validate at block sizes one, 32 and 64. The full
 Windows application builds. Whole-VM throughput and other host ABIs were not
 measured.
+
+## RAM page lookup reuse (2026-10-08)
+
+The x86-64 emitter keeps a guest page tag and its host RAM bias across nearby
+accesses in a straight-line region. A different page takes an out-of-line
+lookup; unchanged address operands need only check whether a helper invalidated
+the cache. Read and write mappings remain separate. Calls, joins, unlisted
+emitters and large immediate arithmetic end reuse. Every successful memory
+helper invalidates the tag, including helpers that install or change mappings.
+Alignment, page-crossing, fault and cycle checks still apply to each access.
+
+`ram_lookup_test` compares fresh lookups with reuse using the same IR and
+register allocation. Its fixture intercepts emission to disable reuse in the
+reference; there is no production switch. The 46,720 comparisons cover 338,300
+cached sites, including 31,500 unchanged addresses, and compare complete CPU
+state, callback traces, both RAM backings, fault exits and cycle counts.
+Cases include all widths from 8 through 128 bits, high-byte operands, mixed
+widths and directions, independent read/write mappings, callbacks that remap or
+invalidate RAM, every callback fault position, partial 128-bit stores,
+unaligned accesses, page crossings, segment bases, 16/32-bit wrapping, calls,
+conditional joins, unknown emitters, register pressure and dynamic x87 TOP.
+Padding sweeps every possible starting offset in an allocator chunk.
+
+All eleven CPU suites pass. The RAM register, lookup and scalar-memory suites
+also pass in a Debug build with `RECOMPILER_DEBUG`. All 4,357 microbenchmark
+cases validate at block sizes one, 32 and 64, and the full Windows application
+builds. Three isolated mutations (removing helper invalidation, merging read
+and write cache kinds, and breaking the page comparison) each fail the new
+suite. These checks validate Windows x64; other host ABIs and whole-VM workloads
+have not been run.
+
+The comparison baseline is `2d4f45455`, immediately before lookup reuse. Both
+binaries use the same fixture and GCC 15.2.0 `-O2 -march=x86-64` on the Ryzen 9
+9950X, CPU 4. The execution screen covers 72 cases at 32 operations per block,
+with two counterbalanced rounds of eleven 30 ms samples and 40 ms warmup.
+Six follow-ups use fifteen 75 ms samples and 100 ms warmup. Compilation uses
+those longer settings for fifteen cases at both one and 32 operations per block.
+
+Representative longer execution repeats (nanoseconds per memory operation):
+
+| Case | Before | After | Change |
+|---|---:|---:|---:|
+| Aligned load32, live cycles | 0.283 | 0.164 | -42.1% |
+| Aligned store128, live cycles | 0.300 | 0.218 | -27.2% |
+| Page-crossing load64 | 1.972 | 1.784 | -9.6% |
+| Page-crossing store32 | 1.840 | 1.787 | No clear change |
+| Lookup-miss store32, live cycles | 1.893 | 2.062 | +9.0% |
+| Shuffled 1 MiB pointer chase, four chains | 1.609 | 1.682 | +4.5% |
+
+The screen also reduces unaligned load64/store64 time by 14%/16% and adjacent
+dword stream reads by about 4%. Page-sized strides retain fresh lookups and no
+longer show the large regressions of the initial cache implementation. Repeated
+crossing scalar accesses bypass pointless refills before calling the helper.
+
+There are real costs. Scalar lookup-miss loops regress 4-12% in the screen;
+the longer store32 repeat confirms 9%. Low-locality pointer chasing can also
+lose, as above. These paths pay for the guard without enough cache hits.
+Sampled affected 32-access blocks take roughly 8-21% longer to compile and
+emit 13-39% more total code, including the cold refills. For example, load32
+compilation rises from 3.108 to 3.674 us/block and 3,246 to 4,517 bytes;
+store128 rises from 2.668 to 2.989 us/block and 2,627 to 3,171 bytes. Single-access
+blocks do not reuse a lookup: most compilation cases remain within 3%, with
+load32, the dword stream and pointer-chase cases increasing 5-7%. The integer
+control remains unchanged. This optimization favors repeatedly executed RAM
+blocks; it is not a compilation-footprint improvement or a universal speedup.
+
+Local snapshots, compiler arguments, binaries, raw samples and rejected
+variants are under `build/page-lookup-20261008/`. `retained/` contains the final
+comparison: `execute/`, `followup-execute/` and `compile/`. The full validation
+logs and isolated mutation builds are alongside it. These measurements describe
+the synthetic JIT workloads, not whole-VM throughput or code-cache eviction.

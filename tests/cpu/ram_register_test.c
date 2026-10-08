@@ -54,6 +54,7 @@ static uint8_t memory[8192];
 static unsigned next_chunk, cases, helper_calls, fault_on_call, padding;
 static uint32_t observed_eax, observed_xmm[4], aborted, expected_oldpc;
 static unsigned exception, memory_control;
+static void (*memory_callback)(uint32_t addr, unsigned size, int store);
 static unsigned cycle_mode;
 static cpu_state_t fault_state;
 static uint64_t saved_r13;
@@ -287,6 +288,8 @@ static uint64_t
 access_memory(uint32_t addr, uint64_t value, unsigned size, int store)
 {
     helper_calls++;
+    if (memory_callback)
+        memory_callback(addr, size, store);
     CHECK(cpu_state.oldpc == expected_oldpc);
     CHECK(addr + size <= sizeof(memory));
     cycles -= 5;
@@ -322,14 +325,15 @@ access_memory(uint32_t addr, uint64_t value, unsigned size, int store)
         memcpy(&value, memory + addr, size);
     }
     /* A real C callback may freely destroy these registers. */
-    __asm__ volatile("mov $0x13579bdf, %%r10d\n\t"
+    __asm__ volatile("mov $0, %%r8d\n\t"
+                     "mov $0x13579bdf, %%r10d\n\t"
                      "mov $0x2468ace0, %%r11d\n\t"
                      "pxor %%xmm1, %%xmm1\n\t"
                      "pxor %%xmm2, %%xmm2\n\t"
                      "pxor %%xmm3, %%xmm3\n\t"
                      "pxor %%xmm4, %%xmm4\n\t"
                      "pxor %%xmm5, %%xmm5"
-                     : : : "r10", "r11", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5");
+                     : : : "r8", "r10", "r11", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5");
 #ifndef _WIN32
     __asm__ volatile("pxor %%xmm6, %%xmm6\n\tpxor %%xmm7, %%xmm7"
                      : : : "xmm6", "xmm7");
@@ -489,7 +493,10 @@ pad_code(codeblock_t *block, uop_t *uop)
     return 0;
 }
 
-const uOpFn uop_handlers[UOP_MAX] = {
+#ifndef RAM_UOP_HANDLERS
+#    define RAM_UOP_HANDLERS uop_handlers
+#endif
+const uOpFn RAM_UOP_HANDLERS[UOP_MAX] = {
     [UOP_CMP_JB & UOP_MASK] = codegen_CMP_JB,
     [UOP_CMP_JNBE & UOP_MASK] = codegen_CMP_JNBE,
     [UOP_MOV & UOP_MASK] = codegen_MOV,

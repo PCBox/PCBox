@@ -24,6 +24,11 @@
 /*Set during emission when a memory helper must invalidate an earlier SSE check.*/
 #define UOP_TYPE_SSE_INVALIDATE (1 << 23)
 
+/* The preceding straight-line access left a reusable RAM page lookup. */
+#define UOP_TYPE_MEM_REUSE (1 << 22)
+/* The address operands also have the same IR versions and displacement. */
+#define UOP_TYPE_MEM_SAME_ADDR (1 << 21)
+
 /*uOP uses source and dest registers*/
 #define UOP_TYPE_PARAMS_REGS (1 << 28)
 /*uOP uses pointer*/

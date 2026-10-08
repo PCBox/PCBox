@@ -142,6 +142,21 @@ if(BUILD_TESTING AND ARCH STREQUAL "x86_64")
             $<$<NOT:$<PLATFORM_ID:Darwin>>:-Wl,--gc-sections>)
         add_test(NAME ram_register_test COMMAND ram_register_test)
 
+        add_executable(ram_lookup_test ram_lookup_test.c
+            ../../src/codegen_new/codegen_ops_mov.c
+            ../../src/codegen_new/codegen_backend_x86-64_ops.c
+            ../../src/codegen_new/codegen_backend_x86-64_ops_sse.c)
+        target_compile_definitions(ram_lookup_test PRIVATE USE_DYNAREC USE_NEW_DYNAREC)
+        target_include_directories(ram_lookup_test PRIVATE
+            ${CPU_SOURCE_ROOT}/src/include ${CPU_SOURCE_ROOT}/src/cpu
+            ${PROJECT_BINARY_DIR}/src/include)
+        target_compile_options(ram_lookup_test PRIVATE -ffunction-sections -fdata-sections
+            $<$<PLATFORM_ID:Windows>:-fno-asynchronous-unwind-tables>)
+        target_link_options(ram_lookup_test PRIVATE
+            $<$<PLATFORM_ID:Darwin>:-Wl,-dead_strip>
+            $<$<NOT:$<PLATFORM_ID:Darwin>>:-Wl,--gc-sections>)
+        add_test(NAME ram_lookup_test COMMAND ram_lookup_test)
+
         add_executable(sse_load_test
             sse_load_test.c
             ../../src/codegen_new/codegen_backend_x86-64.c
