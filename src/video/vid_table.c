@@ -186,7 +186,6 @@ video_cards[] = {
     { .device = &millennium_ii_device,                          .flags = VIDEO_FLAG_TYPE_SECONDARY },
     { .device = &mystique_device,                               .flags = VIDEO_FLAG_TYPE_SECONDARY },
     { .device = &mystique_220_device,                           .flags = VIDEO_FLAG_TYPE_SECONDARY },
-    { .device = &riva128_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_86c928_pci_device,                          .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_trio32_pci_device,                          .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_trio3d2x_pci_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
@@ -221,6 +220,7 @@ video_cards[] = {
     { .device = &s3_trio3d2x_agp_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_virge_gx2_agp_device,                       .flags = VIDEO_FLAG_TYPE_NONE      },
 #ifdef USE_NV3
+    { .device = &riva128_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &rivatnt_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE },
 #endif
     /* LPT */
