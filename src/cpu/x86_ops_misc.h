@@ -885,6 +885,7 @@ opINVD(UNUSED(uint32_t fetchdat))
         return 1;
     }
     cpu_INVD(0);
+    cpu_cache_invalidate();
     CLOCK_CYCLES(1000);
     CPU_BLOCK_END();
     return 0;
@@ -897,6 +898,8 @@ opWBINVD(UNUSED(uint32_t fetchdat))
         return 1;
     }
     cpu_INVD(1);
+    /* The i486 cache is write-through, so there are no dirty lines to drain. */
+    cpu_cache_invalidate();
     CLOCK_CYCLES(10000);
     CPU_BLOCK_END();
     return 0;
