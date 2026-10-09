@@ -27,6 +27,8 @@ uint32_t x87_op_off;
 uint16_t x87_pc_seg;
 uint16_t x87_op_seg;
 
+int fpu_sf_new_exc = 0;
+
 #ifdef ENABLE_FPU_X87_LOG
 int fpu_x87_do_log = ENABLE_FPU_X87_LOG;
 
@@ -288,16 +290,19 @@ FPU_status_word_flags_fpu_compare(int float_relation)
     return (-1); // should never get here
 }
 
+/* Callers must flags_rebuild() first. ZF, PF and CF report the relation;
+   OF, SF and AF are cleared. */
 void
 FPU_write_eflags_fpu_compare(int float_relation)
 {
+    cpu_state.flags &= ~(V_FLAG | N_FLAG | A_FLAG | Z_FLAG | P_FLAG | C_FLAG);
+
     switch (float_relation) {
         case softfloat_relation_unordered:
             cpu_state.flags |= (Z_FLAG | P_FLAG | C_FLAG);
             break;
 
         case softfloat_relation_greater:
-            cpu_state.flags &= ~(Z_FLAG | P_FLAG | C_FLAG);
             break;
 
         case softfloat_relation_less:
@@ -311,6 +316,27 @@ FPU_write_eflags_fpu_compare(int float_relation)
         default:
             break;
     }
+}
+
+/* Called once an x87 instruction has finished: signal an unmasked exception
+   it raised (FERR#). Returns 1 if one was signalled. Exceptions made pending
+   by FLDCW, FLDENV or FRSTOR are left to the next waiting instruction, as on
+   real hardware. */
+int
+fpu_sf_report_exception(void)
+{
+    int raised = fpu_sf_new_exc && !cpu_state.abrt && (fpu_state.swd & FPU_SW_Summary);
+
+    fpu_sf_new_exc = 0;
+    if (raised) {
+        fpu_ignne = 0;
+        if (cr0 & 0x20)
+            new_ne = 1;
+        else
+            picint(1 << 13);
+    }
+
+    return raised;
 }
 
 uint16_t
@@ -332,6 +358,8 @@ FPU_exception(UNUSED(uint32_t fetchdat), uint16_t exceptions, int store)
 
     /* Set summary bits if exception isn't masked */
     if (unmasked) {
+        if (!(fpu_state.swd & FPU_SW_Summary))
+            fpu_sf_new_exc = 1;
         fpu_state.swd |= (FPU_SW_Summary | FPU_SW_Backward);
     }
 

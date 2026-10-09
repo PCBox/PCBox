@@ -140,7 +140,12 @@ is_IA_masked(void)
     return (fpu_state.cwd & FPU_CW_Invalid);
 }
 
+/* Set by FPU_exception when an instruction raises an unmasked exception with
+   none pending; consumed by fpu_sf_report_exception. */
+extern int fpu_sf_new_exc;
+
 struct softfloat_status_t i387cw_to_softfloat_status_word(uint16_t control_word);
+int                   fpu_sf_report_exception(void);
 uint16_t              FPU_exception(uint32_t fetchdat, uint16_t exceptions, int store);
 int                   FPU_status_word_flags_fpu_compare(int float_relation);
 void                  FPU_write_eflags_fpu_compare(int float_relation);
@@ -233,14 +238,25 @@ FPU_save_regi_tag(extFloat80_t reg, int tag, int stnr)
         }                                     \
     } while (0)
 #else
-#define FPU_check_pending_exceptions()        \
-    do {                                      \
-        if (fpu_state.swd & FPU_SW_Summary) { \
-            if (cr0 & 0x20)                   \
-                new_ne = 1;                   \
-            else                              \
-                picint(1 << 13);              \
-            return 1;                         \
-        }                                     \
+/* A waiting x87 instruction does not run while an unmasked exception is
+   pending. With CR0.NE set it faults with #MF; otherwise FERR# raises IRQ13
+   and the instruction waits until the handler acknowledges the error through
+   port F0, which asserts IGNNE# and lets it proceed. Either way it restarts
+   from its first byte. */
+#define FPU_check_pending_exceptions()                 \
+    do {                                               \
+        if (!(fpu_state.swd & FPU_SW_Summary))         \
+            fpu_ignne = 0;                             \
+        else if ((cr0 & 0x20) || !fpu_ignne) {         \
+            if (cr0 & 0x20)                            \
+                new_ne = 1;                            \
+            else {                                     \
+                picint(1 << 13);                       \
+                CLOCK_CYCLES(4);                       \
+            }                                          \
+            CPU_BLOCK_END();                           \
+            cpu_state.pc = cpu_state.oldpc;            \
+            return 1;                                  \
+        }                                              \
     } while (0)
 #endif

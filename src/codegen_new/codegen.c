@@ -516,14 +516,7 @@ static uint8_t opcode_0f_3a_modrm[256] = {
 static void
 fpu_sf_check_exceptions(void)
 {
-    cpu_state.sf_exc = 0;
-    if (fpu_state.swd & FPU_SW_Summary) {
-        if (cr0 & 0x20)
-            new_ne = 1;
-        else
-            picint(1 << 13);
-        cpu_state.sf_exc = 1;
-    }
+    cpu_state.sf_exc = fpu_sf_report_exception();
 }
 
 void

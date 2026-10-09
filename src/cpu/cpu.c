@@ -6374,9 +6374,11 @@ cpu_write(uint16_t addr, uint8_t val, UNUSED(void *priv))
 {
     if (addr == 0xf0) {
         /* Writes to F0 clear FPU error and deassert the interrupt. */
-        if (is286)
+        if (is286) {
             picintc(1 << 13);
-        else
+            /* IGNNE#: x87 instructions proceed despite the pending error. */
+            fpu_ignne = 1;
+        } else
             nmi = 0;
     } else if ((addr < 0xf1) && !(addr & 1))
         cyrix_addr = val;

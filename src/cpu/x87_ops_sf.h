@@ -205,7 +205,7 @@ fpu_load_environment(void)
 
     cpu_state.fpu_CS = fpu_state.fcs;
     cpu_state.fpu_cs = 0x00000000;
-    cpu_state.fpu_pc = fpu_state.fcs;
+    cpu_state.fpu_pc = fpu_state.fip;
     cpu_state.fpu_DS = fpu_state.fds;
     cpu_state.fpu_ds = 0x00000000;
     cpu_state.fpu_ea = fpu_state.fdp;
@@ -288,7 +288,7 @@ sf_FNSTCW_a16(UNUSED(uint32_t fetchdat))
     SEG_CHECK_WRITE(cpu_state.ea_seg);
     seteaw(cwd);
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fstcw_sw) : (x87_timings.fstcw_sw * cpu_multi));
-    CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fstenv) : (x87_concurrency.fstenv * cpu_multi));
+    CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fstcw_sw) : (x87_concurrency.fstcw_sw * cpu_multi));
     return cpu_state.abrt;
 }
 #ifndef FPU_8087
@@ -427,6 +427,9 @@ sf_FNSAVE_a16(UNUSED(uint32_t fetchdat))
         writememq(easeg, offset + (m * 10), stn.signif);
         writememw(easeg, offset + (m * 10) + 8, stn.signExp);
     }
+    /* a faulting store restarts the instruction, which must save the same state */
+    if (cpu_state.abrt)
+        return 1;
 
 #ifdef FPU_8087
     fpu_state.cwd = 0x3FF;
@@ -465,6 +468,9 @@ sf_FNSAVE_a32(uint32_t fetchdat)
         writememq(easeg, offset + (m * 10), stn.signif);
         writememw(easeg, offset + (m * 10) + 8, stn.signExp);
     }
+    /* a faulting store restarts the instruction, which must save the same state */
+    if (cpu_state.abrt)
+        return 1;
 
 #    ifdef FPU_8087
     fpu_state.cwd = 0x3FF;
@@ -585,6 +591,9 @@ sf_FNSTENV_a16(UNUSED(uint32_t fetchdat))
     SEG_CHECK_WRITE(cpu_state.ea_seg);
     CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 27UL : 13UL));
     fpu_save_environment();
+    /* a faulting store restarts the instruction, which must save the same state */
+    if (cpu_state.abrt)
+        return 1;
     /* mask all floating point exceptions */
     fpu_state.cwd |= FPU_CW_Exceptions_Mask;
     /* clear the B and ES bits in the status word */
@@ -602,6 +611,9 @@ sf_FNSTENV_a32(uint32_t fetchdat)
     SEG_CHECK_WRITE(cpu_state.ea_seg);
     CHECK_WRITE(cpu_state.ea_seg, cpu_state.eaaddr, cpu_state.eaaddr + ((cpu_state.op32 & 0x100) ? 27UL : 13UL));
     fpu_save_environment();
+    /* a faulting store restarts the instruction, which must save the same state */
+    if (cpu_state.abrt)
+        return 1;
     /* mask all floating point exceptions */
     fpu_state.cwd |= FPU_CW_Exceptions_Mask;
     /* clear the B and ES bits in the status word */
