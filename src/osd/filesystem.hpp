@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <memory>
