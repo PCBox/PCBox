@@ -906,6 +906,7 @@ exec386_dynarec_dyn(void)
         inrecomp = 1;
         code();
         inrecomp = 0;
+        x86_reset_deferred();
 #    ifdef CODEGEN_CHAIN
         /* The chain left for want of a link, or by an indirect exit that
            missed: linked or filled once the block it wanted passes every

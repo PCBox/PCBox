@@ -6091,13 +6091,9 @@ const machine_t machines[] = {
             .min_multi   = 0,
             .max_multi   = 0
         },
-        .bus_flags = MACHINE_PC,
-        .flags     = MACHINE_VIDEO_FIXED | MACHINE_FDC | MACHINE_KEYBOARD | MACHINE_MOUSE | MACHINE_UART_PRI | MACHINE_LPT_PRI,
-        /* The IPL's memory walk hard-codes the low window as 64K-640K and rejects
-           anything less with error 6111, so 1MB (640K low plus the extended 384K)
-           is the smallest configuration. The presence bitmap in the memory
-           configuration register file is 16 bits of 128K. */
-        .ram       = {
+        .bus_flags = MACHINE_BUS_PS2,
+        .flags     = MACHINE_VIDEO_FIXED | MACHINE_SOUND | MACHINE_KEYBOARD,
+        .ram       = { /* 1 MB of memory soldered and non-upgradable(?) */
             .min  = 1024,
             .max  = 2048,
             .step = 1024
@@ -6120,7 +6116,7 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = NULL,
         .net_device               = NULL,
-        .aliases                  = { "" }
+        .aliases                  = { "Tandy Memorex Video Information System", "" }
     },
     /* 286 machines that utilize the MCA bus */
     /* Has IBM PS/2 Type 1 KBC firmware. */
