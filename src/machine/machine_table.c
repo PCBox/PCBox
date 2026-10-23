@@ -20844,7 +20844,7 @@ const machine_t machines[] = {
        - Memory 2 MB to 768 MB: three banks of two 72-pin SIMMs, 256Kx36 to
          32Mx36 (page 32).
        Manual: https://theretroweb.com/motherboard/manual/tdpman-5f04d9492eea4539273477.pdf */
-    /*{
+    {
         .name              = "[i430HX] AIR 54TDP",
         .internal_name     = "54tdp",
         .type              = MACHINE_TYPE_SOCKET7,
@@ -20902,7 +20902,7 @@ const machine_t machines[] = {
             MSLOT_END
         },
         .aliases                  = { "Advanced Integration Research 54TDP", "" }
-    },*/
+    },
     /* Has AMIKey H KBC firmware (AMIKey-2). */
     {
         .name              = "[i430HX] ASUS P/I-P55T2P4",
@@ -20962,7 +20962,7 @@ const machine_t machines[] = {
         .aliases                  = { "" }
     },
     /* The base board has a Holtek HT6542B which emulates the AMIKey-2 ('H') KBC firmware. */
-    /*{
+    {
         .name              = "[i430HX] ASUS P/I-P65UP5 (C-P55T2D)",
         .internal_name     = "p65up5_cp55t2d",
         .type              = MACHINE_TYPE_SOCKET7,
@@ -21020,7 +21020,7 @@ const machine_t machines[] = {
             MSLOT_END
         },
         .aliases                  = { "" }
-    },*/
+    },
     /* According to tests from real hardware: This has AMI MegaKey KBC firmware on the
        PC87306 Super I/O chip, command 0xA1 returns '5'.
        Command 0xA0 copyright string: (C)1994 AMI . */
@@ -25433,7 +25433,7 @@ const machine_t machines[] = {
         .aliases                  = { "" }
     },
     /* The base board has a Holtek HT6542B with AMIKey-2 ('H') KBC firmware. */
-    /*{
+    {
         .name              = "[i440FX] ASUS P/I-P65UP5 (C-P6ND)",
         .internal_name     = "p65up5_cp6nd",
         .type              = MACHINE_TYPE_SOCKET8,
@@ -25491,7 +25491,7 @@ const machine_t machines[] = {
             MSLOT_END
         },
         .aliases                  = { "" }
-    },*/
+    },
     /* Has a VIA VT82C42N KBC. */
     {
         .name              = "[i440FX] Biostar MB-8600TTC",
@@ -26154,7 +26154,7 @@ const machine_t machines[] = {
         .aliases                  = { "Advanced Integration Research P6KDI", "" }
     },
     /* The base board has a Holtek HT6542B KBC which emulates the AMIKEY-2 'H' KBC firmware. */
-    /*{
+    {
         .name              = "[i440FX] ASUS P/I-P65UP5 (C-PKND)",
         .internal_name     = "p65up5_cpknd",
         .type              = MACHINE_TYPE_SLOT1,
@@ -26211,7 +26211,7 @@ const machine_t machines[] = {
             MSLOT_END
         },
         .aliases                  = { "" }
-    },*/
+    },
     /* This has a Holtek KBC. */
     {
         .name              = "[i440FX] ASUS KN97",

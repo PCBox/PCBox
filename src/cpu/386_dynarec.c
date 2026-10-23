@@ -1327,7 +1327,6 @@ exec386_dynarec_common(int32_t cycs, const int dbg)
                 enter_smm_check(halted);
                 if (in_smm != before)
                     cpu_halted = 0;
-<<<<<<< HEAD
                 else if (halted && before) {
                     /* An SMI latched in SMM still ends a HLT there: "INTR,
                        NMI, and SMI# are the only events that take the CPU
@@ -1336,8 +1335,6 @@ exec386_dynarec_common(int32_t cycs, const int dbg)
                     cpu_halted = 0;
                 } else if (halted)
                     cpu_state.pc--;
-=======
->>>>>>> b6fbd231957c26d33bb434a7e2d2f410263c3ecd
             } else if (NMI_TAKEABLE()) {
                 /* Out of a HLT that left pc on itself: "the saved CS:IP (or
                    CS:EIP) value points to the instruction following the HLT

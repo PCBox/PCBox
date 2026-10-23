@@ -1028,12 +1028,6 @@ picint_lines(uint16_t num, int level, int set, uint8_t *irq_state, int to_ioapic
         }
     }
 
-    uint16_t lines = level ? 0x0000 : num;
-    /* What the I/O APIC's inputs see: for a level source, the wired-OR of
-       every source on the line, so only its changes; an edge source's
-       every raise. */
-    uint16_t apic_lines = (level || !to_ioapic) ? 0x0000 : num;
-
     /* The Tandy VIS firmware leaves the master's ICW3 at 0 and never
        initializes the slave, but the slave is still wired to the master's
        IR2 and its IRQ's still reach its IRR - Modular Windows probes IRQ 9
