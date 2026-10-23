@@ -2317,6 +2317,32 @@ nmi_raise(void)
     cpu_nmi_raise_direct();
 }
 
+/* An NMI raised in the processor; apic marks one from the local APIC,
+   which port 70h does not gate (NMI_TAKEABLE). */
+void
+cpu_nmi_raise_core(int apic)
+{
+    cpu_nmi_raise_direct();
+    if (apic)
+        nmi |= 2;
+}
+
+void
+smi_raise(void)
+{
+    cpu_smi_raise_direct();
+}
+
+/* Public NMI wrapper gives IOAPIC LINT1 first claim before legacy NMI line. */
+void
+nmi_raise(void)
+{
+    if (ioapic_lint1_raise())
+        return;
+
+    cpu_nmi_raise_direct();
+}
+
 #ifndef USE_DYNAREC
 /* This is for compatibility with new x87 code. */
 void

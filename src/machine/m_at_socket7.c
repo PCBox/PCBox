@@ -102,7 +102,8 @@ machine_at_p65up5_common_init_local(const machine_t *model, const device_t *nort
                                     const device_t *ioapic_dev, uintptr_t ioapic_params)
 {
     static const ioapic_legacy_irq_routing_t p65up5_irq_routing = {
-        .irq_to_intin = IOAPIC_LEGACY_IRQ_ROUTE_P65UP5
+        .irq_to_intin  = IOAPIC_LEGACY_IRQ_ROUTE_ISA,
+        .pirq_to_intin = IOAPIC_PIRQ_ROUTE_82093AA
     };
     void *ioapic;
 
@@ -125,15 +126,13 @@ machine_at_p65up5_common_init_local(const machine_t *model, const device_t *nort
 void
 machine_at_p65up5_common_init(const machine_t *model, const device_t *northbridge)
 {
-    machine_at_p65up5_common_init_local(model, northbridge, &ioapic_device,
-                                        IOAPIC_TOPOLOGY_LAPIC_SLOTS(2));
+    machine_at_p65up5_common_init_local(model, northbridge, &ioapic_device, 0);
 }
 
 void
 machine_at_p65up5_validated_up_init(const machine_t *model, const device_t *northbridge)
 {
     machine_at_p65up5_common_init_local(model, northbridge, &ioapic_validated_up_device,
-                                        IOAPIC_TOPOLOGY_LAPIC_SLOTS(2) |
                                         IOAPIC_TOPOLOGY_UP_APIC_DEFAULT);
 }
 

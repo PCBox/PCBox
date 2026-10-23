@@ -642,7 +642,6 @@ cpu_set(void)
     cpu_lapic_reset_all();
     /* Register callbacks after CPU-owned reset so LAPIC sees a coherent owner. */
     lapic_set_index_source(cpu_lapic_index_source);
-    lapic_set_ap_startup_handler(cpu_ap_startup_request);
 
     cpu_effective = cpu;
     cpu_s         = (CPU *) &cpu_f->cpus[cpu_effective];
@@ -2514,7 +2513,6 @@ cpu_close(void)
     cpu_lapic_reset_all();
     /* Drop callbacks on teardown so LAPIC does not retain stale CPU hooks. */
     lapic_set_index_source(NULL);
-    lapic_set_ap_startup_handler(NULL);
 }
 
 void

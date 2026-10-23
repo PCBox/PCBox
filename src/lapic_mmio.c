@@ -347,13 +347,6 @@ lapic_writel(uint32_t addr, uint32_t val, void *priv)
     if (lapic == NULL)
         return;
 
-    /* TPR, EOI, SVR, the LVTs, the timer: what the processor may take next
-       can change, so a chain leaves for the loop to look. A TPR raised or
-       rewritten can only hold back what could be taken (the NT HAL raises
-       and lowers it at every IRQL change): nothing to look at. */
-    if ((reg != LAPIC_REG_TPR) || ((val & 0xff) < (cpu_lapic_tpr_read_index(lapic->index) & 0xff)))
-        mem_chain_break();
-
     if (!lapic_mmio_reg_defined(reg)) {
         lapic_mmio_illegal_reg(lapic);
         return;
@@ -386,7 +379,6 @@ lapic_writel(uint32_t addr, uint32_t val, void *priv)
             int vector = cpu_lapic_eoi_index(lapic->index, &level);
 
             if (vector >= 0) {
-                lapic_sync_int_regs(lapic);
                 /* A slot came free: what was refused for want of one goes
                    again (cpu_lapic_slot_free_index). */
                 lapic_slot_freed();
@@ -429,8 +421,6 @@ lapic_writel(uint32_t addr, uint32_t val, void *priv)
     } else if ((reg == LAPIC_REG_SVR) || (reg == LAPIC_REG_LDR) || (reg == LAPIC_REG_DFR)) {
         /* This APIC may now take what the I/O APIC could not send it. */
         ioapic_retry_deliveries();
-    } else if (reg == LAPIC_REG_LVT_TIMER) {
-        lapic_sync_int_regs(lapic);
     }
 }
 

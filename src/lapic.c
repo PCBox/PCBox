@@ -44,7 +44,6 @@ typedef struct local_apic_state_load_adapter_t {
  */
 static lapic_device_t *lapic_active_device;
 static lapic_index_source_t lapic_index_source;
-static lapic_ap_startup_handler_t lapic_ap_startup_handler;
 
 static void                 lapic_device_init(lapic_device_t *dev, void *owner);
 void                        lapic_device_set_count(lapic_device_t *dev, uint8_t count);
@@ -279,19 +278,6 @@ lapic_index_source_read(void *priv)
     (void) priv;
 
     return (lapic_index_source != NULL) ? lapic_index_source() : 0;
-}
-
-void
-lapic_set_ap_startup_handler(lapic_ap_startup_handler_t handler)
-{
-    lapic_ap_startup_handler = handler;
-}
-
-int
-lapic_ap_startup_request(uint8_t lapic_index, uint8_t vector)
-{
-    return (lapic_ap_startup_handler != NULL) ?
-           lapic_ap_startup_handler(lapic_index, vector) : 0;
 }
 
 static lapic_device_t *
@@ -929,11 +915,16 @@ lapic_device_add_mmio_mapping(lapic_device_t *dev)
         /*
          * Add each possible MMIO window once, then leave exposure to
          * lapic_update_mapping() so APIC_BASE and enable state stay authoritative.
+         * The window is the processor's own: on a P6 "the APIC handles all
+         * memory accesses to addresses within the 4-KByte APIC register
+         * space and no external bus cycles are produced" (Intel
+         * Architecture Vol. 3, 243192, 7.5.7). A bus master's access at
+         * that address reaches no APIC (MEM_MAPPING_CPU_ONLY).
          */
         mem_mapping_add(&lapic->mapping, lapic_mmio_base(lapic), LAPIC_MMIO_SIZE,
                         lapic_readb, lapic_readw, lapic_readl,
                         lapic_writeb, lapic_writew, lapic_writel,
-                        NULL, MEM_MAPPING_EXTERNAL, &dev->mmio);
+                        NULL, MEM_MAPPING_EXTERNAL | MEM_MAPPING_CPU_ONLY, &dev->mmio);
         lapic->mapping_added = 1;
         mem_mapping_disable(&lapic->mapping);
     }
@@ -1125,7 +1116,8 @@ lapic_sync_int_regs(lapic_state_t *lapic)
     isr = cpu_lapic_isr_words_index(lapic->index);
     tmr = cpu_lapic_tmr_words_index(lapic->index);
 
-    /* Interrupt state is CPU-owned; regs[] mirrors it for LAPIC MMIO reads/save. */
+    /* Interrupt state is CPU-owned, and register reads are served from it
+       (cpu_lapic_mmio_read_index); regs[] mirrors it for save states. */
     for (uint8_t i = 0; i < 8; i++) {
         lapic_mirror_write_reg(lapic, LAPIC_REG_ISR_BASE + (((uint32_t) i) << 4), isr[i]);
         lapic_mirror_write_reg(lapic, LAPIC_REG_TMR_BASE + (((uint32_t) i) << 4), tmr[i]);
@@ -1443,6 +1435,30 @@ lapic_reset_slot(lapic_state_t *lapic, lapic_mmio_device_t *mmio, uint8_t index,
     lapic_arbitration_id_reset_from_id(lapic);
 }
 
+/* The processor's RESET or INIT pin: its local APIC goes through INIT --
+   its ID kept, the Arb ID from it, nothing pending. The vendor reset sets
+   the registers on RESET, but not what the APIC holds beside them: an
+   ExtINT marked, an IPI it was still sending. */
+void
+lapic_index_board_reset(uint8_t index)
+{
+    lapic_state_t *lapic;
+
+    if (lapic_active_device == NULL)
+        return;
+
+    lapic = lapic_device_at(lapic_active_device, index);
+    if (lapic == NULL)
+        return;
+
+    lapic->extint_pending = 0;
+    lapic->extint_pin     = 0;
+    cpu_lapic_extint_live_set(index, 0);
+    lapic_reset_regs(lapic);
+    lapic_arbitration_id_reset_from_id(lapic);
+    lapic_reset_startup_state(lapic, index);
+}
+
 void
 lapic_timer_host_stop(lapic_state_t *lapic)
 {
@@ -1526,7 +1542,6 @@ lapic_timer_callback(void *priv)
     /* Host callback can arrive before modeled count reaches zero; do not inject. */
     if (current) {
         lapic_timer_schedule(lapic, current, 1);
-        lapic_sync_int_regs(lapic);
         return;
     }
 
@@ -1548,6 +1563,4 @@ lapic_timer_callback(void *priv)
     } else {
         cpu_lapic_timer_oneshot_complete_index(lapic->index);
     }
-
-    lapic_sync_int_regs(lapic);
 }

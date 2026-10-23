@@ -3189,6 +3189,13 @@ s3_out(uint16_t addr, uint8_t val, void *priv)
             if ((s3->chip <= S3_86C924) && (svga->crtcreg >= 0x50))
                 return;
 
+            /* The accelerator runs from the FIFO thread, let it finish the
+               queued writes before a register it depends on changes. The
+               hardware cursor registers are excluded, they change with every
+               mouse move. */
+            if ((svga->crtcreg >= 0x30) && ((svga->crtcreg < 0x45) || (svga->crtcreg > 0x4f)) && s3_enable_fifo(s3))
+                s3_wait_fifo_idle(s3);
+
             old                       = svga->crtc[svga->crtcreg];
             svga->crtc[svga->crtcreg] = val;
 
@@ -3824,6 +3831,9 @@ s3_recalctimings(svga_t *svga)
     }
 
     svga->hdisp = svga->hdisp_old;
+    /* CR43 bit 7 doubles all the horizontal parameters, the display width too. */
+    if (!(svga->crtc[0x33] & 0x20) && !svga->scrblank && svga->attr_palette_enable && (svga->crtc[0x43] & 0x80))
+        svga->hdisp <<= 1;
     svga->memaddr_latch |= (s3->ma_ext << 16);
 
     svga->lowres = (!!(svga->attrregs[0x10] & 0x40) && !(svga->crtc[0x3a] & 0x10));
@@ -5258,6 +5268,9 @@ s3_accel_out(uint16_t port, uint8_t val, void *priv)
                 break;
             case 0x4948:
             case 0x4ae8:
+                if (s3_enable_fifo(s3))
+                    s3_wait_fifo_idle(s3);
+
                 s3->accel.advfunc_cntl = val;
                 if ((s3->chip <= S3_86C805I) ||
                     ((s3->chip > S3_86C805I) && ((svga->crtc[0x50] & 0xc1) == 0x80))) {
@@ -8458,14 +8471,6 @@ s3_accel_start(int count, int cpu_input, uint32_t mix_dat, uint32_t cpu_data, vo
         dstbase = 0x100000 * ((s3->accel.multifunc[0xd] >> 0) & 7);
     else
         dstbase = 0x100000 * ((s3->accel.multifunc[0xe] >> 0) & 3);
-
-    if (s3->bpp == 1) {
-        srcbase >>= 1;
-        dstbase >>= 1;
-    } else if (s3->bpp >= 2) {
-        srcbase >>= 2;
-        dstbase >>= 2;
-    }
 
     if ((s3->accel.cmd & 0x100) && (s3_cpu_src(s3) || (s3_cpu_dest(s3))) && (!cpu_input || (s3_enable_fifo(s3) == 0)))
         s3->force_busy = 1;

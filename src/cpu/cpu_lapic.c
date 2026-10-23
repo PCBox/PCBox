@@ -25,26 +25,13 @@
 #include "cpu.h"
 #include <86box/device.h>
 #include <86box/machine.h>
-#include <86box/mem.h>
 #include <86box/nmi.h>
 #include <86box/chipset.h>
 #include <86box/timer.h>
 #include <86box/video.h> /* cpuclock */
 #include "../lapic_policy.h"
 
-/* Startup slots record AP requests without creating runnable CPU state. */
-typedef struct cpu_ap_startup_slot_t {
-    uint8_t requested;
-    uint8_t vector;
-    uint8_t accepted;
-    uint8_t parked;
-    uint16_t startup_cs;
-    uint16_t startup_ip;
-    uint32_t linear;
-} cpu_ap_startup_slot_t;
-
 /* CPU owns LAPIC state that drives priority, delivery, timers, and save/load. */
-static cpu_ap_startup_slot_t cpu_ap_startup_slots[IOAPIC_STATE_MAX_LAPICS];
 static uint8_t               cpu_lapic_ids[IOAPIC_STATE_MAX_LAPICS];
 static uint32_t              cpu_lapic_svrs[IOAPIC_STATE_MAX_LAPICS];
 static uint32_t              cpu_lapic_tprs[IOAPIC_STATE_MAX_LAPICS];
@@ -57,6 +44,9 @@ static uint32_t              cpu_lapic_versions[IOAPIC_STATE_MAX_LAPICS];
 static uint32_t              cpu_lapic_arb_ids[IOAPIC_STATE_MAX_LAPICS];
 static uint32_t              cpu_lapic_pprs[IOAPIC_STATE_MAX_LAPICS];
 static uint32_t              cpu_lapic_esrs[IOAPIC_STATE_MAX_LAPICS];
+/* The errors a P6's local APIC has detected since its ESR was last
+   written, which the next write makes readable. */
+static uint32_t              cpu_lapic_esr_errors[IOAPIC_STATE_MAX_LAPICS];
 static uint32_t              cpu_lapic_icr_los[IOAPIC_STATE_MAX_LAPICS];
 static uint32_t              cpu_lapic_icr_his[IOAPIC_STATE_MAX_LAPICS];
 static uint32_t              cpu_lapic_rrrs[IOAPIC_STATE_MAX_LAPICS];
@@ -71,7 +61,6 @@ static uint32_t              cpu_lapic_irrs[IOAPIC_STATE_MAX_LAPICS][IOAPIC_STAT
    cpu_lapic_irr_live_sync(). */
 uint32_t                     cpu_lapic_irr_live;
 uint8_t                      cpu_lapic_extint_live[IOAPIC_STATE_MAX_LAPICS];
-uint8_t                      cpu_apic_int_fast_ok;
 static uint32_t              cpu_lapic_isrs[IOAPIC_STATE_MAX_LAPICS][IOAPIC_STATE_LAPIC_BIT_WORDS];
 static uint32_t              cpu_lapic_tmrs[IOAPIC_STATE_MAX_LAPICS][IOAPIC_STATE_LAPIC_BIT_WORDS];
 static uint32_t              cpu_lapic_timer_initials[IOAPIC_STATE_MAX_LAPICS];
@@ -304,7 +293,6 @@ cpu_lapic_svrs_reset(void)
 {
     for (uint8_t i = 0; i < IOAPIC_STATE_MAX_LAPICS; i++)
         cpu_lapic_svrs[i] = cpu_lapic_svr_reset_value(i);
-    cpu_apic_int_fast_ok = 0;
 }
 
 static void
@@ -321,7 +309,6 @@ cpu_lapic_svr_load_index(uint8_t lapic_index, uint32_t val)
         return;
 
     cpu_lapic_svrs[lapic_index] = cpu_lapic_svr_sanitize(val);
-    cpu_apic_int_fast_ok = 0;
 }
 
 static uint32_t
@@ -545,6 +532,7 @@ static void
 cpu_lapic_esrs_reset(void)
 {
     memset(cpu_lapic_esrs, 0, sizeof(cpu_lapic_esrs));
+    memset(cpu_lapic_esr_errors, 0, sizeof(cpu_lapic_esr_errors));
 }
 
 static void
@@ -554,19 +542,31 @@ cpu_lapic_esrs_sync(void)
         lapic_esr_sync_index(i, cpu_lapic_esrs[i]);
 }
 
+/* An error the local APIC detected. The P54C's ESR shows it at once. The
+   P6's "is reset after being written to by the processor. A write to the
+   ESR must be done just prior to reading the ESR to allow the register to
+   be updated. ... Error bits are cumulative" (Pentium Pro Vol. 3,
+   7.4.14): it gathers its errors, and a write moves them into the
+   register (cpu_lapic_mmio_write_index), so software that wants the
+   errors logged so far writes and then reads it, and two writes in a row
+   clear it. */
 void
 cpu_lapic_esr_or_index(uint8_t lapic_index, uint32_t error)
 {
     if (lapic_index >= IOAPIC_STATE_MAX_LAPICS)
         return;
 
+    if (!cpu_is_p5()) {
+        cpu_lapic_esr_errors[lapic_index] |= error;
+        return;
+    }
     cpu_lapic_esrs[lapic_index] |= error;
     lapic_esr_sync_index(lapic_index, cpu_lapic_esrs[lapic_index]);
 }
 
 /* "The ESR is a read-only register and is reset after being read by
    either the CPU or through the Remote Read message" (Pentium Vol. 3,
-   19.3.3): the P54C's. The P6's is cleared by a write instead. */
+   19.3.3): the P54C's. The P6's is updated by a write instead. */
 void
 cpu_lapic_esr_read_clear_index(uint8_t lapic_index)
 {
@@ -583,7 +583,8 @@ cpu_lapic_esr_load_index(uint8_t lapic_index, uint32_t val)
     if (lapic_index >= IOAPIC_STATE_MAX_LAPICS)
         return;
 
-    cpu_lapic_esrs[lapic_index] = lapic_esr_sanitize(val);
+    cpu_lapic_esrs[lapic_index]       = lapic_esr_sanitize(val);
+    cpu_lapic_esr_errors[lapic_index] = 0;
 }
 
 static void
@@ -1090,9 +1091,7 @@ cpu_lapic_irrs_reset(void)
 /* The interrupt check runs after every block (x86_interrupt.h). These
    let it answer "nothing" from three loads while nothing is pending:
    bit n of cpu_lapic_irr_live is set while local APIC n's IRR holds any
-   vector, cpu_lapic_extint_live[n] while it holds an ExtINT, and
-   cpu_apic_int_fast_ok while the slow path has seen the current APIC
-   enable state (ioapic_external_interrupt_pending). */
+   vector, and cpu_lapic_extint_live[n] while it holds an ExtINT. */
 static void
 cpu_lapic_irr_live_set(uint8_t lapic_index, int any)
 {
@@ -1116,11 +1115,8 @@ cpu_lapic_irr_live_sync(uint8_t lapic_index)
 void
 cpu_lapic_extint_live_set(uint8_t lapic_index, int pending)
 {
-    if (lapic_index < IOAPIC_STATE_MAX_LAPICS) {
+    if (lapic_index < IOAPIC_STATE_MAX_LAPICS)
         cpu_lapic_extint_live[lapic_index] = !!pending;
-        if (pending)
-            mem_chain_break(); /* the loop has an interrupt to look at */
-    }
 }
 
 uint32_t *
@@ -1326,8 +1322,7 @@ cpu_lapic_error_delivery_action_index(uint8_t lapic_index, int started,
     if (lapic_index >= IOAPIC_STATE_MAX_LAPICS)
         return CPU_LAPIC_FIXED_REJECT;
 
-    cpu_lapic_esrs[lapic_index] |= error;
-    lapic_esr_sync_index(lapic_index, cpu_lapic_esrs[lapic_index]);
+    cpu_lapic_esr_or_index(lapic_index, error);
 
     if (!cpu_lapic_enabled_index(lapic_index, started))
         return CPU_LAPIC_FIXED_REJECT;
@@ -1338,8 +1333,7 @@ cpu_lapic_error_delivery_action_index(uint8_t lapic_index, int started,
 
     error_vector = lvt & CPU_LAPIC_LVT_VECTOR;
     if (!cpu_lapic_vector_valid(error_vector)) {
-        cpu_lapic_esrs[lapic_index] |= CPU_LAPIC_ESR_RECV_ILLEGAL_VECTOR;
-        lapic_esr_sync_index(lapic_index, cpu_lapic_esrs[lapic_index]);
+        cpu_lapic_esr_or_index(lapic_index, CPU_LAPIC_ESR_RECV_ILLEGAL_VECTOR);
         return CPU_LAPIC_FIXED_REJECT;
     }
 
@@ -1381,7 +1375,7 @@ cpu_lapic_ppr_value_index(uint8_t lapic_index)
     uint32_t tpr = cpu_lapic_tprs[lapic_index] & CPU_LAPIC_TPR_MASK;
     int      isr = cpu_lapic_highest_vector(cpu_lapic_isrs[lapic_index]);
 
-    return lapic_processor_priority(tpr, isr);
+    return lapic_processor_priority(tpr, isr, !cpu_is_p5());
 }
 
 /* The arbitration priority, stored nowhere either (Pentium Vol. 3,
@@ -1514,7 +1508,6 @@ cpu_lapic_accept_interrupt_index(uint8_t lapic_index, uint8_t vector, int level)
         cpu_lapic_set_vector(cpu_lapic_tmrs[lapic_index], vector);
     else
         cpu_lapic_clear_vector(cpu_lapic_tmrs[lapic_index], vector);
-    mem_chain_break(); /* the loop has an interrupt to look at */
 
     return 1;
 }
@@ -2132,10 +2125,12 @@ cpu_lapic_mmio_write_index(uint8_t lapic_index, uint32_t reg, uint32_t val)
             cpu_lapic_id_write_index(lapic_index, val);
             return 1;
         case CPU_LAPIC_REG_ESR:
-            /* The P6's clears it; the P54C's has no side effects
+            /* The P6's takes the errors gathered since the last write
+               (cpu_lapic_esr_or_index); the P54C's has no side effects
                (cpu_lapic_esr_read_clear_index). */
             if (!cpu_is_p5()) {
-                cpu_lapic_esrs[lapic_index] = 0;
+                cpu_lapic_esrs[lapic_index]       = cpu_lapic_esr_errors[lapic_index];
+                cpu_lapic_esr_errors[lapic_index] = 0;
                 lapic_esr_sync_index(lapic_index, cpu_lapic_esrs[lapic_index]);
             }
             return 1;
@@ -2143,7 +2138,6 @@ cpu_lapic_mmio_write_index(uint8_t lapic_index, uint32_t reg, uint32_t val)
             cpu_lapic_svrs[lapic_index] = cpu_lapic_svr_sanitize(val);
             if (!(cpu_lapic_svrs[lapic_index] & CPU_LAPIC_SVR_ENABLE))
                 cpu_lapic_lvt_mask_all_index(lapic_index);
-            cpu_apic_int_fast_ok = 0;
             lapic_svr_sync_index(lapic_index, cpu_lapic_svrs[lapic_index]);
             return 1;
         case CPU_LAPIC_REG_TPR:
@@ -2347,7 +2341,6 @@ cpu_apic_base_msrs_reset(void)
 {
     for (uint8_t i = 0; i < IOAPIC_STATE_MAX_LAPICS; i++)
         cpu_apic_base_msrs[i] = cpu_apic_base_msr_reset_value(i);
-    cpu_apic_int_fast_ok = 0;
 }
 
 static void
@@ -2411,10 +2404,7 @@ cpu_apic_base_msr_write_current(uint64_t val)
 
     cur = cpu_apic_base_msrs[lapic_index];
     cpu_apic_base_msrs[lapic_index] = cpu_apic_base_msr_sanitize(lapic_index, val, cur);
-    cpu_apic_int_fast_ok = 0;
     lapic_apic_base_msr_sync_index(lapic_index, cpu_apic_base_msrs[lapic_index]);
-    /* Enabled or disabled: what the processor may take changes. */
-    mem_chain_break();
 }
 
 void
@@ -2425,32 +2415,12 @@ cpu_apic_base_msr_load_index(uint8_t lapic_index, uint64_t val)
 
     cpu_apic_base_msrs[lapic_index] = (val & CPU_APIC_BASE_ADDR_MASK) |
                                       (val & (CPU_APIC_BASE_BSP | CPU_APIC_BASE_ENABLE));
-    cpu_apic_int_fast_ok = 0;
-}
-
-uint8_t
-cpu_ap_startup_request(uint8_t lapic_index, uint8_t vector)
-{
-    /* Park accepted AP startups; no secondary CPU loop is created here. */
-    if (lapic_index >= IOAPIC_STATE_MAX_LAPICS)
-        return 0;
-
-    cpu_ap_startup_slots[lapic_index].requested = 1;
-    cpu_ap_startup_slots[lapic_index].vector = vector;
-    cpu_ap_startup_slots[lapic_index].accepted = (lapic_index != 0);
-    cpu_ap_startup_slots[lapic_index].parked = cpu_ap_startup_slots[lapic_index].accepted;
-    cpu_ap_startup_slots[lapic_index].startup_cs = ((uint16_t) vector) << 8;
-    cpu_ap_startup_slots[lapic_index].startup_ip = 0x0000;
-    cpu_ap_startup_slots[lapic_index].linear = ((uint32_t) vector) << 12;
-
-    return cpu_ap_startup_slots[lapic_index].accepted;
 }
 
 /* The processor core's resets reach the local APICs through these. */
 void
 cpu_lapic_reset_all(void)
 {
-    memset(cpu_ap_startup_slots, 0, sizeof(cpu_ap_startup_slots));
     cpu_lapic_ids_reset();
     cpu_lapic_svrs_reset();
     cpu_lapic_tprs_reset();

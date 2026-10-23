@@ -38,14 +38,6 @@ typedef struct ioapic_t {
     /* Config/state gates stay here; apic_platform owns LAPIC topology effects. */
     uint8_t expose_mp_tables;
     uint8_t uniprocessor_apic;
-    uint8_t multi_lapic;
-    uint8_t multi_lapic_mp_cpus;
-    uint8_t ap_startup;
-    uint8_t second_cpu_card;
-    uint8_t ap_safe_park;
-    uint8_t ap_route_parked;
-    uint8_t smp_probe;
-    uint8_t topology_lapic_slots_max;
     uint8_t mp_table_logged;
     uint8_t mp_table_skip_logged;
     uint8_t post_trigger; /* the POST code that means "about to boot" */
@@ -56,6 +48,9 @@ typedef struct ioapic_t {
     uint8_t  pins;
     uint8_t  smi_pin; /* 0xff: none */
     uint8_t  is_esc;
+    uint8_t  lapic_only; /* no I/O APIC: the local APIC's path alone */
+    uint8_t  is_via;     /* the VT82C686A/B's own (IOAPIC_VARIANT_VIA) */
+    uint8_t  window_off; /* the chipset decodes no window (ioapic_set_window_enabled) */
     uint8_t  intr_masked; /* the ESC's INTRC: the 8259's INTR held inactive */
     uint32_t version_reg;
     uint32_t mmio_base;
@@ -63,8 +58,6 @@ typedef struct ioapic_t {
 
     uint8_t       lowest_priority_next;
     apic_platform_t *apic;
-    ioapic_smiout_handler_t smiout_handler;
-    void                   *smiout_priv;
 
     uint8_t       ioapic_id;
     uint8_t       ioapic_index;
@@ -79,6 +72,9 @@ typedef struct ioapic_t {
     uint32_t      wire_legacy;
     uint32_t      wire_pci;
     uint32_t      wire_intr;
+    /* The southbridge's own interrupt outputs on inputs of their own (the
+       VIA 686A/B's Rx58, ioapic_chip_irq). */
+    uint32_t      wire_chip;
     uint8_t       pic_intr; /* the 8259's INTR output */
     uint8_t       pin0_smi; /* ESC PAC SMIRC: INTIN0 carries SMI, not INTR */
     uint8_t       legacy_routes_set;
@@ -93,6 +89,7 @@ typedef struct ioapic_t {
     uint8_t       ioapic_arb_id;
     uint8_t       legacy_irq_default_to_pin[IOAPIC_LEGACY_IRQ_COUNT];
     uint8_t       legacy_irq_to_pin[IOAPIC_LEGACY_IRQ_COUNT];
+    uint8_t       pirq_to_intin[4]; /* the board's PIRQ wiring, 0xff for none */
     uint8_t       ioapic_masked_irq_log_count[24];
     uint8_t       ioapic_irq_log_count[24];
     uint8_t       ioapic_deliver_log_count[24];
@@ -144,7 +141,7 @@ static int  ioapic_redir_select_targets(ioapic_t *dev, uint32_t low, uint32_t hi
 static int  ioapic_pic_pending_adapter(void *priv);
 static int  ioapic_pic_interrupt_adapter(void *priv);
 static int  ioapic_pin_pending_after_redir_write(const ioapic_t *dev, uint8_t pin);
-static void ioapic_deliver_pin(ioapic_t *dev, uint8_t pin, int asserted, int retry);
+static void ioapic_deliver_pin(ioapic_t *dev, uint8_t pin, int asserted);
 static void ioapic_eoi(ioapic_t *dev, uint8_t vector);
 static void ioapic_update_intin23_smiout(ioapic_t *dev);
 static void ioapic_mp_legacy_irq_route(void *priv, uint8_t irq, uint8_t intin);
@@ -153,7 +150,8 @@ static void
 ioapic_disable_apic_mappings(ioapic_t *dev)
 {
     apic_platform_disable_lapic_mappings(dev->apic);
-    mem_mapping_disable(&dev->ioapic_mapping);
+    if (!dev->lapic_only)
+        mem_mapping_disable(&dev->ioapic_mapping);
 }
 
 static uint8_t
@@ -165,11 +163,8 @@ ioapic_legacy_irq_to_pin(ioapic_t *dev, uint8_t irq)
 static void
 ioapic_load_compat_legacy_irq_pins(uint8_t irq_to_pin[IOAPIC_LEGACY_IRQ_COUNT])
 {
-    /* IRQ2 is the cascade and reaches no pin (MP spec 1.1, 5.1). */
-    static const uint8_t compat_irq_to_pin[IOAPIC_LEGACY_IRQ_COUNT] = {
-        2, 1, IOAPIC_LEGACY_IRQ_NC, 3, 4, 5, 6, 7,
-        8, 19, 10, 18, 12, 13, 14, 15
-    };
+    /* Until the board says otherwise, the 82093AA's ISA inputs. */
+    static const uint8_t compat_irq_to_pin[IOAPIC_LEGACY_IRQ_COUNT] = IOAPIC_LEGACY_IRQ_ROUTE_ISA;
 
     memcpy(irq_to_pin, compat_irq_to_pin, IOAPIC_LEGACY_IRQ_COUNT);
 }
@@ -273,22 +268,12 @@ ioapic_pic_interrupt_adapter(void *priv)
 uint8_t ioapic_irq_path_active = 0;
 
 int
-ioapic_uniprocessor_apic_enabled(void)
-{
-    return (ioapic_global != NULL) && ioapic_global->uniprocessor_apic;
-}
-
-int
 ioapic_external_interrupt_pending(void)
 {
     ioapic_t *dev = ioapic_global;
 
     if ((dev == NULL) || !dev->uniprocessor_apic)
         return 0;
-
-    /* This enable state has been seen; until it changes the CPU's check
-       may answer "nothing pending" without coming here. */
-    cpu_apic_int_fast_ok = 1;
 
     return apic_platform_current_external_pending(dev->apic,
                                                   ioapic_pic_pending_adapter,
@@ -483,7 +468,7 @@ ioapic_retry_pending_pin(ioapic_t *dev, uint8_t pin)
             return;
     }
 
-    ioapic_deliver_pin(dev, pin, 1, 1);
+    ioapic_deliver_pin(dev, pin, 1);
 }
 
 /* One round of the rotating poll: every entry with a message to send (a
@@ -503,7 +488,7 @@ ioapic_retry_pending_transaction(ioapic_t *dev)
         if (ioapic_pin_delivery_pending(dev, pin))
             ioapic_retry_pending_pin(dev, pin);
         else
-            ioapic_deliver_pin(dev, pin, 1, 1);
+            ioapic_deliver_pin(dev, pin, 1);
         if (!ioapic_pin_delivery_pending(dev, pin))
             dev->ioapic_intin_poll_next = (pin + 1) % dev->pins;
     }
@@ -528,8 +513,6 @@ ioapic_set_smiout_asserted(ioapic_t *dev, int asserted)
         return;
 
     dev->ioapic_smiout_asserted = asserted;
-    if (dev->smiout_handler != NULL)
-        dev->smiout_handler(dev->smiout_priv, asserted);
 }
 
 static void
@@ -593,8 +576,12 @@ ioapic_log_masked_irq(ioapic_t *dev, uint8_t irq, uint8_t pin, int level, int se
                ioapic_82093aa_redir_delivery_name(low), low);
 }
 
+/* The entry's message sent. An edge on an entry whose message is still
+   to send is that same message: "a new edge on that Interrupt input pin
+   will not be recognized until" it is accepted (82093AA 3.2.4 bit 12).
+   Sending it again is its retry. */
 static void
-ioapic_deliver_pin(ioapic_t *dev, uint8_t pin, int asserted, int retry)
+ioapic_deliver_pin(ioapic_t *dev, uint8_t pin, int asserted)
 {
     uint32_t *lowp = &dev->ioapic_redir[pin * 2];
     uint32_t  low  = *lowp;
@@ -603,12 +590,6 @@ ioapic_deliver_pin(ioapic_t *dev, uint8_t pin, int asserted, int retry)
     uint32_t  delivery = low & IOAPIC_REDIR_DELIV;
     int       level  = ioapic_82093aa_redir_remote_irr_valid(low);
     lapic_target_info_t targets;
-
-    /* An edge on an entry whose message is still to send is that same
-       message: "a new edge on that Interrupt input pin will not be
-       recognized until" it is accepted (82093AA 3.2.4 bit 12). Trying now
-       is its retry. */
-    (void) retry;
 
     if (ioapic_redir_masked(low)) {
         ioapic_clear_pin_delivery_pending(dev, pin);
@@ -794,7 +775,7 @@ ioapic_raw_intin_device(ioapic_t *dev, uint8_t pin, int physical_high)
     }
 
     if (effective_level || (asserted && !was_asserted))
-        ioapic_deliver_pin(dev, pin, asserted, 0);
+        ioapic_deliver_pin(dev, pin, asserted);
 
     if (pin == dev->smi_pin)
         ioapic_update_intin23_smiout(dev);
@@ -805,7 +786,7 @@ ioapic_raw_intin_device(ioapic_t *dev, uint8_t pin, int physical_high)
 static void
 ioapic_wire_drive(ioapic_t *dev, uint8_t pin)
 {
-    int      asserted = !!((dev->wire_legacy | dev->wire_pci | dev->wire_intr) & ioapic_82093aa_pin_bit(pin));
+    int      asserted = !!((dev->wire_legacy | dev->wire_pci | dev->wire_intr | dev->wire_chip) & ioapic_82093aa_pin_bit(pin));
     uint32_t low      = dev->ioapic_redir[pin * 2];
 
     /* INTIN23/SMI# has no source here: it stays at its idle level. */
@@ -920,6 +901,19 @@ ioapic_pic_intr(int active)
     ioapic_wire_intr_update(dev);
 }
 
+/* The input PIRQ pirq (0-3, A-D) is wired to on this board, with the APIC
+   path on; 0xff where it is not wired here, or the path is off. */
+uint8_t
+ioapic_pirq_intin(uint8_t pirq)
+{
+    const ioapic_t *dev = ioapic_global;
+
+    if ((dev == NULL) || !dev->uniprocessor_apic || (pirq >= 4))
+        return IOAPIC_LEGACY_IRQ_NC;
+
+    return dev->pirq_to_intin[pirq];
+}
+
 /* Whether a PCI interrupt the MP table puts on intin reaches the I/O APIC
    on a wire of its own, apart from the IRQ line it is steered to
    (irq_line, 0xff for none). On the ESC the I/O APIC's inputs are the IRQ
@@ -957,16 +951,6 @@ ioapic_legacy_irq_enabled(void)
     ioapic_t *dev = ioapic_global;
 
     return (dev != NULL) && dev->uniprocessor_apic;
-}
-
-int
-ioapic_legacy_irq_active(uint16_t mask, int level, int set)
-{
-    if (!ioapic_legacy_irq_enabled())
-        return 0;
-
-    ioapic_legacy_irq(mask, level, set);
-    return 1;
 }
 
 static void
@@ -1026,12 +1010,6 @@ ioapic_compat_state_save(ioapic_t *dev, ioapic_state_t *state)
     state->uniprocessor_apic = dev->uniprocessor_apic;
     state->mp_table_logged = dev->mp_table_logged;
     state->mp_table_skip_logged = dev->mp_table_skip_logged;
-    state->multi_lapic = dev->multi_lapic;
-    state->multi_lapic_mp_cpus = dev->multi_lapic_mp_cpus;
-    state->ap_startup = dev->ap_startup;
-    state->second_cpu_card = dev->second_cpu_card;
-    state->ap_safe_park = dev->ap_safe_park;
-    state->ap_route_parked = dev->ap_route_parked;
     state->lowest_priority_next = dev->lowest_priority_next;
 
     if (!apic_platform_lapic_state_save(dev->apic, state))
@@ -1046,11 +1024,7 @@ ioapic_compat_state_save(ioapic_t *dev, ioapic_state_t *state)
 static void
 ioapic_update_apic_platform_policy(ioapic_t *dev)
 {
-    apic_platform_set_lapic_policy(dev->apic, dev->uniprocessor_apic,
-                                   dev->multi_lapic, dev->second_cpu_card,
-                                   dev->topology_lapic_slots_max,
-                                   dev->ap_startup, dev->ap_safe_park,
-                                   dev->ap_route_parked);
+    apic_platform_set_lapic_policy(dev->apic, dev->uniprocessor_apic);
 }
 
 int
@@ -1100,24 +1074,7 @@ ioapic_compat_state_load(ioapic_t *dev, const ioapic_state_t *state)
     dev->uniprocessor_apic = state->uniprocessor_apic;
     dev->mp_table_logged = state->mp_table_logged;
     dev->mp_table_skip_logged = state->mp_table_skip_logged;
-    if (state->version >= 4) {
-        /* Version gates keep old saves from enabling later guarded APIC features. */
-        dev->multi_lapic = state->multi_lapic;
-        dev->multi_lapic_mp_cpus = state->multi_lapic_mp_cpus;
-        dev->ap_startup = (state->version >= 5) ? state->ap_startup : 0;
-        dev->second_cpu_card = (state->version >= 6) ? state->second_cpu_card : 0;
-        dev->ap_safe_park = (state->version >= 7) ? state->ap_safe_park : 0;
-        dev->ap_route_parked = (state->version >= 8) ? state->ap_route_parked : 0;
-        dev->lowest_priority_next = state->lowest_priority_next % APIC_MAX_LAPICS;
-    } else {
-        dev->multi_lapic = 0;
-        dev->multi_lapic_mp_cpus = 0;
-        dev->ap_startup = 0;
-        dev->second_cpu_card = 0;
-        dev->ap_safe_park = 0;
-        dev->ap_route_parked = 0;
-        dev->lowest_priority_next = 0;
-    }
+    dev->lowest_priority_next = (state->version >= 4) ? (state->lowest_priority_next % APIC_MAX_LAPICS) : 0;
 
     ioapic_update_apic_platform_policy(dev);
 
@@ -1164,7 +1121,7 @@ ioapic_eoi(ioapic_t *dev, uint8_t vector)
                        dev->ioapic_eoi_log_count[pin]);
 
         if (ioapic_pin_asserted(dev, pin))
-            ioapic_deliver_pin(dev, pin, 1, 0);
+            ioapic_deliver_pin(dev, pin, 1);
     }
 }
 
@@ -1212,8 +1169,10 @@ ioapic_window_read(ioapic_t *dev)
         return ((uint32_t) dev->ioapic_id) << 24;
     if (index == 0x01)
         return dev->version_reg;
+    /* The VT82C686B's "APIC Arbitration ID ... always reads 00h" (data
+       sheet 1.8, p. 116). */
     if (index == 0x02)
-        return ((uint32_t) dev->ioapic_arb_id) << 24;
+        return dev->is_via ? 0 : (((uint32_t) dev->ioapic_arb_id) << 24);
     if ((index >= 0x10) && (index < (0x10 + (dev->pins * 2)))) {
         uint8_t  redir_index = index - 0x10;
         uint32_t val = dev->ioapic_redir[redir_index];
@@ -1241,7 +1200,6 @@ ioapic_window_write(ioapic_t *dev, uint32_t val)
     if ((index >= 0x10) && (index < (0x10 + (dev->pins * 2)))) {
         uint8_t redir_index = index - 0x10;
         uint8_t pin         = redir_index >> 1;
-        uint32_t old_low    = dev->ioapic_redir[pin * 2];
 
         if (redir_index & 1) {
             val &= IOAPIC_REDIR_HIGH_WRITE_MASK;
@@ -1253,7 +1211,6 @@ ioapic_window_write(ioapic_t *dev, uint32_t val)
         if (!(redir_index & 1)) {
             /* Polarity and trigger mode are the entry's: the wire is seen
                through them afresh. */
-            (void) old_low;
             ioapic_wire_drive(dev, pin);
         }
 
@@ -1268,7 +1225,7 @@ ioapic_window_write(ioapic_t *dev, uint32_t val)
         }
 
         if (ioapic_pin_pending_after_redir_write(dev, pin))
-            ioapic_deliver_pin(dev, pin, 1, 0);
+            ioapic_deliver_pin(dev, pin, 1);
         return;
     }
 
@@ -1324,6 +1281,20 @@ ioapic_mmio_writel(uint32_t addr, uint32_t val, void *priv)
         dev->ioapic_index = val & 0xff;
     else if (reg == 0x10)
         ioapic_window_write(dev, val);
+    else if (dev->is_via && (reg == 0x20)) {
+        /* "APIC IRQ Pin Assertion ... IRQ # for this interrupt. Valid
+           values are 0-23 only" (VT82C686B data sheet 1.8, p. 116): an
+           interrupt on that pin, sent as its entry says. */
+        if ((val & 0x1f) < dev->pins)
+            ioapic_deliver_pin(dev, val & 0x1f, 1);
+    } else if (dev->is_via && (reg == 0x40)) {
+        /* "When a write is issued to this register, the APIC will check this
+           field and compare it with the vector field for each entry ...
+           When a match is found, the Remote_IRR bit for that I/O
+           Redirection Entry will be cleared" (p. 116): an EOI, as a local
+           APIC's would be. */
+        ioapic_eoi(dev, val & 0xff);
+    }
 }
 
 static void
@@ -1401,7 +1372,6 @@ ioapic_write(UNUSED(uint16_t port), uint8_t val, void *priv)
         return;
 
     policy.expose_mp_tables = dev->expose_mp_tables;
-    policy.multi_lapic_mp_cpus = dev->multi_lapic_mp_cpus;
     policy.post_trigger = dev->post_trigger;
     policy.mp_table_logged = &dev->mp_table_logged;
     policy.mp_table_skip_logged = &dev->mp_table_skip_logged;
@@ -1422,7 +1392,7 @@ ioapic_reset(ioapic_t *dev)
     dev->ioapic_index   = 0;
     dev->ioapic_arb_id  = 0;
     dev->ioapic_pin_lines = 0;
-    dev->wire_legacy = dev->wire_pci = dev->wire_intr = 0;
+    dev->wire_legacy = dev->wire_pci = dev->wire_intr = dev->wire_chip = 0;
     dev->pic_intr = dev->pin0_smi = 0;
     /* Every input idle; INTIN23/SMI# is active low, so idle is high
        (82093AA 4.1). */
@@ -1448,6 +1418,17 @@ ioapic_reset(ioapic_t *dev)
     ioapic_reset_redir(dev);
 }
 
+/* The board reset its processor (RESET, or the INIT pin the keyboard
+   controller or port 92h pulses), not a device reset: the hook's
+   remembered MP table is forgotten as at a device reset, so the table the
+   BIOS builds next is looked for wherever it is. */
+void
+ioapic_processor_reset(void)
+{
+    if (ioapic_global != NULL)
+        apic_platform_mp_forget(ioapic_global->apic);
+}
+
 void
 ioapic_set_legacy_irq_routing(void *ioapic, const ioapic_legacy_irq_routing_t *routing)
 {
@@ -1466,6 +1447,11 @@ ioapic_set_legacy_irq_routing(void *ioapic, const ioapic_legacy_irq_routing_t *r
             dev->legacy_irq_to_pin[irq]         = pin;
         }
     }
+    for (uint8_t pirq = 0; pirq < 4; pirq++) {
+        uint8_t pin = routing->pirq_to_intin[pirq];
+
+        dev->pirq_to_intin[pirq] = ((pin != 0) && (pin < dev->pins)) ? pin : IOAPIC_LEGACY_IRQ_NC;
+    }
     dev->legacy_routes_set   = 1;
     dev->legacy_routes_wired = 1;
 }
@@ -1474,7 +1460,11 @@ ioapic_set_legacy_irq_routing(void *ioapic, const ioapic_legacy_irq_routing_t *r
 static void
 ioapic_apply_mapping(ioapic_t *dev)
 {
-    if (dev->uniprocessor_apic)
+    if (!dev->uniprocessor_apic || dev->lapic_only)
+        return;
+    if (dev->window_off)
+        mem_mapping_disable(&dev->ioapic_mapping);
+    else
         mem_mapping_set_addr(&dev->ioapic_mapping, dev->mmio_base, dev->mmio_size);
 }
 
@@ -1506,26 +1496,41 @@ ioapic_set_intr_masked(void *ioapic, int masked)
     ioapic_wire_intr_update(dev);
 }
 
+/* Whether the chipset decodes the window at all (the VT82C686A/B's Internal
+   APIC Enable, Rx77[4]). The I/O APIC keeps its state either way. */
+void
+ioapic_set_window_enabled(void *ioapic, int enabled)
+{
+    ioapic_t *dev = (ioapic_t *) ioapic;
+
+    if (dev == NULL)
+        return;
+
+    dev->window_off = !enabled;
+    ioapic_apply_mapping(dev);
+}
+
+/* A level output of the southbridge itself onto an input of its own: the
+   VIA 686A/B steer their on-chip interrupts to APIC[23:16] through Rx58.
+   It is one more source of that input's wire, apart from whatever PCI or
+   ISA line also drives it. */
+void
+ioapic_chip_irq(void *ioapic, uint8_t pin, int set)
+{
+    ioapic_t *dev = (ioapic_t *) ioapic;
+
+    if ((dev == NULL) || !dev->uniprocessor_apic || (pin >= dev->pins))
+        return;
+
+    ioapic_wire_set(dev, &dev->wire_chip, pin, 1, set);
+}
+
 int
 ioapic_apic_path_active(const void *ioapic)
 {
     const ioapic_t *dev = (const ioapic_t *) ioapic;
 
     return (dev != NULL) && dev->uniprocessor_apic;
-}
-
-void
-ioapic_set_smiout_handler(ioapic_smiout_handler_t handler, void *priv)
-{
-    ioapic_t *dev = ioapic_global;
-
-    if (dev == NULL)
-        return;
-
-    dev->smiout_handler = handler;
-    dev->smiout_priv = priv;
-    if (handler != NULL)
-        handler(priv, dev->ioapic_smiout_asserted);
 }
 
 static void
@@ -1543,8 +1548,9 @@ ioapic_close(void *priv)
 {
     ioapic_t *dev = (ioapic_t *) priv;
 
-    io_removehandler(0x80, 1,
-                     NULL, NULL, NULL, ioapic_write, NULL, NULL, dev);
+    if (!dev->lapic_only)
+        io_removehandler(0x80, 1,
+                         NULL, NULL, NULL, ioapic_write, NULL, NULL, dev);
 
     if (dev->uniprocessor_apic)
         ioapic_disable_apic_mappings(dev);
@@ -1586,21 +1592,27 @@ ioapic_init(UNUSED(const device_t *info))
          !device_get_config_int("disable_apic") &&
          !machine_get_config_int("disable_apic") &&
          cpu_apic_model_capable());
-    dev->multi_lapic = !!device_get_config_int("multi_lapic");
-    dev->multi_lapic_mp_cpus = !!device_get_config_int("multi_lapic_mp_cpus");
-    dev->ap_startup = !!device_get_config_int("ap_startup");
-    dev->second_cpu_card = !!device_get_config_int("second_cpu_card") ||
-                           !!(local & IOAPIC_TOPOLOGY_SECOND_CPU_CARD);
-    dev->ap_safe_park = !!device_get_config_int("ap_safe_park");
-    dev->ap_route_parked = !!device_get_config_int("ap_route_parked");
-    dev->smp_probe = !!device_get_config_int("smp_probe");
     dev->post_trigger = (local & IOAPIC_POST_TRIGGER_AMI) ? 0x00 : 0xff;
     dev->is_esc       = !!(local & IOAPIC_VARIANT_ESC);
-    if (dev->is_esc) {
+    dev->lapic_only   = !!(local & IOAPIC_VARIANT_NONE);
+    dev->is_via       = !!(local & IOAPIC_VARIANT_VIA);
+    if (dev->lapic_only) {
+        dev->pins        = 0;
+        dev->smi_pin     = 0xff;
+        dev->version_reg = 0;
+        dev->mmio_size   = 0;
+    } else if (dev->is_esc) {
         dev->pins        = 16;
         dev->smi_pin     = 0xff;
         dev->version_reg = 0x000f0011;
         dev->mmio_size   = 0x400;
+    } else if (dev->is_via) {
+        /* Twenty-four inputs, IRQ0-IRQ23 all of them interrupts, and
+           version 00170011h (VT82C686B data sheet 1.8, p. 116). */
+        dev->pins        = IOAPIC_REDIR_ENTRIES;
+        dev->smi_pin     = 0xff;
+        dev->version_reg = IOAPIC_VERSION_REG;
+        dev->mmio_size   = IOAPIC_MMIO_SIZE;
     } else {
         dev->pins        = IOAPIC_REDIR_ENTRIES;
         dev->smi_pin     = IOAPIC_SMI_PIN;
@@ -1608,19 +1620,7 @@ ioapic_init(UNUSED(const device_t *info))
         dev->mmio_size   = IOAPIC_MMIO_SIZE;
     }
     dev->mmio_base = IOAPIC_MMIO_BASE;
-    dev->topology_lapic_slots_max = (local >> IOAPIC_TOPOLOGY_LAPIC_SLOTS_SHIFT) &
-                                    IOAPIC_TOPOLOGY_LAPIC_SLOTS_MASK;
-    apic_platform_set_lapic_count_config(dev->apic, device_get_config_int("lapic_count"));
-    if (dev->smp_probe) {
-        /* Probe preset enables the guarded two-LAPIC path from one config switch. */
-        dev->uniprocessor_apic = 1;
-        dev->second_cpu_card = 1;
-        dev->multi_lapic = 1;
-        dev->multi_lapic_mp_cpus = 1;
-        dev->ap_startup = 1;
-        dev->ap_safe_park = 1;
-        apic_platform_ensure_lapic_count_min(dev->apic, 2);
-    }
+    memset(dev->pirq_to_intin, IOAPIC_LEGACY_IRQ_NC, sizeof(dev->pirq_to_intin));
     if (dev->uniprocessor_apic)
         dev->expose_mp_tables = 1;
     apic_cpu_lapic_set_ioapic_policy(dev->uniprocessor_apic);
@@ -1636,24 +1636,29 @@ ioapic_init(UNUSED(const device_t *info))
 
     ioapic_reset(dev);
     ioapic_global          = dev;
-    lapic_bus_ioapic_attach(&dev->ioapic_arb_id, &dev->ioapic_id);
+    if (!dev->lapic_only)
+        lapic_bus_ioapic_attach(&dev->ioapic_arb_id, &dev->ioapic_id);
     ioapic_irq_path_active = dev->uniprocessor_apic;
 
     if (dev->uniprocessor_apic) {
-        apic_platform_set_external_ioapic(dev->apic, dev, ioapic_lapic_eoi_adapter);
         apic_platform_enable_lapic_mappings(dev->apic);
-        mem_mapping_add(&dev->ioapic_mapping, dev->mmio_base, dev->mmio_size,
-                        ioapic_mmio_readb, ioapic_mmio_readw, ioapic_mmio_readl,
-                        ioapic_mmio_writeb, ioapic_mmio_writew, ioapic_mmio_writel,
-                        NULL, MEM_MAPPING_EXTERNAL, dev);
-        ioapic_apply_mapping(dev);
+        if (!dev->lapic_only) {
+            apic_platform_set_external_ioapic(dev->apic, dev, ioapic_lapic_eoi_adapter);
+            mem_mapping_add(&dev->ioapic_mapping, dev->mmio_base, dev->mmio_size,
+                            ioapic_mmio_readb, ioapic_mmio_readw, ioapic_mmio_readl,
+                            ioapic_mmio_writeb, ioapic_mmio_writew, ioapic_mmio_writel,
+                            NULL, MEM_MAPPING_EXTERNAL, dev);
+            ioapic_apply_mapping(dev);
+        }
 
         apic_platform_update_lapic_mapping(dev->apic);
         ioapic_log("IOAPIC: uniprocessor APIC probe mode enabled\n");
     }
 
-    io_sethandler(0x80, 1,
-                  NULL, NULL, NULL, ioapic_write, NULL, NULL, dev);
+    /* The MP table hook: a board with no I/O APIC has no table to keep. */
+    if (!dev->lapic_only)
+        io_sethandler(0x80, 1,
+                      NULL, NULL, NULL, ioapic_write, NULL, NULL, dev);
 
     return dev;
 }
@@ -1679,98 +1684,6 @@ static const device_config_t ioapic_config[] = {
         .default_string = NULL,
         .file_filter    = NULL,
         .spinner        = { 0 },
-        .selection      = { { 0 } },
-        .bios           = { { 0 } }
-    },
-    {
-        .name           = "multi_lapic",
-        .description    = "Enable guarded multi-LAPIC active count",
-        .type           = CONFIG_BINARY,
-        .default_int    = 0,
-        .default_string = NULL,
-        .file_filter    = NULL,
-        .spinner        = { 0 },
-        .selection      = { { 0 } },
-        .bios           = { { 0 } }
-    },
-    {
-        .name           = "multi_lapic_mp_cpus",
-        .description    = "Enable guarded MP-table AP CPU fixups",
-        .type           = CONFIG_BINARY,
-        .default_int    = 0,
-        .default_string = NULL,
-        .file_filter    = NULL,
-        .spinner        = { 0 },
-        .selection      = { { 0 } },
-        .bios           = { { 0 } }
-    },
-    {
-        .name           = "ap_startup",
-        .description    = "Enable guarded AP startup requests",
-        .type           = CONFIG_BINARY,
-        .default_int    = 0,
-        .default_string = NULL,
-        .file_filter    = NULL,
-        .spinner        = { 0 },
-        .selection      = { { 0 } },
-        .bios           = { { 0 } }
-    },
-    {
-        .name           = "second_cpu_card",
-        .description    = "Install second P65UP5 CPU card",
-        .type           = CONFIG_BINARY,
-        .default_int    = 0,
-        .default_string = NULL,
-        .file_filter    = NULL,
-        .spinner        = { 0 },
-        .selection      = { { 0 } },
-        .bios           = { { 0 } }
-    },
-    {
-        .name           = "ap_safe_park",
-        .description    = "Enable guarded AP safe-park after SIPI",
-        .type           = CONFIG_BINARY,
-        .default_int    = 0,
-        .default_string = NULL,
-        .file_filter    = NULL,
-        .spinner        = { 0 },
-        .selection      = { { 0 } },
-        .bios           = { { 0 } }
-    },
-    {
-        .name           = "ap_route_parked",
-        .description    = "Allow interrupts to guarded parked APs",
-        .type           = CONFIG_BINARY,
-        .default_int    = 0,
-        .default_string = NULL,
-        .file_filter    = NULL,
-        .spinner        = { 0 },
-        .selection      = { { 0 } },
-        .bios           = { { 0 } }
-    },
-    {
-        .name           = "smp_probe",
-        .description    = "Enable guarded two-CPU APIC probe preset",
-        .type           = CONFIG_BINARY,
-        .default_int    = 0,
-        .default_string = NULL,
-        .file_filter    = NULL,
-        .spinner        = { 0 },
-        .selection      = { { 0 } },
-        .bios           = { { 0 } }
-    },
-    {
-        .name           = "lapic_count",
-        .description    = "Local APIC count",
-        .type           = CONFIG_SPINNER,
-        .default_int    = APIC_UP_LAPIC_COUNT,
-        .default_string = NULL,
-        .file_filter    = NULL,
-        .spinner = {
-            .min  = APIC_UP_LAPIC_COUNT,
-            .max  = APIC_MAX_LAPICS,
-            .step = 1
-        },
         .selection      = { { 0 } },
         .bios           = { { 0 } }
     },
@@ -1852,6 +1765,23 @@ const device_t ioapic_validated_up_device = {
     .speed_changed = NULL,
     .force_redraw  = NULL,
     .config        = ioapic_validated_up_config
+};
+
+/* The processor's own local APIC on a board with no I/O APIC (the
+   P6SBA): its timer, error and self interrupts, LINT0 the 8259's INTR and
+   LINT1 the board's NMI take the same path as on a board with one. */
+const device_t integrated_cpu_lapic_device = {
+    .name          = "Integrated CPU Local APIC",
+    .internal_name = "integrated_cpu_lapic",
+    .flags         = 0,
+    .local         = IOAPIC_VARIANT_NONE | IOAPIC_TOPOLOGY_UP_APIC_DEFAULT,
+    .init          = ioapic_init,
+    .close         = ioapic_close,
+    .reset         = ioapic_device_reset,
+    .available     = NULL,
+    .speed_changed = NULL,
+    .force_redraw  = NULL,
+    .config        = NULL
 };
 
 const device_t validated_up_apic_board_device = {

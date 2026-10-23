@@ -89,6 +89,11 @@ static uint16_t pic_pinned_irqs = 0x0000;
 
 static void (*update_pending)(void);
 
+/* The level sources on each IRQ line as the I/O APIC's input sees it: a
+   PCI interrupt steered by the chipset's router reaches the 8259 alone
+   (picint_steered), so the line can be up for one and not the other. */
+static uint32_t pic_ioapic_lines[16];
+
 #ifdef USE_VFIO
 /* IRQs delivered since their level was last known to be current. VFIO cannot report
    a passed-through device deasserting INTx, so such a level is resampled before use. */
@@ -364,6 +369,7 @@ pic_reset(void)
     const uint8_t board_flags = pic.flags & PIC_IBM5140;
 
     memset(&pic, 0, sizeof(pic_t));
+    memset(pic_ioapic_lines, 0, sizeof(pic_ioapic_lines));
     pic_intr_reported = 0;
     ioapic_pic_intr(0); /* INTR is inactive after reset, for INTIN0 too */
     memset(&pic2, 0, sizeof(pic_t));
@@ -986,8 +992,8 @@ pic2_init(void)
     pic.slaves[2] = &pic2;
 }
 
-void
-picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
+static void
+picint_lines(uint16_t num, int level, int set, uint8_t *irq_state, int to_ioapic)
 {
     int     raise;
     int     max = 16;
@@ -1021,6 +1027,12 @@ picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
             }
         }
     }
+
+    uint16_t lines = level ? 0x0000 : num;
+    /* What the I/O APIC's inputs see: for a level source, the wired-OR of
+       every source on the line, so only its changes; an edge source's
+       every raise. */
+    uint16_t apic_lines = (level || !to_ioapic) ? 0x0000 : num;
 
     /* The Tandy VIS firmware leaves the master's ICW3 at 0 and never
        initializes the slave, but the slave is still wired to the master's
@@ -1066,17 +1078,18 @@ picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
             w = 1 << i;
 
             if (num & w) {
-                /* A release the count never saw raised (the slaves set up
-                   between the two, ICW3) leaves it at 0, not wrapped. */
                 if ((!!*irq_state) != !!set) {
-                    if (set)
-                        dev->lines[b]++;
-                    else if (dev->lines[b])
-                        dev->lines[b]--;
-                }
+                    set ? dev->lines[b]++ : dev->lines[b]--;
 
-                if (((!!*irq_state) != !!set) && (dev->lines[b] == (!!set)))
-                    apic_lines |= w;
+                    if (to_ioapic) {
+                        if (set)
+                            pic_ioapic_lines[i]++;
+                        else if (pic_ioapic_lines[i])
+                            pic_ioapic_lines[i]--;
+                        if (pic_ioapic_lines[i] == (!!set))
+                            apic_lines |= w;
+                    }
+                }
                 if (!pic_level_triggered(dev, b) ||
                     (((!!*irq_state) != !!set) && (dev->lines[b] == (!!set))))
                     lines |= w;
@@ -1091,7 +1104,7 @@ picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
 
    if (!slaves)
        num &= 0x00ff;
-   if (!wired16)
+   if (!slaves)
        apic_lines &= 0x00ff;
 
    if (num & 0x0100)
@@ -1148,6 +1161,24 @@ picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
     /* APIC mirror runs after PIC state/latches settle for this request. */
     if (apic_lines)
         ioapic_legacy_irq(apic_lines, level, set);
+}
+
+void
+picint_common(uint16_t num, int level, int set, uint8_t *irq_state)
+{
+    picint_lines(num, level, set, irq_state, 1);
+}
+
+/* A PCI interrupt the chipset's router steers onto an IRQ: it is routed
+   "to the IRQ inputs of the interrupt controller" inside the chipset,
+   which "masks the corresponding IRQ signal" (PIIX3 2.2.10), so it is
+   not on the IRQ line the I/O APIC's input is wired to. A board with an
+   I/O APIC wires the PCI interrupts to inputs of their own
+   (ioapic_pirq_intin). */
+void
+picint_steered(uint16_t num, int level, int set, uint8_t *irq_state)
+{
+    picint_lines(num, level, set, irq_state, 0);
 }
 
 static uint8_t

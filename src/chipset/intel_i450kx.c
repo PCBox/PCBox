@@ -361,7 +361,7 @@ pb_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
             /* APICR: the enable in bit 0, the highest unit ID in bits 7:4,
                the starting unit ID in bits 11:8, the base in bits 27:12. */
             case 0xa4:
-                dev->pb_pci_conf[addr] = val & 0xf1;
+                dev->pb_pci_conf[addr] = val & 0xf8;
                 i450kx_apicr_log("PB", dev->pb_pci_conf);
                 break;
             case 0xa5:

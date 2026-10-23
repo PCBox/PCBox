@@ -183,6 +183,8 @@ typedef struct acpi_t {
     void       *i2c;
     void      (*trap_update)(void *priv);
     void       *trap_priv;
+    void      (*sci_hook)(void *priv, int set);
+    void       *sci_hook_priv;
     void       *smbus;
     void       *priv;
 } acpi_t;
@@ -222,6 +224,7 @@ extern void    acpi_set_gpireg2_default(acpi_t *dev, uint8_t gpireg2_default);
 extern void    acpi_set_nvr(acpi_t *dev, nvr_t *nvr);
 extern void    acpi_set_tco(acpi_t *dev, tco_t *tco);
 extern void    acpi_set_trap_update(acpi_t *dev, void (*update)(void *priv), void *priv);
+extern void    acpi_set_sci_hook(acpi_t *dev, void (*hook)(void *priv, int set), void *priv);
 extern uint8_t acpi_ali_soft_smi_status_read(acpi_t *dev);
 extern void    acpi_ali_soft_smi_status_write(acpi_t *dev, uint8_t soft_smi);
 extern void *  acpi_get_smbus(void *priv);

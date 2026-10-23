@@ -236,6 +236,7 @@ extern int      fpu_host_x87;               /* (C) fpu uses the host's x87 (soft
 #    define X87_HOST_BUILD 0
 #endif
 extern int      time_sync;                  /* (C) enable time sync */
+extern int      time_offset_years;          /* (C) year offset for time sync */
 extern int      hdd_format_type;            /* (C) hard disk file format */
 extern int      confirm_reset;              /* (G) enable reset confirmation */
 extern int      confirm_exit;               /* (G) enable exit confirmation */

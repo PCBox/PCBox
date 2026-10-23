@@ -903,7 +903,6 @@ extern void     cpu_lapic_ven_reset(void);
 extern int      cpu_apic_model_capable(void);
 extern int      cpu_apic_feature_enabled(void);
 extern uint8_t  cpu_lapic_index_source(void);
-extern uint8_t  cpu_ap_startup_request(uint8_t lapic_index, uint8_t vector);
 extern uint32_t cpu_cpuid_apic_id_ebx(void);
 extern uint64_t cpu_apic_base_msr_read_current(void);
 extern void     cpu_apic_base_msr_write_current(uint64_t val);
@@ -1078,7 +1077,6 @@ extern void     cpu_lapic_lvt_error_load_index(uint8_t lapic_index, uint32_t val
 extern uint32_t *cpu_lapic_irr_words_index(uint8_t lapic_index);
 extern void     cpu_lapic_irr_reset_index(uint8_t lapic_index);
 extern void     cpu_lapic_extint_live_set(uint8_t lapic_index, int pending);
-extern uint8_t  cpu_apic_int_fast_ok;
 extern void     cpu_lapic_irr_load_index(uint8_t lapic_index,
                                          const uint32_t words[8]);
 extern void     cpu_lapic_irr_save_index(uint8_t lapic_index,
@@ -1182,9 +1180,10 @@ extern void nmi_raise(void);
 extern void cpu_smi_raise_direct(void);
 extern void cpu_nmi_raise_direct(void);
 extern void cpu_nmi_raise_core(int apic);
-/* An NMI the processor takes now: the board's NMI pin is gated by the
-   port 70h NMI enable (nmi_mask); one from the local APIC (bit 1, an NMI
-   IPI, LINT or I/O APIC entry) is not -- port 70h gates the pin, not the
+/* An NMI the processor takes now: the board's NMI line is gated by the
+   port 70h NMI enable (nmi_mask), whether it reaches the NMI pin or LINT1;
+   one the local APIC makes (bit 1: an NMI IPI, an I/O APIC entry, an LVT
+   timer, error or LINT0 entry) is not -- port 70h gates the line, not the
    APIC bus. */
 #define NMI_TAKEABLE() (nmi && nmi_enable && (nmi_mask || (nmi & 2)))
 

@@ -155,7 +155,6 @@ lapic_promote_irr(lapic_state_t *lapic)
         return -1;
 
     cpu_lapic_promote_irr_index(lapic->index, vector);
-    lapic_sync_int_regs(lapic);
     /* The vector is no longer pending: one refused because it was goes
        again, into the IRR behind this one (lapic_slot_freed). */
     lapic_slot_freed();
@@ -284,7 +283,14 @@ lapic_lint_deliver(lapic_state_t *lapic, uint32_t lint_reg)
             return 1;
 
         case CPU_LAPIC_LINT_ACTION_NMI:
-            cpu_nmi_raise_core(1);
+            /* LINT1 is the board's NMI line, which port 70h bit 7 gates
+               before it reaches the pin (in the model at the processor,
+               NMI_TAKEABLE); LINT0 carries INTR, which port 70h does not
+               gate. */
+            if (lint_reg == LAPIC_REG_LVT_LINT1)
+                cpu_nmi_raise_core(0);
+            else
+                cpu_nmi_raise_core(1);
             return 1;
 
         case CPU_LAPIC_LINT_ACTION_INIT:
@@ -379,7 +385,6 @@ lapic_icr_remote_read_write(lapic_state_t *lapic, const lapic_target_info_t *tar
      * Remote read returns one selected LAPIC register image. Mirror fallback
      * covers state owned outside the CPU LAPIC MMIO helper.
      */
-    lapic_sync_int_regs(target);
     if (!cpu_lapic_mmio_read_index(target->index, reg, &val))
         val = lapic_mirror_read_reg(target, reg);
     /* "reset after being read by either the CPU or through the Remote
@@ -932,6 +937,17 @@ lapic_targets_accept_lowest_priority(const lapic_target_info_t *targets,
     if ((message == NULL) || (targets == NULL))
         return apic_bus_result_no_target();
 
+    /* The focus processor takes it first, slot or no slot: "In lowest
+       priority mode, if a focus processor exists, it may accept the
+       interrupt, regardless of its priority. A processor is said to be the
+       focus of an interrupt if it is currently servicing that interrupt or
+       if it has a pending request for that interrupt" (Pentium Pro Vol. 3,
+       7.4.7); "Am I Focus? Yes -> Accept Message" comes before "Is
+       Interrupt Slot Available?" (Pentium Vol. 3, Figure 19-9). */
+    target = lapic_choose_focus_processor_target(targets, message->vector, route_parked);
+    if (target != NULL)
+        return lapic_accept_interrupt_target(target, message);
+
     /* "Only the local APICs having 'free interrupt slots' will participate
        in the lowest priority arbitration. If no such APIC exists, the
        message will be rejected, and will have to be tried later" (Pentium
@@ -942,12 +958,9 @@ lapic_targets_accept_lowest_priority(const lapic_target_info_t *targets,
             lapic_targets_add(&free_slots, targets->indices[i], targets->lapics[i]);
     if (targets->count && !free_slots.count)
         return apic_bus_result_retry();
-    targets = &free_slots;
 
-    target = lapic_choose_focus_processor_target(targets, message->vector, route_parked);
-    if (target == NULL)
-        target = lapic_choose_lowest_priority_target(targets, lowest_priority_next,
-                                                     route_parked);
+    target = lapic_choose_lowest_priority_target(&free_slots, lowest_priority_next,
+                                                 route_parked);
     if (target == NULL)
         return apic_bus_result_no_target();
 
@@ -986,14 +999,24 @@ lapic_arbitration_rotate_with_ioapic(lapic_state_t *lapics, uint8_t count,
 int
 lapic_targets_mark_extint(const lapic_target_info_t *targets, uint8_t pin)
 {
+    int marked = 0;
+
     if ((targets == NULL) || !targets->count)
         return 0;
 
     /* "Deliver the signal to the INTR signal of all processor cores
-       listed in the destination" (82093AA, delivery mode 111). */
-    for (uint8_t i = 0; i < targets->count; i++)
+       listed in the destination" (82093AA, delivery mode 111), each that
+       takes it: "A software disabled Local APIC unit responds only to
+       self-interrupts and INIT, NMI, SMI, Remote Read and Start-Up
+       messages" (Pentium Vol. 3, 19.3.1.11). With none, the entry waits
+       in Send Pending, sent again when an APIC is enabled (SVR). */
+    for (uint8_t i = 0; i < targets->count; i++) {
+        if (!lapic_enabled(targets->lapics[i]))
+            continue;
         lapic_mark_extint_pending(targets->lapics[i], pin);
-    return 1;
+        marked = 1;
+    }
+    return marked;
 }
 
 int

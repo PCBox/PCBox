@@ -1098,6 +1098,7 @@ extern int             machine_at_celebris5xx_init(const machine_t *);
 /* m_at_socket5.c */
 /* i430NX */
 extern int             machine_at_p54np4_init(const machine_t *);
+extern int             machine_at_p54np4d_init(const machine_t *);
 extern int             machine_at_586ip_init(const machine_t *);
 #ifdef EMU_DEVICE_H
 extern const device_t  plato_device;
@@ -1695,6 +1696,7 @@ extern int             machine_at_cuv4xls_init(const machine_t *);
 extern const device_t  ms6318_device;
 #endif
 extern int             machine_at_ms6318_init(const machine_t *);
+extern int             machine_at_m790mr_init(const machine_t *);
 extern int             machine_at_cairo5_init(const machine_t *);
 
 /* m_at_socket423.c */
