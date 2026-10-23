@@ -142,14 +142,6 @@ EisaSlotOf(const _device_ *dev, int instance)
     device_context_t ctx;
     int              def = 1;
 
-    /* In the new layout, the board slot the card is placed in. */
-    if ((Settings::settings != nullptr) && Settings::settings->usesSlotLayout()) {
-        const int slot = Cards::placement(dev, instance);
-
-        if ((slot >> 16) == SLOT_EISA)
-            return slot & 0xffff;
-    }
-
     for (const auto *panel : livePanels) {
         if ((panel->device() == dev) && (panel->instance() == instance) && (panel->slotChoice() >= 0))
             return panel->slotChoice();
@@ -287,62 +279,6 @@ DeviceConfigPanel::applyAll(const QWidget *within)
 }
 
 void
-DeviceConfigPanel::greyAllTakenSlots()
-{
-    for (auto *panel : livePanels)
-        panel->greyTakenSlots();
-}
-
-/* One card to a slot. The other EISA cards the settings currently hold,
-   SCSI and network, each have a slot; those choices are greyed out here,
-   the way a SCSI ID already taken is greyed out for a disk. The card being
-   configured keeps whatever it has, so a clash left over from an older
-   configuration shows as the selected, disabled entry and must be moved. */
-void
-DeviceConfigPanel::greyTakenSlots()
-{
-    if ((cboxSlot == nullptr) || (settings == nullptr))
-        return;
-
-    auto     *model = qobject_cast<QStandardItemModel *>(cboxSlot->model());
-    QSet<int> taken;
-
-    if (model == nullptr)
-        return;
-
-    /* A Settings page not built yet has the saved configuration's cards. */
-    for (int i = 0; i < SCSI_CARD_MAX; ++i) {
-        const int       card  = (settings->storageControllers != nullptr) ? settings->storageControllers->scsiCard(i)
-                                                                          : scsi_card_current[i];
-        const _device_ *other = scsi_card_getdevice(card);
-
-        if ((other == nullptr) || !(other->flags & DEVICE_EISA))
-            continue;
-        if ((other == dev) && ((i + 1) == inst))
-            continue;
-        taken.insert(EisaSlotOf(other, i + 1));
-    }
-    for (int i = 0; i < NET_CARD_MAX; ++i) {
-        const int       card  = (settings->network != nullptr) ? settings->network->netCard(i)
-                                                               : net_cards_conf[i].device_num;
-        const _device_ *other = network_card_getdevice(card);
-
-        if ((other == nullptr) || !(other->flags & DEVICE_EISA))
-            continue;
-        if ((other == dev) && ((i + 1) == inst))
-            continue;
-        taken.insert(EisaSlotOf(other, i + 1));
-    }
-
-    for (int row = 0; row < model->rowCount(); ++row) {
-        auto *item = model->item(row);
-
-        if (item != nullptr)
-            item->setEnabled(!taken.contains(item->data(Qt::UserRole).toInt()));
-    }
-}
-
-void
 DeviceConfigPanel::processConfig(void *dc, const void *c, const bool is_dep)
 {
     auto         *device_context = static_cast<device_context_t *>(dc);
@@ -477,21 +413,6 @@ DeviceConfigPanel::processConfig(void *dc, const void *c, const bool is_dep)
                     cbox->setCurrentIndex(currentIndex);
                     if (rows < 2)
                         cbox->setEnabled(false);
-                    if (!strcmp(config->name, "slot") && (dev != nullptr) && (dev->flags & DEVICE_EISA)) {
-                        cboxSlot = cbox;
-                        /* In the new layout the slot is chosen on the Cards page. */
-                        if ((Settings::settings != nullptr) && Settings::settings->usesSlotLayout()) {
-                            const int slot = Cards::placement(dev, inst);
-
-                            if ((slot >> 16) == SLOT_EISA) {
-                                cbox->setCurrentIndex(cbox->findData(slot & 0xffff));
-                                cbox->setEnabled(false);
-                                cbox->setToolTip(tr("Choose the board slot on the Cards page."));
-                            }
-                        }
-                        greyTakenSlots();
-                        connect(cbox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [] { greyAllTakenSlots(); });
-                    }
                     if (!strcmp(config->name, "memory") || !strcmp(config->name, "framebuffer_memory")) {
                         cboxMemory   = cbox;
                         cfgMemory    = config;

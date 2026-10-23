@@ -21,13 +21,11 @@
 
 #include "qt_defs.hpp"
 #include "qt_settings.hpp"
-#include "ui_qt_settings.h"
 #include "qt_mainwindow.hpp"
 #include "ui_qt_mainwindow.h"
 
 extern "C" {
 #include <86box/86box.h>
-#include <86box/ini.h>
 #include <86box/config.h>
 #include <86box/keyboard.h>
 #include <86box/plat.h>
@@ -47,18 +45,8 @@ extern "C" {
 #include <86box/midi.h>
 }
 
+#include <QStackedWidget>
 #include <QStandardItemModel>
-#include <QScrollBar>
-#include <QScrollArea>
-#include <QStyledItemDelegate>
-#include <QPainter>
-#include <QStyle>
-#include <QVBoxLayout>
-#include <QButtonGroup>
-#include <QRadioButton>
-#include <QAbstractItemView>
-#include <QWheelEvent>
-#include <QTimer>
 
 #include "qt_settings_completer.hpp"
 
@@ -75,10 +63,6 @@ extern "C" {
 #include "qt_settingsfloppycdrom.hpp"
 #include "qt_settingsotherremovable.hpp"
 #include "qt_settingsotherperipherals.hpp"
-#include "qt_settingsoverview.hpp"
-#include "qt_settingsdrives.hpp"
-#include "qt_deviceconfig.hpp"
-#include "qt_settingscards.hpp"
 
 #include "qt_preferences.hpp"
 
@@ -89,8 +73,6 @@ extern "C" {
 #include <QDebug>
 #include <QComboBox>
 #include <QMessageBox>
-#include <QScreen>
-#include <QTabWidget>
 #include <QCheckBox>
 #include <QStyle>
 
@@ -99,150 +81,26 @@ extern "C" {
 
 extern MainWindow *main_window;
 
-class SettingsModel : public QAbstractListModel {
-public:
-    SettingsModel(QObject *parent)
-        : QAbstractListModel(parent)
-    {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-        fontHeight = QFontMetrics(qApp->font()).height();
-#else
-        fontHeight = QApplication::fontMetrics().height();
-#endif
-    }
-
-    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
-    int      rowCount(const QModelIndex &parent = QModelIndex()) const override;
-
-private:
-    QStringList pages = {
-        "Machine",
-        "Display",
-        "Input devices",
-        "Sound",
-        "Network",
-        "Ports (COM & LPT)",
-        "Storage controllers",
-        "Hard disks",
-        "Floppy & CD-ROM drives",
-        "Other removable devices",
-        "Other peripherals",
-    };
-    QStringList page_icons = {
-        "machine",
-        "display",
-        "input_devices",
-        "sound",
-        "network",
-        "ports",
-        "storage_controllers",
-        "hard_disk",
-        "floppy_and_cdrom_drives",
-        "other_removable_devices",
-        "other_peripherals",
-    };
-    int fontHeight;
+static const QVector<PagedDialog::Page> settingsPages = {
+    { "Machine",                 "machine"                 },
+    { "Display",                 "display"                 },
+    { "Input devices",           "input_devices"           },
+    { "Sound",                   "sound"                   },
+    { "Network",                 "network"                 },
+    { "Ports (COM & LPT)",       "ports"                   },
+    { "Storage controllers",     "storage_controllers"     },
+    { "Hard disks",              "hard_disk"               },
+    { "Floppy & CD-ROM drives",  "floppy_and_cdrom_drives" },
+    { "Other removable devices", "other_removable_devices" },
+    { "Other peripherals",       "other_peripherals"       },
 };
-
-QVariant
-SettingsModel::data(const QModelIndex &index, int role) const
-{
-    Q_ASSERT(checkIndex(index, QAbstractItemModel::CheckIndexOption::IndexIsValid | QAbstractItemModel::CheckIndexOption::ParentIsInvalid));
-
-    switch (role) {
-        case Qt::DisplayRole:
-            return tr(pages.at(index.row()).toUtf8().data());
-        case Qt::DecorationRole:
-            return QIcon(QString(":/settings/qt/icons/%1.ico").arg(page_icons[index.row()]));
-        case Qt::SizeHintRole:
-            return QSize(-1, fontHeight * 2);
-        default:
-            return {};
-    }
-}
-
-int
-SettingsModel::rowCount(const QModelIndex &parent) const
-{
-    (void) parent;
-    return pages.size();
-}
-
-/* A page of the slot-based layout's list: its icon centred over its name,
-   the width of the list. */
-namespace {
-class PageDelegate : public QStyledItemDelegate {
-public:
-    using QStyledItemDelegate::QStyledItemDelegate;
-
-    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &) const override
-    {
-        const auto *view = qobject_cast<const QAbstractItemView *>(option.widget);
-        const int   width = (view != nullptr) ? view->viewport()->width() : option.rect.width();
-
-        return QSize(width, 32 + option.fontMetrics.height() + 18);
-    }
-
-    /* The style draws the row's background and its selection; the icon
-       and name are drawn here, centred on the whole row. A style may move
-       what it draws over for its own marks (Windows 11's selection bar),
-       which would take them off centre. */
-    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
-    {
-        QStyleOptionViewItem opt = option;
-        initStyleOption(&opt, index);
-
-        const QWidget *widget = option.widget;
-        QStyle        *style  = (widget != nullptr) ? widget->style() : QApplication::style();
-        const QString  text   = opt.text;
-
-        opt.text.clear();
-        opt.icon = QIcon();
-        style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, widget);
-
-        const QRect row      = option.rect;
-        const bool selected  = option.state & QStyle::State_Selected;
-        const bool enabled   = option.state & QStyle::State_Enabled;
-        QPalette rowPalette  = opt.palette;
-        rowPalette.setCurrentColorGroup(enabled ? QPalette::Active : QPalette::Disabled);
-        // Paint the selection and its text from the same palette pair. Native
-        // Windows styles may use a pale selection, even behind a stylesheet.
-        if (selected)
-            painter->fillRect(row, rowPalette.brush(QPalette::Highlight));
-        const QRect iconRect(row.x() + ((row.width() - 32) / 2), row.y() + 6, 32, 32);
-        const QIcon icon     = qvariant_cast<QIcon>(index.data(Qt::DecorationRole));
-        icon.paint(painter, iconRect, Qt::AlignCenter, enabled ? QIcon::Normal : QIcon::Disabled);
-
-        const QPalette::ColorRole role = selected ? QPalette::HighlightedText : QPalette::Text;
-        const QRect textRect(row.x() + 2, iconRect.bottom() + 4, row.width() - 4, row.bottom() - iconRect.bottom() - 4);
-        style->drawItemText(painter, textRect, Qt::AlignHCenter | Qt::AlignTop | Qt::TextWordWrap, rowPalette, enabled, text, role);
-    }
-
-protected:
-    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override
-    {
-        QStyledItemDelegate::initStyleOption(option, index);
-        option->decorationPosition  = QStyleOptionViewItem::Top;
-        option->decorationAlignment = Qt::AlignHCenter | Qt::AlignTop;
-        option->displayAlignment    = Qt::AlignHCenter | Qt::AlignTop;
-        option->decorationSize      = QSize(32, 32);
-        option->features |= QStyleOptionViewItem::WrapText;
-        option->textElideMode = Qt::ElideNone;
-    }
-};
-}
 
 Settings *Settings::settings = nullptr;
-;
-Settings::Settings(QWidget *parent)
-    : QDialog(parent)
-    , ui(new Ui::Settings)
-    , slotLayout(settings_layout == 1)
-{
-    ui->setupUi(this);
 
+Settings::Settings(QWidget *parent)
+    : PagedDialog(tr("Settings"), QSize(720, 472), settingsPages, parent)
+{
     Settings::settings = this;
-    configurationSnapshot = ini_clone(config_get_ini());
 
     Harddrives::busTrackClass = new SettingsBusTracking;
 
@@ -261,243 +119,29 @@ Settings::Settings(QWidget *parent)
     otherRemovable     = nullptr;
     otherPeripherals   = nullptr;
 
-    ui->stackedWidget->addWidget(machine);
+    pageStack()->addWidget(machine);
     for (int i = PAGE_DISPLAY; i < PAGE_COUNT; i++)
-        ui->stackedWidget->addWidget(new QWidget(this));
+        pageStack()->addWidget(new QWidget(this));
 
-    if (slotLayout) {
-        setupSlotLayout();
-        return;
-    }
-
-    auto *model = new SettingsModel(this);
-    ui->listView->setModel(model);
-
-    connect(ui->listView->selectionModel(), &QItemSelectionModel::currentChanged, this,
-            [this](const QModelIndex &current, const QModelIndex &previous) {
-                ensurePage(current.row());
-                ui->stackedWidget->setCurrentIndex(current.row());
-                ui->headerIcon->setPixmap(qvariant_cast<QIcon>(ui->listView->model()->data(current, Qt::DecorationRole)).pixmap(QSize(16, 16)));
-                ui->headerLabel->setText(ui->listView->model()->data(current, Qt::DisplayRole).toString());
-            });
-
-    ui->listView->setCurrentIndex(model->index(0, 0));
-}
-
-/* The slot-based layout, a preview chosen in Preferences: the same pages,
-   saved the same way, reached through Machine, Cards, Display, Input,
-   Drives, Sound, Network and Ports down the left: Cards lists the cards, and the
-   Display, Sound and Network pages show each card of theirs with its
-   options; Machine is the whole machine as one tree. */
-void
-Settings::setupSlotLayout()
-{
-    auto *classicLink = new QLabel(this);
-    classicLink->setObjectName(QStringLiteral("useClassicModeLink"));
-    classicLink->setText(QStringLiteral("<a href=\"classic\">%1</a>").arg(tr("Use Classic Mode").toHtmlEscaped()));
-    classicLink->setTextInteractionFlags(Qt::LinksAccessibleByMouse | Qt::LinksAccessibleByKeyboard);
-    classicLink->setFocusPolicy(Qt::StrongFocus);
-    classicLink->setToolTip(tr("Close this window and open Classic Settings."));
-    ui->horizontalLayout_2->addWidget(classicLink);
-    connect(classicLink, &QLabel::linkActivated, this, [this]() { switchToClassic(); });
-    ensureAllPages();
-    Cards::beginSession();
-
-    panelHolder = new QWidget(this);
-    panelHolder->hide();
-    Cards::setPanelHolder(panelHolder);
-
-    /* The classic pages' card rows are shown by the new pages; the rows go. */
-    for (const char *name : { "comboBoxVideo", "comboBoxVideoSecondary", "checkBoxVoodoo", "checkBox8514", "checkBoxXga", "checkBoxDa2",
-                              "comboBoxSoundCard1", "comboBoxSoundCard2", "comboBoxSoundCard3", "comboBoxSoundCard4",
-                              "comboBoxNIC1", "comboBoxNIC2", "comboBoxNIC3", "comboBoxNIC4" })
-        Borrow::hideRow(findChild<QWidget *>(name));
-    if (auto *tabs = display->findChild<QTabWidget *>("tabWidgetDisplay"))
-        tabs->removeTab(tabs->indexOf(display->findChild<QWidget *>("tabGeneral")));
-    if (auto *tabs = findChild<QTabWidget *>("tabWidgetNet"))
-        tabs->hide();
-
-    /* Drives: every drive in one list, the selected one's settings
-       beneath. */
-    auto *drives = new SettingsDrives(harddisks, this);
-    ui->stackedWidget->addWidget(drives);
-
-    auto *cards        = new SettingsCards(this);
-    auto *displayCards = new SettingsCardPage(Cards::CATEGORY_VIDEO, display, this);
-    auto *soundCards   = new SettingsCardPage(Cards::CATEGORY_SOUND, sound, this);
-    auto *networkCards = new SettingsCardPage(Cards::CATEGORY_NETWORK, network, this);
-    for (auto *page : { static_cast<QWidget *>(cards), static_cast<QWidget *>(displayCards), static_cast<QWidget *>(soundCards),
-                        static_cast<QWidget *>(networkCards) })
-        ui->stackedWidget->addWidget(page);
-
-    /* Machine is the machine as a tree; the Machine page itself opens from
-       its rows' Options. */
-    overview = new SettingsOverview({ machine, input, ports, harddisks, floppyCdrom }, this);
-    auto *cardViews = new QWidget(this);
-    auto *cardLayout = new QVBoxLayout(cardViews);
-    cardLayout->setContentsMargins(0, 0, 0, 0);
-    auto *modeRow = new QHBoxLayout();
-    auto *basic = new QRadioButton(tr("Basic"), cardViews);
-    auto *advanced = new QRadioButton(tr("Advanced"), cardViews);
-    auto *modes = new QButtonGroup(cardViews);
-    modes->addButton(basic, 0);
-    modes->addButton(advanced, 1);
-    modeRow->addWidget(basic);
-    modeRow->addWidget(advanced);
-    modeRow->addStretch();
-    cardLayout->addLayout(modeRow);
-    auto *description = new QLabel(cardViews);
-    description->setWordWrap(true);
-    cardLayout->addWidget(description);
-    auto *views = new QStackedWidget(cardViews);
-    ui->stackedWidget->removeWidget(cards);
-    views->addWidget(cards);
-    views->addWidget(overview);
-    cardLayout->addWidget(views, 1);
-    auto chooseView = [views, description](int mode) {
-        views->setCurrentIndex(mode);
-        description->setText(mode ? tr("Choose a board slot, then select the card to install. Onboard devices are grouped separately.")
-                                  : tr("Add and configure cards. New cards use a free compatible slot; Advanced lets you choose the slot."));
-        settings_advanced = mode;
-    };
-    connect(modes, &QButtonGroup::idClicked, this, chooseView);
-    (settings_advanced ? advanced : basic)->setChecked(true);
-    chooseView(settings_advanced ? 1 : 0);
-    ui->stackedWidget->addWidget(cardViews);
-
-    struct Entry {
-        const char *title;
-        const char *icon;
-        QWidget    *page;
-    };
-    const Entry entries[] = {
-        { QT_TR_NOOP("Machine"), "machine", machine },
-        { QT_TR_NOOP("Cards"), "other_peripherals", cardViews },
-        { QT_TR_NOOP("Display"), "display", displayCards },
-        { QT_TR_NOOP("Input"), "input_devices", input },
-        { QT_TR_NOOP("Drives"), "hard_disk", drives },
-        { QT_TR_NOOP("Sound"), "sound", soundCards },
-        { QT_TR_NOOP("Network"), "network", networkCards },
-        { QT_TR_NOOP("Ports"), "ports", ports },
-    };
-    auto *model = new QStandardItemModel(this);
-    for (const auto &entry : entries) {
-        auto *item = new QStandardItem(QIcon(QString(":/settings/qt/icons/%1.ico").arg(entry.icon)), tr(entry.title));
-        item->setData(QVariant::fromValue<QObject *>(entry.page), Qt::UserRole);
-        item->setTextAlignment(Qt::AlignHCenter | Qt::AlignTop);
-        item->setEditable(false);
-        model->appendRow(item);
-    }
-
-    /* The pages down the left as large icons with their names beneath,
-       each row the list's width with its icon and name centred in it. */
-    const int columnWidth = 104;
-    ui->listView->setViewMode(QListView::ListMode);
-    ui->listView->setFlow(QListView::TopToBottom);
-    ui->listView->setWrapping(false);
-    ui->listView->setMovement(QListView::Static);
-    ui->listView->setResizeMode(QListView::Adjust);
-    ui->listView->setIconSize(QSize(32, 32));
-    ui->listView->setWordWrap(true);
-    ui->listView->setSpacing(0);
-    ui->listView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    ui->listView->setItemDelegate(new PageDelegate(ui->listView));
-    ui->listView->setMinimumWidth(columnWidth);
-    ui->listView->setMaximumWidth(columnWidth);
-    ui->listView->viewport()->installEventFilter(this);
-
-    QFont titleFont = ui->headerLabel->font();
-    titleFont.setPointSize(titleFont.pointSize() + 2);
-    titleFont.setBold(true);
-    ui->headerLabel->setFont(titleFont);
-    ui->headerLabel->setContentsMargins(4, 3, 0, 6);
-    // Native controls and system colours retain the classic desktop appearance.
-    setStyleSheet("QTreeWidget { alternate-background-color: palette(alternate-base); } "
-                  "QTreeWidget::item { min-height: 25px; } "
-                  "QTreeWidget::item:hover { background: #edf4fa; color: #182633; } "
-                  "QTreeWidget::item:selected { background: #dceaf5; color: #182633; } "
-                  "QTreeWidget::item:selected:hover { background: #d3e4f2; color: #182633; } "
-                  "QGroupBox { margin-top: 10px; padding-top: 10px; } "
-                  "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }");
-    qApp->installEventFilter(this);
-    setMinimumSize(780, 580);
-    setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
-    setSizeGripEnabled(true);
-    const QRect screen = this->screen()->availableGeometry();
-    resize(qMin(1024, screen.width() - 40), qMin(800, screen.height() - 80));
-
-    ui->listView->setModel(model);
-    connect(ui->listView->selectionModel(), &QItemSelectionModel::currentChanged, this,
-            [this](const QModelIndex &current, const QModelIndex &) { showListPage(current); });
-    ui->listView->setCurrentIndex(model->index(0, 0));
-}
-
-bool
-Settings::hasPendingEdits()
-{
-    const int parts[] = { machine->changed(), display->changed(), input->changed(), sound->changed(), network->changed(),
-                          ports->changed(), storageControllers->changed(), harddisks->changed(), floppyCdrom->changed(),
-                          otherRemovable->changed(), otherPeripherals->changed() };
-    int changed = 0;
-    for (const int part : parts)
-        changed |= part;
-    const bool slots_changed = Cards::slotsChanged();
-    const bool ini_changed   = !ini_equal(config_get_ini(), configurationSnapshot);
-    bool       panel_changed = false;
-    for (auto *panel : DeviceConfigPanel::panels())
-        panel_changed |= panel->hasPendingEdits();
-    return changed || slots_changed || ini_changed || panel_changed;
+    showFirstPage();
 }
 
 void
-Settings::switchToClassic()
+Settings::aboutToShowPage(int index)
 {
-    if (hasPendingEdits()) {
-        QMessageBox question(QMessageBox::Question, tr("Use Classic Mode"),
-            tr("You have unsaved changes. Close without saving and open Classic Settings?"),
-            QMessageBox::Discard | QMessageBox::Cancel, this);
-        question.button(QMessageBox::Discard)->setText(tr("Close without saving"));
-        question.setDefaultButton(QMessageBox::Cancel);
-        if (question.exec() != QMessageBox::Discard)
-            return;
-    }
-    settings_layout = 0;
-    config_save_global();
-    ini_restore(config_get_ini(), configurationSnapshot);
-    done(ReopenClassic);
-}
-
-void
-Settings::showListPage(const QModelIndex &current)
-{
-    auto *page = qobject_cast<QWidget *>(current.data(Qt::UserRole).value<QObject *>());
-    if (page == nullptr)
-        return;
-
-    ui->stackedWidget->setCurrentWidget(page);
-    ui->headerIcon->setPixmap(qvariant_cast<QIcon>(current.data(Qt::DecorationRole)).pixmap(QSize(16, 16)));
-    ui->headerLabel->setText(current.data(Qt::DisplayRole).toString());
+    ensurePage(index);
 }
 
 /* A page takes the place of its placeholder in the stack. */
 void
 Settings::placePage(int index, QWidget *page)
 {
-    QWidget *placeholder = ui->stackedWidget->widget(index);
+    QWidget *placeholder = pageStack()->widget(index);
 
-    /* The Storage page's twelve controller rows scroll; the slot-based
-       layout has its own scrolling. */
-    QWidget *shown = page;
-    if (!slotLayout && (index == PAGE_STORAGE)) {
-        auto *scroll = new QScrollArea(this);
-        scroll->setFrameShape(QFrame::NoFrame);
-        scroll->setWidgetResizable(true);
-        scroll->setWidget(page);
-        shown = scroll;
-    }
-    ui->stackedWidget->insertWidget(index, shown);
-    ui->stackedWidget->removeWidget(placeholder);
+    pageStack()->insertWidget(index, page);
+    pageStack()->removeWidget(placeholder);
     delete placeholder;
+    growToFitPages();
 }
 
 /* Build the page at a list index if it is not built yet, with the pages it
@@ -660,13 +304,6 @@ Settings::ensureAllPages()
 
 Settings::~Settings()
 {
-    qApp->removeEventFilter(this);
-    if (slotLayout)
-        config_save_global();
-    /* What the slot-based layout borrowed goes back before anything goes. */
-    Borrow::giveBackAll();
-    delete ui;
-    ini_close(configurationSnapshot);
     /* The device lists are read again the next time: ROMs may come or go
        in between. */
     Models::ClearDevices();
@@ -678,7 +315,7 @@ Settings::~Settings()
 int
 Settings::currentMachine() const
 {
-    return machine->currentMachineId();
+    return machine->findChild<QComboBox *>("comboBoxMachine")->currentData().toInt();
 }
 
 int
@@ -715,8 +352,6 @@ Settings::save(int soft)
     floppyCdrom->save(soft);
     otherRemovable->save(soft);
     otherPeripherals->save(soft);
-    if (slotLayout)
-        Cards::saveSlots();
 }
 
 void
@@ -747,20 +382,6 @@ Settings::accept()
             return;
     }
 
-    if (slotLayout) {
-        const QString error = Cards::slotError();
-        if (!error.isEmpty()) {
-            QMessageBox::warning(this, tr("Board slot conflict"), error);
-            return;
-        }
-        if (Cards::slotsChanged())
-            changed |= SETTINGS_CHANGED | SETTINGS_REQUIRE_HARD_RESET;
-    }
-
-    /* The options shown inline, written as the Configure dialogs write them. */
-    if (DeviceConfigPanel::applyAll(nullptr))
-        changed |= SETTINGS_CHANGED | SETTINGS_REQUIRE_HARD_RESET;
-
     changed |= machine->changed();
     changed |= display->changed();
     changed |= input->changed();
@@ -774,7 +395,7 @@ Settings::accept()
     changed |= otherPeripherals->changed();
 
     if ((changed & SETTINGS_REQUIRE_HARD_RESET) && confirm_save && !settings_only) {
-        QMessageBox questionbox(QMessageBox::Icon::Question, "PCBox",
+        QMessageBox questionbox(QMessageBox::Icon::Question, "86Box",
                                 tr("Do you want to save the settings?"),
                                 QMessageBox::Save | QMessageBox::Cancel, this);
         QCheckBox  *chkbox = new QCheckBox(tr("Don't show this message again"));
@@ -843,39 +464,4 @@ Settings::reject()
         rmdir(usr_path);
 
     QDialog::reject();
-}
-
-/* The page list's cells: the width that shows of the list, and the height
-   of the list, laid out again when the list's width changes. */
-void
-Settings::fitPageList()
-{
-    ui->listView->doItemsLayout();
-}
-
-bool
-Settings::eventFilter(QObject *watched, QEvent *event)
-{
-    // Scrolling Settings must never edit the control beneath the pointer.
-    if (event->type() == QEvent::Wheel) {
-        auto *widget = qobject_cast<QWidget *>(watched);
-        auto *combo = qobject_cast<QComboBox *>(widget);
-        if (!combo && widget)
-            combo = qobject_cast<QComboBox *>(widget->parentWidget());
-        if (combo && isAncestorOf(combo) && !combo->view()->isVisible()) {
-            QWidget *parent = combo->parentWidget();
-            while (parent && parent != this) {
-                if (auto *scroll = qobject_cast<QAbstractScrollArea *>(parent)) {
-                    QCoreApplication::sendEvent(scroll->viewport(), event);
-                    return true;
-                }
-                parent = parent->parentWidget();
-            }
-            return true;
-        }
-    }
-    if ((watched == ui->listView->viewport()) && (event->type() == QEvent::Resize))
-        fitPageList();
-
-    return QDialog::eventFilter(watched, event);
 }

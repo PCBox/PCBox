@@ -195,7 +195,7 @@ SettingsPorts::onCurrentMachineChanged(int machineId)
 
     /* In the new layout a port past the board's own is a port card, in a
        slot on the Cards page: each port says which it is. */
-    const bool newLayout = (Settings::settings != nullptr) && Settings::settings->usesSlotLayout();
+    const bool newLayout = 0;
     for (int i = 0; i < PARALLEL_MAX; i++) {
         if (auto *box = findChild<QCheckBox *>(QString("checkBoxParallel%1").arg(i + 1)))
             box->setText(!newLayout ? tr("LPT%1:").arg(i + 1) :

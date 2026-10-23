@@ -1444,8 +1444,6 @@ MainWindow::on_actionSettings_triggered()
         settings.setWindowFlag(Qt::CustomizeWindowHint, true);
         settings.setWindowFlag(Qt::WindowTitleHint, true);
         settings.setWindowFlag(Qt::WindowSystemMenuHint, false);
-        if (settings.exec() == Settings::ReopenClassic)
-            continue;
 
         switch (settings.result()) {
             default:

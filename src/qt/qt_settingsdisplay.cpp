@@ -358,7 +358,7 @@ SettingsDisplay::on_comboBoxVideo_currentIndexChanged(int index)
 
     /* In the new layout the Cards page's slots decide what fits, and any
        card that fits a free slot can be a second one. */
-    const bool slotLayout = (Settings::settings != nullptr) && Settings::settings->usesSlotLayout();
+    const bool slotLayout = 0;
 
     // TODO: Implement support for selecting non-MDA secondary cards properly when MDA cards are the primary ones.
     if (!slotLayout && (video_card_get_flags(videoCard[0]) == VIDEO_FLAG_TYPE_MDA)) {

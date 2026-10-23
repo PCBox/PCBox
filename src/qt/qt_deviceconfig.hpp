@@ -48,7 +48,6 @@ public:
     static const QList<DeviceConfigPanel *> &panels();
     static int                              applyAll(const QWidget *within);
     static void                             reloadOthers(const DeviceConfigPanel *from);
-    static void                             greyAllTakenSlots();
 
 private:
     const _device_ *dev;
@@ -70,7 +69,6 @@ private:
 
     void build();
     void processConfig(void *dc, const void *c, bool is_dep);
-    void greyTakenSlots();
     void onBiosChanged(int index);
 };
 

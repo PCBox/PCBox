@@ -785,8 +785,6 @@ main(int argc, char *argv[])
         for (;;) {
             Settings settings;
             const int result = settings.exec();
-            if (result == Settings::ReopenClassic)
-                continue;
             if (result == QDialog::Accepted) {
                 settings.save(0);
                 config_save();
