@@ -25,7 +25,7 @@
 #define HDC_NONE     0
 #define HDC_INTERNAL 1
 
-#define HDC_MAX      13 /* Controller slots; the first may hold the machine's own (Internal). */
+#define HDC_MAX      5 /* Controller slots; the first may hold the machine's own (Internal). */
 
 extern int hdc_current[HDC_MAX];
 extern int hdc_onboard_enabled;
