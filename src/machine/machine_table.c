@@ -30401,6 +30401,55 @@ const machine_t machines[] = {
         },
         .aliases                  = { "" }
     },
+    /* Has the VIA VT82C686A southbridge with on-chip KBC identical to the VIA
+       VT82C42N. */
+    {
+        .name              = "[VIA Apollo Pro 133A] MSI MS-6309",
+        .internal_name     = "cairo5",
+        .type              = MACHINE_TYPE_SOCKET370,
+        .chipset           = MACHINE_CHIPSET_VIA_APOLLO_PRO_133A,
+        .init              = machine_at_cairo5_init,
+        .p1_handler        = machine_generic_p1_handler,
+        .gpio_handler      = NULL,
+        .available_flag    = MACHINE_AVAILABLE,
+        .gpio_acpi_handler = NULL,
+        .cpu               = {
+            .package     = CPU_PKG_SOCKET370,
+            .block       = CPU_BLOCK_NONE,
+            .min_bus     = 66666667,
+            .max_bus     = 150000000,
+            .min_voltage = 1300,
+            .max_voltage = 3500,
+            .min_multi   = MACHINE_MULTIPLIER_FIXED,
+            .max_multi   = MACHINE_MULTIPLIER_FIXED
+        },
+        .bus_flags = MACHINE_PS2_A97 | MACHINE_BUS_USB,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+        .ram       = {
+            .min  = 16384,
+            .max  = 3145728,
+            .step = 8192
+        },
+        .nvrmask                  = 255,
+        .jumpered_ecp_dma         = 0,
+        .default_jumpered_ecp_dma = -1,
+        .kbc_device               = NULL,
+        .kbc_params               = 0x00000000,
+        .nvr_device               = NULL,
+        .nvr_params               = 0x00000000,
+        .sio_device               = NULL,
+        .sio_params               = 0x00000000,
+        .kbc_p1                   = 0x00000cf0,
+        .gpio                     = 0xffffffff,
+        .gpio_acpi                = 0xffffffff,
+        .device                   = &cairo5_device,
+        .kbd_device               = NULL,
+        .fdc_device               = NULL,
+        .vid_device               = NULL,
+        .snd_device               = NULL,
+        .net_device               = NULL,
+        .aliases                  = { "Samsung 694A-25A", "Samsung CAIRO-5", "" }
+    },
     /* Has the VIA VT82C686B southbridge with on-chip KBC identical to the VIA
        VT82C42N. */
     {
@@ -30511,69 +30560,6 @@ const machine_t machines[] = {
         .net_device               = NULL,
         .aliases                  = { "PC Chips M790", "ECS D6VAA", "PC Ware V694D", "Totem TM-VA370EB", "" }
     },
-    /* Has the VIA VT82C686B southbridge with on-chip KBC identical to the VIA
-       VT82C42N. */
-    {
-        .name              = "[VIA Apollo Pro 133A] Samsung CAIRO-5",
-        .internal_name     = "cairo5",
-        .type              = MACHINE_TYPE_SOCKET370,
-        .chipset           = MACHINE_CHIPSET_VIA_APOLLO_PRO_133A,
-        .init              = machine_at_cairo5_init,
-        .p1_handler        = machine_generic_p1_handler,
-        .gpio_handler      = NULL,
-        .available_flag    = MACHINE_AVAILABLE,
-        .gpio_acpi_handler = NULL,
-        .cpu               = {
-            .package     = CPU_PKG_SOCKET370,
-            .block       = CPU_BLOCK_NONE,
-            .min_bus     = 66666667,
-            .max_bus     = 150000000,
-            .min_voltage = 1300,
-            .max_voltage = 3500,
-            .min_multi   = MACHINE_MULTIPLIER_FIXED,
-            .max_multi   = MACHINE_MULTIPLIER_FIXED
-        },
-        .bus_flags = MACHINE_PS2_A97 | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB | MACHINE_UART_PRI | MACHINE_UART_SEC | MACHINE_LPT_PRI,
-        .ram       = {
-            .min  = 16384,
-            .max  = 3145728,
-            .step = 8192
-        },
-        .nvrmask                  = 255,
-        .jumpered_ecp_dma         = 0,
-        .default_jumpered_ecp_dma = -1,
-        .kbc_device               = NULL,
-        .kbc_params               = 0x00000000,
-        .nvr_device               = NULL,
-        .nvr_params               = 0x00000000,
-        .sio_device               = &via_vt82c686_sio_device,
-        .sio_params               = 0x00000000,
-        .kbc_p1                   = 0x00000cf0,
-        .gpio                     = 0xffffffff,
-        .gpio_acpi                = 0xffffffff,
-        /* The board's Disable APIC option (ioapic_validated_up_device). */
-        .device                   = &validated_up_apic_board_device,
-        .kbd_device               = NULL,
-        .fdc_device               = NULL,
-        .vid_device               = NULL,
-        .snd_device               = NULL,
-        .net_device               = NULL,
-        .pci_flags                = PCI_CONFIG_TYPE_1,
-        .slot_layout              = (const machine_slot_t[]) {
-            MSLOT_PCI(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0),
-            MSLOT_BRIDGE(0x07, PCI_CARD_SOUTHBRIDGE, 1, 2, 3, 4, machine_bus_isa),
-            MSLOT_PCI(0x0E, PCI_CARD_NORMAL, 1, 2, 3, 0),
-            MSLOT_PCI(0x0F, PCI_CARD_NORMAL, 2, 3, 0, 1),
-            MSLOT_PCI(0x10, PCI_CARD_NORMAL, 3, 0, 1, 2),
-            MSLOT_PCI(0x11, PCI_CARD_NORMAL, 0, 1, 2, 3),
-            MSLOT_PCI(0x12, PCI_CARD_NORMAL, 2, 3, 4, 1),
-            MSLOT_BRIDGE(0x01, PCI_CARD_AGPBRIDGE, 1, 2, 3, 4, machine_bus_agp),
-            MSLOT_END
-        },
-        .aliases                  = { "MSI MS-6309", "" }
-    },
-
     {
         .name = "[Intel i845] MSI MS-6529",
         .internal_name = "ms6529",
