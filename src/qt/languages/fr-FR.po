@@ -3137,6 +3137,9 @@ msgstr "Entrée"
 msgid "Key bindings"
 msgstr "Raccourcis clavier"
 
+msgid "VM Manager"
+msgstr ""
+
 msgid "Action"
 msgstr "Action"
 

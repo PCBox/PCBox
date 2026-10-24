@@ -3162,6 +3162,9 @@ msgstr "Είσοδος"
 msgid "Key bindings"
 msgstr "Αντιστοιχίσεις πλήκτρων"
 
+msgid "VM Manager"
+msgstr ""
+
 msgid "Action"
 msgstr "Ενέργεια"
 

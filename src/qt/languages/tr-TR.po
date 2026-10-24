@@ -3177,6 +3177,9 @@ msgstr "Giriş"
 msgid "Key bindings"
 msgstr "Tuş atamaları"
 
+msgid "VM Manager"
+msgstr ""
+
 msgid "Action"
 msgstr "Eylem"
 

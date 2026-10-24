@@ -3117,6 +3117,9 @@ msgstr "Đầu vào"
 msgid "Key bindings"
 msgstr "Phím nóng"
 
+msgid "VM Manager"
+msgstr ""
+
 msgid "Action"
 msgstr "Thực hiện"
 

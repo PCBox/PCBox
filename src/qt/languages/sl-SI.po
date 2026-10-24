@@ -3131,6 +3131,9 @@ msgstr "Vnos"
 msgid "Key bindings"
 msgstr "Kombinacije tipk"
 
+msgid "VM Manager"
+msgstr ""
+
 msgid "Action"
 msgstr "Dejanje"
 

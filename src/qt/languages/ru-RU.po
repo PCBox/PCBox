@@ -3132,6 +3132,9 @@ msgstr "Ввод"
 msgid "Key bindings"
 msgstr "Привязки клавиш"
 
+msgid "VM Manager"
+msgstr ""
+
 msgid "Action"
 msgstr "Действие"
 
