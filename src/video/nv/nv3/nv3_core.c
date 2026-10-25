@@ -27,6 +27,7 @@
 #include <86box/pci.h>
 #include <86box/rom.h> // DEPENDENT!!!
 #include <86box/plat_unused.h>
+#include <86box/debug_cmd.h>
 #include <86box/dma.h>
 #include <86box/video.h>
 #include <86box/nv/vid_nv.h>
@@ -335,7 +336,8 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, UNUSED(int32_t len), UNUSED(voi
 
         // device id
 
-        /* device id: the RIVA 128 ZX (revision C) is 0x0019 */
+        /* device id: the RIVA 128 ZX (revision C) is 0x0019 -- NVIDIA's manufacturing test calls
+           0x0018 with revision C an unknown chip */
         case NV3_PCI_CFG_DEVICE_ID:
         case NV3_PCI_CFG_DEVICE_ID + 1:
         {
@@ -362,7 +364,7 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, UNUSED(int32_t len), UNUSED(voi
             break;
 
         // pci status register
-        /* Status: 66MHZ follows the bus speed strap, CAP_LIST is set when
+        /* Status (datasheet appendix A): 66MHZ follows the bus speed strap, CAP_LIST is set when
            strapped for AGP, DEVSEL timing is medium; the abort bits are clear (no aborts here) */
         case PCI_REG_STATUS_L:
             ret = 0x00;
@@ -402,14 +404,14 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, UNUSED(int32_t len), UNUSED(voi
             ret = 0x00;
             break;
 
-        // Both BARs are marked prefetchable
+        // BARs are marked as prefetchable per the datasheet
         case NV3_PCI_CFG_BAR0_L:
         case NV3_PCI_CFG_BAR1_L:
             // only bit that matters is bit 3 (prefetch bit)
             ret = (NV3_PCI_CFG_BAR_PREFETCHABLE_ENABLED << NV3_PCI_CFG_BAR_PREFETCHABLE);
             break;
 
-        // These bits are hardwired to zero
+        // These registers are hardwired to zero per the datasheet
         // Writes have no effect, we can just handle it here though
         case NV3_PCI_CFG_BAR0_BYTE1 ... NV3_PCI_CFG_BAR0_BYTE2:
         case NV3_PCI_CFG_BAR1_BYTE1 ... NV3_PCI_CFG_BAR1_BYTE2:
@@ -425,7 +427,7 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, UNUSED(int32_t len), UNUSED(voi
             ret = nv3->nvbase.bar1_lfb_base >> 24; //8bit value
             break;
 
-        /* Expansion ROM BAR: decode enable bit 0, ROM_BASE 31:22 -- a 4 MB
+        /* Expansion ROM BAR (NV_CONFIG_PCI_NV_12): ROM_DECODE bit 0, ROM_BASE 31:22 -- a 4 MB
            window, so a BIOS sizing it with all ones reads back FFC00001. Bits 21:1 read 0: AMI
            BIOSes size the ROM from this and found none when 0x31/0x32 read back FF (1 short,
            3 long beeps); Award BIOSes don't size it */
@@ -492,12 +494,18 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, UNUSED(int32_t len), UNUSED(voi
 
 void nv3_agp_write(UNUSED(int32_t func), int32_t addr, uint8_t val)
 {
-    nv3->nvbase.pci_config.pci_regs[addr] = val;
-
+    // Only the command register is writable; the capability header and
+    // status are read-only. There is no SBA, so only AGP_EN sticks in byte 1.
     switch (addr)
     {
+        case NV3_AGP_COMMAND:
+            nv3->nvbase.pci_config.pci_regs[addr] = val & 0x03;
+            break;
         case NV3_AGP_COMMAND_BYTE1:
-            nv3->nvbase.agp_enabled = val;
+            nv3->nvbase.agp_enabled = val & 0x01;
+            break;
+        case NV3_AGP_COMMAND_REQUEST_DEPTH:
+            nv3->nvbase.pci_config.pci_regs[addr] = val;
             break;
         default:  
             break;
@@ -701,8 +709,8 @@ void nv3_recalc_timings(svga_t* svga)
 
     /* The extended modes scan VRAM out linearly, so CPU accesses through the banked A0000 window
        in chain-4 must be linear too; only VGA mode 13h keeps the planar chain-4 layout its
-       doubleword scan-out reads. (Packed modes drawn through the window by DOS VESA programs came
-       out as 4-pixel slivers every 16 pixels.) */
+       doubleword scan-out reads. (Packed modes drawn through the window -- NVIDIA's mfgtest, VESA
+       DOS programs -- came out as 4-pixel slivers every 16 pixels.) */
     svga->packed_chain4 = (pixel_mode != NV3_CRTC_REGISTER_PIXELMODE_VGA);
 
     switch (pixel_mode)
@@ -929,11 +937,11 @@ void nv3_svga_write(uint16_t addr, uint8_t val, UNUSED(void* priv))
             nv3->nvbase.svga.crtc[crtcreg] = val;
             // ...now act on it
 
-            /* CR1D/CR1E, the page registers, count 32K of CPU address in every mode. In planar
-               mode a CPU byte spans all four planes, so that is 32K of plane address -- the SVGA
-               core adds the bank before it spreads the address over the planes. (It used to be 8K
-               in planar modes, so VESA planar modes past 64K per plane -- 1024x768 and 1280x1024
-               in 16 colours -- drew over their own top.) */
+            /* CR1D/CR1E, the page registers: pages sit on 32K boundaries of the CPU's address in
+               normal (planar), odd/even and chain-4 modes. In planar mode a CPU byte spans all
+               four planes, so that is 32K of plane address -- the SVGA core adds the bank before it
+               spreads the address over the planes. (It used to be 8K in planar modes, so VESA
+               planar modes past 64K per plane -- 1280x1024x16 -- wrapped onto themselves.) */
             switch (crtcreg)
             {
                 case NV3_CRTC_REGISTER_READ_BANK:
@@ -985,33 +993,52 @@ void nv3_svga_write(uint16_t addr, uint8_t val, UNUSED(void* priv))
 /* DFB, sets up a dumb framebuffer */
 uint8_t nv3_dfb_read8(uint32_t addr, UNUSED(void* priv))
 {
+    nv3_d3d_sync(NV3_SYNC_LFB);
     addr &= (nv3->nvbase.svga.vram_mask);
     return nv3->nvbase.svga.vram[addr];
 }
 
 uint16_t nv3_dfb_read16(uint32_t addr, UNUSED(void* priv))
 {
+    nv3_d3d_sync(NV3_SYNC_LFB);
     addr &= (nv3->nvbase.svga.vram_mask);
     return (nv3->nvbase.svga.vram[addr + 1] << 8) | nv3->nvbase.svga.vram[addr];
 }
 
 uint32_t nv3_dfb_read32(uint32_t addr, UNUSED(void* priv))
 {
+    nv3_d3d_sync(NV3_SYNC_LFB);
     addr &= (nv3->nvbase.svga.vram_mask);
     return (nv3->nvbase.svga.vram[addr + 3] << 24) | (nv3->nvbase.svga.vram[addr + 2] << 16) |
     (nv3->nvbase.svga.vram[addr + 1] << 8) | nv3->nvbase.svga.vram[addr];
 }
 
+/* Debug: "dev nv3 watch <start> <end> <count>" logs framebuffer and RAMIN writes into VRAM [start, end)
+   (RAMIN writes log as w1xx) */
+uint32_t nv3_watch_lo, nv3_watch_hi, nv3_watch_left;
+
+void nv3_watch(uint32_t addr, uint32_t val, int size)
+{
+    if (nv3_watch_left && (addr >= nv3_watch_lo) && (addr < nv3_watch_hi)) {
+        nv3_watch_left--;
+        always_log("nv3: lfb w%d %06x %08x (cs:eip %04x:%08x)%c", size, addr, val, CS, cpu_state.pc, 10);
+    }
+}
+
 void nv3_dfb_write8(uint32_t addr, uint8_t val, UNUSED(void* priv))
 {
+    nv3_d3d_sync(NV3_SYNC_LFB);
     addr &= (nv3->nvbase.svga.vram_mask);
+    nv3_watch(addr, val, 8);
     nv3->nvbase.svga.vram[addr] = val;
     nv3->nvbase.svga.changedvram[addr >> 12] = changeframecount;
 }
 
 void nv3_dfb_write16(uint32_t addr, uint16_t val, UNUSED(void* priv))
 {
+    nv3_d3d_sync(NV3_SYNC_LFB);
     addr &= (nv3->nvbase.svga.vram_mask);
+    nv3_watch(addr, val, 16);
     nv3->nvbase.svga.vram[addr + 1] = (val >> 8) & 0xFF;
     nv3->nvbase.svga.vram[addr] = (val) & 0xFF;
     nv3->nvbase.svga.changedvram[addr >> 12] = changeframecount;
@@ -1019,7 +1046,9 @@ void nv3_dfb_write16(uint32_t addr, uint16_t val, UNUSED(void* priv))
 
 void nv3_dfb_write32(uint32_t addr, uint32_t val, UNUSED(void* priv))
 {
+    nv3_d3d_sync(NV3_SYNC_LFB);
     addr &= (nv3->nvbase.svga.vram_mask);
+    nv3_watch(addr, val, 32);
     nv3->nvbase.svga.vram[addr + 3] = (val >> 24) & 0xFF;
     nv3->nvbase.svga.vram[addr + 2] = (val >> 16) & 0xFF;
     nv3->nvbase.svga.vram[addr + 1] = (val >> 8) & 0xFF;
@@ -1125,8 +1154,49 @@ void nv3_init_mappings_mmio(void)
 
 }
 
+/* The VGA window at A0000 goes through the SVGA core: the 3D batch is drawn (and waited for)
+   before any access, as for the linear framebuffer */
+static uint8_t nv3_vga_read(uint32_t addr, void* priv)
+{
+    nv3_d3d_sync(NV3_SYNC_VGA);
+    return svga_read(addr, priv);
+}
+
+static uint16_t nv3_vga_readw(uint32_t addr, void* priv)
+{
+    nv3_d3d_sync(NV3_SYNC_VGA);
+    return svga_readw(addr, priv);
+}
+
+static uint32_t nv3_vga_readl(uint32_t addr, void* priv)
+{
+    nv3_d3d_sync(NV3_SYNC_VGA);
+    return svga_readl(addr, priv);
+}
+
+static void nv3_vga_write(uint32_t addr, uint8_t val, void* priv)
+{
+    nv3_d3d_sync(NV3_SYNC_VGA);
+    svga_write(addr, val, priv);
+}
+
+static void nv3_vga_writew(uint32_t addr, uint16_t val, void* priv)
+{
+    nv3_d3d_sync(NV3_SYNC_VGA);
+    svga_writew(addr, val, priv);
+}
+
+static void nv3_vga_writel(uint32_t addr, uint32_t val, void* priv)
+{
+    nv3_d3d_sync(NV3_SYNC_VGA);
+    svga_writel(addr, val, priv);
+}
+
 void nv3_init_mappings_svga(void)
 {
+    mem_mapping_set_handler(&nv3->nvbase.svga.mapping, nv3_vga_read, nv3_vga_readw, nv3_vga_readl,
+                            nv3_vga_write, nv3_vga_writew, nv3_vga_writel);
+
     nv_log("Initialising SVGA core memory mapping\n");
     // setup the svga mappings
     mem_mapping_add(&nv3->nvbase.framebuffer_mapping, 0, 0,
@@ -1167,6 +1237,7 @@ void nv3_update_mappings(void)
     if (!nv3)
         return; 
 
+    // setting this to 0 doesn't seem to disable it, based on the datasheet
 
     nv_log("\nMemory Mapping Config Change:\n");
 
@@ -1279,6 +1350,291 @@ void nv3_update_mappings(void)
 // 
 // Init code
 //
+/* Debug dump for tests (debug_cmd "dev nv3"): scanout, surfaces, FIFO and the
+   number of methods each class has executed. */
+uint32_t nv3_debug_class_count[32];
+
+/* VRAM to <path>, and the CRTC/sequencer/graphics/attribute registers, miscout, DAC mask and the
+   256-entry palette (as 8-bit RGB from pallook) to <path>.regs */
+static void nv3_debug_save(const char *path_in)
+{
+    svga_t *svga = &nv3->nvbase.svga;
+    char    path[512];
+    FILE   *f;
+
+    nv3_d3d_sync(NV3_SYNC_OTHER);
+
+    snprintf(path, sizeof(path), "%s", path_in);
+    if ((f = fopen(path, "wb"))) {
+        fwrite(svga->vram, 1, svga->vram_max, f);
+        fclose(f);
+    }
+    strncat(path, ".regs", sizeof(path) - strlen(path) - 1);
+    if ((f = fopen(path, "wb"))) {
+        fwrite(svga->crtc, 1, 0x40, f);
+        fwrite(svga->seqregs, 1, 0x20, f);
+        fwrite(svga->gdcreg, 1, 0x10, f);
+        fwrite(svga->attrregs, 1, 0x20, f);
+        fputc(svga->miscout, f);
+        fputc(svga->dac_mask, f);
+        for (int i = 0; i < 256; i++) {
+            uint32_t c = svga->pallook[i];
+            fputc((c >> 16) & 0xFF, f);
+            fputc((c >> 8) & 0xFF, f);
+            fputc(c & 0xFF, f);
+        }
+        fclose(f);
+    }
+    always_log("nv3: saved VRAM and registers to %s\n", path);
+}
+
+/* "dev nv3 arm": a save once a given mode has been on screen for a while (called at vblank) */
+void (*nv3_debug_vblank_hook)(void);
+static int  nv3_arm_w, nv3_arm_h, nv3_arm_frames;
+static char nv3_arm_path[512];
+
+static void nv3_debug_arm_vblank(void)
+{
+    svga_t *svga = &nv3->nvbase.svga;
+
+    if ((svga->hdisp != nv3_arm_w) || (svga->dispend != nv3_arm_h)) {
+        nv3_arm_frames = 0;
+        return;
+    }
+    if (++nv3_arm_frames < 120)
+        return;
+    nv3_debug_vblank_hook = NULL;
+    nv3_debug_save(nv3_arm_path);
+}
+
+static void nv3_debug_hook(const char *args)
+{
+    svga_t  *svga = &nv3->nvbase.svga;
+    uint32_t nonzero = 0;
+    uint32_t start   = (svga->memaddr_latch << 2) & svga->vram_mask;
+    uint32_t bytes   = svga->hdisp * svga->dispend * ((svga->bpp + 7) >> 3);
+
+    (void) args;
+    for (uint32_t i = 0; (i < bytes) && (start + i < svga->vram_max); i++)
+        nonzero += (svga->vram[start + i] != 0);
+
+    always_log("nv3: mode %dx%d bpp %d CR28 %02x CR19 %02x CR13 %02x rowoffset %d start %06x scrblank %d override %d nonzero %u/%u\n",
+               svga->hdisp, svga->dispend, svga->bpp, svga->crtc[0x28], svga->crtc[0x19], svga->crtc[0x13],
+               svga->rowoffset, start, svga->scrblank, svga->override, nonzero, bytes);
+    always_log("nv3: CR: %02x %02x %02x %02x %02x %02x %02x %02x | 25=%02x 2D=%02x 30=%02x 31=%02x | seq1 %02x gdc6 %02x attr10 %02x miscout %02x\n",
+               svga->crtc[0], svga->crtc[1], svga->crtc[2], svga->crtc[3], svga->crtc[4], svga->crtc[5], svga->crtc[6], svga->crtc[7],
+               svga->crtc[0x25], svga->crtc[0x2d], svga->crtc[0x30], svga->crtc[0x31],
+               svga->seqregs[1], svga->gdcreg[6], svga->attrregs[0x10], svga->miscout);
+    always_log("nv3: straps %03x pfb boot %08x subsystem %02x%02x:%02x%02x ptimer %016llx num %u den %u\n", nv3->straps,
+               nv3_pfb_read(NV3_PFB_BOOT), nv3->nvbase.pci_config.pci_regs[NV3_PCI_CFG_SUBSYSTEM_ID + 1],
+               nv3->nvbase.pci_config.pci_regs[NV3_PCI_CFG_SUBSYSTEM_ID], nv3->nvbase.pci_config.pci_regs[NV3_PCI_CFG_SUBSYSTEM_ID + 3],
+               nv3->nvbase.pci_config.pci_regs[NV3_PCI_CFG_SUBSYSTEM_ID + 2], (unsigned long long) nv3->ptimer.time,
+               nv3->ptimer.clock_numerator, nv3->ptimer.clock_denominator);
+    always_log("nv3: hdisp %d htotal %d hblankstart %d hblank_end %02x/%02x sub %d x_add %d left %d mon_overscan_x %d CR1A %02x CR03 %02x CR05 %02x\n",
+               svga->hdisp, svga->htotal, svga->hblankstart, svga->hblank_end_val, svga->hblank_end_mask, svga->hblank_sub,
+               svga->x_add, svga->left_overscan, svga->monitor->mon_overscan_x, svga->crtc[0x1a], svga->crtc[3], svga->crtc[5]);
+    always_log("nv3: dac mask %02x ramdac %d | pal 0 %06x 1 %06x 7 %06x 15 %06x 255 %06x | user_dac mask %02x\n",
+               svga->dac_mask, svga->ramdac_type, svga->pallook[0] & 0xffffff, svga->pallook[1] & 0xffffff,
+               svga->pallook[7] & 0xffffff, svga->pallook[15] & 0xffffff, svga->pallook[255] & 0xffffff,
+               nv3->pramdac.user_pixel_mask);
+    {
+        /* Refresh as the CRTC and VPLL give it (htotal in characters of 8 dots) */
+        double pclk = nv3->nvbase.pixel_clock_frequency;
+        double line = (double) svga->htotal * 8.0;
+
+        always_log("nv3: vpll m %d n %d p %d = %.3f MHz | htotal %d vtotal %d char %d dpc %d | %.2f kHz %.2f Hz | svga clock %.4f\n",
+                   nv3->pramdac.pixel_clock_m, nv3->pramdac.pixel_clock_n, nv3->pramdac.pixel_clock_p, pclk / 1000000.0,
+                   svga->htotal, svga->vtotal, svga->char_width, svga->dots_per_clock,
+                   (line > 0) ? pclk / line / 1000.0 : 0.0, (line > 0 && svga->vtotal) ? pclk / line / svga->vtotal : 0.0,
+                   svga->clock);
+    }
+    always_log("nv3: pvideo control %08x key %08x point %08x size %08x scale %08x start %06x/%06x pitch %x/%x | overlay ena %d %d,%d %dx%d bpp %d\n",
+               nv3->pvideo.regs[0x44 >> 2], nv3->pvideo.regs[0x40 >> 2], nv3->pvideo.regs[0x30 >> 2], nv3->pvideo.regs[0x34 >> 2],
+               nv3->pvideo.regs[0x00 >> 2], nv3->pvideo.regs[0x0C >> 2], nv3->pvideo.regs[0x10 >> 2], nv3->pvideo.regs[0x14 >> 2],
+               nv3->pvideo.regs[0x18 >> 2], svga->overlay.ena, svga->overlay.x, svga->overlay.y, svga->overlay.cur_xsize,
+               svga->overlay.cur_ysize, svga->bpp);
+    for (int b = 0; b < NV3_PGRAPH_MAX_BUFFERS; b++)
+        always_log("nv3: buffer %d offset %06x pitch %d bpixel %08x\n", b, nv3->pgraph.boffset[b], nv3->pgraph.bpitch[b], nv3->pgraph.bpixel[b]);
+    always_log("nv3: dst canvas %08x-%08x uclip %d,%d-%d,%d cliprect ctrl %x | rop %02x beta %08x chroma %08x pattern shape %d rgb %08x/%08x a %02x/%02x bits %08x%08x | ctx %08x debug0 %08x\n",
+               nv3->pgraph.dst_canvas_min, nv3->pgraph.dst_canvas_max, nv3->pgraph.uclip_min[0], nv3->pgraph.uclip_min[1],
+               nv3->pgraph.uclip_max[0], nv3->pgraph.uclip_max[1], nv3->pgraph.cliprect_ctrl, nv3->pgraph.rop, nv3->pgraph.beta_factor,
+               nv3->pgraph.chroma_key, nv3->pgraph.pattern_shape, nv3->pgraph.pattern_mono_rgb[0], nv3->pgraph.pattern_mono_rgb[1],
+               nv3->pgraph.pattern_mono_a[0], nv3->pgraph.pattern_mono_a[1], nv3->pgraph.pattern_mono_bitmap[1], nv3->pgraph.pattern_mono_bitmap[0],
+               nv3->pgraph.context_switch, nv3->pgraph.debug_0);
+    always_log("nv3: ifc point %d,%d out %dx%d in %dx%d | sifc in %dx%d dxdu %08x dydv %08x clip %d,%d %dx%d point %08x | bitmap point %d,%d out %dx%d in %dx%d\n",
+               (int16_t) nv3->pgraph.image.point.x, (int16_t) nv3->pgraph.image.point.y, nv3->pgraph.image.size.x, nv3->pgraph.image.size.y,
+               nv3->pgraph.image.size_in.x, nv3->pgraph.image.size_in.y,
+               nv3->pgraph.stretched_image_from_cpu.size_in.x, nv3->pgraph.stretched_image_from_cpu.size_in.y,
+               nv3->pgraph.stretched_image_from_cpu.delta_dx_du, nv3->pgraph.stretched_image_from_cpu.delta_dy_dv,
+               (int16_t) nv3->pgraph.stretched_image_from_cpu.clip_0.x, (int16_t) nv3->pgraph.stretched_image_from_cpu.clip_0.y,
+               nv3->pgraph.stretched_image_from_cpu.clip_1.x, nv3->pgraph.stretched_image_from_cpu.clip_1.y,
+               nv3->pgraph.stretched_image_from_cpu.point12d4,
+               (int16_t) nv3->pgraph.bitmap.point.x, (int16_t) nv3->pgraph.bitmap.point.y, nv3->pgraph.bitmap.size.x, nv3->pgraph.bitmap.size.y,
+               nv3->pgraph.bitmap.size_in.x, nv3->pgraph.bitmap.size_in.y);
+    nv3_render_dump_images();
+    always_log("nv3: m2mf in %08x out %08x pitch %d/%d len %d count %d format %x | notify %08x pending %d index %d | trapped %08x %08x inst %04x\n",
+               nv3->pgraph.m2mf.offset_in, nv3->pgraph.m2mf.offset_out, nv3->pgraph.m2mf.pitch_in, nv3->pgraph.m2mf.pitch_out,
+               nv3->pgraph.m2mf.scanline_length, nv3->pgraph.m2mf.num_scanlines, nv3->pgraph.m2mf.format,
+               nv3->pgraph.notifier, nv3->pgraph.notify_pending, nv3->pgraph.notify_index,
+               nv3->pgraph.trapped_address, nv3->pgraph.trapped_data, nv3->pgraph.trapped_instance);
+    always_log("nv3: ctx_user %08x ctx_control %08x ctx_switch %08x cache %08x %08x %08x %08x %08x %08x %08x %08x%c",
+               nv3->pgraph.context_user, nv3->pgraph.context_control, nv3->pgraph.context_switch,
+               nv3->pgraph.context_cache[0], nv3->pgraph.context_cache[1], nv3->pgraph.context_cache[2], nv3->pgraph.context_cache[3],
+               nv3->pgraph.context_cache[4], nv3->pgraph.context_cache[5], nv3->pgraph.context_cache[6], nv3->pgraph.context_cache[7], 10);
+    for (int sc = 0; sc < 8; sc++) {
+        uint32_t ctx  = nv3->pfifo.cache1_settings.context[sc];
+        uint32_t inst = (ctx & 0xFFFF) << 4;
+        always_log("nv3: subch %d ctx %08x grobj %08x %08x %08x %08x\n", sc, ctx, nv3_ramin_read32(inst, nv3),
+                   nv3_ramin_read32(inst + 4, nv3), nv3_ramin_read32(inst + 8, nv3), nv3_ramin_read32(inst + 12, nv3));
+    }
+    /* "dev nv3 vram <offset>": 64 bytes of VRAM */
+    const char *vram_arg = args ? strstr(args, "vram ") : NULL;
+    if (vram_arg) {
+        uint32_t off = strtoul(vram_arg + 5, NULL, 16) & svga->vram_mask;
+        for (int r = 0; r < 64; r += 16) {
+            const uint8_t *v = &svga->vram[(off + r) & svga->vram_mask];
+            always_log("nv3: vram %06x: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", off + r,
+                       v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], v[13], v[14], v[15]);
+        }
+    }
+    /* "dev nv3 mmio <count> [lo hi]": log the next <count> register accesses (within [lo, hi]) */
+    const char *mmio_arg = args ? strstr(args, "mmio ") : NULL;
+    if (mmio_arg) {
+        extern uint32_t nv3_mmio_trace_left, nv3_mmio_trace_lo, nv3_mmio_trace_hi;
+        char *end;
+        nv3_mmio_trace_left = strtoul(mmio_arg + 5, &end, 0);
+        nv3_mmio_trace_lo   = strtoul(end, &end, 16);
+        nv3_mmio_trace_hi   = strtoul(end, NULL, 16);
+        if (!nv3_mmio_trace_hi)
+            nv3_mmio_trace_hi = 0xFFFFFFFF;
+    }
+    /* "dev nv3 save <path>": VRAM and registers now (see nv3_debug_save) */
+    const char *save_arg = args ? strstr(args, "save ") : NULL;
+    if (save_arg) {
+        char path[512];
+        snprintf(path, sizeof(path), "%s", save_arg + 5);
+        path[strcspn(path, "\r\n ")] = '\0';
+        nv3_debug_save(path);
+    }
+    /* "dev nv3 arm <w> <h> <path>": save once the display has been <w>x<h> for 120 frames */
+    const char *arm_arg = args ? strstr(args, "arm ") : NULL;
+    if (arm_arg) {
+        char *end;
+        nv3_arm_w = strtoul(arm_arg + 4, &end, 0);
+        nv3_arm_h = strtoul(end, &end, 0);
+        while (*end == ' ')
+            end++;
+        snprintf(nv3_arm_path, sizeof(nv3_arm_path), "%s", end);
+        nv3_arm_path[strcspn(nv3_arm_path, "\r\n ")] = '\0';
+        nv3_arm_frames      = 0;
+        nv3_debug_vblank_hook = nv3_debug_arm_vblank;
+        always_log("nv3: armed for %dx%d -> %s\n", nv3_arm_w, nv3_arm_h, nv3_arm_path);
+    }
+    /* "dev nv3 cache1": every CACHE1 entry from GET to PUT */
+    if (args && strstr(args, "cache1")) {
+        extern uint32_t nv3_pfifo_cache1_slot(uint32_t ptr);
+        extern uint32_t nv3_pfifo_cache1_next(uint32_t ptr);
+        uint32_t ptr = nv3->pfifo.cache1_settings.get_address;
+        for (int n = 0; (n < NV3_PFIFO_CACHE1_SIZE_MAX) && (ptr != nv3->pfifo.cache1_settings.put_address); n++) {
+            uint32_t s = nv3_pfifo_cache1_slot(ptr);
+            always_log("nv3: cache1 %02x subch %d mthd %04x data %08x\n", ptr, nv3->pfifo.cache1_entries[s].subchannel,
+                       nv3->pfifo.cache1_entries[s].method, nv3->pfifo.cache1_entries[s].data);
+            ptr = nv3_pfifo_cache1_next(ptr);
+        }
+    }
+    /* "dev nv3 inst <instance>": the first 16 words of an object in RAMIN */
+    const char *inst_arg = args ? strstr(args, "inst ") : NULL;
+    if (inst_arg) {
+        uint32_t base = strtoul(inst_arg + 5, NULL, 16) << 4;
+        for (int r = 0; r < 64; r += 16)
+            always_log("nv3: inst %05x: %08x %08x %08x %08x\n", base + r, nv3_ramin_read32(base + r, nv3),
+                       nv3_ramin_read32(base + r + 4, nv3), nv3_ramin_read32(base + r + 8, nv3), nv3_ramin_read32(base + r + 12, nv3));
+    }
+    /* "dev nv3 watch <start> <end> <count>" */
+    const char *watch_arg = args ? strstr(args, "watch ") : NULL;
+    if (watch_arg) {
+        char *end;
+        nv3_watch_lo   = strtoul(watch_arg + 6, &end, 16);
+        nv3_watch_hi   = strtoul(end, &end, 16);
+        nv3_watch_left = strtoul(end, NULL, 0);
+    }
+    /* "dev nv3 notify <count>": log the next <count> notifier writes */
+    const char *notify_arg = args ? strstr(args, "notify ") : NULL;
+    if (notify_arg) {
+        extern uint32_t nv3_notify_trace_left;
+        nv3_notify_trace_left = strtoul(notify_arg + 7, NULL, 0);
+    }
+    /* "dev nv3 3d": the 3D batch's flushes, spans, host shading time and GPU waits */
+    for (const char *p = args ? strstr(args, "3d") : NULL; p; p = strstr(p + 1, "3d"))
+        if (((p == args) || (p[-1] == ' ')) && ((p[2] == '\0') || (p[2] == ' ') || (p[2] == '\r') || (p[2] == '\n'))) {
+            nv3_d3d_stats();
+            return;
+        }
+    /* "dev nv3 d3d <count>": log the next <count> D3D triangles */
+    const char *d3d_arg = args ? strstr(args, "d3d ") : NULL;
+    if (d3d_arg) {
+        extern uint32_t nv3_d3d_trace_left;
+        nv3_d3d_trace_left = strtoul(d3d_arg + 4, NULL, 0);
+    }
+    /* "dev nv3 tex": log the mip levels of the next mipmapped texture drawn with */
+    if (args && strstr(args, "tex")) {
+        extern int nv3_d3d_tex_dump;
+        nv3_d3d_tex_dump = 1;
+    }
+    /* "dev nv3 push <count>": log the next <count> push buffer headers */
+    const char *push_arg = args ? strstr(args, "push ") : NULL;
+    if (push_arg) {
+        extern uint32_t nv3_push_trace_left;
+        nv3_push_trace_left = strtoul(push_arg + 5, NULL, 0);
+    }
+    /* "dev nv3 swm <count>": log the next <count> software methods */
+    const char *swm_arg = args ? strstr(args, "swm ") : NULL;
+    if (swm_arg) {
+        extern uint32_t nv3_swm_trace_left;
+        nv3_swm_trace_left = strtoul(swm_arg + 4, NULL, 0);
+    }
+    /* "dev nv3 m2mf <count>": log the next <count> M2MF transfers */
+    const char *m2mf_arg = args ? strstr(args, "m2mf ") : NULL;
+    if (m2mf_arg) {
+        extern uint32_t nv3_m2mf_trace_left;
+        nv3_m2mf_trace_left = strtoul(m2mf_arg + 5, NULL, 0);
+    }
+    if (args && strstr(args, "methods")) {
+        extern void nv3_pgraph_dump_methods(void);
+        nv3_pgraph_dump_methods();
+    }
+    /* "dev nv3 <physical address>": 64 bytes of guest memory */
+    const char *addr_arg = args ? strchr(args, ' ') : NULL;
+    if (addr_arg && addr_arg[1] >= '0' && addr_arg[1] <= '9') {
+        uint32_t phys = strtoul(addr_arg + 1, NULL, 16);
+        uint8_t  buf[64];
+        dma_bm_read(phys, buf, 64, 4);
+        for (int r = 0; r < 64; r += 16)
+            always_log("nv3: mem %08x: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", phys + r,
+                       buf[r], buf[r + 1], buf[r + 2], buf[r + 3], buf[r + 4], buf[r + 5], buf[r + 6], buf[r + 7],
+                       buf[r + 8], buf[r + 9], buf[r + 10], buf[r + 11], buf[r + 12], buf[r + 13], buf[r + 14], buf[r + 15]);
+    }
+    always_log("nv3: pmc intr %08x en %08x enable %08x | pgraph intr0 %08x en0 %08x intr1 %08x en1 %08x fifo_access %d | pfifo intr %08x en %08x\n",
+               nv3->pmc.intr, nv3->pmc.intr_en, nv3->pmc.enable, nv3->pgraph.intr_0, nv3->pgraph.intr_en_0,
+               nv3->pgraph.intr_1, nv3->pgraph.intr_en_1, nv3->pgraph.fifo_access, nv3->pfifo.intr, nv3->pfifo.intr_en);
+    always_log("nv3: cache1 push0 %d pull0 %08x put %02x get %02x chan %d | cache0 pull0 %08x put %02x get %02x | runout put %x get %x | general %08x\n",
+               nv3->pfifo.cache1_settings.push0, nv3->pfifo.cache1_settings.pull0, nv3->pfifo.cache1_settings.put_address,
+               nv3->pfifo.cache1_settings.get_address, nv3->pfifo.cache1_settings.channel, nv3->pfifo.cache0_settings.pull0,
+               nv3->pfifo.cache0_settings.put_address, nv3->pfifo.cache0_settings.get_address,
+               nv3->pfifo.runout_put, nv3->pfifo.runout_get, nv3->pramdac.general_control);
+    always_log("nv3: dma pusher ctrl %08x state %08x get %08x count %08x target %x tlb tag %08x pte %08x pt %08x%c",
+               nv3->pfifo.cache1_settings.dma_state, nv3->pfifo.cache1_settings.dma_status, nv3->pfifo.cache1_settings.dma_address,
+               nv3->pfifo.cache1_settings.dma_length, nv3->pfifo.cache1_settings.dma_target_node, nv3->pfifo.cache1_settings.dma_tlb_tag,
+               nv3->pfifo.cache1_settings.dma_tlb_pte, nv3->pfifo.cache1_settings.dma_tlb_pt_base, 10);
+    char line[512];
+    int  len = 0;
+    for (int c = 0; c < 32; c++) {
+        if (nv3_debug_class_count[c])
+            len += snprintf(line + len, sizeof(line) - len, " %02x:%u", c, nv3_debug_class_count[c]);
+    }
+    always_log("nv3: methods by class:%s\n", len ? line : " none");
+}
+
 void* nv3_init(UNUSED(const device_t *info))
 {
     // set the vram amount and gpu revision
@@ -1374,7 +1730,7 @@ void* nv3_init(UNUSED(const device_t *info))
     nv3_init_mappings();
 
     // make us actually exist
-    nv3->nvbase.pci_config.int_line = 0xFF; // no interrupt line routed yet
+    nv3->nvbase.pci_config.int_line = 0xFF; // per datasheet
     nv3->nvbase.pci_config.pci_regs[PCI_REG_COMMAND] = PCI_COMMAND_IO | PCI_COMMAND_MEM;
 
     // svga is done, so now initialise the real gpu
@@ -1388,11 +1744,19 @@ void* nv3_init(UNUSED(const device_t *info))
     nv3_pgraph_init();              // Initialise accelerated graphics engine
     nv3_pvideo_init();              // Initialise video overlay
     timer_add(&nv3->dma_pusher_timer, nv3_pfifo_dma_pusher_timer, NULL, 0);
+    {
+        int gpu = device_get_config_int("gpu_raster");
+
+        if (getenv("NV3_GPU"))
+            gpu = atoi(getenv("NV3_GPU"));
+        nv3_d3d_init(device_get_config_int("render_threads"), gpu);
+    }
 
     nv_log("Initialising I2C...");
     nv3->nvbase.i2c = i2c_gpio_init("nv3_i2c");
     nv3->nvbase.ddc = ddc_init(i2c_gpio_get_bus(nv3->nvbase.i2c));
 
+    debug_cmd_set_device_hook(nv3_debug_hook);
 
     return nv3;
 }
@@ -1473,10 +1837,13 @@ static void nv3_reset(UNUSED(void* priv))
     nv3_pvideo_init();
 
     nv3_pmc_clear_interrupts();
+    nv3_d3d_reset();
 }
 
 void nv3_close(UNUSED(void* priv))
 {
+    debug_cmd_set_device_hook(NULL);
+    nv3_d3d_close();
     // Shut down logging
     log_close(nv3->nvbase.log);
 //#ifdef ENABLE_NV_LOG
