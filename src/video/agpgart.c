@@ -240,6 +240,17 @@ agpgart_aperture_readb(uint32_t addr, void *priv)
     return (ra == AGPGART_NOWHERE) ? 0xff : mem_readb_phys(ra);
 }
 
+int
+agpgart_resolve(uint32_t addr, uint32_t *ram_addr)
+{
+    const mem_mapping_t *map = read_mapping[addr >> MEM_GRANULARITY_BITS];
+
+    if (!map || !map->enable || (map->read_b != agpgart_aperture_readb))
+        return 0;
+    *ram_addr = agpgart_translate(addr, (agpgart_t *) map->priv);
+    return 1;
+}
+
 static uint16_t
 agpgart_aperture_readw(uint32_t addr, void *priv)
 {
