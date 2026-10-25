@@ -621,6 +621,7 @@ extern void    nv4_vga_close(nv4_t *nv4);
 extern void    nv4_vga_reset(nv4_t *nv4);
 extern void    nv4_vga_update_mapping(nv4_t *nv4);
 extern void    nv4_vga_update_banks(nv4_t *nv4);
+extern void    nv4_vga_mem_access(nv4_t *nv4, uint32_t addr, int n, int write);
 
 /* subsystems/nv4_pmc.c */
 extern void     nv4_pmc_reset(nv4_t *nv4);
@@ -727,6 +728,7 @@ extern void nv4_3d_flush(nv4_t *nv4);
 #define NV4_SYNC_CAUSES 259
 extern void nv4_3d_sync(nv4_t *nv4, int cause);
 extern void nv4_3d_touch(nv4_t *nv4, uint32_t lo, uint32_t hi, int cause);
+extern void nv4_3d_access(nv4_t *nv4, uint32_t lo, uint32_t hi, int cause);
 extern int  nv4_3d_joins(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lo, uint32_t hi);
 extern void nv4_pgraph_2d_flush_run(nv4_t *nv4);
 extern int  nv4_3d_fill(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lim, int bpp, int32_t x0, int32_t y0,

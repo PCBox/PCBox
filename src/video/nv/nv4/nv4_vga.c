@@ -83,12 +83,43 @@ nv4_vga_update_banks(nv4_t *nv4)
    BIOS copies itself through A000:0 into the first 64 KB of instance
    memory this way, from where the resman reads its revision. The 3D
    batch is drawn before any access, as for the linear framebuffer. */
+
+/* Before an access of <n> bytes at <addr> in the window: the 3D work
+   that reaches the VRAM bytes it maps to is drawn and waited for. Only
+   packed chain-4 (the SVGA and VESA banked modes) maps the window onto
+   VRAM byte for byte, at the bank (svga_read_common/svga_write_common:
+   the four bytes of the aligned dword, for the latches and the plane
+   mask); planar and text modes and the instance memory window wait for
+   all of it. */
+void
+nv4_vga_mem_access(nv4_t *nv4, uint32_t addr, int n, int write)
+{
+    svga_t  *svga = &nv4->svga;
+    uint32_t lo, hi;
+
+    if ((svga->crtc[NV4_CR_ENH] & 0x80) || !((svga->chain4 && svga->packed_chain4) || svga->fb_only)
+        || (svga->adv_flags & (FLAG_ADDR_BY8 | FLAG_ADDR_BY16))) {
+        nv4_3d_sync(nv4, NV4_SYNC_VGA);
+        return;
+    }
+    lo = svga_decode_addr(svga, addr, write);
+    hi = svga_decode_addr(svga, addr + n - 1, write);
+    if ((lo == 0xffffffff) && (hi == 0xffffffff))
+        return; /* outside the window: no memory is reached */
+    lo = ((lo & svga->decode_mask) & nv4->vram_mask) & ~3u;
+    hi = ((hi & svga->decode_mask) & nv4->vram_mask) | 3u;
+    if ((lo > hi) || (hi > nv4->vram_mask))
+        nv4_3d_sync(nv4, NV4_SYNC_VGA);
+    else
+        nv4_3d_access(nv4, lo, hi, NV4_SYNC_VGA);
+}
+
 static uint8_t
 nv4_vga_mem_read(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
 
-    nv4_3d_sync(nv4, NV4_SYNC_VGA);
+    nv4_vga_mem_access(nv4, addr, 1, 0);
     if (nv4->svga.crtc[NV4_CR_ENH] & 0x80)
         return nv4_ramin_read8(nv4, addr & 0xffff);
     return svga_read(addr, &nv4->svga);
@@ -99,7 +130,7 @@ nv4_vga_mem_readw(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
 
-    nv4_3d_sync(nv4, NV4_SYNC_VGA);
+    nv4_vga_mem_access(nv4, addr, 2, 0);
     if (nv4->svga.crtc[NV4_CR_ENH] & 0x80)
         return nv4_ramin_read16(nv4, addr & 0xffff);
     return svga_readw(addr, &nv4->svga);
@@ -110,7 +141,7 @@ nv4_vga_mem_readl(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
 
-    nv4_3d_sync(nv4, NV4_SYNC_VGA);
+    nv4_vga_mem_access(nv4, addr, 4, 0);
     if (nv4->svga.crtc[NV4_CR_ENH] & 0x80)
         return nv4_ramin_read32(nv4, addr & 0xffff);
     return svga_readl(addr, &nv4->svga);
@@ -121,7 +152,7 @@ nv4_vga_mem_write(uint32_t addr, uint8_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
 
-    nv4_3d_sync(nv4, NV4_SYNC_VGA);
+    nv4_vga_mem_access(nv4, addr, 1, 1);
     if (nv4->svga.crtc[NV4_CR_ENH] & 0x80)
         nv4_ramin_write8(nv4, addr & 0xffff, val);
     else
@@ -133,7 +164,7 @@ nv4_vga_mem_writew(uint32_t addr, uint16_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
 
-    nv4_3d_sync(nv4, NV4_SYNC_VGA);
+    nv4_vga_mem_access(nv4, addr, 2, 1);
     if (nv4->svga.crtc[NV4_CR_ENH] & 0x80)
         nv4_ramin_write16(nv4, addr & 0xffff, val);
     else
@@ -145,7 +176,7 @@ nv4_vga_mem_writel(uint32_t addr, uint32_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
 
-    nv4_3d_sync(nv4, NV4_SYNC_VGA);
+    nv4_vga_mem_access(nv4, addr, 4, 1);
     if (nv4->svga.crtc[NV4_CR_ENH] & 0x80)
         nv4_ramin_write32(nv4, addr & 0xffff, val);
     else

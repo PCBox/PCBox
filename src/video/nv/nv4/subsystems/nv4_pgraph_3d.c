@@ -29,13 +29,15 @@
  *                     framebuffer blend, dither, write masks.
  *
  *          A batch is flushed before anything that must see its pixels:
- *          another class's method, a notifier, CPU access to the
- *          framebuffer (linear or the VGA window), the start of vertical
- *          blank (so a frame is on screen by the next one), a full
- *          batch. With the GPU lane a flush only submits; nv4_3d_sync
- *          also waits for the pixels, for whatever touches VRAM itself
- *          (the framebuffer windows, the 2D classes), and vertical blank
- *          waits when the batch draws into the displayed bytes. Not when the FIFO runs dry: the driver moves PUT every
+ *          another class's method, a notifier, CPU access (linear or the
+ *          VGA window) to bytes it draws into or samples, the start of
+ *          vertical blank (so a frame is on screen by the next one), a
+ *          full batch. With the GPU lane a flush only submits; nv4_3d_sync
+ *          also waits for the pixels, for the classes that touch VRAM
+ *          themselves, the framebuffer windows and the 2D classes wait
+ *          only for batches whose rows they reach (nv4_3d_touch), and
+ *          vertical blank waits when the batch draws into the displayed
+ *          bytes. Not when the FIFO runs dry: the driver moves PUT every
  *          few triangles, and small batches cost the GPU lane a dispatch
  *          each.
  *
@@ -1757,6 +1759,17 @@ nv4_3d_touch(nv4_t *nv4, uint32_t lo, uint32_t hi, int cause)
     }
     if (b->gpu && nv4_gpu_pending_overlaps(b->gpu, lo, hi))
         nv4_3d_gpu_wait(nv4, cause);
+}
+
+/* The guest's CPU is about to read or write VRAM bytes lo..hi through a
+   framebuffer window: the pending 2D run is drawn (it may land there),
+   then as for a 2D draw. While the CPU works on other bytes the batch
+   keeps growing and the GPU's batches stay in flight. */
+void
+nv4_3d_access(nv4_t *nv4, uint32_t lo, uint32_t hi, int cause)
+{
+    nv4_pgraph_2d_flush_run(nv4);
+    nv4_3d_touch(nv4, lo, hi, cause);
 }
 
 /* A 2D rectangle fill with a plain store of <val> (the 2D engine's
