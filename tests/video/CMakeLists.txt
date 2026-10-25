@@ -48,5 +48,14 @@ if(BUILD_TESTING)
     )
     add_test(NAME Mach64.3D COMMAND mach64_3d_tests)
 
+    # The RIVA TNT 3D test includes the source it tests.
+    add_executable(nv4_3d_swizzle_tests nv4_3d_swizzle_test.c)
+    target_include_directories(nv4_3d_swizzle_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/include
+        ${PROJECT_BINARY_DIR}/src/include
+    )
+    target_link_libraries(nv4_3d_swizzle_tests PRIVATE m)
+    add_test(NAME NV4.Swizzle3D COMMAND nv4_3d_swizzle_tests)
+
     add_subdirectory(rage128)
 endif()

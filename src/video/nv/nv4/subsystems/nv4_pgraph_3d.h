@@ -66,6 +66,9 @@ typedef struct {
     uint32_t col_pitch, z_pitch;
     uint32_t col_lim, z_lim;       /* last valid byte, absolute */
     int      col_fmt, bpp;
+    int      swz, swz_wl, swz_hl;  /* swizzled target of 2^wl by 2^hl
+                                      pixels: no pitch, x and y bits
+                                      interleave (depth too) */
     int      z_on;                 /* a depth surface exists */
     int32_t  cx0, cy0, cx1, cy1;
     float    origin;               /* 0: D3D pixel centers, 0.5: corner */

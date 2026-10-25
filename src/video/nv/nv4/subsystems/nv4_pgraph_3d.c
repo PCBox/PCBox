@@ -336,6 +336,25 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
 
     s->rc = -1;
     s->rz = -1;
+    /* a batch is either all swizzled targets or none, so the scene
+       around a render to texture keeps its threads or GPU */
+    if (b->parallel)
+        for (int i = 0; i < b->nstates; i++)
+            if (b->states[i].swz != s->swz)
+                flush = 1;
+    if (b->parallel && s->swz) {
+        /* Swizzled rows are not runs of bytes, so the region model does
+           not hold: the batch is shaded on one thread, in submission
+           order, which also keeps any texture reading these pixels
+           right. */
+        if (flush)
+            nv4_3d_flush(nv4);
+        b->serial = 1;
+        nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi);
+        nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi);
+        b->states[b->nstates] = *s;
+        return b->nstates++;
+    }
     if (b->parallel) {
         nv4_3d_reach(s, s->col_base, s->col_pitch, &clo, &chi);
         nv4_3d_reach(s, s->z_base, s->z_pitch, &zlo, &zhi);
@@ -423,8 +442,14 @@ nv4_3d_make_state(nv4_t *nv4, nv4_3d_batch_t *b, int cls, const nv4_d3d_t *d)
     memset(s, 0, sizeof(*s));
 
     s->dx6     = (cls == 0x55);
-    if (GR(NV4_PGRAPH_SURFACE) == 2)
-        nv4_gap(nv4, cls, 0, "3D into a swizzled colour surface (drawn as pitch)");
+    /* Rendering into a texture: the 3D surface's FORMAT type 2 makes
+       the color surface swizzled, 2^wl by 2^hl pixels from BSWIZZLE2,
+       laid out as textures are. The depth surface is taken to follow
+       the same addressing from its own offset (one address generator;
+       not checked against the hardware), so its pitch is unused. */
+    s->swz     = (GR(NV4_PGRAPH_SURFACE) == 2);
+    s->swz_wl  = (GR(NV4_PGRAPH_BSWIZZLE2) >> 16) & 0xf;
+    s->swz_hl  = (GR(NV4_PGRAPH_BSWIZZLE2) >> 24) & 0xf;
     s->col_fmt = (GR(NV4_PGRAPH_BPIXEL) >> 8) & 0xf;
     s->bpp     = bpp_of(s->col_fmt);
     s->col_base  = GR(NV4_PGRAPH_BBASE + 2 * 4) + GR(NV4_PGRAPH_BOFFSET + 2 * 4);
@@ -438,7 +463,7 @@ nv4_3d_make_state(nv4_t *nv4, nv4_3d_batch_t *b, int cls, const nv4_d3d_t *d)
     s->z_base   = GR(NV4_PGRAPH_BBASE + 3 * 4) + GR(NV4_PGRAPH_BOFFSET + 3 * 4);
     s->z_pitch  = GR(NV4_PGRAPH_BPITCH + 3 * 4) & 0xffff;
     lim         = GR(NV4_PGRAPH_BLIMIT + 3 * 4);
-    s->z_on     = !(lim & 0x80000000) && s->z_pitch;
+    s->z_on     = !(lim & 0x80000000) && (s->z_pitch || s->swz);
     s->z_lim    = GR(NV4_PGRAPH_BBASE + 3 * 4) + (lim & 0x7fffffff);
 
     s->cx0 = (int16_t) GR(NV4_PGRAPH_UCLIP_MIN);
@@ -449,7 +474,12 @@ nv4_3d_make_state(nv4_t *nv4, nv4_3d_batch_t *b, int cls, const nv4_d3d_t *d)
         s->cx0 = 0;
     if (s->cy0 < 0)
         s->cy0 = 0;
-    if (s->col_pitch && (s->cx1 > (int32_t) (s->col_pitch / s->bpp)))
+    if (s->swz) {
+        if (s->cx1 > (1 << s->swz_wl))
+            s->cx1 = 1 << s->swz_wl;
+        if (s->cy1 > (1 << s->swz_hl))
+            s->cy1 = 1 << s->swz_hl;
+    } else if (s->col_pitch && (s->cx1 > (int32_t) (s->col_pitch / s->bpp)))
         s->cx1 = s->col_pitch / s->bpp;
     if (s->cx1 > 4096)
         s->cx1 = 4096;
@@ -533,6 +563,16 @@ nv4_swizzle(uint32_t u, uint32_t v, int wl, int hl)
             r |= ((v >> i) & 1) << bit++;
     }
     return r;
+}
+
+/* Byte offset of pixel x,y in a 3D surface of <pitch>, or in the
+   state's swizzled target. */
+static uint32_t
+nv4_3d_pix(const nv4_3d_state_t *s, uint32_t pitch, int x, int y)
+{
+    if (s->swz)
+        return nv4_swizzle(x, y, s->swz_wl, s->swz_hl) * s->bpp;
+    return (uint32_t) y * pitch + (uint32_t) x * s->bpp;
 }
 
 typedef struct {
@@ -1060,8 +1100,8 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_span_t *sp)
         float    at[AT_COUNT];
         rgba_t   d, spec, out, src[8];
         int      killed = 0;
-        uint32_t ca     = s->col_base + (uint32_t) sp->y * s->col_pitch + (uint32_t) x * s->bpp;
-        uint32_t za     = s->z_base + (uint32_t) sp->y * s->z_pitch + (uint32_t) x * s->bpp;
+        uint32_t ca     = s->col_base + nv4_3d_pix(s, s->col_pitch, x, sp->y);
+        uint32_t za     = s->z_base + nv4_3d_pix(s, s->z_pitch, x, sp->y);
         uint32_t zold   = 0, znew = 0;
         uint32_t depth;
         int      sten   = 0;
@@ -1251,7 +1291,12 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_span_t *sp)
                 vram[(ca + i) & vm] = v >> (i * 8);
         }
     }
-    {
+    if (s->swz) {
+        /* a row's pixels spread over the surface */
+        for (int x = sp->x0; x < sp->x1; x++)
+            nv4->svga.changedvram[((s->col_base + nv4_3d_pix(s, 0, x, sp->y)) & vm) >> 12]
+                = nv4->svga.monitor->mon_changeframecount;
+    } else {
         uint32_t row = s->col_base + (uint32_t) sp->y * s->col_pitch;
         uint32_t a0  = (row + sp->x0 * s->bpp) & vm;
         uint32_t a1  = (row + sp->x1 * s->bpp) & vm;
