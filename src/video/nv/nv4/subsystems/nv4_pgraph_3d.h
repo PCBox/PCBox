@@ -104,6 +104,12 @@ typedef struct {
     uint16_t tri;
 } nv4_3d_span_t;
 
+/* A 2D fill's triangle (state fill): c[NV4_FILL_KIND] says what it does,
+   c[0] the value to store, or the words of nv4_3d_fill_rop */
+#define NV4_FILL_KIND  13
+#define NV4_FILL_STORE 0
+#define NV4_FILL_ROP   1
+
 #define B3D_MAX_WORKERS 8
 #define B3D_REGIONS     4
 
@@ -153,6 +159,7 @@ typedef struct nv4_3d_batch_s {
 
     uint64_t st_flushes, st_spans, st_us; /* for nv4_3d_stats */
     uint64_t st_nosurf;                   /* triangles dropped: no valid colour surface */
+    uint64_t st_serial, st_serial_spans;  /* flushes shaded serially (rows alias), and their spans */
     uint64_t st_sync_us[NV4_SYNC_CAUSES]; /* time waiting for the GPU, by cause */
     uint32_t st_sync_n[NV4_SYNC_CAUSES];
 

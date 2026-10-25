@@ -450,6 +450,7 @@ typedef struct {
     uint32_t   beta;
     uint32_t   beta4;
     int        plain; /* every pixel a plain store of the source */
+    int        ropfill; /* a rectangle fill the 3D batch can take as a ROP (nv4_3d_fill_rop) */
     int        defer; /* plain stores into rows the 3D batch draws: join it */
     int        touch; /* wait for the 3D work reaching lo..hi before the first pixel */
     uint32_t   lo, hi;
@@ -481,8 +482,10 @@ nv4_clip_and(nv4_t *nv4, nv4_draw_t *d, uint32_t min_reg, uint32_t max_reg)
 
 /* Sets up a drawing to the destination surface. <oclip>: the class
    clips to its own rectangle. <use_uclip>: the user clip applies. */
+/* <fill>: the caller is a rectangle fill (nv4_fill), which may join the
+   3D batch under any ROP */
 static int
-nv4_draw_begin(nv4_t *nv4, nv4_draw_t *d, int oclip, int use_uclip)
+nv4_draw_begin_fill(nv4_t *nv4, nv4_draw_t *d, int oclip, int use_uclip, int fill)
 {
     uint32_t sw1 = GR(NV4_PGRAPH_CTX_SWITCH1);
 
@@ -569,18 +572,28 @@ nv4_draw_begin(nv4_t *nv4, nv4_draw_t *d, int oclip, int use_uclip)
         }
         d->plain = !d->dst.swz && !d->chroma && !d->rop_d && !d->rop_p
             && (((d->op != 1) && (d->op != 2) && (d->op != 4) && (d->op != 5)) || ((d->op == 1) && (d->rop == 0xcc)));
-        d->defer = d->plain && nv4_3d_joins(nv4, d->dst.base + d->dst.off, d->dst.pitch, lo, hi);
-        d->lo    = lo;
-        d->hi    = hi;
-        /* a plain store may still join as a large fill (nv4_fill): the
-           wait, if any, comes with the first pixel drawn here */
+        /* a fill under a ROP3 whose pattern, if any, is mono: each pixel
+           is (d & A) | (~d & B), A and B from the pattern color */
+        d->ropfill = fill && !d->plain && !d->dst.swz && !d->chroma && (d->op == 1) && (!d->rop_p || !d->pat_color);
+        d->defer   = d->plain && nv4_3d_joins(nv4, d->dst.base + d->dst.off, d->dst.pitch, lo, hi);
+        d->lo      = lo;
+        d->hi      = hi;
+        /* a plain store or a ROP fill may still join as a fill
+           (nv4_fill): the wait, if any, comes with the first pixel drawn
+           here */
         d->touch = !d->defer;
-        if (d->touch && !d->plain) {
+        if (d->touch && !d->plain && !d->ropfill) {
             nv4_3d_touch(nv4, lo, hi, GR(NV4_PGRAPH_CTX_SWITCH1) & 0xff);
             d->touch = 0;
         }
     }
     return 1;
+}
+
+static int
+nv4_draw_begin(nv4_t *nv4, nv4_draw_t *d, int oclip, int use_uclip)
+{
+    return nv4_draw_begin_fill(nv4, d, oclip, use_uclip, 0);
 }
 
 /* The pending run of plain-store pixels: into the 3D batch, or drawn
@@ -781,6 +794,29 @@ nv4_fill(nv4_draw_t *d, int32_t x0, int32_t y0, int32_t x1, int32_t y1, nv4_px_t
             nv4->eng_bytes += (uint64_t) (x1 - x0) * (uint64_t) (y1 - y0) * d->dst.bpp;
         return;
     }
+    /* a ROP fill: the bits each pattern color makes of a destination bit
+       of 1 (A) and of 0 (B), the ROP being bitwise */
+    if (d->ropfill && ((uint32_t) x1 * d->dst.bpp <= d->dst.pitch)) {
+        uint32_t r[7] = { 0 };
+
+        for (int i = 0; i < 2; i++) {
+            uint32_t p = d->rop_p ? d->pat_c[i] : 0;
+
+            r[i * 2]     = nv4_rop3(d->rop, p, s, 0xffffffff);
+            r[i * 2 + 1] = nv4_rop3(d->rop, p, s, 0);
+        }
+        r[4] = d->pat_mono[0];
+        r[5] = d->pat_mono[1];
+        r[6] = d->rop_p ? (NV4_ROPFILL_PAT | (uint32_t) d->pat_shape | (d->pat_t[0] ? NV4_ROPFILL_SKIP0 : 0)
+                           | (d->pat_t[1] ? NV4_ROPFILL_SKIP1 : 0))
+                        : 0;
+        if (nv4_3d_fill_rop(nv4, d->dst.base + d->dst.off, d->dst.pitch, d->dst.base + d->dst.limit, d->dst.bpp, x0, y0, x1,
+                            y1, r)) {
+            if ((x1 > x0) && (y1 > y0))
+                nv4->eng_bytes += (uint64_t) (x1 - x0) * (uint64_t) (y1 - y0) * d->dst.bpp * (d->rop_d ? 2 : 1);
+            return;
+        }
+    }
     /* (nv4_draw_begin waited for the 3D work if it reaches these bytes,
        or the pixels join the batch as runs) */
     for (int32_t y = y0; y < y1; y++)
@@ -941,7 +977,7 @@ nv4_rect(nv4_t *nv4, int32_t x, int32_t y, uint32_t w, uint32_t h, uint32_t colo
 {
     nv4_draw_t d;
 
-    if (!w || !h || !nv4_draw_begin(nv4, &d, oclip, uclip))
+    if (!w || !h || !nv4_draw_begin_fill(nv4, &d, oclip, uclip, 1))
         return;
     nv4_fill(&d, x, y, x + (int32_t) w, y + (int32_t) h, nv4_obj_color(nv4, color));
 }
@@ -2318,7 +2354,7 @@ nv4_class_gdi(nv4_t *nv4, nv4_gr_chan_t *ch, int cls, uint32_t mthd, uint32_t da
             int32_t  y1 = (int16_t) (data >> 16);
             nv4_draw_t d;
 
-            if ((x1 > ch->vx[0]) && (y1 > ch->vy[0]) && nv4_draw_begin(nv4, &d, 1, 0))
+            if ((x1 > ch->vx[0]) && (y1 > ch->vy[0]) && nv4_draw_begin_fill(nv4, &d, 1, 0, 1))
                 nv4_fill(&d, ch->vx[0], ch->vy[0], x1, y1, nv4_obj_color(nv4, ch->color));
         }
         return NV4_GR_OK;

@@ -22,7 +22,15 @@
  *          submission order, shading the ones that cover it, so
  *          overlapping triangles land in draw order with no barriers.
  *          Bytes are written with atomics: neighbouring 16-bit pixels
- *          share a word.
+ *          share a word. A batch whose rows alias (V_SERIAL) is one
+ *          workgroup walking every span in submission order, its
+ *          invocations taking a span's pixels, with a barrier after each
+ *          span.
+ *
+ *          Specialization constants (V_*) compile out what a run of
+ *          spans does not use (nv4_pgraph_3d_gpu.c picks the variant
+ *          from its draw states); the defaults are the generic
+ *          pipeline, which does everything.
  *
  *          Regenerate the SPIR-V header with
  *          scripts/regen-nv4-gpu-spv.sh after changing this file.
@@ -35,6 +43,12 @@
 #extension GL_GOOGLE_include_directive : require
 
 layout(local_size_x = 64) in;
+
+layout(constant_id = 0) const int V_TEX    = 2; /* texture stages a state may use: 0, 1 or 2 */
+layout(constant_id = 1) const int V_DX6    = 1; /* combiners (the DX6 class) */
+layout(constant_id = 2) const int V_DST    = 1; /* blending or write masks read the destination */
+layout(constant_id = 3) const int V_Z      = 1; /* depth test, depth buffer or stencil */
+layout(constant_id = 4) const int V_SERIAL = 0; /* one workgroup, every span in order */
 
 #include "../../../vid_ati_rage128_gpu_fdiv.glsl"
 
@@ -60,7 +74,8 @@ struct state_t {
     int   atest, afunc, aref, zen, zfunc, zwrite, zfloat, dither;
     int   wr_a, wr_r, wr_g, wr_b;
     int   sten, sfunc, sref, smask_r, smask_w, sop_fail, sop_zfail, sop_zpass, swrite;
-    int   fill;     /* 2D rectangle fills: store the triangle's c[0] bits */
+    int   fill;     /* 2D rectangle fills: the triangle's c[] (nv4_3d_fill_words) */
+    int   swz, swz_wl, swz_hl; /* a swizzled target, 2^wl by 2^hl */
     tex_t tex[2];
 };
 
@@ -93,8 +108,9 @@ layout(std430, binding = 4) readonly buffer Spans { ivec4 spans[]; }; /* y, x0, 
 layout(std430, binding = 5) readonly buffer Rows { uvec2 rows[]; };   /* first span, count */
 
 layout(push_constant) uniform PC {
-    uint nrows;
+    uint nrows;     /* rows of this run (V_SERIAL: spans) */
     uint vram_mask;
+    uint first;     /* its first row (V_SERIAL: span) */
 } pc;
 
 uint g_si; /* state of the span being shaded */
@@ -648,7 +664,7 @@ unpack_color(uint v)
 ivec4
 tex_stage(int n, int au, int av, float q, float iq, float uq, float vq, inout bool killed)
 {
-    if (S.tex[n].on == 0)
+    if ((n >= V_TEX) || (S.tex[n].on == 0))
         return ivec4(255);
     {
         precise float u   = uq * iq;
@@ -659,6 +675,16 @@ tex_stage(int n, int au, int av, float q, float iq, float uq, float vq, inout bo
     }
 }
 
+/* nv4_3d_pix: pixel x,y of a surface of <pitch>, or of the swizzled
+   target (nv4_swizzle keeps the bits below wl and hl) */
+uint
+pix(uint pitch, int x, int y)
+{
+    if (S.swz != 0)
+        return swizzle(uint(x) & ((1u << S.swz_wl) - 1u), uint(y) & ((1u << S.swz_hl) - 1u), S.swz_wl, S.swz_hl) * uint(S.bpp);
+    return uint(y) * pitch + uint(x) * uint(S.bpp);
+}
+
 /* ---- one pixel: nv4_3d_span's loop body ---- */
 void
 shade(int x, int y)
@@ -667,9 +693,9 @@ shade(int x, int y)
     precise float py = float(y) + S.origin - T.y0;
     precise float at[14];
     int           bpp  = S.bpp;
-    uint          ca   = S.col_base + uint(y) * S.col_pitch + uint(x) * uint(bpp);
-    uint          za   = S.z_base + uint(y) * S.z_pitch + uint(x) * uint(bpp);
-    uint          zold = 0u, znew = 0u, depth;
+    uint          ca   = S.col_base + pix(S.col_pitch, x, y);
+    uint          za   = S.z_base + pix(S.z_pitch, x, y);
+    uint          zold = 0u, znew = 0u, depth = 0u;
     int           sten = 0;
     bool          killed = false;
     ivec4         d, spec, outc, src[8];
@@ -677,7 +703,27 @@ shade(int x, int y)
     if (ca + uint(bpp) - 1u > S.col_lim)
         return;
     if (S.fill != 0) {
-        vwrite(ca, bpp, floatBitsToUint(T.c[0]));
+        uint fv = floatBitsToUint(T.c[0]);
+
+        /* NV4_FILL_ROP (c[13]): (d & A) | (~d & B), A and B by the
+           pattern bit (NV4_ROPFILL_*) */
+        if (floatBitsToUint(T.c[13]) == 1u) {
+            uint fl = floatBitsToUint(T.c[6]);
+            uint k  = 0u;
+            uint dv;
+
+            if ((fl & 0x10u) != 0u) {
+                uint sh = fl & 3u;
+                uint pi = (sh == 1u) ? (uint(x) & 63u) : ((sh == 2u) ? (uint(y) & 63u) : (((uint(y) & 7u) << 3) | (uint(x) & 7u)));
+
+                k = (floatBitsToUint(T.c[4u + (pi >> 5)]) >> (pi & 31u)) & 1u;
+                if ((fl & ((k != 0u) ? 0x08u : 0x04u)) != 0u)
+                    return;
+            }
+            dv = vread(ca, bpp);
+            fv = (dv & floatBitsToUint(T.c[k * 2u])) | (~dv & floatBitsToUint(T.c[k * 2u + 1u]));
+        }
+        vwrite(ca, bpp, fv);
         return;
     }
     for (int i = 0; i < 14; i++)
@@ -685,8 +731,8 @@ shade(int x, int y)
     if (at[AT_Q] <= 0.0)
         at[AT_Q] = 1e-6;
 
-    /* depth */
-    {
+    /* depth (none of it without V_Z: no depth buffer, test or stencil) */
+    if (V_Z != 0) {
         precise float w = (S.zfloat != 0) ? (1.0 - at[AT_Q]) : at[AT_Z];
         precise float sc;
 
@@ -694,7 +740,7 @@ shade(int x, int y)
         sc    = w * ((bpp == 2) ? 65535.0 : 16777215.0);
         depth = uint(sc);
     }
-    if ((S.z_on != 0) && (za + uint(bpp) - 1u <= S.z_lim))
+    if ((V_Z != 0) && (S.z_on != 0) && (za + uint(bpp) - 1u <= S.z_lim))
         zold = vread(za, bpp);
     sten = (bpp == 4) ? int(zold >> 24) : 0;
 
@@ -709,7 +755,7 @@ shade(int x, int y)
            (1/1 is 1 without perspective) */
         precise float iq = 1.0;
 
-        if ((S.persp != 0) && ((S.tex[0].on != 0) || (S.tex[1].on != 0)))
+        if ((V_TEX > 0) && (S.persp != 0) && ((S.tex[0].on != 0) || (S.tex[1].on != 0)))
             iq = fdiv_cr(1.0, at[AT_Q]);
         src[5] = tex_stage(0, AT_U0, AT_V0, at[AT_Q], iq, at[AT_U0], at[AT_V0], killed);
         src[6] = tex_stage(1, AT_U1, AT_V1, at[AT_Q], iq, at[AT_U1], at[AT_V1], killed);
@@ -717,7 +763,7 @@ shade(int x, int y)
     if (killed)
         return;
 
-    if (S.dx6 != 0) {
+    if ((V_DX6 != 0) && (S.dx6 != 0)) {
         ivec4 inp = d;
         ivec3 co, ao;
 
@@ -733,7 +779,7 @@ shade(int x, int y)
             inp    = ivec4(co, ao.x);
         }
         outc = inp;
-    } else if (S.tex[0].on != 0) {
+    } else if ((V_TEX > 0) && (S.tex[0].on != 0)) {
         int f = S.tex[0].fmt;
 
         outc = texblend(S.texblend, src[5], d, (f == 2) || (f == 4) || (f == 6) || (f == 1));
@@ -758,7 +804,7 @@ shade(int x, int y)
         return;
 
     /* stencil and depth */
-    if (S.sten != 0) {
+    if ((V_Z != 0) && (S.sten != 0)) {
         bool pass = cmpf(S.sfunc, uint(S.sref & S.smask_r), uint(sten & S.smask_r));
 
         if (!pass) {
@@ -772,7 +818,7 @@ shade(int x, int y)
             return;
         }
     }
-    {
+    if (V_Z != 0) {
         uint zcur  = (bpp == 2) ? zold : (zold & 0xffffffu);
         bool zpass = (S.zen == 0) || cmpf(S.zfunc, depth, zcur);
 
@@ -798,9 +844,9 @@ shade(int x, int y)
     {
         ivec4 dst = ivec4(0);
 
-        if ((S.ablend != 0) || !((S.wr_r != 0) && (S.wr_g != 0) && (S.wr_b != 0) && (S.wr_a != 0)))
+        if ((V_DST != 0) && ((S.ablend != 0) || !((S.wr_r != 0) && (S.wr_g != 0) && (S.wr_b != 0) && (S.wr_a != 0))))
             dst = unpack_color(vread(ca, bpp));
-        if (S.ablend != 0) {
+        if ((V_DST != 0) && (S.ablend != 0)) {
             int sfr = blend_factor(S.sblend, outc.a, dst.a, outc.r, dst.r, false);
             int sfg = blend_factor(S.sblend, outc.a, dst.a, outc.g, dst.g, false);
             int sfb = blend_factor(S.sblend, outc.a, dst.a, outc.b, dst.b, false);
@@ -815,14 +861,16 @@ shade(int x, int y)
             outc.b = clamp255(mul8(outc.b, sfb) + mul8(dst.b, dfb));
             outc.a = clamp255(mul8(outc.a, sfa) + mul8(dst.a, dfa));
         }
-        if (S.wr_r == 0)
-            outc.r = dst.r;
-        if (S.wr_g == 0)
-            outc.g = dst.g;
-        if (S.wr_b == 0)
-            outc.b = dst.b;
-        if (S.wr_a == 0)
-            outc.a = dst.a;
+        if (V_DST != 0) {
+            if (S.wr_r == 0)
+                outc.r = dst.r;
+            if (S.wr_g == 0)
+                outc.g = dst.g;
+            if (S.wr_b == 0)
+                outc.b = dst.b;
+            if (S.wr_a == 0)
+                outc.a = dst.a;
+        }
         vwrite(ca, bpp, pack_color(outc, x, y));
     }
 }
@@ -830,8 +878,24 @@ shade(int x, int y)
 void
 main()
 {
-    uvec2 row = rows[gl_WorkGroupID.x];
-    int   x   = int(gl_WorkGroupID.y) * 64 + int(gl_LocalInvocationID.x);
+    uvec2 row;
+    int   x;
+
+    if (V_SERIAL != 0) {
+        for (uint k = 0u; k < pc.nrows; k++) {
+            ivec4 sp = spans[pc.first + k];
+
+            g_ti = uint(sp.w);
+            g_si = uint(tris[g_ti].state);
+            for (int px = sp.y + int(gl_LocalInvocationID.x); px < sp.z; px += 64)
+                shade(px, sp.x);
+            memoryBarrierBuffer();
+            barrier();
+        }
+        return;
+    }
+    row = rows[pc.first + gl_WorkGroupID.x];
+    x   = int(gl_WorkGroupID.y) * 64 + int(gl_LocalInvocationID.x);
 
     for (uint k = 0u; k < row.y; k++) {
         ivec4 sp = spans[row.x + k];

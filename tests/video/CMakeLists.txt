@@ -57,5 +57,30 @@ if(BUILD_TESTING)
     target_link_libraries(nv4_3d_swizzle_tests PRIVATE m)
     add_test(NAME NV4.Swizzle3D COMMAND nv4_3d_swizzle_tests)
 
+    add_executable(nv4_3d_ropfill_tests nv4_3d_ropfill_test.c)
+    target_include_directories(nv4_3d_ropfill_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/include
+        ${PROJECT_BINARY_DIR}/src/include
+    )
+    target_link_libraries(nv4_3d_ropfill_tests PRIVATE m)
+    add_test(NAME NV4.RopFill3D COMMAND nv4_3d_ropfill_tests)
+
+    # The GPU lane against the CPU (skips itself without a Vulkan device)
+    get_filename_component(NV4_TEST_CC_DIR ${CMAKE_C_COMPILER} DIRECTORY)
+    find_path(NV4_TEST_VK_INCLUDE_DIR vulkan/vulkan.h HINTS ${NV4_TEST_CC_DIR}/../include NO_DEFAULT_PATH)
+    if(NV4_TEST_VK_INCLUDE_DIR)
+        add_executable(nv4_3d_gpu_tests nv4_3d_gpu_test.c
+            ${PROJECT_SOURCE_DIR}/src/video/nv/nv4/subsystems/nv4_pgraph_3d_gpu.c
+            ${PROJECT_SOURCE_DIR}/src/video/nv/nv_gpu_vk.c)
+        target_compile_definitions(nv4_3d_gpu_tests PRIVATE NV4_GPU_HAVE_VULKAN)
+        target_include_directories(nv4_3d_gpu_tests PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/include
+            ${PROJECT_BINARY_DIR}/src/include
+            ${NV4_TEST_VK_INCLUDE_DIR}
+        )
+        target_link_libraries(nv4_3d_gpu_tests PRIVATE m)
+        add_test(NAME NV4.Gpu3D COMMAND nv4_3d_gpu_tests)
+    endif()
+
     add_subdirectory(rage128)
 endif()

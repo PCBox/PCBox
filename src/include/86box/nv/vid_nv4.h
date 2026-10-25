@@ -733,6 +733,14 @@ extern int  nv4_3d_joins(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lo,
 extern void nv4_pgraph_2d_flush_run(nv4_t *nv4);
 extern int  nv4_3d_fill(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lim, int bpp, int32_t x0, int32_t y0,
                         int32_t x1, int32_t y1, uint32_t val);
+/* A ROP fill's words (nv4_3d_fill_rop): A and B for pattern color 0,
+   then for color 1, the mono pattern's two words, then the flags: the
+   pattern shape (0 8x8, 1 a row of 64, 2 a column of 64) and these */
+#define NV4_ROPFILL_SKIP0 0x04 /* pattern color 0 leaves its pixels alone */
+#define NV4_ROPFILL_SKIP1 0x08
+#define NV4_ROPFILL_PAT   0x10 /* the pattern picks A and B (else color 0's) */
+extern int  nv4_3d_fill_rop(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lim, int bpp, int32_t x0, int32_t y0,
+                            int32_t x1, int32_t y1, const uint32_t rop[7]);
 extern void nv4_3d_vblank(nv4_t *nv4, uint32_t lo, uint32_t hi);
 extern void nv4_3d_init(nv4_t *nv4);
 extern void nv4_3d_close(nv4_t *nv4);

@@ -50,9 +50,11 @@
  *          its own bytes, so a batch is flushed first when the render
  *          target's layout changes or a texture would read bytes the
  *          batch has written, and a batch whose surfaces alias rows
- *          (zero pitch, depth rows narrower than color rows) is shaded
- *          serially. The GPU lane (nv4_pgraph_3d_gpu.c) takes a batch
- *          under the same rules, one workgroup per row. NV4_3D_VERIFY=1
+ *          (zero pitch, depth rows narrower than color rows, a swizzled
+ *          target) is shaded serially. The GPU lane (nv4_pgraph_3d_gpu.c)
+ *          takes a batch under the same rules, one workgroup per row,
+ *          and one whose rows alias as a single workgroup walking its
+ *          spans in submission order (else the CPU). NV4_3D_VERIFY=1
  *          in the environment shades every parallel batch twice, in
  *          parallel and serially, and logs any byte that differs.
  *
@@ -1111,9 +1113,26 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_span_t *sp)
         if (ca + s->bpp - 1 > s->col_lim)
             continue;
         if (s->fill) {
-            uint32_t fv;
+            uint32_t fv, kind;
 
             memcpy(&fv, &t->c[0], 4);
+            memcpy(&kind, &t->c[NV4_FILL_KIND], 4);
+            if (kind == NV4_FILL_ROP) {
+                uint32_t r[7], dv = 0;
+                int      k = 0;
+
+                memcpy(r, &t->c[0], sizeof(r));
+                if (r[6] & NV4_ROPFILL_PAT) {
+                    int pi = ((r[6] & 3) == 1) ? (x & 63) : (((r[6] & 3) == 2) ? (sp->y & 63) : (((sp->y & 7) << 3) | (x & 7)));
+
+                    k = (r[4 + (pi >> 5)] >> (pi & 31)) & 1;
+                    if (r[6] & (k ? NV4_ROPFILL_SKIP1 : NV4_ROPFILL_SKIP0))
+                        continue;
+                }
+                for (int i = 0; i < s->bpp; i++)
+                    dv |= (uint32_t) vram[(ca + i) & vm] << (i * 8);
+                fv = (dv & r[k * 2]) | (~dv & r[k * 2 + 1]);
+            }
             for (int i = 0; i < s->bpp; i++)
                 vram[(ca + i) & vm] = fv >> (i * 8);
             continue;
@@ -1356,7 +1375,9 @@ nv4_3d_shade_parallel(nv4_t *nv4, nv4_3d_batch_t *b)
         /* the CPU draws it: the GPU's batches in flight first */
         nv4_gpu_wait(b->gpu, nv4);
     }
-    if (b->nthreads > 1) {
+    /* the threads own rows, which a batch whose rows alias does not
+       have; the GPU takes it as one workgroup in order */
+    if ((b->nthreads > 1) && !b->serial) {
         nv4_3d_shade_threaded(b);
         return 1;
     }
@@ -1443,7 +1464,10 @@ nv4_3d_stats(nv4_t *nv4)
         memset(b->st_sync_us, 0, sizeof(b->st_sync_us));
         memset(b->st_sync_n, 0, sizeof(b->st_sync_n));
     }
-    b->st_flushes = b->st_spans = b->st_us = b->st_nosurf = 0;
+    if (b->st_serial)
+        pclog("nv4 3D: %llu flushes (%llu spans) whose rows alias\n", (unsigned long long) b->st_serial,
+              (unsigned long long) b->st_serial_spans);
+    b->st_flushes = b->st_spans = b->st_us = b->st_nosurf = b->st_serial = b->st_serial_spans = 0;
 }
 
 void
@@ -1457,7 +1481,11 @@ nv4_3d_flush(nv4_t *nv4)
     if (!b || (!b->nspans && !b->ntris && !b->nstates))
         return;
     t0 = nv4_3d_now_us();
-    if (b->parallel && !b->serial && (b->nspans > 1)) {
+    if (b->parallel && b->serial) {
+        b->st_serial++;
+        b->st_serial_spans += b->nspans;
+    }
+    if (b->parallel && (!b->serial || b->gpu) && (b->nspans > 1)) {
         if (b->verify)
             nv4_3d_shade_verify(nv4, b);
         else if (!nv4_3d_shade_parallel(nv4, b))
@@ -1772,16 +1800,16 @@ nv4_3d_access(nv4_t *nv4, uint32_t lo, uint32_t hi, int cause)
     nv4_3d_touch(nv4, lo, hi, cause);
 }
 
-/* A 2D rectangle fill with a plain store of <val> (the 2D engine's
-   clipping done, rows y0..y1-1, pixels x0..x1-1 of the layout
-   base/pitch, bytes past <lim> left alone), queued with the 3D work
-   instead of drawn now: when it draws into rows the batch already
-   draws into (whatever its size: the HUD), or when it is large while
-   3D is being drawn (a frame's color and depth clears). Returns 0 when
-   the caller must draw it. */
-int
-nv4_3d_fill(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lim, int bpp, int32_t x0, int32_t y0, int32_t x1,
-            int32_t y1, uint32_t val)
+/* A 2D rectangle fill (the 2D engine's clipping done, rows y0..y1-1,
+   pixels x0..x1-1 of the layout base/pitch, bytes past <lim> left
+   alone), queued with the 3D work instead of drawn now: when it draws
+   into rows the batch already draws into (whatever its size: the HUD),
+   or when it is large while 3D is being drawn (a frame's color and
+   depth clears). Its triangle carries the <nc> words <c> in c[] and
+   <kind> in c[NV4_FILL_KIND]. Returns 0 when the caller must draw it. */
+static int
+nv4_3d_fill_words(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lim, int bpp, int32_t x0, int32_t y0, int32_t x1,
+                  int32_t y1, const uint32_t *c, int nc, uint32_t kind)
 {
     nv4_3d_batch_t *b = nv4->batch3d;
     nv4_3d_state_t  st;
@@ -1833,7 +1861,8 @@ nv4_3d_fill(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lim, int bpp, in
     t = &b->tris[b->ntris];
     memset(t, 0, sizeof(*t));
     t->state = si;
-    memcpy(&t->c[0], &val, 4);
+    memcpy(&t->c[0], c, nc * 4);
+    memcpy(&t->c[NV4_FILL_KIND], &kind, 4);
     for (int32_t y = y0; y < y1; y++) {
         b->spans[b->nspans].y   = (int16_t) y;
         b->spans[b->nspans].x0  = (int16_t) x0;
@@ -1850,6 +1879,23 @@ nv4_3d_fill(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lim, int bpp, in
     }
     b->ntris++;
     return 1;
+}
+
+/* A plain store of <val> */
+int
+nv4_3d_fill(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lim, int bpp, int32_t x0, int32_t y0, int32_t x1,
+            int32_t y1, uint32_t val)
+{
+    return nv4_3d_fill_words(nv4, base, pitch, lim, bpp, x0, y0, x1, y1, &val, 1, NV4_FILL_STORE);
+}
+
+/* A ROP3 with a solid source and no pattern or a mono one: each pixel
+   becomes (d & A) | (~d & B), A and B by the pattern bit (nv4_fill) */
+int
+nv4_3d_fill_rop(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lim, int bpp, int32_t x0, int32_t y0, int32_t x1,
+                int32_t y1, const uint32_t rop[7])
+{
+    return nv4_3d_fill_words(nv4, base, pitch, lim, bpp, x0, y0, x1, y1, rop, 7, NV4_FILL_ROP);
 }
 
 /* A DrawPrimitive word: two triangles by vertex index. */
