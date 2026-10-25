@@ -97,9 +97,9 @@ void     x87_settag(uint16_t new_tag);
 /*Old dynarec stuff.*/
 #define TAG_NOT_UINT64       0xfb
 
-/* ST(i) empty: the new recompiler's tags are TAG_EMPTY for an empty
-   register, the old one's the x87's own two-bit tag, 3 for empty (as FFREE,
-   FXAM and the old recompiler's pop write it) */
+/* ST(i) empty: an empty register's tag is TAG_EMPTY, any other's has
+   TAG_VALID set (TAG_VALID, or TAG_VALID | TAG_UINT64), which the
+   recompiler's stack-fault check tests alone (codegen_fpu_guard_stack) */
 #define X87_ST_EMPTY(i) (cpu_state.tag[(cpu_state.TOP + (i)) & 7] == TAG_EMPTY)
 
 #define X87_ROUNDING_NEAREST 0
@@ -284,7 +284,7 @@ FPU_save_regi_tag(extFloat80_t reg, int tag, int stnr)
 #define FPU_check_pending_exceptions()        \
     do {                                      \
         if ((fpu_state.swd & FPU_SW_Summary) && !(fpu_state.cwd & FPU_SW_Summary)) { \
-            nmi = 1;                          \
+            fpu_int_set(1);                   \
             return 1;                         \
         }                                     \
     } while (0)

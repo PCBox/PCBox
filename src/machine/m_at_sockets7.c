@@ -1004,8 +1004,14 @@ machine_at_ga5smm_init(const machine_t *model)
 
     machine_at_common_init(model);
 
-    machine_pci_init();
-    machine_pci_register_slots();
+    pci_init(PCI_CONFIG_TYPE_1);
+    pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE,     1, 2, 3, 4);
+    pci_register_slot(0x01, PCI_CARD_SOUTHBRIDGE,     0, 0, 0, 0);
+    pci_register_slot(0x02, PCI_CARD_AGPBRIDGE,       0, 0, 0, 0);
+    pci_register_slot(0x09, PCI_CARD_NORMAL,          1, 2, 3, 4);
+    pci_register_slot(0x0B, PCI_CARD_NORMAL,          2, 3, 4, 1);
+    pci_register_slot(0x0F, PCI_CARD_NORMAL,          3, 4, 1, 2);
+    pci_register_slot(0x0C, PCI_CARD_SOUND,           1, 2, 3, 4); /* Onboard Solo-1 INTA -> PIRQ A */
 
     device_add(&sis_530_device);
     device_add(&it8661f_device);
