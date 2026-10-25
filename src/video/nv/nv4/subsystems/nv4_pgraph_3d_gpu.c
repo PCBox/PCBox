@@ -242,7 +242,8 @@ typedef struct nv4_gpu_s {
     VkPipeline    var[GPU_VARIANTS + 1];
     atomic_int    var_ready[GPU_VARIANTS + 1];
     atomic_int    stop;
-    thread_t     *compiler;
+    event_t      *compiled; /* set once the compiler thread is done: thread_wait cannot tell (on
+                               Windows _beginthread closes a finished thread's handle) */
     uint64_t      serial_batches, runs_total, var_runs;
 } nv4_gpu_t;
 
@@ -277,7 +278,8 @@ nv4_gpu_init(nv4_t *nv4)
     }
     for (int i = 0; i < g->vk.nslots; i++)
         g->slot[i].vk = &g->vk.slot[i];
-    g->compiler = thread_create(gpu_compile_variants, g);
+    g->compiled = thread_create_event();
+    thread_create(gpu_compile_variants, g);
     return g;
 }
 
@@ -286,17 +288,18 @@ nv4_gpu_counts(struct nv4_gpu_s *g, uint64_t *batches, uint64_t *fallbacks)
 {
     *batches   = g->batches;
     *fallbacks = g->fallbacks;
-    pclog("nv4 3D: GPU textures %llu us (%llu KB hashed, %llu KB copied), row copies %llu us, waiting %llu us\n",
+    nv_gpu_log("nv4 3D: GPU textures %llu us (%llu KB hashed, %llu KB copied), row copies %llu us, waiting %llu us\n",
           (unsigned long long) g->us_gather, (unsigned long long) (g->hash_bytes >> 10),
           (unsigned long long) (g->tex_bytes >> 10),
           (unsigned long long) g->us_copy, (unsigned long long) g->us_wait);
-    pclog("nv4 3D: GPU rows %llu KB in and out; on the GPU: uploads %llu us, kernel %llu us, download %llu us\n",
+    nv_gpu_log("nv4 3D: GPU rows %llu KB in and out; on the GPU: uploads %llu us, kernel %llu us, download %llu us\n",
           (unsigned long long) (g->row_bytes >> 10), (unsigned long long) (g->ts_ns[0] / 1000),
           (unsigned long long) (g->ts_ns[1] / 1000), (unsigned long long) (g->ts_ns[2] / 1000));
-    pclog("nv4 3D: GPU %llu dispatches (%llu by a variant), %llu batches whose rows alias\n", (unsigned long long) g->runs_total,
+    nv_gpu_log("nv4 3D: GPU %llu dispatches (%llu by a variant), %llu batches whose rows alias\n", (unsigned long long) g->runs_total,
           (unsigned long long) g->var_runs, (unsigned long long) g->serial_batches);
     g->us_gather = g->us_copy = g->us_wait = g->tex_bytes = g->row_bytes = g->hash_bytes = 0;
     g->ts_ns[0] = g->ts_ns[1] = g->ts_ns[2] = 0;
+    nv_gpu_vk_fallbacks(&g->vk, 0);
     g->runs_total = g->var_runs = g->serial_batches = 0;
 }
 
@@ -308,11 +311,14 @@ nv4_gpu_close(struct nv4_gpu_s *g)
     for (int i = 0; i < g->vk.nslots; i++)
         if (g->slot[i].pending)
             g->vk.vkWaitForFences(g->vk.dev, 1, &g->vk.slot[i].fence, VK_TRUE, UINT64_MAX);
-    pclog("NV4 GPU: %llu batches on the GPU, %llu left to the CPU\n", (unsigned long long) g->batches,
-          (unsigned long long) g->fallbacks);
+    nv_gpu_log("NV4 GPU: %llu batches on the GPU, %llu left to the CPU\n", (unsigned long long) g->batches,
+               (unsigned long long) g->fallbacks);
+    nv_gpu_vk_fallbacks(&g->vk, 1);
     atomic_store(&g->stop, 1);
-    if (g->compiler)
-        thread_wait(g->compiler);
+    if (g->compiled) {
+        thread_wait_event(g->compiled, -1);
+        thread_destroy_event(g->compiled);
+    }
     for (int i = 0; i <= GPU_V_SERIAL; i++)
         if (g->var[i])
             g->vk.vkDestroyPipeline(g->vk.dev, g->var[i], NULL);
@@ -759,7 +765,8 @@ gpu_build_runs(nv4_gpu_t *g, const nv4_3d_batch_t *b)
 static void
 gpu_compile_variants(void *priv)
 {
-    nv4_gpu_t *g = (nv4_gpu_t *) priv;
+    nv4_gpu_t *g  = (nv4_gpu_t *) priv;
+    uint64_t   t0 = nv_gpu_now_us();
 
     for (int i = GPU_V_SERIAL; (i >= 0) && !atomic_load(&g->stop); i--) {
         int32_t spec[5] = { 2, 1, 1, 1, 1 }; /* the serial one: everything, in order */
@@ -774,7 +781,14 @@ gpu_compile_variants(void *priv)
         g->var[i] = nv_gpu_vk_pipeline(&g->vk, spec, 5);
         if (g->var[i])
             atomic_store(&g->var_ready[i], 1);
+        else
+            nv_gpu_log("NV4 GPU: kernel variant %d failed to compile\n", i);
     }
+    if (!atomic_load(&g->stop))
+        nv_gpu_log("NV4 GPU: %d kernel variants compiled in %llu ms\n", GPU_VARIANTS + 1,
+                   (unsigned long long) ((nv_gpu_now_us() - t0) / 1000));
+    if (g->compiled)
+        thread_set_event(g->compiled);
 }
 
 /* ---- batches whose rows alias (#6) ---- */
@@ -787,7 +801,7 @@ gpu_compile_variants(void *priv)
    state whose color and depth bytes meet (pixels of one span would
    race). */
 static int
-gpu_serial_ranges(nv4_gpu_t *g, const nv4_3d_batch_t *b, uint32_t *lo, uint32_t *hi)
+gpu_serial_ranges(nv4_gpu_t *g, const nv4_3d_batch_t *b, uint32_t *lo, uint32_t *hi, int *why)
 {
     int32_t  ymin[B3D_STATES], ymax[B3D_STATES], xmin[B3D_STATES], xmax[B3D_STATES];
     uint32_t rl[B3D_STATES * 2], rh[B3D_STATES * 2];
@@ -836,8 +850,10 @@ gpu_serial_ranges(nv4_gpu_t *g, const nv4_3d_batch_t *b, uint32_t *lo, uint32_t 
             chi = s->col_lim;
         col = (clo <= chi);
         z   = !s->fill && (s->z_on || s->sten);
-        if (col && z && (clo <= zhi) && (zlo <= chi))
+        if (col && z && (clo <= zhi) && (zlo <= chi)) {
+            *why = NV_GPU_FB_ALIAS_ZCOL;
             return 0;
+        }
         if (col) {
             rl[n]   = clo;
             rh[n++] = chi;
@@ -864,17 +880,25 @@ gpu_serial_ranges(nv4_gpu_t *g, const nv4_3d_batch_t *b, uint32_t *lo, uint32_t 
                 hi[m - 1] = rh[i];
             continue;
         }
-        if (m == GPU_DOWNS)
+        if (m == GPU_DOWNS) {
+            *why = NV_GPU_FB_ALIAS_PIECES;
             return 0;
+        }
         lo[m]   = rl[i];
         hi[m++] = rh[i];
     }
     for (int i = 0; i < m; i++) {
-        if (hi[i] >= g->vram_size)
+        if (hi[i] >= g->vram_size) {
+            *why = NV_GPU_FB_ALIAS_PIECES;
             return 0;
-        if ((b->tex_lo <= b->tex_hi) && (lo[i] <= b->tex_hi) && (b->tex_lo <= hi[i]))
+        }
+        if ((b->tex_lo <= b->tex_hi) && (lo[i] <= b->tex_hi) && (b->tex_lo <= hi[i])) {
+            *why = NV_GPU_FB_ALIAS_TEX;
             return 0;
+        }
     }
+    if (!m)
+        *why = NV_GPU_FB_NOREGION;
     return m;
 }
 
@@ -893,6 +917,7 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
     int              chunks = 0;
     uint32_t         pc[3];
     uint64_t         t0, t1, t2;
+    int              why = NV_GPU_FB_NOREGION;
 
     /* this slot's last batch (and any older one) first */
     if (sl->pending)
@@ -905,14 +930,20 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
     /* the bytes it touches: its regions, or for rows that alias what its
        spans reach */
     if (b->serial) {
-        if (!atomic_load(&g->var_ready[GPU_V_SERIAL]) || !(ndown = gpu_serial_ranges(g, b, dlo, dhi)))
+        if (!atomic_load(&g->var_ready[GPU_V_SERIAL])) {
+            why = NV_GPU_FB_ALIAS_WAIT;
+            goto fallback;
+        }
+        if (!(ndown = gpu_serial_ranges(g, b, dlo, dhi, &why)))
             goto fallback;
     } else {
         for (int r = 0; r < b->nregions; r++) {
             if (b->regions[r].wlo > b->regions[r].whi)
                 continue;
-            if (b->regions[r].whi >= g->vram_size)
+            if (b->regions[r].whi >= g->vram_size) {
+                why = NV_GPU_FB_PASTVRAM;
                 goto fallback;
+            }
             dlo[ndown]   = b->regions[r].wlo;
             dhi[ndown++] = b->regions[r].whi;
         }
@@ -946,6 +977,7 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
             break;
         g->ncache   = 0;
         g->tex_used = 0;
+        why         = NV_GPU_FB_ARENA;
         if (pass)
             goto fallback;
     }
@@ -1008,8 +1040,10 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
             if (r->chunks > chunks)
                 chunks = r->chunks;
         }
-        if (!nrows)
+        if (!nrows) {
+            why = NV_GPU_FB_NOROWS;
             goto fallback;
+        }
     }
 
     /* rows in and out */
@@ -1097,8 +1131,10 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
         si.commandBufferCount = 1;
         si.pCommandBuffers    = &cb;
         g->vk.vkResetFences(g->vk.dev, 1, &sl->vk->fence);
-        if (g->vk.vkQueueSubmit(g->vk.queue, 1, &si, sl->vk->fence) != VK_SUCCESS)
+        if (g->vk.vkQueueSubmit(g->vk.queue, 1, &si, sl->vk->fence) != VK_SUCCESS) {
+            why = NV_GPU_FB_SUBMIT;
             goto fallback;
+        }
     }
 
     /* in flight: the rows come back when a later batch needs the slot
@@ -1126,6 +1162,7 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
 
 fallback:
     g->fallbacks++;
+    nv_gpu_vk_fallback(&g->vk, why);
     return 0;
 }
 

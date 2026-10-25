@@ -163,11 +163,37 @@ typedef struct nv4_3d_batch_s {
     uint64_t st_sync_us[NV4_SYNC_CAUSES]; /* time waiting for the GPU, by cause */
     uint32_t st_sync_n[NV4_SYNC_CAUSES];
 
-    /* NV4_3D_VERIFY */
-    int      verify;
+    /* NV4_3D_VERIFY: 1 compares the batch's regions, with all of VRAM
+       every NV4_VERIFY_FULL_EVERY flushes (and for rows that alias);
+       "full" compares all of VRAM every time */
+    int      verify, verify_full;
     uint8_t *vsnap, *vres;
-    uint32_t vflushes, vbad;
+    uint32_t vflushes, vbad, vfull;
+
+    /* NV4_3D_RECORD=<dir>[,every[,max]]: flushed batches to files, for
+       tests/video/nv4_3d_replay_test.c (nv4_3d_record) */
+    char     rec_dir[512];
+    uint32_t rec_every, rec_max, rec_seen, rec_done;
 } nv4_3d_batch_t;
+
+#define NV4_VERIFY_FULL_EVERY 64
+
+/* A recorded batch (NV4_3D_RECORD), little-endian:
+     "NV4B", version, sizeof nv4_3d_state_t / nv4_3d_tri_t /
+     nv4_3d_span_t / nv4_3d_region_t, vram_size, vram_mask, nstates,
+     ntris, nspans, nregions, serial, parallel, tex_lo, tex_hi (u32
+     each), the four arrays, then chunks to the end of the file: a u32
+     kind, then
+       NV4_REC_VRAM: addr, len, the bytes -- VRAM before the batch
+       NV4_REC_TEX:  dma, offset, left, len, addr, target, the bytes -- a
+                     piece of a texture's DMA window as nv4_dma_translate
+                     gave it (left: nv4_dma_page_left there; len: the
+                     bytes kept, to the texture's end), system memory at
+                     its address behind the AGP aperture */
+#define NV4_REC_MAGIC   0x4234564eu /* "NV4B" */
+#define NV4_REC_VERSION 1
+#define NV4_REC_VRAM    0
+#define NV4_REC_TEX     1
 
 /* The GPU lane (nv4_pgraph_3d_gpu.c). nv4_gpu_shade runs a whole batch
    and returns 1, or returns 0 and leaves VRAM untouched when it cannot

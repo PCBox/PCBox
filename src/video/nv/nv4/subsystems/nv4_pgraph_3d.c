@@ -1385,38 +1385,173 @@ nv4_3d_shade_parallel(nv4_t *nv4, nv4_3d_batch_t *b)
 }
 
 /* Shade in parallel, keep the result, shade the same batch serially
-   from the same starting VRAM and compare. */
+   from the same starting VRAM and compare: the bytes of the batch's
+   regions, which are all the parallel paths may write (the GPU copies
+   back only those), or all of VRAM every NV4_VERIFY_FULL_EVERY flushes,
+   for rows that alias (no regions to go by) and with "full", which also
+   catches a write outside them. */
 static void
 nv4_3d_shade_verify(nv4_t *nv4, nv4_3d_batch_t *b)
 {
-    uint32_t size  = nv4->vram_size;
+    uint32_t lo[B3D_REGIONS], hi[B3D_REGIONS];
+    int      n     = 0;
+    int      full  = b->verify_full || b->serial || !(b->vflushes % NV4_VERIFY_FULL_EVERY);
     uint32_t bad   = 0;
     uint32_t first = 0;
 
-    memcpy(b->vsnap, nv4->svga.vram, size);
+    for (int r = 0; !full && (r < b->nregions); r++) {
+        if (b->regions[r].wlo > b->regions[r].whi)
+            continue;
+        if (b->regions[r].whi >= nv4->vram_size)
+            full = 1;
+        lo[n]   = b->regions[r].wlo;
+        hi[n++] = b->regions[r].whi;
+    }
+    if (full) {
+        lo[0] = 0;
+        hi[0] = nv4->vram_size - 1;
+        n     = 1;
+    }
+    for (int i = 0; i < n; i++)
+        memcpy(b->vsnap + lo[i], nv4->svga.vram + lo[i], hi[i] - lo[i] + 1);
     if (!nv4_3d_shade_parallel(nv4, b)) {
         nv4_3d_shade_serial(nv4, b);
         return;
     }
     if (b->gpu)
         nv4_gpu_wait(b->gpu, nv4);
-    memcpy(b->vres, nv4->svga.vram, size);
-    memcpy(nv4->svga.vram, b->vsnap, size);
+    for (int i = 0; i < n; i++) {
+        memcpy(b->vres + lo[i], nv4->svga.vram + lo[i], hi[i] - lo[i] + 1);
+        memcpy(nv4->svga.vram + lo[i], b->vsnap + lo[i], hi[i] - lo[i] + 1);
+    }
     nv4_3d_shade_serial(nv4, b);
-    for (uint32_t a = 0; a < size; a++)
-        if (b->vres[a] != nv4->svga.vram[a]) {
-            if (!bad)
-                first = a;
-            bad++;
-        }
+    for (int i = 0; i < n; i++) {
+        if (!memcmp(b->vres + lo[i], nv4->svga.vram + lo[i], hi[i] - lo[i] + 1))
+            continue;
+        for (uint32_t a = lo[i]; a <= hi[i]; a++)
+            if (b->vres[a] != nv4->svga.vram[a]) {
+                if (!bad)
+                    first = a;
+                bad++;
+            }
+    }
     b->vflushes++;
+    if (full)
+        b->vfull++;
     if (bad) {
         b->vbad++;
-        pclog("nv4 3D verify: flush %u: %u bytes differ, first at %06x (parallel %02x, serial %02x), %d spans\n",
-              b->vflushes, bad, first, b->vres[first], nv4->svga.vram[first], b->nspans);
+        pclog("nv4 3D verify: flush %u: %u bytes differ, first at %06x (parallel %02x, serial %02x), %d spans%s\n",
+              b->vflushes, bad, first, b->vres[first], nv4->svga.vram[first], b->nspans, b->serial ? ", rows alias" : "");
     }
     if (!(b->vflushes % 1000))
-        pclog("nv4 3D verify: %u flushes, %u differed\n", b->vflushes, b->vbad);
+        pclog("nv4 3D verify: %u flushes (%u over all of VRAM), %u differed\n", b->vflushes, b->vfull, b->vbad);
+}
+
+/* NV4_3D_RECORD: the batch, the VRAM bytes it can reach (its regions;
+   all of VRAM when its rows alias) and its textures' bytes, as they
+   are before it is shaded (the format is with NV4_REC_MAGIC). */
+static void
+nv4_3d_rec_u32(FILE *f, uint32_t v)
+{
+    fwrite(&v, 4, 1, f);
+}
+
+static void
+nv4_3d_record(nv4_t *nv4, nv4_3d_batch_t *b)
+{
+    char  path[600];
+    FILE *f;
+
+    if ((b->rec_seen++ % b->rec_every) || (b->rec_done >= b->rec_max))
+        return;
+    snprintf(path, sizeof(path), "%s/nv4-batch-%06u.bin", b->rec_dir, b->rec_done);
+    if (!(f = fopen(path, "wb"))) {
+        pclog("nv4 3D: cannot record to %s\n", path);
+        b->rec_max = 0;
+        return;
+    }
+    b->rec_done++;
+    nv4_3d_rec_u32(f, NV4_REC_MAGIC);
+    nv4_3d_rec_u32(f, NV4_REC_VERSION);
+    nv4_3d_rec_u32(f, sizeof(nv4_3d_state_t));
+    nv4_3d_rec_u32(f, sizeof(nv4_3d_tri_t));
+    nv4_3d_rec_u32(f, sizeof(nv4_3d_span_t));
+    nv4_3d_rec_u32(f, sizeof(nv4_3d_region_t));
+    nv4_3d_rec_u32(f, nv4->vram_size);
+    nv4_3d_rec_u32(f, nv4->vram_mask);
+    nv4_3d_rec_u32(f, b->nstates);
+    nv4_3d_rec_u32(f, b->ntris);
+    nv4_3d_rec_u32(f, b->nspans);
+    nv4_3d_rec_u32(f, b->nregions);
+    nv4_3d_rec_u32(f, b->serial);
+    nv4_3d_rec_u32(f, b->parallel);
+    nv4_3d_rec_u32(f, b->tex_lo);
+    nv4_3d_rec_u32(f, b->tex_hi);
+    fwrite(b->states, sizeof(nv4_3d_state_t), b->nstates, f);
+    fwrite(b->tris, sizeof(nv4_3d_tri_t), b->ntris, f);
+    fwrite(b->spans, sizeof(nv4_3d_span_t), b->nspans, f);
+    fwrite(b->regions, sizeof(nv4_3d_region_t), b->nregions, f);
+
+    /* VRAM */
+    if (b->serial || !b->parallel) {
+        nv4_3d_rec_u32(f, NV4_REC_VRAM);
+        nv4_3d_rec_u32(f, 0);
+        nv4_3d_rec_u32(f, nv4->vram_size);
+        fwrite(nv4->svga.vram, 1, nv4->vram_size, f);
+    } else
+        for (int r = 0; r < b->nregions; r++) {
+            uint32_t lo = b->regions[r].wlo, hi = b->regions[r].whi;
+
+            if ((lo > hi) || (hi >= nv4->vram_size))
+                continue;
+            nv4_3d_rec_u32(f, NV4_REC_VRAM);
+            nv4_3d_rec_u32(f, lo);
+            nv4_3d_rec_u32(f, hi - lo + 1);
+            fwrite(nv4->svga.vram + lo, 1, hi - lo + 1, f);
+        }
+
+    /* textures, a page of their window at a time */
+    for (int i = 0; i < b->nstates; i++)
+        for (int n = 0; n < 2; n++) {
+            const nv4_3d_tex_t *t = &b->states[i].tex[n];
+
+            for (uint32_t done = 0; t->on && (done < t->size);) {
+                uint32_t off   = t->offset + done;
+                uint32_t left  = nv4_dma_page_left(nv4, t->dma, off);
+                uint32_t chunk = left;
+                uint32_t addr, ra;
+                int      target;
+                uint8_t  bytes[0x1000];
+
+                if (!chunk || (chunk > 0x1000))
+                    break;
+                if (chunk > t->size - done)
+                    chunk = t->size - done;
+                if (nv4_dma_translate(nv4, t->dma, off, 0, &addr, &target) == NV4_DMA_OK) {
+                    if (!target) {
+                        for (uint32_t k = 0; k < chunk; k++)
+                            bytes[k] = nv4->svga.vram[(addr + k) & nv4->vram_mask];
+                    } else {
+                        if (agpgart_resolve(addr & ~0xfffu, &ra))
+                            addr = ra | (addr & 0xfff);
+                        for (uint32_t k = 0; k < chunk; k++)
+                            bytes[k] = mem_readb_phys(addr + k);
+                    }
+                    nv4_3d_rec_u32(f, NV4_REC_TEX);
+                    nv4_3d_rec_u32(f, t->dma);
+                    nv4_3d_rec_u32(f, off);
+                    nv4_3d_rec_u32(f, left);
+                    nv4_3d_rec_u32(f, chunk);
+                    nv4_3d_rec_u32(f, addr);
+                    nv4_3d_rec_u32(f, target);
+                    fwrite(bytes, 1, chunk, f);
+                }
+                done += chunk;
+            }
+        }
+    fclose(f);
+    if (b->rec_done == b->rec_max)
+        pclog("nv4 3D: recorded %u batches in %s\n", b->rec_done, b->rec_dir);
 }
 
 static uint64_t
@@ -1481,6 +1616,8 @@ nv4_3d_flush(nv4_t *nv4)
     if (!b || (!b->nspans && !b->ntris && !b->nstates))
         return;
     t0 = nv4_3d_now_us();
+    if (b->rec_max)
+        nv4_3d_record(nv4, b);
     if (b->parallel && b->serial) {
         b->st_serial++;
         b->st_serial_spans += b->nspans;
@@ -2110,10 +2247,34 @@ nv4_3d_init(nv4_t *nv4)
     if (nv4->gpu_raster)
         b->gpu = nv4_gpu_init(nv4);
     b->parallel = (n > 1) || b->gpu;
-    if (b->parallel && v && (*v == '1')) {
-        b->vsnap  = malloc(nv4->vram_size);
-        b->vres   = malloc(nv4->vram_size);
-        b->verify = b->vsnap && b->vres;
+    if (b->parallel && v && ((*v == '1') || !strcmp(v, "full"))) {
+        b->vsnap       = malloc(nv4->vram_size);
+        b->vres        = malloc(nv4->vram_size);
+        b->verify      = b->vsnap && b->vres;
+        b->verify_full = !strcmp(v, "full");
+    }
+    {
+        const char *r = getenv("NV4_3D_RECORD");
+
+        if (r && *r) {
+            const char *c = strchr(r, ',');
+            size_t      l = c ? (size_t) (c - r) : strlen(r);
+
+            if (l >= sizeof(b->rec_dir))
+                l = sizeof(b->rec_dir) - 1;
+            memcpy(b->rec_dir, r, l);
+            b->rec_dir[l] = 0;
+            b->rec_every  = 25;
+            b->rec_max    = 100;
+            if (c) {
+                b->rec_every = (uint32_t) atoi(c + 1);
+                if ((c = strchr(c + 1, ',')))
+                    b->rec_max = (uint32_t) atoi(c + 1);
+            }
+            if (!b->rec_every)
+                b->rec_every = 1;
+            pclog("nv4 3D: recording every %u-th flush, %u at most, in %s\n", b->rec_every, b->rec_max, b->rec_dir);
+        }
     }
     for (int i = 0; (n > 1) && (i < n); i++) {
         nv4_3d_worker_t *w = &b->workers[i];

@@ -23,8 +23,14 @@
  *          of VRAM. With VK_EXT_external_memory_host that buffer is VRAM
  *          itself: svga.vram moves to a block aligned for the import, so
  *          the GPU copies rows straight from and into it (vram_import)
- *          and the lanes copy nothing on the CPU. Only built with Vulkan
- *          headers (NV_GPU_HAVE_VULKAN).
+ *          and the lanes copy nothing on the CPU.
+ *
+ *          nv_gpu_log() is pclog that also goes to a telemetry file in
+ *          the VM folder (nv-gpu-telemetry.log) when NV_GPU_TELEMETRY is
+ *          set: the host, every Vulkan device, what the lane got, its
+ *          statistics and why batches went to the CPU (NV_GPU_FB_*), so
+ *          a tester's report needs no log switches. Only built with
+ *          Vulkan headers (NV_GPU_HAVE_VULKAN).
  *
  * Authors: Marcos Alves, <xeon4d@gmail.com>
  *
@@ -112,6 +118,21 @@ enum {
     NV_GPU_R_COUNT
 };
 
+/* Why a lane left a batch to the CPU */
+enum {
+    NV_GPU_FB_NOREGION,     /* no rows to draw into */
+    NV_GPU_FB_PASTVRAM,     /* rows past the end of VRAM */
+    NV_GPU_FB_ARENA,        /* its textures do not fit the arena */
+    NV_GPU_FB_NOROWS,       /* no spans */
+    NV_GPU_FB_SUBMIT,       /* vkQueueSubmit failed */
+    NV_GPU_FB_TEXODD,       /* (NV3) a texture at an odd address */
+    NV_GPU_FB_ALIAS_WAIT,   /* (NV4) rows alias, the serial kernel not compiled yet */
+    NV_GPU_FB_ALIAS_PIECES, /* (NV4) rows alias over too many pieces or past VRAM */
+    NV_GPU_FB_ALIAS_TEX,    /* (NV4) rows alias and a texture reads bytes the batch writes */
+    NV_GPU_FB_ALIAS_ZCOL,   /* (NV4) rows alias and a state's color and depth bytes meet */
+    NV_GPU_FB_COUNT
+};
+
 /* Batches in flight: at most NV_GPU_SLOTS, NV_GPU_SLOTS_DEFAULT unless
    the lane or NV_GPU_SLOTS in the environment says otherwise */
 #define NV_GPU_SLOTS         8
@@ -168,6 +189,8 @@ typedef struct {
     uint8_t             **vram_ref;    /* the moved svga.vram, given back at close */
     uint8_t              *vram_block;
     size_t                vram_alloc;
+    uint64_t              fb[NV_GPU_FB_COUNT];       /* since the last nv_gpu_vk_fallbacks(.., 0) */
+    uint64_t              fb_total[NV_GPU_FB_COUNT]; /* since the start */
 } nv_gpu_vk_t;
 
 /* Open Vulkan and make everything <d> describes. 0 (logged, and <vk>
@@ -178,6 +201,13 @@ extern void nv_gpu_vk_close(nv_gpu_vk_t *vk);
    0..n-1 set to <spec> (VK_NULL_HANDLE on failure). Any thread may make
    one; the lane destroys it with vkDestroyPipeline before closing. */
 extern VkPipeline nv_gpu_vk_pipeline(nv_gpu_vk_t *vk, const int32_t *spec, uint32_t n);
+/* pclog, and the telemetry file (NV_GPU_TELEMETRY) */
+extern void nv_gpu_log(const char *fmt, ...);
+/* A batch left to the CPU, and why (NV_GPU_FB_*) */
+extern void nv_gpu_vk_fallback(nv_gpu_vk_t *vk, int why);
+/* Log the reasons batches went to the CPU, <total>: since the start,
+   else since the last call (which it resets) */
+extern void nv_gpu_vk_fallbacks(nv_gpu_vk_t *vk, int total);
 extern void nv_gpu_vk_barrier(nv_gpu_vk_t *vk, VkCommandBuffer cb, VkPipelineStageFlags src, VkAccessFlags sa,
                               VkPipelineStageFlags dst, VkAccessFlags da);
 extern uint64_t nv_gpu_now_us(void);

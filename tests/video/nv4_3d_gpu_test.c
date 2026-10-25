@@ -171,6 +171,21 @@ dma_bm_read(uint32_t phys_addr, uint8_t *data, uint32_t total_size, int transfer
     memset(data, 0, total_size);
 }
 
+/* nv_gpu_vk.c's telemetry file (NV_GPU_TELEMETRY, never set here) */
+char usr_path[1024];
+
+FILE *
+plat_fopen(const char *path, const char *mode)
+{
+    return fopen(path, mode);
+}
+
+void
+path_append_filename(char *dest, const char *s1, const char *s2)
+{
+    sprintf(dest, "%s/%s", s1, s2);
+}
+
 /* the lane's variant compiler runs at once: every variant is ready */
 thread_t *
 thread_create_named(void (*thread_func)(void *param), void *param, const char *name)
