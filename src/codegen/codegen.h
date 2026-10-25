@@ -90,6 +90,13 @@ typedef struct codeblock_t {
       one per page: 0 for the first, 1 for the second.*/
     int32_t lp_next[2], lp_prev[2];
 #endif
+    /*Set once this compile's code has been reached again and run from
+      block->data (the CODEBLOCK_WAS_RECOMPILED fast path), rather than just
+      the single execution the compile pass itself performs. Cleared at the
+      start of every (re)compile. Used to tell a block that paid for itself
+      apart from one that was rewritten before it could ever be reused - see
+      page_t's smc_strikes/smc_cooldown_until.*/
+    uint8_t reused;
 } codeblock_t;
 
 #ifdef CODEGEN_CHAIN

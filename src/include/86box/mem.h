@@ -230,6 +230,16 @@ typedef struct page_t {
 
     uint64_t *byte_dirty_mask;
     uint64_t *byte_code_present_mask;
+
+    /*Self-modifying-code thrash tracking: a block recompiled for this page
+      and discarded again before it was ever reused (see codeblock_t::reused)
+      bumps smc_strikes and arms smc_cooldown_until (a tsc deadline). While
+      cooldown is active, the dynarec skips compiling code on this page and
+      runs it through the plain interpreter instead, since compiling code
+      that is rewritten before it can be reused just adds cost with no
+      payback. A block that *is* reused resets smc_strikes to 0.*/
+    uint8_t  smc_strikes;
+    uint64_t smc_cooldown_until;
 } page_t;
 
 extern void mem_page_set_byte_masks(page_t *p, uint32_t page_nr);

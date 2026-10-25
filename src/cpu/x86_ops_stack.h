@@ -19,10 +19,10 @@
 #define POP_W_OP(reg)                          \
     static int opPOP_##reg(UNUSED(uint32_t fetchdat)) \
     {                                          \
-        uint16_t temp = POP_W();               \
-        if (cpu_state.abrt)                    \
-            return 1;                          \
-        reg = temp;                            \
+        uint16_t popped_val = POP_W();         \
+        /* A faulting POP must not modify its destination register. */ \
+        if (!cpu_state.abrt)                   \
+            reg = popped_val;                  \
         CLOCK_CYCLES((is486) ? 1 : 4);         \
         PREFETCH_RUN(4, 1, -1, 1, 0, 0, 0, 0); \
         return cpu_state.abrt;                 \
@@ -31,10 +31,10 @@
 #define POP_L_OP(reg)                          \
     static int opPOP_##reg(UNUSED(uint32_t fetchdat)) \
     {                                          \
-        uint32_t temp = POP_L();               \
-        if (cpu_state.abrt)                    \
-            return 1;                          \
-        reg = temp;                            \
+        uint32_t popped_val = POP_L();         \
+        /* A faulting POP must not modify its destination register. */ \
+        if (!cpu_state.abrt)                   \
+            reg = popped_val;                  \
         CLOCK_CYCLES((is486) ? 1 : 4);         \
         PREFETCH_RUN(4, 1, -1, 0, 1, 0, 0, 0); \
         return cpu_state.abrt;                 \
