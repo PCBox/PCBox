@@ -77,12 +77,8 @@ static inline double float_add(double src, double val, int round)
         load_var = get();                                                                                                                          \
         if (cpu_state.abrt)                                                                                                                        \
             return 1;                                                                                                                              \
-<<<<<<< HEAD
-        cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);                                                                        \
-=======
         X87_CHECK_UNDERFLOW_COMPARE(X87_ST_EMPTY(0), 0, fcom##cycle_postfix);                                                                      \
         cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3);                                                                                    \
->>>>>>> adfa21fec3c6c59c09cb2ead8dce823e7dfc6712
         cpu_state.npxs |= x87_compare(ST(0), (double) use_var);                                                                                    \
         CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fcom##cycle_postfix) : ((x87_timings.fcom##cycle_postfix) * cpu_multi));           \
         CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fcom##cycle_postfix) : ((x87_concurrency.fcom##cycle_postfix) * cpu_multi)); \
@@ -97,12 +93,8 @@ static inline double float_add(double src, double val, int round)
         load_var = get();                                                                                                                          \
         if (cpu_state.abrt)                                                                                                                        \
             return 1;                                                                                                                              \
-<<<<<<< HEAD
-        cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);                                                                        \
-=======
         X87_CHECK_UNDERFLOW_COMPARE(X87_ST_EMPTY(0), 1, fcom##cycle_postfix);                                                                      \
         cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3);                                                                                    \
->>>>>>> adfa21fec3c6c59c09cb2ead8dce823e7dfc6712
         cpu_state.npxs |= x87_compare(ST(0), (double) use_var);                                                                                    \
         x87_pop();                                                                                                                                 \
         CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fcom##cycle_postfix) : ((x87_timings.fcom##cycle_postfix) * cpu_multi));           \
@@ -277,12 +269,8 @@ opFCOMP(uint32_t fetchdat)
 {
     FP_ENTER();
     cpu_state.pc++;
-<<<<<<< HEAD
-    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);
-=======
     X87_CHECK_UNDERFLOW_COMPARE(X87_ST_EMPTY2(0, fetchdat & 7), 1, fcom);
     cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3);
->>>>>>> adfa21fec3c6c59c09cb2ead8dce823e7dfc6712
     cpu_state.npxs |= x87_compare(ST(0), ST(fetchdat & 7));
     x87_pop();
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fcom) : (x87_timings.fcom * cpu_multi));
@@ -296,12 +284,8 @@ opFCOMPP(UNUSED(uint32_t fetchdat))
     uint64_t *p, *q;
     FP_ENTER();
     cpu_state.pc++;
-<<<<<<< HEAD
-    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);
-=======
     X87_CHECK_UNDERFLOW_COMPARE(X87_ST_EMPTY2(0, 1), 2, fcom);
     cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3);
->>>>>>> adfa21fec3c6c59c09cb2ead8dce823e7dfc6712
     p = (uint64_t *) &ST(0);
     q = (uint64_t *) &ST(1);
     if ((*p == ((uint64_t) 1 << 63) && *q == 0) && (fpu_type >= FPU_287XL))
@@ -321,12 +305,8 @@ opFUCOMPP(UNUSED(uint32_t fetchdat))
 {
     FP_ENTER();
     cpu_state.pc++;
-<<<<<<< HEAD
-    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);
-=======
     X87_CHECK_UNDERFLOW_COMPARE(X87_ST_EMPTY2(0, 1), 2, fucom);
     cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3);
->>>>>>> adfa21fec3c6c59c09cb2ead8dce823e7dfc6712
     cpu_state.npxs |= x87_ucompare(ST(0), ST(1));
     x87_pop();
     x87_pop();
@@ -569,12 +549,8 @@ opFUCOM(uint32_t fetchdat)
 {
     FP_ENTER();
     cpu_state.pc++;
-<<<<<<< HEAD
-    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);
-=======
     X87_CHECK_UNDERFLOW_COMPARE(X87_ST_EMPTY2(0, fetchdat & 7), 0, fucom);
     cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3);
->>>>>>> adfa21fec3c6c59c09cb2ead8dce823e7dfc6712
     cpu_state.npxs |= x87_ucompare(ST(0), ST(fetchdat & 7));
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fucom) : (x87_timings.fucom * cpu_multi));
     CONCURRENCY_CYCLES((fpu_type >= FPU_487SX) ? (x87_concurrency.fucom) : (x87_concurrency.fucom * cpu_multi));
@@ -586,12 +562,8 @@ opFUCOMP(uint32_t fetchdat)
 {
     FP_ENTER();
     cpu_state.pc++;
-<<<<<<< HEAD
-    cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C1 | FPU_SW_C2 | FPU_SW_C3);
-=======
     X87_CHECK_UNDERFLOW_COMPARE(X87_ST_EMPTY2(0, fetchdat & 7), 1, fucom);
     cpu_state.npxs &= ~(FPU_SW_C0 | FPU_SW_C2 | FPU_SW_C3);
->>>>>>> adfa21fec3c6c59c09cb2ead8dce823e7dfc6712
     cpu_state.npxs |= x87_ucompare(ST(0), ST(fetchdat & 7));
     x87_pop();
     CLOCK_CYCLES_FPU((fpu_type >= FPU_487SX) ? (x87_timings.fucom) : (x87_timings.fucom * cpu_multi));
