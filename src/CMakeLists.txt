@@ -47,6 +47,14 @@ add_executable(PCBox
     eisa.c
     mca.c
     usb.c
+    usb_audio.c
+    usb_card.c
+    usb_card_via.c
+    usb_dev.c
+    usb_hid.c
+    usb_hub.c
+    usb_legacy.c
+    usb_msd.c
     device.c
     nvr.c
     nvr_at.c
