@@ -154,8 +154,9 @@
 #define PCI_MIRQ_MAX              (PCI_MIRQS_NUM - 1)
 /* The base for internal IRQ lines accepted by pci_irq(). */
 #define PCI_IIRQ_BASE             0x80
-/* PCI direct IRQ lines - always at 4 per the PCI specification. */
-#define PCI_IIRQS_NUM             4
+/* PCI internal IRQ lines: the south bridge's own PIRQs, 8 for the ICH's
+   PIRQA#-PIRQH#. */
+#define PCI_IIRQS_NUM             8
 #define PCI_IIRQ_MAX              (PCI_IIRQS_NUM - 1)
 /* The base for direct IRQ lines accepted by pci_irq(). */
 #define PCI_DIRQ_BASE             0xf0

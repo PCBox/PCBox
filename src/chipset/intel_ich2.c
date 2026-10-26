@@ -89,7 +89,18 @@ typedef struct intel_ich2_t {
     smbus_piix4_t     *smbus;
     tco_t             *tco;
     usb_t             *usb_hub[2];
+
+    uint8_t usb_irq_level[2];
+    uint8_t usb_irq_state[2];
+    uint8_t usb_smi_level[2]; /* legacy USB event sources last seen */
+    uint8_t usb_a20[2];       /* USB_LEGKEY A20GATE pass-through position */
 } intel_ich2_t;
+
+/* USB Hub n is PCI function 2 or 4. Its interrupt is on PIRQD# or PIRQH#
+   although both INTR_PN registers read 03h (82801BA 11.1.13, p. 11-5 /
+   PDF 371; Table 5-18, p. 5-49 / PDF 111). */
+static const int intel_ich2_usb_func[2] = { 2, 4 };
+static const int intel_ich2_usb_pirq[2] = { 4, 8 }; /* PIRQD#, PIRQH# */
 
 /* LPC Bridge functions */
 static void
@@ -316,6 +327,8 @@ intel_ich2_trap_update(void *priv)
     intel_ich2_device_trap_setup(0x49, 0x20, 0x388, 4, dev->trap_device[9]);
 }
 
+static void intel_ich2_usb_setup(int func, intel_ich2_t *dev);
+
 static void
 intel_ich2_function_disable(intel_ich2_t *dev)
 {
@@ -329,20 +342,14 @@ intel_ich2_function_disable(intel_ich2_t *dev)
         sff_bus_master_handler(dev->ide_drive[1], 0, 0);
     }
 
-    /* Disable USB Hub 1 */
-    if (dev->pci_conf[0][0xf2] & 4) {
-        uhci_update_io_mapping(dev->usb_hub[0], dev->pci_conf[2][0x20] & 0xe0, dev->pci_conf[0][0x21], 0);
-    }
-
     /* Disable SMBus */
     if (dev->pci_conf[0][0xf2] & 8) { // ICH2 Supports the ability of the SMBus Controller to be active even if it's PCI device is disabled
         smbus_piix4_remap(dev->smbus, smbus_addr, dev->pci_conf[0][0xf3] & 1);
     }
 
-    /* Disable USB Hub 2 */
-    if (dev->pci_conf[0][0xf2] & 0x10) {
-        uhci_update_io_mapping(dev->usb_hub[1], 0, 0, 0);
-    }
+    /* Disable or re-enable the USB Hubs */
+    intel_ich2_usb_setup(2, dev);
+    intel_ich2_usb_setup(4, dev);
 }
 
 /* IDE Controller functions */
@@ -373,9 +380,104 @@ intel_ich2_ide_setup(intel_ich2_t *dev)
 static void
 intel_ich2_usb_setup(int func, intel_ich2_t *dev)
 {
-    int current_hub = (func == 4) ? 4 : 2;
-    int hub_num     = (func == 4);
-    uhci_update_io_mapping(dev->usb_hub[hub_num], dev->pci_conf[current_hub][0x20] & 0xe0, dev->pci_conf[current_hub][0x21], !!(dev->pci_conf[current_hub][0x04] & 1));
+    int            hub_num = (func == 4);
+    const uint8_t *fregs   = dev->pci_conf[func];
+    int            enabled = !(dev->pci_conf[0][0xf2] & (hub_num ? 0x10 : 0x04)); /* FUNC_DIS */
+
+    uhci_update_io_mapping(dev->usb_hub[hub_num], fregs[0x20] & 0xe0, fregs[0x21], enabled && (fregs[PCI_REG_COMMAND] & PCI_COMMAND_IO));
+    uhci_set_bus_master(dev->usb_hub[hub_num], enabled && (fregs[PCI_REG_COMMAND] & PCI_COMMAND_L_BM));
+}
+
+/* The UHCI interrupt shows in USB_LEGKEY bit 12 (SMIBYUSB) and reaches the
+   hub's PIRQ only while bit 13 (USBPIRQEN) is set (82801BA 11.1.15, p. 11-6
+   / PDF 372). */
+static void
+intel_ich2_usb_update_irq(intel_ich2_t *dev, int hub)
+{
+    uint8_t *fregs = dev->pci_conf[intel_ich2_usb_func[hub]];
+    uint8_t  sources;
+    uint8_t  smi;
+
+    if (dev->usb_irq_level[hub])
+        fregs[0xc1] |= 0x10;
+    else
+        fregs[0xc1] &= ~0x10;
+
+    if (dev->usb_irq_level[hub] && (fregs[0xc1] & 0x20))
+        pci_set_iirq(intel_ich2_usb_pirq[hub], &dev->usb_irq_state[hub]);
+    else
+        pci_clear_iirq(intel_ich2_usb_pirq[hub], &dev->usb_irq_state[hub]);
+
+    /* A legacy USB event is the USB interrupt with USBSMIEN, an enabled
+       keyboard trap, or the end of an A20GATE pass-through with SMIATENDPS;
+       only a source that was not already pending makes a new event, and
+       none is raised while a pass-through sequence runs (11.1.15 bit 5,
+       p. 11-6 / PDF 372). SMI_STS LEGACY_USB_STS is the OR of both
+       hubs' enabled sources, and the event asserts SMI# with SMI_EN
+       LEGACY_USB_EN set (82801BA 9.8.3.13-9.8.3.14, p. 9-73 to 9-75 /
+       PDF 335-337). */
+    sources                 = uhci_legsup_event(&fregs[0xc0], dev->usb_irq_level[hub]);
+    smi                     = (sources & ~dev->usb_smi_level[hub]) && !(fregs[0xc0] & 0x40);
+    dev->usb_smi_level[hub] = sources;
+
+    if (dev->usb_smi_level[0] | dev->usb_smi_level[1])
+        dev->acpi->regs.smi_sts |= 0x00000008;
+    else
+        dev->acpi->regs.smi_sts &= ~0x00000008;
+
+    if (smi && (dev->acpi->regs.smi_en & 0x00000008))
+        acpi_raise_smi(dev->acpi, 1);
+}
+
+/* USB_LEGKEY keyboard controller traps: both hubs snoop every cycle at
+   60h/64h, and one trapped by either never reaches the 8042; the SMI
+   handler stands in for it (82801BA 5.16.8, p. 5-128 / PDF 190). */
+static int
+intel_ich2_usb_kbc_claim(uint16_t port, uint8_t write, uint8_t val, void *priv)
+{
+    intel_ich2_t *dev     = (intel_ich2_t *) priv;
+    int           trapped = 0;
+
+    for (int hub = 0; hub < 2; hub++) {
+        trapped |= uhci_legsup_kbc_cycle(&dev->pci_conf[intel_ich2_usb_func[hub]][0xc0], &dev->usb_a20[hub], port, write, val, 0);
+        intel_ich2_usb_update_irq(dev, hub);
+    }
+
+    return trapped;
+}
+
+static int
+intel_ich2_usb_kbc_armed(const intel_ich2_t *dev)
+{
+    return uhci_legsup_kbc_armed(&dev->pci_conf[2][0xc0], 0) || uhci_legsup_kbc_armed(&dev->pci_conf[4][0xc0], 0);
+}
+
+static void
+intel_ich2_usb_update_kbc_claim(intel_ich2_t *dev)
+{
+    int armed = intel_ich2_usb_kbc_armed(dev);
+
+    io_set_claim(0x60, armed ? intel_ich2_usb_kbc_claim : NULL, dev);
+    io_set_claim(0x64, armed ? intel_ich2_usb_kbc_claim : NULL, dev);
+}
+
+static void
+intel_ich2_usb_irq(intel_ich2_t *dev, int hub, int level)
+{
+    dev->usb_irq_level[hub] = !!level;
+    intel_ich2_usb_update_irq(dev, hub);
+}
+
+static void
+intel_ich2_usb0_irq(void *priv, int level)
+{
+    intel_ich2_usb_irq((intel_ich2_t *) priv, 0, level);
+}
+
+static void
+intel_ich2_usb1_irq(void *priv, int level)
+{
+    intel_ich2_usb_irq((intel_ich2_t *) priv, 1, level);
 }
 
 /* SMBus Controller functions */
@@ -647,20 +749,28 @@ intel_ich2_write(int func, int addr, UNUSED(int len), uint8_t val, void *priv)
                 break;
 
             case 0x07:
-                dev->pci_conf[func][addr] &= val & 0x2e;
+                dev->pci_conf[func][addr] &= ~(val & 0x28);
                 break;
 
             case 0x20 ... 0x21:
-                dev->pci_conf[func][addr] = val & ((addr & 1) ? 0xff : (0xf0 | 1));
+                dev->pci_conf[func][addr] = val & ((addr & 1) ? 0xff : (0xe0 | 1));
                 intel_ich2_usb_setup(func, dev);
                 break;
 
+            case 0x3c:
+                dev->pci_conf[func][addr] = val;
+                break;
+
             case 0xc0:
-                dev->pci_conf[func][addr] = val & 0xbf;
+                uhci_legsup_write_c0(&dev->pci_conf[func][0xc0], val);
+                intel_ich2_usb_update_kbc_claim(dev);
+                intel_ich2_usb_update_irq(dev, func == 4);
                 break;
 
             case 0xc1:
-                dev->pci_conf[func][addr] &= val & 0xaf;
+                /* Bits 15 and 11:8 are write-1-to-clear, 13 is R/W, 12 follows the IRQ. */
+                dev->pci_conf[func][addr] = (dev->pci_conf[func][addr] & 0x9f & ~(val & 0x8f)) | (val & 0x20);
+                intel_ich2_usb_update_irq(dev, func == 4);
                 break;
 
             case 0xc4:
@@ -977,6 +1087,13 @@ intel_ich2_reset(void *priv)
 
     intel_ich2_usb_setup(4, dev);
 
+    /* USB_LEGKEY is back at 2000h: no traps armed, no pass-through running. */
+    for (int hub = 0; hub < 2; hub++) {
+        dev->usb_a20[hub] = 0;
+        intel_ich2_usb_update_irq(dev, hub);
+    }
+    intel_ich2_usb_update_kbc_claim(dev);
+
 #if 0
     /* Function 5: AC'97 */
     dev->pci_conf[5][0x00] = 0x86;
@@ -1029,6 +1146,12 @@ static void
 intel_ich2_close(void *priv)
 {
     intel_ich2_t *dev = (intel_ich2_t *) priv;
+
+    if (intel_ich2_usb_kbc_armed(dev)) {
+        io_set_claim(0x60, NULL, NULL);
+        io_set_claim(0x64, NULL, NULL);
+    }
+
     free(dev);
 }
 
@@ -1096,6 +1219,8 @@ intel_ich2_init(UNUSED(const device_t *info))
     /* USB */
     dev->usb_hub[0] = device_add_inst(&usb_device, 1);
     dev->usb_hub[1] = device_add_inst(&usb_device, 2);
+    uhci_set_irq_handler(dev->usb_hub[0], intel_ich2_usb0_irq, dev);
+    uhci_set_irq_handler(dev->usb_hub[1], intel_ich2_usb1_irq, dev);
 
     intel_ich2_reset(dev);
 

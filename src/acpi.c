@@ -1491,8 +1491,10 @@ acpi_reg_write_intel_ich2(int size, uint16_t addr, uint8_t val, void *priv)
         case 0x35:
         case 0x36:
         case 0x37:
-            /* SMI_STS - SMI Status Register */
-            dev->regs.smi_sts &= ~((val << shift32) & 0x0001ff7c);
+            /* SMI_STS - SMI Status Register. LEGACY_USB_STS (bit 3) is
+               read-only: the chipset keeps it as the OR of the USB_LEGKEY
+               SMI statuses (82801BA 9.8.3.14, p. 9-75 / PDF 337). */
+            dev->regs.smi_sts &= ~((val << shift32) & 0x0001ff74);
             break;
 
         case 0x40:

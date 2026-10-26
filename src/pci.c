@@ -506,7 +506,7 @@ pci_irq(uint8_t slot, uint8_t pci_int, int level, int set, uint8_t *irq_state)
         case (PCI_IIRQ_BASE | 0x00) ... (PCI_IIRQ_BASE | PCI_IIRQS_NUM):
             /* PCI internal routing. */
             if (slot > 0x00) {
-                slot = (slot - 1) & PCI_INT_PINS_MAX;
+                slot = (slot - 1) & PCI_IIRQ_MAX;
 
                 /* A function inside the south bridge on one of its own
                    PIRQs (the PIIX's UHCI on PIRQD) is on that PIRQ's wire,
