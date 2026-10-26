@@ -2834,8 +2834,10 @@ acpi_reset(void *priv)
     }
 
     if (acpi_power_on) {
-        /* Power on always generates a resume event. */
-        // dev->regs.pmsts |= 0x8100;
+        if (machines[machine].init != machine_at_sp97xv_init)
+            /* Power on always generates a resume event. */
+            dev->regs.pmsts |= 0x8100;
+        
         acpi_power_on = 0;
     }
 
@@ -2861,9 +2863,11 @@ acpi_reset(void *priv)
         dev->regs.gpe_io = 0x00030b9f;
         dev->regs.gpe_mul = 0x1001;
 
-        /* Fix for the IN530 CMOS reset jumper */
-        if (machines[machine].init == machine_at_in530_init)
-            dev->regs.gpe_pin = 0x0003ffff;
+        /* SiS 5595 GPIO pin defaults. */
+        uint32_t gpio = machine_get_gpio_acpi_default();
+
+        if (gpio != 0xffffffff)
+            dev->regs.gpe_pin = gpio & 0x0003ffff;
     }
 
     if (dev->vendor == VEN_SIS_5582) {

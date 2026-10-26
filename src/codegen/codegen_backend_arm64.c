@@ -21,6 +21,13 @@
 #    include "x86seg.h"
 #    include "x87_sf.h"
 #    include "x87.h"
+#    ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+#        include <stddef.h>
+#        include <86box/nmi.h>
+#        include <86box/pic.h>
+#        include <86box/timer.h>
+#        include "x86_interrupt.h"
+#    endif
 
 #    if defined(__linux__) || defined(__APPLE__)
 #        include <sys/mman.h>

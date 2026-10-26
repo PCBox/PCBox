@@ -418,6 +418,9 @@ extern const device_t bochs_svga_device;
 /* Chips & Technologies */
 extern const device_t chips_69000_device;
 extern const device_t chips_69000_onboard_device;
+extern const device_t chips_82c450_device;
+extern const device_t chips_82c451_device;
+extern const device_t chips_82c452_device;
 
 /* Cirrus Logic GD54xx */
 extern const device_t gd5401_isa_device;
@@ -628,6 +631,7 @@ extern const device_t tgui9660_onboard_pci_device;
 extern const device_t tgui9680_pci_device;
 
 /* Weitek Power 9100 */
+extern const device_t p9100_viper_se_vlb_device; /* Not yet ready */
 extern const device_t p9100_viper_se_pci_device;
 extern const device_t p9100_papilio_pci_device;
 

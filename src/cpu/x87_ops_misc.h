@@ -4,9 +4,11 @@ opFI(uint32_t fetchdat)
 {
     FP_ENTER();
     cpu_state.pc++;
-    cpu_state.npxc &= ~0x80;
-    if (rmdat == 0xe1)
-        cpu_state.npxc |= 0x80;
+    if (fpu_type != FPU_80187) {
+        cpu_state.npxc &= ~0x80;
+        if (rmdat == 0xe1)
+            cpu_state.npxc |= 0x80;
+    }
 #ifdef FPU_NEC
     do_cycles(3);
 #else
@@ -118,11 +120,7 @@ opFINIT(UNUSED(uint32_t fetchdat))
     uint64_t *p;
     FP_ENTER();
     cpu_state.pc++;
-#ifdef FPU_8087
-    x87_set_control_word(0x3FF);
-#else
-    x87_set_control_word(0x37F);
-#endif
+    x87_set_control_word(x87_initial_control_word());
 #ifdef FPU_8087
     cpu_state.npxs &= 0x4700;
 #else
@@ -567,7 +565,7 @@ FSAVE(void)
     if (cpu_state.abrt)
         return 1; /* a faulting save leaves the FPU as it was */
 
-    x87_set_control_word(0x37F);
+    x87_set_control_word(x87_initial_control_word());
 #ifdef FPU_8087
     cpu_state.npxs &= 0x4700;
 #else

@@ -3,6 +3,8 @@
 #define X87_TAG_INVALID 2
 #define X87_TAG_EMPTY   3
 
+uint16_t x87_initial_control_word(void);
+
 extern uint32_t x87_pc_off;
 extern uint32_t x87_op_off;
 extern uint16_t x87_pc_seg;
@@ -155,7 +157,12 @@ void codegen_set_rounding_mode(int mode);
 /* Control Word */
 /* ************ */
 
-#define FPU_CW_Reserved_Bits    (0xe0c0)  /* reserved bits */
+#ifdef FPU_8087
+/* The 80187 keeps the reserved bit mask used by later coprocessors. */
+#    define FPU_CW_Reserved_Bits ((fpu_type == FPU_80187) ? 0xe0c0 : 0xe040)
+#else
+#    define FPU_CW_Reserved_Bits (0xe0c0) /* reserved bits */
+#endif
 
 #define FPU_CW_Inf		(0x1000)  /* infinity control, legacy */
 
