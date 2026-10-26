@@ -97,7 +97,7 @@ gpu_tel_open(const char *tag)
     if (localtime_r(&now, &tm))
 #endif
         strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &tm);
-    nv_gpu_log("%s: telemetry: %s %s, host %s/%s, %s\n", tag, EMU_DISPLAY_NAME, EMU_VERSION_FULL, GPU_TEL_OS, GPU_TEL_ARCH,
+    nv_gpu_log("%s: telemetry: %s %s, host %s/%s, %s\n", tag, "PCBox", EMU_VERSION_FULL, GPU_TEL_OS, GPU_TEL_ARCH,
                stamp);
 }
 
