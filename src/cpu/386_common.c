@@ -1469,6 +1469,9 @@ enter_smm(int in_hlt)
        the debug registers cleared: the translations go, and every link with
        them */
     flushmmucache();
+    /* Recompiled code is kept apart by SMM state: SMRAM can shadow other
+       memory at the same physical addresses. */
+    cpu_cur_status |= CPU_STATUS_SMM;
     CPU_BLOCK_END();
 }
 
@@ -1589,6 +1592,7 @@ leave_smm(void)
 
     cpu_386_flags_extract();
     cpu_cur_status &= ~(CPU_STATUS_PMODE | CPU_STATUS_V86);
+    cpu_cur_status &= ~CPU_STATUS_SMM;
     if (cr0 & 1) {
         cpu_cur_status |= CPU_STATUS_PMODE;
         if (cpu_state.eflags & VM_FLAG)
