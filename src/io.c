@@ -67,7 +67,7 @@ int io_turbo_throttle = 0;
 /* Chipset claims (io_set_claim). Only a few ports are ever claimed, so they
    live in a small table, and a bitmap of claimed ports lets every other
    port skip the table lookup. */
-#define IO_CLAIMS 8
+#define IO_CLAIMS 9
 
 typedef struct io_claim_t {
     uint16_t port;
