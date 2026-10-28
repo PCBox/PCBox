@@ -229,8 +229,10 @@ video_cards[] = {
 #endif /* USE_RAGE128_MAXX */
     { .device = &millennium_ii_agp_device,                      .flags = VIDEO_FLAG_TYPE_SECONDARY },
     { .device = &nv3_device_agp,                                .flags = VIDEO_FLAG_TYPE_NONE      },
+#ifdef USE_NV3
     { .device = &nv3t_device_agp,                               .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv4_tnt_agp_device,                            .flags = VIDEO_FLAG_TYPE_NONE      },
+#endif
 #ifdef USE_G100
     { .device = &productiva_g100_device,                        .flags = VIDEO_FLAG_TYPE_SPECIAL   },
 #endif /*USE_G100 */
