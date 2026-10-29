@@ -394,15 +394,10 @@ SettingsDisplay::on_comboBoxVideo_currentIndexChanged(int index)
 
         if (card.available
             && device_is_valid(video_dev, machineId)
-<<<<<<< HEAD
-            && (slotLayout || ((secondaryFlags == VIDEO_FLAG_TYPE_SECONDARY)
-                               && !(primary_is_agp && secondary_is_agp)))) {
-=======
-            && ((secondaryFlags == VIDEO_FLAG_TYPE_SECONDARY)
+            && ((secondaryFlasgs == VIDEO_FLAG_TYPE_SECONDARY)
             || ((primaryFlags != secondaryFlags)
             && ((primaryFlags == VIDEO_FLAG_TYPE_MDA) || (secondaryFlags == VIDEO_FLAG_TYPE_MDA))))
             && !(primary_is_agp && secondary_is_agp)) {
->>>>>>> d97322aced6cb5ffca117ca2b6c1f09927451122
             int row = secondaryRows.add(name, c);
             scSecondary->addDevice(video_dev, name);
             if (c == curVideoCard_2)
