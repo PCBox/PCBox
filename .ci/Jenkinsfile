@@ -200,8 +200,8 @@ pipeline {
 					}
 
 					/* Build here to avoid creating a redundant parent stage on the stage view. */
+					def combinations = [:]
 					osArchs.each { os, thisOsArchs ->
-						def combinations = [:]
 						thisOsArchs.each { arch ->
 							presets.each { preset ->
 								def combination = "$os $arch $preset"
@@ -250,8 +250,8 @@ pipeline {
 								}
 							}
 						}
-						parallel combinations
 					}
+					parallel combinations
 				}
 			}
 		}
