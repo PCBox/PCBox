@@ -123,7 +123,7 @@ enum {
     CPU_PKG_GXM              = (1 << 28),
     CPU_PKG_SLOTA            = (1 << 29),
     CPU_PKG_SOCKET423        = (1 << 30),
-    CPU_PKG_SOCKET478        = (1 << 31),
+    CPU_PKG_SOCKET478        = (1u << 31),
 };
 
 #define CPU_SUPPORTS_DYNAREC 1
