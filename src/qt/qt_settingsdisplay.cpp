@@ -394,7 +394,7 @@ SettingsDisplay::on_comboBoxVideo_currentIndexChanged(int index)
 
         if (card.available
             && device_is_valid(video_dev, machineId)
-            && ((secondaryFlasgs == VIDEO_FLAG_TYPE_SECONDARY)
+            && ((secondaryFlags == VIDEO_FLAG_TYPE_SECONDARY)
             || ((primaryFlags != secondaryFlags)
             && ((primaryFlags == VIDEO_FLAG_TYPE_MDA) || (secondaryFlags == VIDEO_FLAG_TYPE_MDA))))
             && !(primary_is_agp && secondary_is_agp)) {
