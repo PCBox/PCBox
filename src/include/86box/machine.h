@@ -81,13 +81,12 @@
 
 /* Feature flags for miscellaneous internal devices. */
 #define MACHINE_FLAGS_NONE        0x0000000000000000ULL /* sys has no int devices */
-#define MACHINE_SOFTFLOAT_ONLY    0x0000000000000001ULL /* sys requires SoftFloat FPU */
-#define MACHINE_VIDEO             0x0000000000000002ULL /* sys has int video */
-#define MACHINE_VIDEO_EXT         0x0000000000000004ULL /* sys has ext display */
-#define MACHINE_VIDEO_ONLY        0x0000000000000008ULL /* sys has fixed video */
-#define MACHINE_KEYBOARD          0x0000000000000010ULL /* sys has int keyboard */
-#define MACHINE_KEYBOARD_AX       0x0000000000000020ULL /* sys has Japanese AX keyboard */
-#define MACHINE_KEYBOARD_JIS      0x0000000000000020ULL /* sys has Japanese PS/55 keyboard */
+#define MACHINE_NO_FPU_SOCKET     0x0000000000000001ULL /* sys has no ext FPU socket */
+#define MACHINE_SOFTFLOAT_ONLY    0x0000000000000002ULL /* sys requires SoftFloat FPU */
+#define MACHINE_VIDEO             0x0000000000000004ULL /* sys has int video */
+#define MACHINE_VIDEO_EXT         0x0000000000000008ULL /* sys has ext display */
+#define MACHINE_VIDEO_ONLY        0x0000000000000010ULL /* sys has fixed video */
+#define MACHINE_KEYBOARD          0x0000000000000020ULL /* sys has int keyboard */
 #define MACHINE_MOUSE             0x0000000000000040ULL /* sys has int mouse */
 #define MACHINE_FDC               0x0000000000000080ULL /* sys has int FDC */
 #define MACHINE_LPT_PRI           0x0000000000000100ULL /* sys has int pri LPT */
@@ -215,6 +214,7 @@ enum {
     MACHINE_TYPE_SOCKET423,
     MACHINE_TYPE_SOCKET478,
     MACHINE_TYPE_MISC,
+    MACHINE_TYPE_386EX,
     MACHINE_TYPE_MAX
 };
 
@@ -483,6 +483,7 @@ extern int             machine_get_machine_from_internal_name(const char *s);
 extern void            machine_init(void);
 #ifdef EMU_DEVICE_H
 extern const device_t *machine_get_kbc_device(int m);
+extern const device_t *machine_get_kbd_device(int m);
 extern const device_t *machine_get_nvr_device(int m);
 extern const device_t *machine_get_sio_device(int m);
 extern const device_t *machine_get_device(int m);
@@ -1361,6 +1362,8 @@ extern int             machine_at_cb52xsi_init(const machine_t *);
 /* Cyrix MediaGX MMX + Cx5530 */
 extern int             machine_at_p5gxm_init(const machine_t *);
 extern uint32_t        machine_at_p5gxm_gpio_handler(uint8_t write, uint32_t val);
+extern int             machine_at_t3032_init(const machine_t *);
+extern int             machine_at_awp601_init(const machine_t *);
 #ifdef EMU_DEVICE_H
 extern const device_t  ms5146_device;
 #endif

@@ -125,6 +125,7 @@
 #define NVR_VIA                 (NVR_AT_STANDARD_MA | NVR_CENTURY_VIA)
 #define NVR_MARTIN              (NVR_AT_MB | FLAG_MARTIN_HACK)
 #define NVR_PC873XX             (NVR_AT_MB | FLAG_PC873XX_BANKS)
+#define NVR_PC87307             (NVR_AT | FLAG_PC873XX_BANKS)
 #define NVR_ELT                 (NVR_IRQ_NONE | NVR_ADDR_ELT | NVR_CENTURY_ELT)
 #define NVR_RTC8088             (NVR_IRQ_CONFIG | NVR_ADDR_CONFIG | \
                                  NVR_CENTURY_ALT | FLAG_NO_NMI | FLAG_FIXED_SIZE)
@@ -184,6 +185,10 @@ extern void nvr_via_wp_set(int set, int reg, nvr_t *nvr);
 extern void nvr_bank_set(int base, uint8_t bank, nvr_t *nvr);
 extern void nvr_lock_set(int base, int size, int lock, nvr_t *nvr);
 extern void nvr_irq_set(int irq, nvr_t *nvr);
+extern void nvr_at_set_pc873xx_banks(nvr_t *nvr,
+                                     uint8_t (*read)(int bank, uint8_t reg, void *priv),
+                                     void (*write)(int bank, uint8_t reg, uint8_t val, void *priv),
+                                     int (*alarm)(void *priv), void *priv);
 extern void nvr_smi_enable(int enable, nvr_t *nvr);
 extern uint8_t nvr_smi_status(nvr_t *nvr);
 extern void nvr_smi_status_clear(nvr_t *nvr);

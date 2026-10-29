@@ -121,9 +121,10 @@ enum {
     CPU_PKG_SLOT2            = (1 << 26),
     CPU_PKG_SOCKET370        = (1 << 27),
     CPU_PKG_GXM              = (1 << 28),
-    CPU_PKG_SLOTA            = (1 << 29),
-    CPU_PKG_SOCKET423        = (1 << 30),
-    CPU_PKG_SOCKET478        = (1u << 31),
+    CPU_PKG_386EX            = (1 << 29),
+    CPU_PKG_SLOTA            = (1 << 30),
+    CPU_PKG_SOCKET423        = (1u << 31),
+    CPU_PKG_SOCKET478        = (1ull << 32),
 };
 
 #define CPU_SUPPORTS_DYNAREC 1
@@ -657,6 +658,7 @@ extern int is186;
 extern int is286;
 extern int is386;
 extern int is6117;
+extern int is386ex;
 extern int is486;
 extern int is586;
 extern int is_am486;
@@ -1031,9 +1033,14 @@ typedef struct gxm_t {
 
     uint8_t  scratchpad[4096];
 
+    /* MSRs 70000001h-70000003h: the CPUID vendor string, four bytes each. */
+    uint32_t vendor_msr[3];
+
     /* The integrated functions: the GCR moves them, CPU_READ/CPU_WRITE
        reach the power management address decode. */
     void   (*gcr_write)(void *priv);
+    /* RESET also resets them: they are part of the processor. */
+    void   (*reset)(void *priv);
     void    *priv;
     /* SMI#, as a level: an RSM with it still asserted is the next SMI
        (3.11.3). */

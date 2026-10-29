@@ -304,6 +304,9 @@ extern uint8_t     pci_read(uint16_t port, void *priv);
 extern uint16_t    pci_readw(uint16_t port, void *priv);
 extern uint32_t    pci_readl(uint16_t port, void *priv);
 
+extern int         pci_config_read(uint8_t bus, uint8_t dev, uint8_t func, uint8_t reg, int len, uint8_t *vals);
+extern int         pci_config_write(uint8_t bus, uint8_t dev, uint8_t func, uint8_t reg, int len, const uint8_t *vals);
+
 extern uint8_t     pci_register_bus(void);
 extern int         pci_debug_card(int i, uint8_t *bus, uint8_t *id, void **priv,
                                   uint8_t (**read)(int func, int addr, int len, void *priv));
