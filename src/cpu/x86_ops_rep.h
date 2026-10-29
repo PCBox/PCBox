@@ -292,7 +292,7 @@
             reads++;                                                                                              \
             writes++;                                                                                             \
             total_cycles += is486 ? 3 : 4;                                                                        \
-            if (cycles < cycles_end)                                                                              \
+            if ((cycles < cycles_end) || smi_line)                                                                \
                 break;                                                                                            \
         }                                                                                                         \
         PREFETCH_RUN(total_cycles, 1, -1, reads, 0, writes, 0, 0);                                                \
@@ -364,7 +364,7 @@
             reads++;                                                                                              \
             writes++;                                                                                             \
             total_cycles += is486 ? 3 : 4;                                                                        \
-            if (cycles < cycles_end)                                                                              \
+            if ((cycles < cycles_end) || smi_line)                                                                \
                 break;                                                                                            \
         }                                                                                                         \
         PREFETCH_RUN(total_cycles, 1, -1, reads, 0, writes, 0, 0);                                                \
@@ -436,7 +436,7 @@
             reads++;                                                                                              \
             writes++;                                                                                             \
             total_cycles += is486 ? 3 : 4;                                                                        \
-            if (cycles < cycles_end)                                                                              \
+            if ((cycles < cycles_end) || smi_line)                                                                \
                 break;                                                                                            \
         }                                                                                                         \
         PREFETCH_RUN(total_cycles, 1, -1, reads, 0, writes, 0, 0);                                                \
@@ -488,7 +488,7 @@
             cycles -= is486 ? 4 : 5;                                                                              \
             writes++;                                                                                             \
             total_cycles += is486 ? 4 : 5;                                                                        \
-            if (cycles < cycles_end)                                                                              \
+            if ((cycles < cycles_end) || smi_line)                                                                \
                 break;                                                                                            \
         }                                                                                                         \
         PREFETCH_RUN(total_cycles, 1, -1, 0, 0, writes, 0, 0);                                                    \
@@ -539,7 +539,7 @@
             cycles -= is486 ? 4 : 5;                                                                              \
             writes++;                                                                                             \
             total_cycles += is486 ? 4 : 5;                                                                        \
-            if (cycles < cycles_end)                                                                              \
+            if ((cycles < cycles_end) || smi_line)                                                                \
                 break;                                                                                            \
         }                                                                                                         \
         PREFETCH_RUN(total_cycles, 1, -1, 0, 0, writes, 0, 0);                                                    \
@@ -590,7 +590,7 @@
             cycles -= is486 ? 4 : 5;                                                                              \
             writes++;                                                                                             \
             total_cycles += is486 ? 4 : 5;                                                                        \
-            if (cycles < cycles_end)                                                                              \
+            if ((cycles < cycles_end) || smi_line)                                                                \
                 break;                                                                                            \
         }                                                                                                         \
         PREFETCH_RUN(total_cycles, 1, -1, 0, 0, 0, writes, 0);                                                    \
@@ -625,7 +625,7 @@
             cycles -= is486 ? 4 : 5;                                                                              \
             reads++;                                                                                              \
             total_cycles += is486 ? 4 : 5;                                                                        \
-            if (cycles < cycles_end)                                                                              \
+            if ((cycles < cycles_end) || smi_line)                                                                \
                 break;                                                                                            \
         }                                                                                                         \
         PREFETCH_RUN(total_cycles, 1, -1, reads, 0, 0, 0, 0);                                                     \
@@ -659,7 +659,7 @@
             cycles -= is486 ? 4 : 5;                                                                              \
             reads++;                                                                                              \
             total_cycles += is486 ? 4 : 5;                                                                        \
-            if (cycles < cycles_end)                                                                              \
+            if ((cycles < cycles_end) || smi_line)                                                                \
                 break;                                                                                            \
         }                                                                                                         \
         PREFETCH_RUN(total_cycles, 1, -1, reads, 0, 0, 0, 0);                                                     \
@@ -693,7 +693,7 @@
             cycles -= is486 ? 4 : 5;                                                                              \
             reads++;                                                                                              \
             total_cycles += is486 ? 4 : 5;                                                                        \
-            if (cycles < cycles_end)                                                                              \
+            if ((cycles < cycles_end) || smi_line)                                                                \
                 break;                                                                                            \
         }                                                                                                         \
         PREFETCH_RUN(total_cycles, 1, -1, 0, reads, 0, 0, 0);                                                     \
@@ -953,7 +953,7 @@
             cycles -= is486 ? 5 : 8;                                                                              \
             reads++;                                                                                              \
             total_cycles += is486 ? 5 : 8;                                                                        \
-            if (cycles < cycles_end)                                                                              \
+            if ((cycles < cycles_end) || smi_line)                                                                \
                 break;                                                                                            \
         }                                                                                                         \
         PREFETCH_RUN(total_cycles, 1, -1, reads, 0, 0, 0, 0);                                                     \
@@ -1004,7 +1004,7 @@
             cycles -= is486 ? 5 : 8;                                                                              \
             reads++;                                                                                              \
             total_cycles += is486 ? 5 : 8;                                                                        \
-            if (cycles < cycles_end)                                                                              \
+            if ((cycles < cycles_end) || smi_line)                                                                \
                 break;                                                                                            \
         }                                                                                                         \
         PREFETCH_RUN(total_cycles, 1, -1, reads, 0, 0, 0, 0);                                                     \
@@ -1055,7 +1055,7 @@
             cycles -= is486 ? 5 : 8;                                                                              \
             reads++;                                                                                              \
             total_cycles += is486 ? 5 : 8;                                                                        \
-            if (cycles < cycles_end)                                                                              \
+            if ((cycles < cycles_end) || smi_line)                                                                \
                 break;                                                                                            \
         }                                                                                                         \
         PREFETCH_RUN(total_cycles, 1, -1, 0, reads, 0, 0, 0);                                                     \
