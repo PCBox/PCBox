@@ -3779,7 +3779,7 @@ mach64gx_isa_available(void)
 int
 mach64gx_xpression_vlb_available(void)
 {
-    return rom_present(BIOS_XPRESSION_VLB_27803_PATH);
+    return rom_present(BIOS_XPRESSION_VLB_27804_PATH);
 }
 
 int
