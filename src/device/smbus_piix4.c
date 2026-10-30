@@ -30,6 +30,7 @@
 #include <86box/acpi.h>
 #include <86box/smbus.h>
 #include <86box/plat_fallthrough.h>
+#include "cpu.h"
 
 #ifdef ENABLE_SMBUS_PIIX4_LOG
 int smbus_piix4_do_log = ENABLE_SMBUS_PIIX4_LOG;
@@ -443,6 +444,7 @@ unknown_protocol:
         timer_disable(&dev->response_timer);
         /* delay = ((half clock for start + half clock for stop) + (bytes * (8 bits + ack))) * bit period in usecs */
         timer_set_delay_u64(&dev->response_timer, (1 + (timer_bytes * 9)) * dev->bit_period * TIMER_USEC);
+        cpu_override_dynarec = 1;
     }
 }
 
@@ -453,6 +455,8 @@ smbus_piix4_response(void *priv)
 
     /* Dispatch the status register update. */
     dev->stat = dev->next_stat;
+
+    cpu_override_dynarec = 0;
 }
 
 static void

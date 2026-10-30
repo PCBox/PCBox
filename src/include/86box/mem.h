@@ -123,6 +123,8 @@
                                      by the bus (mem_set_cache_access). */
 #define MEM_MAPPING_CPU_ONLY  256 /* The processor's own: seen by its accesses and never
                                      by a bus master's (mem_*_phys). */
+#define MEM_MAPPING_NO_CODEGEN 512 /* Code in it is interpreted: writes to its memory are
+                                      not tracked at its own address. */
 
 /* #define's for memory granularity, currently 4k, less does
    not work because of internal 4k pages. */
@@ -230,16 +232,6 @@ typedef struct page_t {
 
     uint64_t *byte_dirty_mask;
     uint64_t *byte_code_present_mask;
-
-    /*Self-modifying-code thrash tracking: a block recompiled for this page
-      and discarded again before it was ever reused (see codeblock_t::reused)
-      bumps smc_strikes and arms smc_cooldown_until (a tsc deadline). While
-      cooldown is active, the dynarec skips compiling code on this page and
-      runs it through the plain interpreter instead, since compiling code
-      that is rewritten before it can be reused just adds cost with no
-      payback. A block that *is* reused resets smc_strikes to 0.*/
-    uint8_t  smc_strikes;
-    uint64_t smc_cooldown_until;
 } page_t;
 
 extern void mem_page_set_byte_masks(page_t *p, uint32_t page_nr);
@@ -354,6 +346,9 @@ extern void     writememll_no_mmut_2386(uint32_t addr, uint32_t *a64, uint32_t v
 extern void     do_mmutranslate_2386(uint32_t addr, uint32_t *a64, int num, int write);
 
 extern uint8_t *getpccache_execute(uint32_t a);
+extern uint32_t mem_readl_map(uint32_t addr);
+extern void     mem_writel_map(uint32_t addr, uint32_t val);
+
 extern uint8_t *getpccache(uint32_t a);
 extern int      cpu_fetch_device;
 extern uint64_t mmutranslatereal(uint32_t addr, int rw);
@@ -417,6 +412,7 @@ extern void mem_set_cache_access(uint32_t base, uint32_t size, int cached);
 extern int  mem_bus_unbacked(uint32_t base, uint32_t size);
 
 extern const uint8_t *mem_phys_ptr(uint32_t addr, uint32_t len);
+extern const mem_mapping_t *mem_read_mapping_at(uint32_t addr);
 extern uint32_t       mem_mapping_gen;
 extern size_t         mem_ram_size(void);
 
@@ -452,6 +448,8 @@ extern int mem_addr_is_ram(uint32_t addr);
 extern uint64_t mmutranslate_noabrt(uint32_t addr, int rw);
 
 extern void mem_invalidate_range(uint32_t start_addr, uint32_t end_addr);
+extern int  mem_phys_has_code(uint32_t addr, uint32_t len);
+extern void mem_phys_written(uint32_t addr, uint32_t len);
 extern void mem_set_ram_alias(uint32_t base, uint32_t ram_addr, uint32_t size, int set);
 
 extern void mem_write_ramb_page(uint32_t addr, uint8_t val, page_t *page);

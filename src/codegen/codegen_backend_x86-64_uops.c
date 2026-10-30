@@ -51,8 +51,6 @@ host_reg_get(int reg)
 }
 #    define HOST_REG_GET(reg) host_reg_get(reg)
 
-#    define REG_IS_L(size)    (size == IREG_SIZE_L)
-#    define REG_IS_W(size)    (size == IREG_SIZE_W)
 #    define REG_IS_B(size)    (size == IREG_SIZE_B || size == IREG_SIZE_BH)
 #    define REG_IS_BH(size)   (size == IREG_SIZE_BH)
 #    define REG_IS_D(size)    (size == IREG_SIZE_D)
@@ -413,6 +411,24 @@ codegen_DIV_RESULT(codeblock_t *block, uop_t *uop)
     return 0;
 }
 
+static inline int
+REG_IS_L(int size)
+{
+    return size == IREG_SIZE_L;
+}
+
+static inline int
+REG_IS_W(int size)
+{
+    return size == IREG_SIZE_W;
+}
+
+static inline int
+REG_IS_Q(int size)
+{
+    return size == IREG_SIZE_Q;
+}
+
 static int
 codegen_ADD(codeblock_t *block, uop_t *uop)
 {
@@ -760,6 +776,25 @@ codegen_CALL_INSTRUCTION_FUNC_ORDERED(codeblock_t *block, uop_t *uop)
     host_x86_POP(block, REG_RAX);
     host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
     host_x86_JNZ(block, codegen_exit_rout);
+
+    return 0;
+}
+
+/*Leave the block for an SMI the instruction raised, with pc set after it,
+  taken from the immediate for SMI_EXIT_IMM. The branch over the exit is
+  the only cost while none is pending.*/
+static int
+codegen_SMI_EXIT_IMM(codeblock_t *block, uop_t *uop)
+{
+    uint32_t *branch_offset;
+
+    host_x86_MOVZX_REG_ABS_32_8(block, REG_ECX, &cpu_state._smi_line);
+    host_x86_TEST32_REG(block, REG_ECX, REG_ECX);
+    branch_offset = host_x86_JZ_long(block);
+    if (uop->type & UOP_TYPE_PARAMS_IMM)
+        host_x86_MOV32_ABS_IMM(block, &cpu_state.pc, uop->imm_data);
+    host_x86_JMP(block, codegen_exit_rout);
+    *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
 
     return 0;
 }
@@ -5703,7 +5738,17 @@ const uOpFn uop_handlers[UOP_MAX] = {
     = codegen_CALL_FUNC_RESULT_ORDERED,
     [UOP_CALL_INSTRUCTION_FUNC_ORDERED &
         UOP_MASK]
+<<<<<<< HEAD
     = codegen_CALL_INSTRUCTION_FUNC_ORDERED,
+=======
+    = codegen_CALL_REP_STRING,
+    [UOP_SMI_EXIT_IMM &
+        UOP_MASK]
+    = codegen_SMI_EXIT_IMM,
+    [UOP_SMI_EXIT &
+        UOP_MASK]
+    = codegen_SMI_EXIT_IMM,
+>>>>>>> 763119e6947dc02e4d6869cc4a360953b5d806ef
     [UOP_CALL_FUNC_RESULT &
         UOP_MASK]
     = codegen_CALL_FUNC_RESULT,

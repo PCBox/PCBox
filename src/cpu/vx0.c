@@ -2058,8 +2058,6 @@ string_op(int bits)
     }
 }
 
-static int do_print = 1;
-
 static void
 execvx0_0f(void)
 {
@@ -3639,6 +3637,15 @@ execute_instruction(void)
             break;
 
         case 0xcc: /* INT 3 */
+#ifdef USE_GDBSTUB
+            /* A debugger breakpoint: stop on it, and fetch from it again
+               once the original byte is back. */
+            if (gdbstub_int3()) {
+                flush_prefetch_808x();
+                jump = 1;
+                break;
+            }
+#endif
             do_cycles_i(4);
             int3();
             jump = 1;
@@ -3938,10 +3945,8 @@ execute_instruction(void)
                 new_ip = (cpu_state.pc + rel8) & 0xffff;
                 reljmp(new_ip, 1);
                 jump = 1;
-                do_print = 0;
             } else {
                 do_cycle_i();
-                do_print = 1;
             }
             break;
 
@@ -3958,11 +3963,9 @@ execute_instruction(void)
                 new_ip = (cpu_state.pc + rel8) & 0xffff;
                 reljmp(new_ip, 1);
                 jump = 1;
-                do_print = 0;
             }
             if (!jump) {
                 do_cycle();
-                do_print = 1;
             }
             break;
 

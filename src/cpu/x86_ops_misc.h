@@ -166,6 +166,7 @@ opF6_a16(uint32_t fetchdat)
 
         default:
             x86illegal();
+            return 1;
     }
     return 0;
 }
@@ -283,6 +284,7 @@ opF6_a32(uint32_t fetchdat)
 
         default:
             x86illegal();
+            return 1;
     }
     return 0;
 }
@@ -398,6 +400,7 @@ opF7_w_a16(uint32_t fetchdat)
 
         default:
             x86illegal();
+            return 1;
     }
     return 0;
 }
@@ -513,6 +516,7 @@ opF7_w_a32(uint32_t fetchdat)
 
         default:
             x86illegal();
+            return 1;
     }
     return 0;
 }
@@ -607,6 +611,7 @@ opF7_l_a16(uint32_t fetchdat)
 
         default:
             x86illegal();
+            return 1;
     }
     return 0;
 }
@@ -700,6 +705,7 @@ opF7_l_a32(uint32_t fetchdat)
 
         default:
             x86illegal();
+            return 1;
     }
     return 0;
 }

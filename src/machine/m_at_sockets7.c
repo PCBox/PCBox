@@ -56,8 +56,19 @@ machine_at_p5a_init(const machine_t *model)
 
     machine_at_common_init(model);
 
-    machine_pci_init();
-    machine_pci_register_slots();
+    pci_init(PCI_CONFIG_TYPE_1);
+    pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE,     0, 0, 0, 0);
+    pci_register_slot(0x01, PCI_CARD_AGPBRIDGE,       1, 2, 0, 0);
+    pci_register_slot(0x07, PCI_CARD_SOUTHBRIDGE,     1, 2, 3, 4);
+    pci_register_slot(0x0F, PCI_CARD_SOUTHBRIDGE_IDE, 1, 2, 3, 4);
+    pci_register_slot(0x03, PCI_CARD_SOUTHBRIDGE_PMU, 1, 2, 3, 4);
+    pci_register_slot(0x02, PCI_CARD_SOUTHBRIDGE_USB, 1, 2, 3, 4);
+    pci_register_slot(0x0C, PCI_CARD_NORMAL,          1, 2, 3, 4);
+    pci_register_slot(0x0B, PCI_CARD_NORMAL,          2, 3, 4, 1);
+    pci_register_slot(0x0A, PCI_CARD_NORMAL,          3, 4, 1, 2);
+    pci_register_slot(0x09, PCI_CARD_NORMAL,          4, 1, 2, 3);
+    pci_register_slot(0x0D, PCI_CARD_NORMAL,          4, 1, 2, 3);
+    pci_register_slot(0x06, PCI_CARD_SOUND,           3, 4, 1, 2);
 
     device_add(&ali1541_device);
     device_add(&ali1543c_device); /* +0 */
@@ -1040,8 +1051,15 @@ machine_at_aptiva2187_init(const machine_t *model)
 
     machine_at_common_init(model);
 
-    machine_pci_init();
-    machine_pci_register_slots();
+    pci_init(PCI_CONFIG_TYPE_1);
+    pci_register_slot(0x00, PCI_CARD_NORTHBRIDGE,     1, 2, 3, 5);
+    pci_register_slot(0x01, PCI_CARD_SOUTHBRIDGE,     0, 0, 0, 0);
+    pci_register_slot(0x02, PCI_CARD_AGPBRIDGE,       0, 0, 0, 0);
+    pci_register_slot(0x09, PCI_CARD_NORMAL,          1, 2, 3, 4);
+    pci_register_slot(0x0A, PCI_CARD_NORMAL,          2, 3, 4, 1);
+    pci_register_slot(0x0F, PCI_CARD_NORMAL,          1, 2, 3, 4);
+    pci_register_slot(0x0C, PCI_CARD_NORMAL,          4, 1, 2, 3);
+    pci_register_slot(0x0B, PCI_CARD_NORMAL,          3, 4, 1, 2);
 
     device_add(&sis_530_device);
     device_add(&it8661f_device); /* guess */

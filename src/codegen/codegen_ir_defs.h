@@ -143,6 +143,10 @@
 #define UOP_XOR_IMM (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x3a)
 /*UOP_ANDN - dest_reg = ~src_reg_a & src_reg_b*/
 #define UOP_ANDN (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x3b)
+/*UOP_SMI_EXIT_IMM - if an SMI is pending, set pc to the immediate and exit block*/
+#define UOP_SMI_EXIT_IMM (UOP_TYPE_PARAMS_IMM | 0x3c | UOP_TYPE_ORDER_BARRIER)
+/*UOP_SMI_EXIT - if an SMI is pending, exit block, with pc already set*/
+#define UOP_SMI_EXIT (0x3d | UOP_TYPE_ORDER_BARRIER)
 /*UOP_CALL_INSTRUCTION_FUNC_ORDERED - UOP_CALL_INSTRUCTION_FUNC with registers written back but
   left loaded. The caller reloads what the handler writes*/
 #define UOP_CALL_INSTRUCTION_FUNC_ORDERED (UOP_TYPE_PARAMS_POINTER | UOP_TYPE_PARAMS_IMM | 0x3e | UOP_TYPE_ORDER_BARRIER)
@@ -1035,6 +1039,8 @@ extern void codegen_fpu_guard_int_indefinite(ir_data_t *ir, uint32_t fetchdat, u
 #define uop_CALL_INSTRUCTION_FUNC_ORDERED(ir, p, imm)            uop_CALL_INSTRUCTION_FUNC(ir, p, imm)
 #endif
 #define uop_CALL_INSTRUCTION_FUNC(ir, p, imm)                    uop_gen_pointer_imm(UOP_CALL_INSTRUCTION_FUNC, ir, p, imm)
+#define uop_SMI_EXIT_IMM(ir, imm)                                uop_gen_imm(UOP_SMI_EXIT_IMM, ir, imm)
+#define uop_SMI_EXIT(ir)                                         uop_gen(UOP_SMI_EXIT, ir)
 
 #define uop_CMP_IMM_JZ(ir, src_reg, imm, p)                      uop_gen_reg_src_pointer_imm(UOP_CMP_IMM_JZ, ir, src_reg, p, imm)
 
