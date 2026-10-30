@@ -542,7 +542,7 @@ static uint32_t shxd_imm_ram(codeblock_t *block, ir_data_t *ir, uint32_t fetchda
 /*A zero count preserves the destination and all lazy flags. Keep the join
   independent of the count observed during compilation.*/
 static uint32_t
-shift_reg_cl(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_pc, int size)
+shift_reg_cl(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc, int size)
 {
     uint32_t new_pc;
 
@@ -551,11 +551,11 @@ shift_reg_cl(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_p
     int jump_uop = uop_CMP_IMM_JZ_DEST(ir, IREG_temp2, 0);
 
     if (size == 8)
-        new_pc = shift_common_variable_8(ir, fetchdat, op_pc, NULL, IREG_temp2);
+        new_pc = shift_common_variable_8(block, ir, fetchdat, op_32, op_pc, NULL, IREG_temp2);
     else if (size == 16)
-        new_pc = shift_common_variable_16(ir, fetchdat, op_pc, NULL, IREG_temp2);
+        new_pc = shift_common_variable_16(block, ir, fetchdat, op_32, op_pc, NULL, IREG_temp2);
     else
-        new_pc = shift_common_variable_32(ir, fetchdat, op_pc, NULL, IREG_temp2);
+        new_pc = shift_common_variable_32(block, ir, fetchdat, op_32, op_pc, NULL, IREG_temp2);
 
     uop_NOP_BARRIER(ir);
     uop_set_jump_dest(ir, jump_uop);
@@ -841,7 +841,7 @@ ropD2(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchd
         return 0;
 
     if ((fetchdat & 0xc0) == 0xc0)
-        return shift_reg_cl(block, ir, fetchdat, op_pc, 8);
+        return shift_reg_cl(block, ir, fetchdat, op_32, op_pc, 8);
 
     if (!(CL & 0x1f) || !block->ins)
         return 0;
@@ -971,7 +971,7 @@ ropD3_w(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
         return 0;
 
     if ((fetchdat & 0xc0) == 0xc0)
-        return shift_reg_cl(block, ir, fetchdat, op_pc, 16);
+        return shift_reg_cl(block, ir, fetchdat, op_32, op_pc, 16);
 
     if (!(CL & 0x1f) || !block->ins)
         return 0;
@@ -996,7 +996,7 @@ ropD3_l(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
         return 0;
 
     if ((fetchdat & 0xc0) == 0xc0)
-        return shift_reg_cl(block, ir, fetchdat, op_pc, 32);
+        return shift_reg_cl(block, ir, fetchdat, op_32, op_pc, 32);
 
     if (!(CL & 0x1f) || !block->ins)
         return 0;

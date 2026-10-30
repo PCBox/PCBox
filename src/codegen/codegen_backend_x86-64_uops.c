@@ -54,8 +54,25 @@ host_reg_get(int reg)
 #    define REG_IS_B(size)    (size == IREG_SIZE_B || size == IREG_SIZE_BH)
 #    define REG_IS_BH(size)   (size == IREG_SIZE_BH)
 #    define REG_IS_D(size)    (size == IREG_SIZE_D)
-#    define REG_IS_Q(size)    (size == IREG_SIZE_Q)
 #    define REG_IS_DQ(size)   (size == IREG_SIZE_DQ)
+
+static inline int
+REG_IS_L(int size)
+{
+    return size == IREG_SIZE_L;
+}
+
+static inline int
+REG_IS_W(int size)
+{
+    return size == IREG_SIZE_W;
+}
+
+static inline int
+REG_IS_Q(int size)
+{
+    return size == IREG_SIZE_Q;
+}
 
 static void
 codegen_MEM_ADDR_REG_OFFSET(codeblock_t *block, uop_t *uop, int seg_reg, int addr_reg, uint32_t offset)
@@ -409,24 +426,6 @@ codegen_DIV_RESULT(codeblock_t *block, uop_t *uop)
     host_x86_MOV32_REG_BASE_OFFSET(block, HOST_REG_GET(uop->dest_reg_a_real), REG_RSP,
                                   STACK_TEMP_DQ + 4 * uop->imm_data);
     return 0;
-}
-
-static inline int
-REG_IS_L(int size)
-{
-    return size == IREG_SIZE_L;
-}
-
-static inline int
-REG_IS_W(int size)
-{
-    return size == IREG_SIZE_W;
-}
-
-static inline int
-REG_IS_Q(int size)
-{
-    return size == IREG_SIZE_Q;
 }
 
 static int
@@ -5738,17 +5737,13 @@ const uOpFn uop_handlers[UOP_MAX] = {
     = codegen_CALL_FUNC_RESULT_ORDERED,
     [UOP_CALL_INSTRUCTION_FUNC_ORDERED &
         UOP_MASK]
-<<<<<<< HEAD
     = codegen_CALL_INSTRUCTION_FUNC_ORDERED,
-=======
-    = codegen_CALL_REP_STRING,
     [UOP_SMI_EXIT_IMM &
         UOP_MASK]
     = codegen_SMI_EXIT_IMM,
     [UOP_SMI_EXIT &
         UOP_MASK]
     = codegen_SMI_EXIT_IMM,
->>>>>>> 763119e6947dc02e4d6869cc4a360953b5d806ef
     [UOP_CALL_FUNC_RESULT &
         UOP_MASK]
     = codegen_CALL_FUNC_RESULT,
