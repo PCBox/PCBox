@@ -2823,17 +2823,27 @@ nv4_pgraph_2d_method(nv4_t *nv4, nv4_gr_chan_t *ch, int cls, uint32_t mthd, uint
         case 0x1f:
         case 0x5f:
             return nv4_class_blit(nv4, ch, cls, mthd, data);
+        /* The TNT2 has the colour conversion method (dither or truncate
+           to a 16 bpp surface; 2D is drawn truncated) on the TNT's image
+           classes too: the drivers that serve both chips (Windows XP's
+           own 56.73) bind the TNT's class numbers and send it there. */
         case 0x21:
         case 0x61:
+            if ((cls == 0x61) && (mthd == 0x2f8) && (nv4->chip == NV4_CHIP_TNT2))
+                return NV4_GR_OK;
             return nv4_class_ifc(nv4, ch, cls, mthd, data);
         case 0x36:
         case 0x76:
+            if ((cls == 0x76) && (mthd == 0x2f8) && (nv4->chip == NV4_CHIP_TNT2))
+                return NV4_GR_OK;
             return nv4_class_sifc(nv4, ch, cls, mthd, data);
         case 0x60:
+            if ((mthd == 0x3e0) && (nv4->chip == NV4_CHIP_TNT2))
+                return NV4_GR_OK;
             return nv4_class_iifc(nv4, ch, mthd, data);
-        /* The TNT2's own image classes: the TNT's with a colour conversion
-           method (dither or truncate to a 16 bpp surface; 2D is drawn
-           truncated). On the TNT these numbers are not image classes. */
+        /* The TNT2's own image classes: the TNT's with the colour
+           conversion method. On the TNT these numbers are not image
+           classes. */
         case 0x64:
             if (nv4->chip != NV4_CHIP_TNT2)
                 break;
