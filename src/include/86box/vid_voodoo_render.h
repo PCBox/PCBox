@@ -290,6 +290,7 @@ voodoo_wait_for_render_thread_idle(voodoo_t *voodoo)
         int idle = 1;
         for (int t = 0; t < voodoo->render_threads; t++) {
             if (!PARAM_EMPTY(t) || RENDER_VOODOO_BUSY(voodoo, t)) {
+                thread_reset_event(voodoo->render_not_full_event[t]);
                 idle = 0;
                 break;
             }
