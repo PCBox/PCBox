@@ -69,7 +69,7 @@
 
 #define FIFO_ENTRIES      (mach64->fifo_write_idx - mach64->fifo_read_idx)
 #define FIFO_FULL         ((mach64->fifo_write_idx - mach64->fifo_read_idx) >= FIFO_SIZE)
-#define FIFO_EMPTY        (mach64->fifo_read_idx == mach64->fifo_write_idx)
+#define FIFO_EMPTY        mach64_fifo_empty(mach64)
 
 #define FIFO_TYPE         0xff000000
 #define FIFO_ADDR         0x00ffffff
@@ -392,6 +392,12 @@ typedef struct mach64_t {
     uint8_t          genvs;         /* 102h */
 } mach64_t;
 
+static inline int
+mach64_fifo_empty(const mach64_t *mach64)
+{
+    return mach64->fifo_read_idx == mach64->fifo_write_idx;
+}
+
 extern video_timings_t timing_mach64_isa;
 extern video_timings_t timing_mach64_vlb;
 extern video_timings_t timing_mach64_pci;
@@ -469,6 +475,7 @@ void     mach64_write(uint32_t addr, uint8_t val, void *priv);
 void     mach64_writew(uint32_t addr, uint16_t val, void *priv);
 void     mach64_writel(uint32_t addr, uint32_t val, void *priv);
 uint8_t  mach64_read(uint32_t addr, void *priv);
+uint8_t *mach64_debug_ptr(uint32_t addr, int write, void *priv);
 uint16_t mach64_readw(uint32_t addr, void *priv);
 uint32_t mach64_readl(uint32_t addr, void *priv);
 void     mach64_updatemapping(mach64_t *mach64);

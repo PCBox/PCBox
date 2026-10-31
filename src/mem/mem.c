@@ -1769,6 +1769,15 @@ mem_phys_ptr(uint32_t addr, uint32_t len)
     return mem_phys_exec(map, addr, len);
 }
 
+/* The mapping a bus-master read of addr reaches, or NULL. Lets a device
+   that masters through another device's aperture (the AGP GART) ask that
+   device for a host pointer instead of reading through its handlers. */
+const mem_mapping_t *
+mem_read_mapping_at(uint32_t addr)
+{
+    return read_mapping_bus[addr >> MEM_GRANULARITY_BITS];
+}
+
 uint8_t
 mem_readb_phys(uint32_t addr)
 {
@@ -3049,6 +3058,49 @@ mem_mapping_set_handler(mem_mapping_t *map,
     map->write_l = write_l;
 
     mem_mapping_recalc(map->base, map->size, map->base_ignore);
+}
+
+/* The memory viewer's way into video memory (mem_debug_add()). Keyed by
+   the handlers, not the mapping: cards switch a mapping's handlers as their
+   modes change, and the handler says how its priv is to be taken. */
+#define MEM_DEBUG_MAX 32
+static struct {
+    uint8_t (*read_b)(uint32_t addr, void *priv);
+    void (*write_b)(uint32_t addr, uint8_t val, void *priv);
+    mem_debug_ptr_t debug_ptr;
+} mem_debug[MEM_DEBUG_MAX];
+static int mem_debug_num = 0;
+
+void
+mem_debug_add(uint8_t (*read_b)(uint32_t addr, void *priv),
+              void (*write_b)(uint32_t addr, uint8_t val, void *priv),
+              mem_debug_ptr_t debug_ptr)
+{
+    for (int i = 0; i < mem_debug_num; i++) {
+        if (mem_debug[i].read_b == read_b)
+            return;
+    }
+    if (mem_debug_num >= MEM_DEBUG_MAX)
+        return;
+
+    mem_debug[mem_debug_num].read_b    = read_b;
+    mem_debug[mem_debug_num].write_b   = write_b;
+    mem_debug[mem_debug_num].debug_ptr = debug_ptr;
+    mem_debug_num++;
+}
+
+mem_debug_ptr_t
+mem_debug_find(const mem_mapping_t *map, int write)
+{
+    if (!map->read_b)
+        return NULL;
+
+    for (int i = 0; i < mem_debug_num; i++) {
+        if (mem_debug[i].read_b == map->read_b)
+            return (!write || (map->write_b == mem_debug[i].write_b)) ? mem_debug[i].debug_ptr : NULL;
+    }
+
+    return NULL;
 }
 
 void

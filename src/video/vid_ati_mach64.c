@@ -774,6 +774,7 @@ mach64_updatemapping(mach64_t *mach64)
      */
     if (mach64->config_cntl & 4) {
         if ((svga->mapping.read_b != mach64_read) || (svga->mapping.priv != mach64)) {
+            mem_debug_add(mach64_read, mach64_write, mach64_debug_ptr);
             mem_mapping_set_handler(&svga->mapping, mach64_read, mach64->isa_8bit ? NULL : mach64_readw, mach64->isa_8bit ? NULL : mach64_readl,
                                     mach64_write, mach64->isa_8bit ? NULL : mach64_writew, mach64->isa_8bit ? NULL : mach64_writel);
             mem_mapping_set_p(&svga->mapping, mach64);
@@ -820,9 +821,9 @@ mach64_updatemapping(mach64_t *mach64)
 
             mach64_map_aperture(mach64, &mach64->linear_mapping, 1, 0, (8 << 20) - win);
             mach64_map_aperture(mach64, &mach64->mmio_linear_mapping, 1, (8 << 20) - win, win);
-            /* The big-endian aperture, the second 8M, is memory only (VT RRG
-               figure 2.1), but for the 3D Rage II+'s registers in its top 4K
-               (mach64_readb_be). */
+            /* The big-endian aperture, the second 8M, is memory (VT RRG
+               figure 2.1), but for the registers again at its top on the VT
+               and the 3D Rage II+ (mach64_be_regs). */
             mach64_map_aperture(mach64, &mach64->linear_mapping_big_endian, 1, 8 << 20, 8 << 20);
         }
     } else {
@@ -2781,6 +2782,18 @@ mach64_read(uint32_t addr, void *priv)
         ret  = svga_read_linear(addr, svga);
     return ret;
 }
+/* For the memory viewer: the byte mach64_read() returns, without its side
+   effects. */
+uint8_t *
+mach64_debug_ptr(uint32_t addr, int write, void *priv)
+{
+    mach64_t *mach64 = (mach64_t *) priv;
+
+    addr = mach64_decode_addr(mach64, addr, 0);
+    if (addr == 0xffffffff)
+        return NULL;
+    return svga_debug_ptr_common(addr, 1, write, &mach64->svga);
+}
 uint16_t
 mach64_readw(uint32_t addr, void *priv)
 {
@@ -3097,15 +3110,19 @@ mach64_writel_linear(uint32_t addr, uint32_t val, void *priv)
  * The 3D Rage II+ has its registers in the top 4K of the big-endian
  * aperture too, as they are, and ATI's Windows 95 driver uses them there:
  * with that window read as memory, it rejects the card ("The adapter type
- * is incorrect").
+ * is incorrect"). The VT has them at the top of the big-endian aperture as
+ * well, the same window as at the top of the little-endian one: the
+ * Windows 98 ATIM64 mini-VDD reads them there, and with that window read as
+ * memory it polls a status bit forever while installing the card.
  */
 static mach64_t *
 mach64_be_regs(uint32_t addr, void *priv)
 {
     mach64_t            *mach64 = (mach64_t *) ((svga_t *) priv)->priv;
     const mem_mapping_t *map    = &mach64->linear_mapping_big_endian;
+    const uint32_t       win    = (mach64->type >= MACH64_GTB) ? 0x1000 : mach64_reg_window(mach64);
 
-    if ((mach64->type >= MACH64_GTB) && ((addr - map->base) >= (map->size - 0x1000)))
+    if ((mach64->type >= MACH64_VT) && ((addr - map->base) >= (map->size - win)))
         return mach64;
     return NULL;
 }

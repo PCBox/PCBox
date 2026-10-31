@@ -30,6 +30,7 @@ extern void agpgart_set_gart(agpgart_t *dev, uint32_t base);
    aperture, for devices that read guest memory in bulk: 1 and
    *ram_addr set, or 0 when <addr> is not in an aperture. */
 extern int  agpgart_resolve(uint32_t addr, uint32_t *ram_addr);
+extern const uint8_t *agpgart_bus_ptr(uint32_t addr, uint32_t len);
 
 #ifdef EMU_DEVICE_H
 /* AGP GART */
