@@ -816,6 +816,10 @@ nv4_reset(void *priv)
 
     nv4_update_mappings(nv4);
     nv4_pmc_update_irq(nv4);
+    /* The depth, pixel clock and cursor follow the registers just
+       cleared; the svga core only recalculates on a register write. */
+    nv4->svga.fullchange = nv4->svga.monitor->mon_changeframecount;
+    svga_recalctimings(&nv4->svga);
 }
 
 static void *

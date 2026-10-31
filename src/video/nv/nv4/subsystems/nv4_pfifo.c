@@ -754,6 +754,7 @@ nv4_pfifo_reset(nv4_t *nv4)
     nv4_pfifo_t *p = &nv4->pfifo;
 
     memset(p, 0, sizeof(*p));
+    timer_disable(&nv4->eng_timer);
     nv4->eng_tsc   = 0;
     nv4->eng_bytes = 0;
     nv4->eng_px3d  = 0;
