@@ -3,10 +3,10 @@ name: CMake (Windows)
 # Compile checks for the configurations the pull request builds (made with
 # .ci/build.sh) don't cover.
 #
-# Pull requests and pushes build a reduced matrix, leaving out the UCRT64
-# Debug build, which the CodeQL workflow already makes (though with a shared
-# Qt). Manual runs (with the full matrix option) and the weekly scheduled run
-# build every configuration.
+# The build types and user interfaces marked manual are only built on manual
+# runs. Manual runs without the full matrix option also leave out the UCRT64
+# Dev Debug build, which the CodeQL workflow already makes (though with a shared
+# Qt).
 
 on:
 
@@ -41,7 +41,7 @@ on:
   workflow_dispatch:
     inputs:
       full_matrix:
-        description: Build every configuration instead of the reduced pull request matrix
+        description: Build every configuration, including the UCRT64 Dev Debug build the CodeQL workflow already makes
         type: boolean
         default: true
 
@@ -65,25 +65,36 @@ jobs:
 
     strategy:
       matrix:
+        # Build types and user interfaces marked manual are only built on
+        # manual runs
         build:
           - name: Regular
             preset: regular
-          - name: Debug
+          - name: Dev Debug
             preset: dev_debug
-            slug: -Debug
+            slug: -Dev-Debug
+            manual: true
           - name: Dev
             preset: development
             slug: -Dev
         ui:
           - name: Qt 5 GUI
             qt: on
-            slug: -Qt5
+            qt6: off
+            slug: ""
             static: on
-            packages: >-
-              qt5-static:p
-              vulkan-headers:p
-#              qt5-base:p
-#              qt5-tools:p
+          - name: Qt 6 GUI
+            qt: on
+            qt6: on
+            slug: -Qt6
+            static: on
+            manual: true
+          - name: SDL GUI
+            qt: off
+            qt6: off
+            slug: -SDL
+            static: on
+            manual: true
         environment:
 #          - msystem: MSYS
 #            slug: "-MSYS64"
@@ -109,33 +120,17 @@ jobs:
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
 
-      # Caches the MSYS2 packages on master only, see the action
       - name: Prepare MSYS2 environment
         uses: ./.github/actions/setup-msys2
         with:
           msystem: ${{ matrix.environment.msystem }}
-          pacboy: >-
-            ninja:p
-            cmake:p
-            gcc:p
-            pkgconf:p
-            freetype:p
-            sdl3:p
-            zlib:p
-            libpng:p
-            openal:p
-            rtmidi:p
-            libslirp:p
-            fluidsynth:p
-            libserialport:p
-            ${{ matrix.ui.packages }}
-            llvm-openmp:p
-            zstd:p
+          qt6: ${{ matrix.ui.qt6 == 'on' }}
 
       - name: Configure CMake
         run: >-
           cmake -S . -B build --preset ${{ matrix.build.preset }}
           -D QT=${{ matrix.ui.qt }}
+          -D USE_QT6=${{ matrix.ui.qt6 }}
 
       - name: Build
         run: cmake --build build
@@ -146,5 +141,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: 'PCBox${{ matrix.build.slug }}-Windows${{ matrix.environment.slug }}-gha${{ github.run_number }}'
+          name: 'PCBox${{ matrix.build.slug }}${{ matrix.ui.slug }}-Windows${{ matrix.environment.slug }}-gha${{ github.run_number }}'
           path: build/artifacts/**
