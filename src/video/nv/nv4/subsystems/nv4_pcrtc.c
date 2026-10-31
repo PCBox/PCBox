@@ -92,6 +92,10 @@ nv4_pcrtc_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             nv4_pmc_update_irq(nv4);
             break;
         case NV4_PCRTC_START_ADDR:
+            /* a flip: the buffer now shown was drawn frames ago, so the
+               frame must be redrawn whole, not just its changed rows */
+            if ((val & 0x01fffffc) != nv4->pcrtc_start)
+                nv4->svga.fullchange = nv4->svga.monitor->mon_changeframecount;
             nv4->pcrtc_start = val & 0x01fffffc;
             svga_recalctimings(&nv4->svga);
             break;
@@ -135,7 +139,8 @@ nv4_pcrtc_crtc_start_write(nv4_t *nv4, uint8_t idx, uint8_t val)
             return;
     }
     if (s != nv4->pcrtc_start) {
-        nv4->pcrtc_start = s;
+        nv4->pcrtc_start     = s;
+        nv4->svga.fullchange = nv4->svga.monitor->mon_changeframecount;
         svga_recalctimings(&nv4->svga);
     }
 }
