@@ -98,6 +98,7 @@
 #    define OPCODE_AND_ROR            (0x056 << 21)
 #    define OPCODE_ANDS_LSL           (0x350 << 21)
 #    define OPCODE_CMP_LSL            (0x358 << 21)
+#    define OPCODE_CMPX_LSL           (0x758 << 21)
 #    define OPCODE_CSEL               (0x0d4 << 21)
 #    define OPCODE_EOR_LSL            (0x250 << 21)
 #    define OPCODE_ORR_ASR            (0x154 << 21)
@@ -827,55 +828,6 @@ host_arm64_CMGT_V2S(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_re
     codegen_addlong(block, OPCODE_CMGT_V2S | Rd(dst_reg) | Rn(src_n_reg) | Rm(src_m_reg));
 }
 
-void
-host_arm64_CMN_IMM(codeblock_t *block, int src_n_reg, uint32_t imm_data)
-{
-    if ((int32_t) imm_data < 0 && imm_data != (1ull << 31)) {
-        host_arm64_CMP_IMM(block, src_n_reg, -(int32_t) imm_data);
-    } else if (!(imm_data & 0xfffff000)) {
-        codegen_addlong(block, OPCODE_CMN_IMM | Rd(REG_WZR) | Rn(src_n_reg) | IMM12(imm_data & 0xfff) | DATPROC_IMM_SHIFT(0));
-    } else
-        fatal("CMN_IMM %08x\n", imm_data);
-}
-void
-host_arm64_CMNX_IMM(codeblock_t *block, int src_n_reg, uint64_t imm_data)
-{
-    if ((int64_t) imm_data < 0 && imm_data != (1ull << 63)) {
-        host_arm64_CMPX_IMM(block, src_n_reg, -(int64_t) imm_data);
-    } else if (!(imm_data & 0xfffffffffffff000ull)) {
-        codegen_addlong(block, OPCODE_CMNX_IMM | Rd(REG_XZR) | Rn(src_n_reg) | IMM12(imm_data & 0xfff) | DATPROC_IMM_SHIFT(0));
-    } else
-        fatal("CMNX_IMM %016" PRIx64 "\n", imm_data);
-}
-
-void
-host_arm64_CMP_IMM(codeblock_t *block, int src_n_reg, uint32_t imm_data)
-{
-    if ((int32_t) imm_data < 0 && imm_data != (1ull << 31) && !(-(int32_t) imm_data & 0xfffff000)) {
-        host_arm64_CMN_IMM(block, src_n_reg, -(int32_t) imm_data);
-    } else if (!(imm_data & 0xfffff000)) {
-        codegen_addlong(block, OPCODE_CMP_IMM | Rd(REG_WZR) | Rn(src_n_reg) | IMM12(imm_data & 0xfff) | DATPROC_IMM_SHIFT(0));
-    } else {
-        host_arm64_mov_imm(block, REG_W16, imm_data);
-        host_arm64_CMP_REG(block, src_n_reg, REG_W16);
-    }
-}
-void
-host_arm64_CMPX_IMM(codeblock_t *block, int src_n_reg, uint64_t imm_data)
-{
-    if ((int64_t) imm_data < 0 && imm_data != (1ull << 63)) {
-        host_arm64_CMNX_IMM(block, src_n_reg, -(int64_t) imm_data);
-    } else if (!(imm_data & 0xfffffffffffff000ull)) {
-        codegen_addlong(block, OPCODE_CMPX_IMM | Rd(REG_XZR) | Rn(src_n_reg) | IMM12(imm_data & 0xfff) | DATPROC_IMM_SHIFT(0));
-    } else
-        fatal("CMPX_IMM %08" PRIu64 "\n", imm_data);
-}
-void
-host_arm64_CMPX_REG(codeblock_t *block, int src_n_reg, int src_m_reg)
-{
-    codegen_addlong(block, OPCODE_CMPX_LSL | Rd(REG_XZR) | Rn(src_n_reg) | Rm(src_m_reg));
-}
-
 /* An ADD/SUB-class immediate: 12 bits, or 12 bits shifted left by 12. */
 static int
 addsub_imm12(uint64_t v, uint32_t *field)
@@ -954,6 +906,12 @@ host_arm64_CMPX_IMM(codeblock_t *block, int src_n_reg, uint64_t imm_data)
         host_arm64_MOVX_IMM(block, REG_X16, imm_data);
         codegen_addlong(block, OPCODE_CMP_LSL_X | Rn(src_n_reg) | Rm(REG_X16));
     }
+}
+
+void
+host_arm64_CMPX_REG(codeblock_t *block, int src_n_reg, int src_m_reg)
+{
+    codegen_addlong(block, OPCODE_CMPX_LSL | Rd(REG_XZR) | Rn(src_n_reg) | Rm(src_m_reg));
 }
 
 void

@@ -5,6 +5,7 @@ void host_arm64_ADD_V8B(codeblock_t *block, int dst_reg, int src_n_reg, int src_
 void host_arm64_ADD_V4H(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_ADD_V2S(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_ADDX_IMM(codeblock_t *block, int dst_reg, int src_n_reg, uint64_t imm_data);
+void host_arm64_ADDX_REG_UXTW(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 
 void host_arm64_ADDP_V4S(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 
@@ -73,6 +74,7 @@ void host_arm64_RBIT(codeblock_t *block, int dst_reg, int src_n_reg);
 void host_arm64_BIT_V(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_CLZ(codeblock_t *block, int dst_reg, int src_n_reg);
 void host_arm64_CMPX_IMM(codeblock_t *block, int src_n_reg, uint64_t imm_data);
+void host_arm64_CMPX_REG(codeblock_t *block, int src_n_reg, int src_m_reg);
 
 void host_arm64_CCMP_REG_CS(codeblock_t *block, int src_n_reg, int src_m_reg, int nzcv);
 #define host_arm64_CMP_REG(block, src_n_reg, src_m_reg) host_arm64_CMP_REG_LSL(block, src_n_reg, src_m_reg, 0)
