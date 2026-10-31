@@ -742,7 +742,8 @@ shade(int x, int y)
     }
     if ((V_Z != 0) && (S.z_on != 0) && (za + uint(bpp) - 1u <= S.z_lim))
         zold = vread(za, bpp);
-    sten = (bpp == 4) ? int(zold >> 24) : 0;
+    /* Z in bits 31:8, stencil in 7:0 (as on the CPU) */
+    sten = (bpp == 4) ? int(zold & 0xffu) : 0;
 
     /* colors */
     d    = ivec4(clamp255(f2i(at[AT_R])), clamp255(f2i(at[AT_G])), clamp255(f2i(at[AT_B])), clamp255(f2i(at[AT_A])));
@@ -812,14 +813,14 @@ shade(int x, int y)
                 int ns = stencil_op(S.sop_fail, sten, S.sref);
 
                 sten = (sten & ~S.smask_w) | (ns & S.smask_w);
-                zold = (zold & 0x00ffffffu) | (uint(sten) << 24);
+                zold = (zold & 0xffffff00u) | uint(sten);
                 vwrite(za, 4, zold);
             }
             return;
         }
     }
     if (V_Z != 0) {
-        uint zcur  = (bpp == 2) ? zold : (zold & 0xffffffu);
+        uint zcur  = (bpp == 2) ? zold : (zold >> 8);
         bool zpass = (S.zen == 0) || cmpf(S.zfunc, depth, zcur);
 
         if ((S.sten != 0) && (S.swrite != 0)) {
@@ -827,15 +828,15 @@ shade(int x, int y)
 
             sten = (sten & ~S.smask_w) | (ns & S.smask_w);
         }
-        znew = (bpp == 2) ? depth : ((depth & 0xffffffu) | (uint(sten) << 24));
+        znew = (bpp == 2) ? depth : ((depth << 8) | uint(sten));
         if (!zpass) {
             if ((S.sten != 0) && (S.swrite != 0))
-                vwrite(za, 4, (zold & 0xffffffu) | (uint(sten) << 24));
+                vwrite(za, 4, (zold & 0xffffff00u) | uint(sten));
             return;
         }
         if ((S.z_on != 0) && ((S.zwrite != 0) || ((S.sten != 0) && (S.swrite != 0))) && (za + uint(bpp) - 1u <= S.z_lim)) {
             if (S.zwrite == 0)
-                znew = (bpp == 2) ? zold : ((zold & 0xffffffu) | (uint(sten) << 24));
+                znew = (bpp == 2) ? zold : ((zold & 0xffffff00u) | uint(sten));
             vwrite(za, bpp, znew);
         }
     }
