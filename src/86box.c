@@ -104,6 +104,7 @@
 #include <86box/plat_dir.h>
 #include <86box/version.h>
 #include <86box/gdbstub.h>
+#include <86box/debugger.h>
 #include <86box/automation.h>
 #ifdef USE_AUTOMATION
 #    define AUTOMATION_ACTIVE (automation_path[0] != '\0')
@@ -2251,8 +2252,10 @@ pc_run(void)
     if (hard_reset_pending) {
         hard_reset_pending = 0;
         ibm5140_power_hard_off();
+        debugger_reset_begin();
         pc_reset_hard_close();
         pc_reset_hard_init();
+        debugger_reset_end();
     }
 
     /* USB devices the user plugged in or unplugged since the last block. It
@@ -2265,12 +2268,13 @@ pc_run(void)
 
     /* Run a block of code. */
     startblit();
-    cpu_exec((int64_t) cpu_s->rspeed / (force_10ms ? 100 : 1000));
+    debugger_cpu_exec((int64_t) cpu_s->rspeed / (force_10ms ? 100 : 1000));
     ack_pause();
 #ifdef USE_GDBSTUB /* avoid a KBC FIFO overflow when CPU emulation is stalled */
     if (gdbstub_step == GDBSTUB_EXEC) {
 #endif
-        if (!mouse_timed)
+        /* Likewise while the memory viewer holds the processor. */
+        if (!mouse_timed && !debugger_stopped())
             mouse_process();
 #ifdef USE_GDBSTUB /* avoid a KBC FIFO overflow when CPU emulation is stalled */
     }

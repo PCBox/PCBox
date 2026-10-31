@@ -50,6 +50,7 @@ typedef struct pic {
     uint8_t     flags;
     uint8_t     edge_lines;
     uint8_t     default_irq7; /* the acknowledge under way found nothing to take */
+    uint8_t     master_irq;
     uint32_t    lines[8];
     uint32_t    at;
     uint32_t    zenith;

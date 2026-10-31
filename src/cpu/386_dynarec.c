@@ -35,6 +35,7 @@
 #include <86box/plat_fallthrough.h>
 #include <86box/plat_unused.h>
 #include <86box/gdbstub.h>
+#include <86box/debugger.h>
 #ifdef USE_DYNAREC
 #    include "codegen.h"
 #    include "codegen_backend.h"
@@ -299,6 +300,12 @@ fetch_ea_64_long(uint32_t rmdat)
 #define CLOCK_CYCLES_ALWAYS(c) cycles -= (c)
 
 #include "386_ops.h"
+
+/* What the tables above hold for an opcode the processor does not have, so
+   that a debugger can tell. */
+const OpFn x86_illegal_op = ILLEGAL;
+/* And for the x87 opcodes, 16- and 32-bit addressing. */
+const OpFn x86_fpu_illegal_op[2] = { FPU_ILLEGAL_a16, FPU_ILLEGAL_a32 };
 
 /* ES flat at the block's start, while no ES load has been compiled: its
    limit checks are left out (both recompilers) */
@@ -1406,6 +1413,10 @@ exec386_dynarec_common(int32_t cycs, const int dbg)
             if (gdbstub_instruction())
                 return;
 #    endif
+            if (DEBUGGER_INSTRUCTION()) {
+                cycles_main -= (cycles_start - cycles);
+                return;
+            }
         }
 
         cycles_main -= (cycles_start - cycles);
@@ -1434,6 +1445,10 @@ is_dynarec_active(void)
 #ifndef USE_DYNAREC
     return false;
 #else
+    /* The memory viewer runs an interpreter in its place while it is open. */
+    if (debugger_attached)
+        return false;
+
 #ifdef USE_FAST_DYNAREC
     return (cpu_exec == exec386_dynarec || cpu_exec == exec386_dynarec_fast) && (cpu_use_dynarec || cpu_use_dynarec_fast) && !(cpu_force_interpreter || cpu_override_dynarec || (!CACHE_ON()));
 #else
@@ -1850,6 +1865,8 @@ block_ended:
             if (gdbstub_instruction())
                 return;
 #endif
+            if (DEBUGGER_INSTRUCTION())
+                return;
         }
     }
 }
