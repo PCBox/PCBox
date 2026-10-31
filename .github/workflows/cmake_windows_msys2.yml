@@ -23,7 +23,15 @@ on:
       - vcpkg.json
       - "!**/Makefile*"
 
+  # Closing a pull request (including merging it) starts a run that builds
+  # nothing, only cancelling the run in progress through the concurrency
+  # group below
   pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
     paths:
       - src/**
       - cmake/**
@@ -58,6 +66,8 @@ jobs:
   windows:
 
     name: "${{ matrix.ui.name }}, ${{ matrix.build.name }}, ${{ matrix.dynarec.name }}, ${{ matrix.environment.msystem }}"
+
+    if: github.event.action != 'closed'
 
     runs-on: ${{ matrix.environment.runner }}
 
