@@ -99,9 +99,9 @@ jobs:
             prefix: mingw-w64-ucrt-x86_64
             slug: "-64"
             runner: windows-2022
-#          - msystem: CLANGARM64
-#            slug: -arm64
-#            runner: windows-11-arm
+          - msystem: CLANGARM64
+            slug: -arm64
+            runner: windows-11-arm
 
     steps:
       - name: Checkout repository
