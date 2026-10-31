@@ -330,7 +330,10 @@ void nv3_pfifo_trigger_dma_if_required(void)
         if (((c1->dma_status >> 18) & 0x7FF) && !nv3_pfifo_cache1_num_free_spaces())
             break;
 
-        if (c1->dma_tlb_tag != page) {
+        /* a cached PTE that isn't present is a miss, not a fault: the 1997 resman (Viper V330
+           CD) primes the TLB with TAG 0 and PTE 0, and a D3D push buffer starting in page 0
+           would otherwise fault with DMA_PTE masked and stall the pusher for good */
+        if ((c1->dma_tlb_tag != page) || !(c1->dma_tlb_pte & 1)) {
             c1->dma_tlb_pte = nv3_ramin_read32(c1->dma_tlb_pt_base + ((linear >> 12) << 2), nv3);
             c1->dma_tlb_tag = page;
         }
