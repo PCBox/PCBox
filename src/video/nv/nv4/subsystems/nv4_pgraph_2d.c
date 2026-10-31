@@ -918,6 +918,21 @@ nv4_ctx_method(nv4_t *nv4, int bit, uint32_t inst)
     return NV4_GR_OK;
 }
 
+/* The TNT2's colour conversion (0 dither, 1 truncate, 2 subtract and
+   truncate), kept in the object's CTX_SWITCH1 dither mode as 1-3. The
+   2D engine still draws truncated, but the drivers read the object back
+   to see that the chip took it: NVIDIA's 28.32 for Windows 9x sends it
+   to its texture-loading SIFM objects and drops every texture when it
+   is missing. */
+static int
+nv4_color_conv_method(nv4_t *nv4, uint32_t data)
+{
+    if ((nv4->chip != NV4_CHIP_TNT2) || (data > 2))
+        return NV4_GR_ILLEGAL;
+    nv4_pgraph_set_grobj(nv4, 0, 20, 2, data + 1);
+    return NV4_GR_OK;
+}
+
 static int
 nv4_operation_method(nv4_t *nv4, uint32_t data)
 {
@@ -2562,6 +2577,8 @@ nv4_class_sifm(nv4_t *nv4, nv4_gr_chan_t *ch, int cls, uint32_t mthd, uint32_t d
             return nv4_ctx_method(nv4, is_new ? 30 : 25, data);
         case 0x198:
             return is_new ? nv4_ctx_method(nv4, 25, data) : NV4_GR_ILLEGAL;
+        case 0x2fc:
+            return is_new ? nv4_color_conv_method(nv4, data) : NV4_GR_ILLEGAL;
         case 0x300:
             nv4_set_color_fmt(nv4, nv4_sifm_fmt(data));
             return NV4_GR_OK;
@@ -2830,16 +2847,16 @@ nv4_pgraph_2d_method(nv4_t *nv4, nv4_gr_chan_t *ch, int cls, uint32_t mthd, uint
         case 0x21:
         case 0x61:
             if ((cls == 0x61) && (mthd == 0x2f8) && (nv4->chip == NV4_CHIP_TNT2))
-                return NV4_GR_OK;
+                return nv4_color_conv_method(nv4, data);
             return nv4_class_ifc(nv4, ch, cls, mthd, data);
         case 0x36:
         case 0x76:
             if ((cls == 0x76) && (mthd == 0x2f8) && (nv4->chip == NV4_CHIP_TNT2))
-                return NV4_GR_OK;
+                return nv4_color_conv_method(nv4, data);
             return nv4_class_sifc(nv4, ch, cls, mthd, data);
         case 0x60:
             if ((mthd == 0x3e0) && (nv4->chip == NV4_CHIP_TNT2))
-                return NV4_GR_OK;
+                return nv4_color_conv_method(nv4, data);
             return nv4_class_iifc(nv4, ch, mthd, data);
         /* The TNT2's own image classes: the TNT's with the colour
            conversion method. On the TNT these numbers are not image
@@ -2847,15 +2864,15 @@ nv4_pgraph_2d_method(nv4_t *nv4, nv4_gr_chan_t *ch, int cls, uint32_t mthd, uint
         case 0x64:
             if (nv4->chip != NV4_CHIP_TNT2)
                 break;
-            return (mthd == 0x3e0) ? NV4_GR_OK : nv4_class_iifc(nv4, ch, mthd, data);
+            return (mthd == 0x3e0) ? nv4_color_conv_method(nv4, data) : nv4_class_iifc(nv4, ch, mthd, data);
         case 0x65:
             if (nv4->chip != NV4_CHIP_TNT2)
                 break;
-            return (mthd == 0x2f8) ? NV4_GR_OK : nv4_class_ifc(nv4, ch, 0x61, mthd, data);
+            return (mthd == 0x2f8) ? nv4_color_conv_method(nv4, data) : nv4_class_ifc(nv4, ch, 0x61, mthd, data);
         case 0x66:
             if (nv4->chip != NV4_CHIP_TNT2)
                 break;
-            return (mthd == 0x2f8) ? NV4_GR_OK : nv4_class_sifc(nv4, ch, 0x76, mthd, data);
+            return (mthd == 0x2f8) ? nv4_color_conv_method(nv4, data) : nv4_class_sifc(nv4, ch, 0x76, mthd, data);
         case 0x4a:
         case 0x4b:
             return nv4_class_gdi(nv4, ch, cls, mthd, data);
