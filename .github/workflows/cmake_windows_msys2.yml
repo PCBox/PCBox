@@ -50,7 +50,7 @@ on:
 # after it waits instead of all of them. Other events get a unique group so
 # that they are never cancelled or held back.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.ref == 'refs/heads/master' && github.event_name == 'push' && 'master') || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.ref == 'refs/heads/pcbox' && github.event_name == 'push' && 'pcbox') || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
