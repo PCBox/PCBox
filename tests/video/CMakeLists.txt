@@ -94,6 +94,13 @@ if(BUILD_TESTING)
         target_link_libraries(nv4_3d_replay_tests PRIVATE m)
         add_test(NAME NV4.Replay3D COMMAND nv4_3d_replay_tests)
     endif()
+    add_executable(ogc_deb_tests vid_ogc_deb_test.c)
+    target_include_directories(ogc_deb_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/include
+        ${PROJECT_SOURCE_DIR}/src/cpu
+        ${PROJECT_BINARY_DIR}/src/include
+    )
+    add_test(NAME OGC.DEB COMMAND ogc_deb_tests)
 
     add_subdirectory(rage128)
 endif()
