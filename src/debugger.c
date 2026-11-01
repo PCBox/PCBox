@@ -759,9 +759,9 @@ debugger_opcode_kind(int map, uint8_t op, int opsize)
             return ((t == ops_pentiumpro_0f) || (t == ops_pentium2_0f) || (t == ops_pentium2d_0f)) ? DEBUGGER_OP_HINT_NOP :
                                                                                                     DEBUGGER_OP_NORMAL;
         case 0x10 ... 0x13:
-            return DEBUGGER_OP_UMOV;
-        case 0x50 ... 0x5f: /* 86Box has no SSE */
-            return DEBUGGER_OP_EMMI;
+            return ((t == ops_306_0f) || (t == ops_486_0f || (t == ops_pentium_0f) || (t == ops_pentiummmx_0f))) ? DEBUGGER_OP_UMOV : DEBUGGER_OP_NORMAL;
+        case 0x50 ... 0x5f: /* 86Box has no SSE, but PCBox does. */
+            return !!(ccr7 & 1) ? DEBUGGER_OP_EMMI : DEBUGGER_OP_NORMAL;
         case 0x36:
             return DEBUGGER_OP_RDSHR;
         case 0x37:
