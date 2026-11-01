@@ -17,7 +17,6 @@
 #include "qt_settings_completer.hpp"
 
 #include "qt_deviceconfig.hpp"
-#include "qt_settingscards.hpp"
 #include "ui_qt_deviceconfig.h"
 #include "qt_settings.hpp"
 
