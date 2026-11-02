@@ -41,7 +41,7 @@ void nv3_pmc_init(void)
     else 
         nv3->pmc.boot = NV3_BOOT_REG_REV_C00;
 
-    nv3->pmc.intr_en = NV3_PMC_INTR_EN_HARDWARE | NV3_PMC_INTR_EN_SOFTWARE;
+    nv3->pmc.intr_en = 0;
 
     nv_log("Initialising PMC: Done\n");
 }
@@ -52,14 +52,15 @@ void nv3_pmc_clear_interrupts(void)
     pci_clear_irq(nv3->nvbase.pci_slot, PCI_INTA, &nv3->nvbase.pci_irq_state);
 }
 
-// Handle hardware interrupts
-// We only clear when we need to, in other functions...
+static bool nv3_pmc_irq_pending(uint32_t status)
+{
+    return ((nv3->pmc.intr_en & NV3_PMC_INTR_EN_HARDWARE) && (status & 0x7FFFFFFF))
+        || ((nv3->pmc.intr_en & NV3_PMC_INTR_EN_SOFTWARE) && (status & 0x80000000));
+}
+
+// Aggregate the engine status; send_now also updates the PCI interrupt line.
 uint32_t nv3_pmc_handle_interrupts(bool send_now)
 {
-    // TODO:
-    // PGRAPH DMA INTR_EN (there is no DMA engine yet)
-    // Real-Mode Compatibility Interrupts
-
     uint32_t new_intr_value = 0x00;
 
     // set the new interrupt value
@@ -67,7 +68,7 @@ uint32_t nv3_pmc_handle_interrupts(bool send_now)
     // the registers are designed to line up so you can enable specific interrupts
 
     // Check Mediaport interrupts
-    if (nv3->pme.intr & nv3->pme.intr_en)
+    if (nv3->pme.intr & nv3->pme.intr_en & NV3_PME_INTR_NOTIFY)
         new_intr_value |= (NV3_PMC_INTERRUPT_PMEDIA_PENDING << NV3_PMC_INTERRUPT_PMEDIA);
 
     // Check FIFO interrupts
@@ -99,52 +100,18 @@ uint32_t nv3_pmc_handle_interrupts(bool send_now)
         new_intr_value |= (NV3_PMC_INTERRUPT_PBUS_PENDING << NV3_PMC_INTERRUPT_PBUS);
 
     // check SW interrupts
-    if (nv3->pmc.intr & (1 << NV3_PMC_INTERRUPT_SOFTWARE))
-        new_intr_value |= (NV3_PMC_INTERRUPT_SOFTWARE_PENDING << NV3_PMC_INTERRUPT_SOFTWARE);
+    if (nv3->pmc.intr & (1u << NV3_PMC_INTERRUPT_SOFTWARE))
+        new_intr_value |= (1u << NV3_PMC_INTERRUPT_SOFTWARE);
 
     nv3->pmc.intr = new_intr_value;
 
-    // ***TODO: DOes INTR still change if INTR_EN=0???***
-    // If interrupts are disabled don't bother
-
-    if (!nv3->pmc.intr_en)
-    {
-        nv3_pmc_clear_interrupts();
-        return nv3->pmc.intr;
-    }
-        
-
-    // if we actually need to send the interrupt (i.e. this is a write) send it now
-    if (send_now)
-    {
-        // no interrupts to send
-        if (!(nv3->pmc.intr)
-         || nv3->pmc.intr & 0x80000000) // software interrupt
-        {
+    /* Status remains visible while delivery is disabled. Hardware and software
+       are independent enables; either source may keep the level asserted. */
+    if (send_now) {
+        if (nv3_pmc_irq_pending(new_intr_value))
+            pci_set_irq(nv3->nvbase.pci_slot, PCI_INTA, &nv3->nvbase.pci_irq_state);
+        else
             nv3_pmc_clear_interrupts();
-            return nv3->pmc.intr;
-        }
-            
-        if ((nv3->pmc.intr & 0x7FFFFFFF))
-        {
-            if (nv3->pmc.intr_en & NV3_PMC_INTR_EN_HARDWARE)
-            {
-                nv_log_verbose_only("Firing hardware-originated interrupt NV3_PMC_INTR_0=0x%08x\n", nv3->pmc.intr);
-                pci_set_irq(nv3->nvbase.pci_slot, PCI_INTA, &nv3->nvbase.pci_irq_state);
-            }
-            else
-                nv_log_verbose_only("NOT firing hardware-originated interrupt NV3_PMC_INTR_0=0x%08x, BECAUSE HARDWARE INTERRUPTS ARE DISABLED\n", nv3->pmc.intr);      
-        }
-        else   
-        {
-            if (nv3->pmc.intr_en & NV3_PMC_INTR_EN_SOFTWARE)
-            {
-                nv_log_verbose_only("Firing software-originated interrupt NV3_PMC_INTR_0=0x%08x\n", nv3->pmc.intr);
-                pci_set_irq(nv3->nvbase.pci_slot, PCI_INTA, &nv3->nvbase.pci_irq_state);
-            }
-            else
-                nv_log_verbose_only("NOT firing software-originated interrupt NV3_PMC_INTR_0=0x%08x, BECAUSE SOFTWARE INTERRUPTS ARE DISABLED\n", nv3->pmc.intr); 
-        }
     }
 
     return nv3->pmc.intr;
@@ -168,8 +135,11 @@ uint32_t nv3_pmc_read(uint32_t address)
             ret = nv3_pmc_handle_interrupts(false);
             break;
         case NV3_PMC_INTR_EN:
-            //TODO: ACTUALLY CHANGE THE INTERRUPT STATE
             ret = nv3->pmc.intr_en;
+            break;
+        case NV3_PMC_INTR_READ:
+            /* Chip output is active low, independent of motherboard IRQ routing. */
+            ret = !nv3_pmc_irq_pending(nv3_pmc_handle_interrupts(false));
             break;
         case NV3_PMC_ENABLE:
             ret = nv3->pmc.enable;
@@ -184,20 +154,13 @@ void nv3_pmc_write(uint32_t address, uint32_t value)
     switch (address)
     {
         case NV3_PMC_INTR:
-            // This can only be done by software interrupts...
-            if (!(nv3->pmc.intr & 0x7FFFFFFF))
-            {
-                nv_warning("Huh? This is a hardware interrupt...Please use the INTR_EN registers of the GPU subsystem you want to trigger "
-                " an interrupt on, rather than writing to NV3_PMC_INTR (Or this is a bug)...NV3_PMC_INTR=0x%08x)\n", nv3->pmc.intr_en);
-                return; 
-            }
-            
+            /* Only SOFTWARE is writable. Hardware summary bits follow the engines. */
+            nv3->pmc.intr = (nv3->pmc.intr & 0x7FFFFFFF) | (value & 0x80000000);
             nv3_pmc_handle_interrupts(true);
-            nv3->pmc.intr = value;
             break;
         case NV3_PMC_INTR_EN:
             nv3->pmc.intr_en = value & 0x03;
-            nv3_pmc_handle_interrupts(value != 0);
+            nv3_pmc_handle_interrupts(true);
             break;
         case NV3_PMC_ENABLE:
             nv3->pmc.enable = value;

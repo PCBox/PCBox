@@ -30,9 +30,8 @@
 #include <86box/nv/vid_nv.h>
 #include <86box/nv/vid_nv3.h>
 
-// NOTES:
-// Interrupts are notifiers.
-// Bit 0 - Image, Bit 4 - VBlank interval, Bit 8 - Video, Bit 12 - Audio, Bit 16 - VMI
+/* PRM Alpha 9, section 6.2: NOTIFY is buffer completion; VMI is bit 4
+   and is not implemented on NV3. Only NOTIFY reaches PMC. */
 
 uint32_t nv3_pme_read(uint32_t address) 
 { 
@@ -41,7 +40,7 @@ uint32_t nv3_pme_read(uint32_t address)
     switch (address)
     {
         case NV3_PME_INTR:
-            ret = nv3->pme.intr;
+            ret = nv3->pme.intr & NV3_PME_INTR_MASK;
             break;
         case NV3_PME_INTR_EN:
             ret = nv3->pme.intr_en;
@@ -56,11 +55,12 @@ void nv3_pme_write(uint32_t address, uint32_t value)
     switch (address)
     {
         case NV3_PME_INTR:
-            nv3->pme.intr &= ~value;
+            nv3->pme.intr &= ~(value & NV3_PME_INTR_MASK);
             nv3_pmc_handle_interrupts(true);
             break;
         case NV3_PME_INTR_EN:
-            nv3->pme.intr_en = value & 0x00001111;
+            nv3->pme.intr_en = value & NV3_PME_INTR_MASK;
+            nv3_pmc_handle_interrupts(true);
             break;
     }
 }

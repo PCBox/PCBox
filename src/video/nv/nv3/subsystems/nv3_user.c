@@ -34,28 +34,19 @@
 // 128 channels conceptually supported - a hangover from nv1 where multiple windows all directly programming the gpu were supported? total lunacy. 
 uint32_t nv3_user_read(uint32_t address)
 {
-    // Get the address within the subchannel
-    //todo: print out the subchannel 
-    uint16_t method_offset = (address & 0x1FFC);
+    uint16_t method_offset = address & 0x1FFC;
 
-    //nv_log_verbose_only("User Submission Area PIO Channel %d.%d method_offset=0x%04x\n",
-    //    (address - NV3_USER_START) / 0x10000, (address - NV3_USER_START) / 0x2000 % NV3_DMA_SUBCHANNELS_PER_CHANNEL, method_offset);
-
-    // 0x10 is free CACHE1 object
-    // TODO: THERE ARE OTHER STUFF!
-    switch (method_offset)
-    {
+    switch (method_offset) {
         case NV3_SUBCHANNEL_PIO_IS_PFIFO_FREE:
             return nv3_pfifo_cache1_num_free_spaces();
-        case NV3_SUBCHANNEL_PIO_ALWAYS_ZERO_START ... NV3_SUBCHANNEL_PIO_ALWAYS_ZERO_END:
-            return 0x00;
-        
+        case NV3_SUBCHANNEL_PIO_ALWAYS_ZERO:
+            return 0;
+        default:
+            /* Methods are write-only. Record the read for the resource manager. */
+            nv3_pfifo_runout(address, 0, true, nv3_runout_reason_illegal_access);
+            return 0;
     }
-
-    nv_log("NV_USER READ: Channel FIELD NOT IMPLEMENTED!!!! offset=0x%04x\n", method_offset);
-
-    return 0x00;
-}; 
+}
 
 // Although NV3 doesn't have DMA mode unlike NV4 and later, it's conceptually similar to a "pusher" that pushes graphics commands that you write into CACHE1 that are then pulled out.
 // So we send the writes here. This might do other stuff, so we keep this function

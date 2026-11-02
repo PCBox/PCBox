@@ -1186,5 +1186,4 @@ typedef struct nv3_grobj_s
 
 // PIO Subchannel info
 #define NV3_SUBCHANNEL_PIO_IS_PFIFO_FREE                0x0010
-#define NV3_SUBCHANNEL_PIO_ALWAYS_ZERO_START            0x0012
-#define NV3_SUBCHANNEL_PIO_ALWAYS_ZERO_END              0x0017
+#define NV3_SUBCHANNEL_PIO_ALWAYS_ZERO                  0x0014

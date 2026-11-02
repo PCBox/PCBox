@@ -227,8 +227,8 @@ bool nv3_ramin_find_object(uint32_t name, uint32_t cache_num, uint8_t channel, u
         nv_warning("NV3: object %08x has class %02x outside 0x40-0x5F (PGRAPH sees %02x)\n", name, obj_context_struct.class_id,
                    obj_context_struct.class_id & 0x1F);
 
-    // Illegal accesses sent to RAMRO, so ignore here
-    // TODO: SEND THESE TO RAMRO!!!!!
+    /* Pusher access faults go to RAMRO. A RAMHT lookup failure instead
+       stops the puller with CACHE_ERROR (handled above). */
 
     #ifndef RELEASE_BUILD
     nv3_debug_ramin_print_context_info(name, obj_context_struct);
