@@ -144,7 +144,20 @@ serial_update_ints(serial_t *dev)
         }
     }
 
-    serial_do_irq(dev, !(dev->iir & 0x01) && ((dev->mctrl & 8) || ((dev->type == SERIAL_8250_PCJR_3F8) || (dev->type == SERIAL_8250_PCJR_2F8))));
+    serial_do_irq(dev, !(dev->iir & 0x01) && ((dev->mctrl & 8) || dev->irq_direct));
+}
+
+/*
+   Whether the interrupt output goes straight to the IRQ, as on the PCjr or
+   where a chip connects the UART itself, rather than through OUT2, which on
+   a PC's serial port is the IRQ enable. A direct interrupt does not depend
+   on OUT2.
+ */
+void
+serial_set_irq_direct(serial_t *dev, int direct)
+{
+    dev->irq_direct = !!direct;
+    serial_update_ints(dev);
 }
 
 static void
@@ -686,7 +699,7 @@ serial_write(uint16_t addr, uint8_t val, void *priv)
                     dev->be->rcr(dev->be->priv);
                 }
             }
-            if (!(val & 8) && (dev->mctrl & 8))
+            if (!(val & 8) && (dev->mctrl & 8) && !dev->irq_direct)
                 serial_do_irq(dev, 0);
             if ((dev->be != NULL) && (dev->be->dtr != NULL) && ((val ^ dev->mctrl) & 1))
                 dev->be->dtr(dev->be->priv, val & 1);
@@ -885,6 +898,23 @@ serial_remove(serial_t *dev)
     dev->base_address = 0x0000;
 }
 
+/*
+   Moves the UART's interrupt output to another IRQ line, or to none (0xff).
+   Like the multiplexer on a real chip, this drops it from the old line and
+   raises it on the new one if an interrupt is pending, so that a level held
+   on the old line is released.
+ */
+static void
+serial_set_irq_line(serial_t *dev, uint8_t irq)
+{
+    if (irq == dev->irq)
+        return;
+
+    serial_do_irq(dev, 0);
+    dev->irq = irq;
+    serial_update_ints(dev);
+}
+
 void
 serial_setup(serial_t *dev, uint16_t addr, uint8_t irq)
 {
@@ -900,7 +930,7 @@ serial_setup(serial_t *dev, uint16_t addr, uint8_t irq)
     dev->base_address = addr;
     if (addr != 0x0000)
         io_sethandler(addr, 0x0008, serial_read, NULL, NULL, serial_write, NULL, NULL, dev);
-    dev->irq = irq;
+    serial_set_irq_line(dev, irq);
 }
 
 void
@@ -909,10 +939,7 @@ serial_irq(serial_t *dev, const uint8_t irq)
     if (dev == NULL)
         return;
 
-    if (com_ports[dev->inst].enabled)
-        dev->irq = irq;
-    else
-        dev->irq = 0xff;
+    serial_set_irq_line(dev, com_ports[dev->inst].enabled ? irq : 0xff);
 
     serial_log("Port %i IRQ = %02X\n", dev->inst, irq);
 }
@@ -1151,23 +1178,15 @@ serial_init(const device_t *info)
             serial_setup(dev, COM4_ADDR, COM4_IRQ);
         else if (next_inst == 2)
             serial_setup(dev, COM3_ADDR, COM3_IRQ);
-        else if ((next_inst == 1) || (info->local == SERIAL_8250_PCJR_2F8))
+        else if (next_inst == 1)
             serial_setup(dev, COM2_ADDR, COM2_IRQ);
-        // TODO
-#if 0
-        else if ((next_inst == 1) || (info->local == SERIAL_8250_PCJR_3F8))
-            serial_setup(dev, COM1_ADDR, COM1_IRQ);
-#endif
         else if (next_inst == 0)
             serial_setup(dev, COM1_ADDR, COM1_IRQ);
 
         /* Default to 1200,N,7. */
         dev->dlab = 96;
         dev->fcr  = 0x06;
-        if ((info->local == SERIAL_8250_PCJR_3F8) || (info->local == SERIAL_8250_PCJR_2F8))
-            dev->clock_src = 1789500.0;
-        else
-            dev->clock_src = 1843200.0;
+        dev->clock_src = 1843200.0;
         timer_add(&dev->transmit_timer, serial_transmit_timer, dev, 0);
         timer_add(&dev->timeout_timer, serial_timeout_timer, dev, 0);
         timer_add(&dev->receive_timer, serial_receive_timer, dev, 0);
@@ -1215,34 +1234,6 @@ const device_t ns8250_device = {
     .internal_name = "ns8250",
     .flags         = 0,
     .local         = SERIAL_8250,
-    .init          = serial_init,
-    .close         = serial_close,
-    .reset         = serial_reset,
-    .available     = NULL,
-    .speed_changed = serial_speed_changed,
-    .force_redraw  = NULL,
-    .config        = NULL
-};
-
-const device_t ns8250_pcjr_3f8_device = {
-    .name          = "National Semiconductor 8250(-compatible) UART for PCjr (0x3f8)",
-    .internal_name = "ns8250_pcjr_3f8",
-    .flags         = 0,
-    .local         = SERIAL_8250_PCJR_3F8,
-    .init          = serial_init,
-    .close         = serial_close,
-    .reset         = serial_reset,
-    .available     = NULL,
-    .speed_changed = serial_speed_changed,
-    .force_redraw  = NULL,
-    .config        = NULL
-};
-
-const device_t ns8250_pcjr_2f8_device = {
-    .name          = "National Semiconductor 8250(-compatible) UART for PCjr (0x2f8)",
-    .internal_name = "ns8250_pcjr_2f8",
-    .flags         = 0,
-    .local         = SERIAL_8250_PCJR_2F8,
     .init          = serial_init,
     .close         = serial_close,
     .reset         = serial_reset,
