@@ -1161,7 +1161,9 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_span_t *sp)
                 zold = vram[za & vm] | (vram[(za + 1) & vm] << 8) | (vram[(za + 2) & vm] << 16)
                     | ((uint32_t) vram[(za + 3) & vm] << 24);
         }
-        sten = (s->bpp == 4) ? (zold >> 24) : 0;
+        /* the 32-bit depth buffer holds Z in bits 31:8 and stencil in
+           7:0 (NVIDIA's driver reports Z mask 0xffffff00, stencil 0xff) */
+        sten = (s->bpp == 4) ? (zold & 0xff) : 0;
 
         /* colors */
         d.r    = clamp255(nv4_f2i(at[AT_R]));
@@ -1243,7 +1245,7 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_span_t *sp)
                 if (s->swrite) {
                     int ns = nv4_stencil_op(s->sop_fail, sten, s->sref);
                     sten   = (sten & ~s->smask_w) | (ns & s->smask_w);
-                    zold   = (zold & 0x00ffffff) | ((uint32_t) sten << 24);
+                    zold   = (zold & 0xffffff00) | (uint32_t) sten;
                     for (int i = 0; i < 4; i++)
                         vram[(za + i) & vm] = zold >> (i * 8);
                 }
@@ -1251,23 +1253,23 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_span_t *sp)
             }
         }
         {
-            uint32_t zcur = (s->bpp == 2) ? zold : (zold & 0xffffff);
+            uint32_t zcur = (s->bpp == 2) ? zold : (zold >> 8);
             int      zpass = !s->zen || nv4_cmp(s->zfunc, depth, zcur);
 
             if (s->sten && s->swrite) {
                 int ns = nv4_stencil_op(zpass ? s->sop_zpass : s->sop_zfail, sten, s->sref);
                 sten   = (sten & ~s->smask_w) | (ns & s->smask_w);
             }
-            znew = (s->bpp == 2) ? depth : ((depth & 0xffffff) | ((uint32_t) sten << 24));
+            znew = (s->bpp == 2) ? depth : ((depth << 8) | (uint32_t) sten);
             if (!zpass) {
                 if (s->sten && s->swrite)
                     for (int i = 0; i < 4; i++)
-                        vram[(za + i) & vm] = ((zold & 0xffffff) | ((uint32_t) sten << 24)) >> (i * 8);
+                        vram[(za + i) & vm] = ((zold & 0xffffff00) | (uint32_t) sten) >> (i * 8);
                 continue;
             }
             if (s->z_on && (s->zwrite || (s->sten && s->swrite)) && (za + s->bpp - 1 <= s->z_lim)) {
                 if (!s->zwrite)
-                    znew = (s->bpp == 2) ? zold : ((zold & 0xffffff) | ((uint32_t) sten << 24));
+                    znew = (s->bpp == 2) ? zold : ((zold & 0xffffff00) | (uint32_t) sten);
                 for (int i = 0; i < s->bpp; i++)
                     vram[(za + i) & vm] = znew >> (i * 8);
             }

@@ -135,6 +135,12 @@ nv4_pmc_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             if (off & NV4_PMC_ENABLE_PMEDIA)
                 nv4_pme_reset(nv4);
             nv4_pmc_update_irq(nv4);
+            /* PGRAPH comes out of reset with FIFO access on: methods left
+               in CACHE1 go on once both engines run again, as nothing
+               else resumes them before the next push. */
+            if (((off | val) & (NV4_PMC_ENABLE_PFIFO | NV4_PMC_ENABLE_PGRAPH))
+                && ((nv4->pmc_enable & (NV4_PMC_ENABLE_PFIFO | NV4_PMC_ENABLE_PGRAPH)) == (NV4_PMC_ENABLE_PFIFO | NV4_PMC_ENABLE_PGRAPH)))
+                nv4_pfifo_run(nv4);
             break;
         default:
             nv4_log("NV4 PMC: write %06x = %08x\n", addr, val);

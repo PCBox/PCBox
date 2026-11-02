@@ -15,6 +15,20 @@ Tests:
 
 Try to match your code's filename and append the type of test it is.
 
+## RIVA 128 control and GDI
+
+Build `nv3_control_tests` with `BUILD_TESTING=ON`, then run
+`ctest --test-dir build -R '^NV3.Control$' --output-on-failure`.
+The fixture links the production NV3 control and GDI primitive sources with
+PCI and pixel sinks. It checks PMC hardware/software masking and software
+interrupt writes, PME NOTIFY/VMI register semantics, PGRAPH DMA interrupt
+masking/acknowledgement, NV_USER illegal reads and writes, RAMRO reason codes,
+512-byte/8-KB ring overflow and wrap, hash-failure routing, and GDI B/C clipping
+and streamed monochrome words. It does not boot a guest or emulate an external
+MPEG decoder. PME semantics follow the RIVA 128 PRM Alpha 9 sections 6.2/6.3;
+GDI methods follow the class description on pages 280-287. RAMRO encoding is
+also documented in envytools `rnndb/fifo/nv1_pfifo.xml`.
+
 ## Summary of current tests
 
 # CPU external interrupt polling

@@ -641,9 +641,6 @@ void nv3_pgraph_submit(uint32_t param, uint16_t method, uint8_t channel, uint8_t
     nv_log_verbose_only("**** About to execute method **** method=0x%04x param=0x%08x, channel=%d.%d, class=%s, grobj=0x%08x 0x%08x 0x%08x 0x%08x\n",
         method, param, channel, subchannel, nv3_class_names[class_id], grobj.grobj_0, grobj.grobj_1, grobj.grobj_2, grobj.grobj_3);
 
-    nv3_debug_class_count[class_id & 0x1F]++;
-    nv3_pgraph_trace_method(nv3->pgraph.trapped_address, param);
-
     /* The 3D batch is drawn before another class draws or reads pixels; the classes that only
        set state (beta, ROP, chroma, plane mask, clip, pattern) and the shared methods do not
        need it, nor image in memory (0x1C: surface offset, pitch and format). The zeta point (0x18)

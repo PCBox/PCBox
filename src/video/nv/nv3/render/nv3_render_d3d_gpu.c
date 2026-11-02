@@ -9,9 +9,8 @@
  *          NV3 3D -- GPU lane for the Direct3D triangle.
  *
  *          Optional, off by default: the "Draw 3D on the host GPU"
- *          option, or NV3_GPU=1 in the environment. The RIVA TNT's lane
- *          (nv4_pgraph_3d_gpu.c) on the RIVA 128's records: a flushed
- *          batch (nv3_render_d3d.h) is shaded by a Vulkan compute kernel
+ *          option, or NV3_GPU=1 in the environment. A flushed batch
+ *          (nv3_render_d3d.h) is shaded by a Vulkan compute kernel
  *          (nv3_render_d3d_gpu.comp) instead of the CPU. Setup stays on
  *          the CPU; the kernel takes the same draw states, triangles and
  *          spans, one invocation per pixel walking its row's spans in

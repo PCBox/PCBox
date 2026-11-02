@@ -14,8 +14,8 @@
 *          tests (hwtest/pgraph_class_d3d0.cc, nvhw/pgraph_d3d_nv3.c); the
 *          triangle setup and texturing are this file's own.
 *
-*          The work is split as the RIVA TNT's is (nv4_pgraph_3d.c), so the
-*          per-pixel part can run on worker threads or a GPU kernel:
+*          The work is split so that the per-pixel part can run on
+*          worker threads or a GPU kernel:
 *
 *            state    Before a triangle the PGRAPH state it is drawn with
 *                     (CONTROL0/1, surfaces, clip, texture and its pages)
@@ -434,9 +434,6 @@ nv3_d3d_blend(const nv3_d3d_dstate_t *st, uint32_t src, uint16_t dst, int32_t x,
     return (nv3_d3d_dither_8to5(o[0], x, y, dither) << 10) | (nv3_d3d_dither_8to5(o[1], x, y, dither) << 5)
         | nv3_d3d_dither_8to5(o[2], x, y, dither);
 }
-
-/* Debug: "dev nv3 d3d N" logs the next N triangles */
-uint32_t nv3_d3d_trace_left;
 
 /* One fragment: clip rectangles, alpha and Z tests, write enables, blend, write. `test_alpha` is
    what the alpha test (CONTROL1) compares: the combined texture x vertex alpha, before SRCCOLOR.
@@ -942,22 +939,15 @@ nv3_d3d_now_us(void)
     return (uint64_t) ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
 }
 
-/* "dev nv3 3d": what the flushes cost on the host since the last call */
-void
+/* What the 3D batch cost on the host, logged when the card closes */
+static void
 nv3_d3d_stats(void)
 {
     static const char *const cause[NV3_SYNC_CLASS] = { "LFB", "VGA", "vblank", "other" };
-    static uint64_t          t_last, tsc_last;
     nv3_d3d_batch_t         *b   = nv3->batch3d;
-    uint64_t                 now = nv3_d3d_now_us();
 
     if (!b)
         return;
-    if (t_last && (now > t_last))
-        pclog("nv3 3D: speed %.0f%% over %llu ms\n", 100.0 * ((double) (tsc - tsc_last) / cpuclock) / ((double) (now - t_last) / 1e6),
-              (unsigned long long) ((now - t_last) / 1000));
-    t_last   = now;
-    tsc_last = tsc;
     pclog("nv3 3D: %d threads%s, %llu flushes, %llu spans, %llu us shading\n", b->nthreads, b->gpu ? " + GPU" : "",
           (unsigned long long) b->st_flushes, (unsigned long long) b->st_spans, (unsigned long long) b->st_us);
     if (b->gpu) {
@@ -1488,10 +1478,6 @@ nv3_d3d_triangle(nv3_grobj_t grobj, const nv3_d3d_vertex_t *a_in, const nv3_d3d_
         return;
 
     nv3_d3d_make_state(&st, grobj, true);
-    if (nv3_d3d_tex_dump && st.textured && ((st.tex_format >> 28) != ((st.tex_format >> 24) & 0xF))) {
-        nv3_d3d_tex_dump = 0;
-        nv3_d3d_dump_texture(&st);
-    }
 
     float   minx = fminf(a->x, fminf(b->x, c->x));
     float   maxx = fmaxf(a->x, fmaxf(b->x, c->x));
@@ -1553,7 +1539,6 @@ nv3_d3d_triangle(nv3_grobj_t grobj, const nv3_d3d_vertex_t *a_in, const nv3_d3d_
     /* a span per row */
     const nv3_d3d_dstate_t *s    = &bt->states[t->state];
     int32_t                 ymin = INT32_MAX, ymax = INT32_MIN;
-    uint32_t                spans = 0, px = 0;
 
     for (int32_t y = y0; y <= y1; y++) {
         int32_t lo, hi;
@@ -1565,8 +1550,6 @@ nv3_d3d_triangle(nv3_grobj_t grobj, const nv3_d3d_vertex_t *a_in, const nv3_d3d_
         bt->spans[bt->nspans].x1  = (int16_t) (hi + 1);
         bt->spans[bt->nspans].tri = (uint16_t) bt->ntris;
         bt->nspans++;
-        spans++;
-        px += hi + 1 - lo;
         if (y < ymin)
             ymin = y;
         ymax = y;
@@ -1577,23 +1560,6 @@ nv3_d3d_triangle(nv3_grobj_t grobj, const nv3_d3d_vertex_t *a_in, const nv3_d3d_
     bt->had3d  = 1;
     bt->last3d = bt->vblanks;
 
-    if (nv3_d3d_trace_left) {
-        nv3_d3d_trace_left--;
-        always_log("nv3: d3d tri (%.1f,%.1f z%.3f w%.3f c%08x) (%.1f,%.1f) (%.1f,%.1f) cfg %08x filt %08x alpha %03x tex %08x/%08x ctx %08x "
-                   "surf %06x/%d %06x/%d %06x/%d z %06x/%d fog %02x %02x %02x/%08x | spans %u px %u%c",
-                   a->x, a->y, a->z, a->rhw, a->color, b->x, b->y, c->x, c->y, nv3->pgraph.d3d_config, nv3->pgraph.prim.d3d.filter, nv3->pgraph.d3d_alpha,
-                   nv3->pgraph.prim.d3d.tex_offset, nv3->pgraph.prim.d3d.tex_format, grobj.grobj_0,
-                   nv3->pgraph.boffset[0], nv3->pgraph.bpitch[0], nv3->pgraph.boffset[1], nv3->pgraph.bpitch[1],
-                   nv3->pgraph.boffset[2], nv3->pgraph.bpitch[2], nv3->pgraph.boffset[3], nv3->pgraph.bpitch[3],
-                   a->fog, b->fog, c->fog, nv3->pgraph.prim.d3d.fog_color, spans, px, 10);
-        always_log("nv3: d3d tex dma %04x flags %08x limit %08x target %d page0 %08x lin %08x texels %04x %04x %04x%c",
-                   nv3->pgraph.dma_settings & 0xFFFF, nv3_ramin_read32((nv3->pgraph.dma_settings & 0xFFFF) << 4, nv3),
-                   nv3_ramin_read32(((nv3->pgraph.dma_settings & 0xFFFF) << 4) + 4, nv3), nv3->pgraph.prim.d3d.tex_target,
-                   nv3->pgraph.prim.d3d.tex_pages[0], nv3->pgraph.prim.d3d.tex_lin, nv3_d3d_read_tex16(s, 0), nv3_d3d_read_tex16(s, 0x100 * 2 + 0x80),
-                   nv3_d3d_read_tex16(s, 0x8000), 10);
-        /* drawn at once, so what follows in the log sees its pixels */
-        nv3_d3d_flush();
-    }
 }
 
 /* ---- class 0x17: D3D5 textured triangle with zeta buffer ---- */
@@ -1785,6 +1751,7 @@ nv3_d3d_close(void)
     if (!b)
         return;
     nv3_d3d_flush();
+    nv3_d3d_stats();
     if (b->gpu)
         nv3_gpu_close(b->gpu);
     if (b->run) {

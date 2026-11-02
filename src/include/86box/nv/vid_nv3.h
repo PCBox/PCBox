@@ -248,6 +248,7 @@ extern const device_config_t nv3t_config[];                             // Confi
 #define NV3_PMC_INTERRUPT_SOFTWARE                      31
 #define NV3_PMC_INTERRUPT_SOFTWARE_PENDING              0x1
 #define NV3_PMC_INTR_EN                        0x140       // Controls global interrupt enable state
+#define NV3_PMC_INTR_READ                      0x160       // Physical INTA level (active low)
 #define NV3_PMC_INTR_EN_HARDWARE               0x1         // Determines if hardware interrupts are enabled
 #define NV3_PMC_INTR_EN_SOFTWARE               0x2         // Determinse if software interrupts were enabled
 #define NV3_PMC_ENABLE                                  0x200       // Determines which gpu subsystems were enabled
@@ -536,6 +537,9 @@ extern const device_config_t nv3t_config[];                             // Confi
 #define NV3_PME_START                                   0x200000    // Mediaport 
 #define NV3_PME_INTR                                    0x200100    // Mediaport: Interrupt Pending?
 #define NV3_PME_INTR_EN                                 0x200140    // Mediaport: Interrupt Enable
+#define NV3_PME_INTR_NOTIFY                             0x00000001
+#define NV3_PME_INTR_VMI                                0x00000010
+#define NV3_PME_INTR_MASK                               (NV3_PME_INTR_NOTIFY | NV3_PME_INTR_VMI)
 #define NV3_PME_END                                     0x200FFF
 
 #define NV3_PGRAPH_START                                0x400000    // Scene graph for 2d/3d rendering...the most important part
@@ -1596,6 +1600,7 @@ uint32_t    nv3_pramdac_get_core_clock_register(void);
 void        nv3_pramdac_set_pixel_clock_register(uint32_t value);
 void        nv3_pramdac_set_core_clock_register(uint32_t value);
 
+void        nv3_pfifo_runout(uint32_t address, uint32_t value, bool read, nv3_ramin_ramro_reason reason);
 uint32_t    nv3_user_read(uint32_t address);
 void        nv3_user_write(uint32_t address, uint32_t value);
 
@@ -1661,7 +1666,6 @@ void        nv3_d3d_touch(uint32_t lo, uint32_t hi, int cause);
 void        nv3_d3d_touch_rect(nv3_grobj_t grobj, int32_t y0, int32_t y1, int32_t x1, int cause);
 /* a 2D fill queued with the 3D work when it can be; false: draw it now */
 bool        nv3_d3d_fill(int32_t x0, int32_t y0, int32_t x1, int32_t y1, nv3_color_expanded_t c, nv3_grobj_t grobj, bool own_clip);
-void        nv3_d3d_stats(void);
 void        nv3_class_01c_method(uint32_t param, uint32_t method_id, nv3_ramin_context_t context, nv3_grobj_t grobj);
 
 // Notification Engine

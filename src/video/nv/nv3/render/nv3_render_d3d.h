@@ -123,7 +123,7 @@ typedef struct nv3_d3d_batch_s {
     int               parallel;
     struct nv3_gpu_s *gpu;
 
-    uint64_t st_flushes, st_spans, st_us; /* for nv3_d3d_stats */
+    uint64_t st_flushes, st_spans, st_us; /* logged at close (nv3_d3d_stats) */
     uint64_t st_sync_us[NV3_SYNC_CAUSES]; /* time waiting for the GPU, by cause */
     uint32_t st_sync_n[NV3_SYNC_CAUSES];
 

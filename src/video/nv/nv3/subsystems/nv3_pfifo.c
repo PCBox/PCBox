@@ -330,7 +330,10 @@ void nv3_pfifo_trigger_dma_if_required(void)
         if (((c1->dma_status >> 18) & 0x7FF) && !nv3_pfifo_cache1_num_free_spaces())
             break;
 
-        if (c1->dma_tlb_tag != page) {
+        /* a cached PTE that isn't present is a miss, not a fault: the 1997 resman (Viper V330
+           CD) primes the TLB with TAG 0 and PTE 0, and a D3D push buffer starting in page 0
+           would otherwise fault with DMA_PTE masked and stall the pusher for good */
+        if ((c1->dma_tlb_tag != page) || !(c1->dma_tlb_pte & 1)) {
             c1->dma_tlb_pte = nv3_ramin_read32(c1->dma_tlb_pt_base + ((linear >> 12) << 2), nv3);
             c1->dma_tlb_tag = page;
         }
@@ -721,7 +724,7 @@ void nv3_pfifo_cache0_pull(void)
         nv3->pfifo.cache0_settings.get_address ^= 0x04;
 
         if (!nv3_ramin_find_object(current_param, 0, current_channel, current_subchannel))
-            return; // interrupt was fired, and we went to ramro
+            return; // hash failure stopped the puller with CACHE_ERROR
     }
 
     uint32_t current_context = nv3->pfifo.cache0_settings.context[0]; // only 1 entry for CACHE0 so basically ignore the other context entries?
@@ -781,87 +784,65 @@ void nv3_pfifo_context_switch(uint32_t new_channel)
     nv3->pfifo.cache1_settings.channel = new_channel;
 }
 
-// NV_USER writes go here!
-// Pushes graphics objects into cache1
-void nv3_pfifo_cache1_push(uint32_t addr, uint32_t param)
+/* RAMRO records accesses rejected by the pusher, not puller hash failures.
+   Keep one entry unused so GET == PUT always means empty. */
+void nv3_pfifo_runout(uint32_t address, uint32_t value, bool read, nv3_ramin_ramro_reason reason)
 {
-    bool oh_shit = false;   // RAMRO needed
+    uint32_t next = (nv3->pfifo.runout_put + 8) & nv3_pfifo_ramro_ptr_mask();
 
-    // bit 23 of a ramin dword means it's a write...
-    uint32_t new_address = 0;
-
-    uint32_t method_offset = (addr & 0x1FFC); // size of dma object is 0x2000 and some universal methods are implemented at this point, like free
-    
-    // Up to 128 per envytools?
-    uint32_t channel = (addr >> NV3_OBJECT_SUBMIT_CHANNEL) & 0x7F;
-    uint32_t subchannel = (addr >> NV3_OBJECT_SUBMIT_SUBCHANNEL) & (NV3_DMA_CHANNELS - 1);
-
-    // first make sure there is even any cache available (PUSH0 gates the CPU's writes, not the DMA pusher's)
-    if (!nv3->pfifo.cache1_settings.push0 && !nv3_pfifo_dma_pusher_active)
-    {
-        oh_shit = true; 
-        new_address |= (nv3_runout_reason_no_cache_available << NV3_PFIFO_RUNOUT_RAMIN_ERR);
-    }
-    
-    // Check if runout is full
-    if (nv3->pfifo.runout_get != nv3->pfifo.runout_put)
-    {
-        oh_shit = true;
-        new_address |= (nv3_runout_reason_cache_ran_out << NV3_PFIFO_RUNOUT_RAMIN_ERR);
-    }
-
-    // no space left
-    if (!nv3_pfifo_cache1_num_free_spaces())
-    {
-        oh_shit = true;
-        new_address |= (nv3_runout_reason_free_count_overrun << NV3_PFIFO_RUNOUT_RAMIN_ERR);
-    }
-
-    // 0x0 is used for creating the object. The rest are reserved nvidia methods
-    if (method_offset > 0 && method_offset < 0x100)
-    {
-        oh_shit = true; 
-        new_address |= (nv3_runout_reason_reserved_access << NV3_PFIFO_RUNOUT_RAMIN_ERR);
-    }
-
-    // Now check for context switching
-
-    if (channel != nv3->pfifo.cache1_settings.channel)
-    {
-        // Cache reassignment required
-        if (!nv3->pfifo.cache_reassignment 
-        || (nv3->pfifo.cache1_settings.get_address != nv3->pfifo.cache1_settings.put_address))
-        {
-            oh_shit = true;
-            new_address |= (nv3_runout_reason_no_cache_available << NV3_PFIFO_RUNOUT_RAMIN_ERR);
-        }
-        else if (nv3->pfifo.cache1_settings.push0)
-            /* CACHE1 follows the channel even when this write itself runs out (a reserved
-               offset): the Win9x D3D driver writes one to move CACHE1 to its channel before
-               having the DMA pusher fill it */
-            nv3_pfifo_context_switch(channel);
-    }
-
-    // Did we fuck up?
-    if (oh_shit)
-    {
-         
-        /* the entry: the access's offset in USER (method 12:2, subchannel 15:13, channel 22:16),
-           a write (bit 23 clear), all bytes enabled (27:24, inverted: 0) and the reason (31:28) */
-        new_address |= addr & 0x7FFFFC;
-        nv3_ramin_write32(nv3->pfifo.ramro_location + nv3->pfifo.runout_put, new_address, nv3);
-        nv3_ramin_write32(nv3->pfifo.ramro_location + nv3->pfifo.runout_put + 4, param, nv3);
-
-        nv3->pfifo.runout_put = (nv3->pfifo.runout_put + 0x08) & nv3_pfifo_ramro_ptr_mask();
-
-        //Fire the interrupt. Also the very bad interrupt...
-        if (nv3->pfifo.runout_get == nv3->pfifo.runout_put)
-            nv3_pfifo_interrupt(NV3_PFIFO_INTR_RUNOUT_OVERFLOW, true);
-        else    
-            nv3_pfifo_interrupt(NV3_PFIFO_INTR_RUNOUT, true);
-
+    if (next == nv3->pfifo.runout_get) {
+        nv3_pfifo_interrupt(NV3_PFIFO_INTR_RUNOUT_OVERFLOW, true);
         return;
     }
+
+    /* USER offset 22:2, READ at 23, inverted byte enables 27:24 (all bytes
+       active), reason 31:28. The MMIO arbiter submits dwords. */
+    uint32_t entry = (address & 0x7FFFFC) | (read ? (1u << 23) : 0) | ((uint32_t) reason << 28);
+    nv3_ramin_write32(nv3->pfifo.ramro_location + nv3->pfifo.runout_put, entry, nv3);
+    nv3_ramin_write32(nv3->pfifo.ramro_location + nv3->pfifo.runout_put + 4, value, nv3);
+    nv3->pfifo.runout_put = next;
+    nv3_pfifo_interrupt(NV3_PFIFO_INTR_RUNOUT, true);
+}
+
+/* NV_USER writes go to the CACHE1 pusher. Reasons are mutually exclusive
+   codes, not bits: an illegal access must not turn into RESERVED_ACCESS by
+   ORing in an unrelated cache fault. */
+void nv3_pfifo_cache1_push(uint32_t addr, uint32_t param)
+{
+    uint32_t method_offset = addr & 0x1FFC;
+    uint32_t channel = (addr >> NV3_OBJECT_SUBMIT_CHANNEL) & 0x7F;
+    uint32_t subchannel = (addr >> NV3_OBJECT_SUBMIT_SUBCHANNEL) & (NV3_DMA_SUBCHANNELS_PER_CHANNEL - 1);
+
+    if (method_offset == NV3_SUBCHANNEL_PIO_IS_PFIFO_FREE) {
+        nv3_pfifo_runout(addr, param, false, nv3_runout_reason_illegal_access);
+        return;
+    }
+    if (method_offset > 0 && method_offset < 0x100) {
+        /* Some drivers use a reserved write to select a channel before DMA. */
+        if (channel != nv3->pfifo.cache1_settings.channel && nv3->pfifo.cache1_settings.push0
+            && nv3->pfifo.cache_reassignment
+            && nv3->pfifo.cache1_settings.get_address == nv3->pfifo.cache1_settings.put_address)
+            nv3_pfifo_context_switch(channel);
+        nv3_pfifo_runout(addr, param, false, nv3_runout_reason_reserved_access);
+        return;
+    }
+    if ((!nv3->pfifo.cache1_settings.push0 && !nv3_pfifo_dma_pusher_active)
+        || (channel != nv3->pfifo.cache1_settings.channel
+            && (!nv3->pfifo.cache_reassignment
+                || nv3->pfifo.cache1_settings.get_address != nv3->pfifo.cache1_settings.put_address))) {
+        nv3_pfifo_runout(addr, param, false, nv3_runout_reason_no_cache_available);
+        return;
+    }
+    if (nv3->pfifo.runout_get != nv3->pfifo.runout_put) {
+        nv3_pfifo_runout(addr, param, false, nv3_runout_reason_cache_ran_out);
+        return;
+    }
+    if (!nv3_pfifo_cache1_num_free_spaces()) {
+        nv3_pfifo_runout(addr, param, false, nv3_runout_reason_free_count_overrun);
+        return;
+    }
+    if (channel != nv3->pfifo.cache1_settings.channel)
+        nv3_pfifo_context_switch(channel);
 
     // We didn't. Let's put it in CACHE1
     uint32_t current_put_index = nv3_pfifo_cache1_slot(nv3->pfifo.cache1_settings.put_address);
@@ -899,7 +880,7 @@ void nv3_pfifo_cache1_pull(void)
     if (!current_method)
     {
         if (!nv3_ramin_find_object(current_param, 1, current_channel, current_subchannel))
-            return; // interrupt was fired, and we went to ramro
+            return; // hash failure stopped the puller with CACHE_ERROR
     }
 
     // should this be obtained from the grobj? Test on real nv3 h/w after drawrect.nvp works

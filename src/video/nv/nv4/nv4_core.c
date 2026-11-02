@@ -816,144 +816,10 @@ nv4_reset(void *priv)
 
     nv4_update_mappings(nv4);
     nv4_pmc_update_irq(nv4);
-}
-
-/* The debug command file's "dev": what the display and the engines are
-   doing. */
-static nv4_t *nv4_debug_dev;
-
-static void
-nv4_debug_hook(const char *args)
-{
-    nv4_t       *nv4     = nv4_debug_dev;
-    svga_t      *svga;
-    nv4_pfifo_t *p;
-    uint32_t     nonzero = 0;
-    uint32_t     start;
-    uint32_t     bytes;
-
-    if (!nv4)
-        return;
-    if (args && !strncmp(args, "ramht", 5)) {
-        /* ramht HANDLE: the hash table's entries for a handle (hex) */
-        nv4_pfifo_ramht_dump(nv4, strtoul(args + 5, NULL, 16));
-        return;
-    }
-    if (args && !strncmp(args, "logclass", 8)) {
-        /* logclass C: log every method of class C (hex); "logclass" alone stops */
-        nv4->dbg_log_cls = args[8] ? (int) strtol(args + 8, NULL, 16) : -1;
-        pclog("nv4: logging class %02x\n", nv4->dbg_log_cls & 0xff);
-        return;
-    }
-    if (args && !strncmp(args, "trace", 5)) {
-        /* trace N [CH] [novtx]: the next N methods, pushes and user writes
-           (of channel CH); novtx: methods and object binds only, without
-           the 3D classes' vertex methods */
-        char *end, *end2;
-        long  ch;
-
-        nv4->dbg_trace_novtx = strstr(args, "novtx") != NULL;
-        nv4->dbg_trace       = strtoul(args + 5, &end, 0);
-        ch                   = strtol(end, &end2, 0);
-        nv4->dbg_trace_ch    = ((end2 != end) && (ch >= 0)) ? (int) ch : -1;
-        pclog("nv4: tracing %u methods, channel %d%s\n", nv4->dbg_trace, nv4->dbg_trace_ch,
-              nv4->dbg_trace_novtx ? ", no vertices" : "");
-        return;
-    }
-    if (args && !strncmp(args, "reads", 5)) {
-        /* reads N: after N register reads, list the registers read */
-        memset(nv4->dbg_read_count, 0, sizeof(nv4->dbg_read_count));
-        nv4->dbg_reads_left = strtoul(args + 5, NULL, 0);
-        pclog("nv4: counting %u register reads\n", nv4->dbg_reads_left);
-        return;
-    }
-    if (args && !strncmp(args, "regs", 4)) {
-        /* regs N: log the next N register writes (MMIO and VGA ports) */
-        nv4->dbg_regtrace = strtoul(args + 4, NULL, 0);
-        pclog("nv4: logging %u register writes\n", nv4->dbg_regtrace);
-        return;
-    }
-    if (args && !strncmp(args, "3d", 2)) {
-        nv4_3d_stats(nv4);
-        return;
-    }
-    if (args && !strncmp(args, "dma", 3)) {
-        /* dma INST [OFFSET]: a DMA object and where OFFSET lands */
-        char    *end;
-        uint32_t inst = strtoul(args + 3, &end, 16);
-        uint32_t off  = strtoul(end, NULL, 16);
-        uint32_t addr = 0;
-        int      target = 0;
-        int      r      = nv4_dma_translate(nv4, inst, off, 0, &addr, &target);
-
-        pclog("nv4: dma %04x: %08x %08x %08x %08x; offset %08x -> %s %08x\n", inst,
-              nv4_ramin_read32(nv4, inst << 4), nv4_ramin_read32(nv4, (inst << 4) + 4),
-              nv4_ramin_read32(nv4, (inst << 4) + 8), nv4_ramin_read32(nv4, (inst << 4) + 12), off,
-              (r != NV4_DMA_OK) ? "fault" : (target == 0) ? "vram" : (target == 2) ? "pci" : (target == 3) ? "agp" : "?",
-              addr);
-        return;
-    }
-    svga  = &nv4->svga;
-    p     = &nv4->pfifo;
-    start = svga->memaddr_latch << 2;
-    bytes = svga->hdisp * svga->dispend * ((svga->bpp + 7) >> 3);
-    for (uint32_t i = 0; i < bytes; i++)
-        nonzero += (svga->vram[(start + i) & nv4->vram_mask] != 0);
-    pclog("nv4: vram %u MB, pfb boot_0 %08x\n", nv4->vram_size >> 20, nv4_pfb_read(nv4, NV4_PFB_BOOT_0));
-    pclog("nv4: mode %dx%d bpp %d start %06x pcrtc_start %08x rowoffset %d CR28 %02x nonzero %u/%u\n",
-          svga->hdisp, svga->dispend, svga->bpp, start, nv4->pcrtc_start, svga->rowoffset, svga->crtc[0x28], nonzero, bytes);
-    pclog("nv4: pmc intr %08x en %08x enable %08x | pfifo intr %08x en %08x caches %08x mode %08x dma %08x\n",
-          nv4_pmc_pending(nv4), nv4->pmc_intr_en, nv4->pmc_enable, p->intr, p->intr_en, p->caches, p->mode, p->dma);
-    pclog("nv4: cache1 push0 %08x push1 %08x pull0 %08x put %d get %d dma push %08x put %08x get %08x state %08x inst %04x\n",
-          p->c1_push0, p->c1_push1, p->c1_pull0, p->c1_put, p->c1_get, p->c1_dma_push, p->c1_dma_put, p->c1_dma_get,
-          p->c1_dma_state, p->c1_dma_instance);
-    pclog("nv4: pgraph intr %08x en %08x fifo %08x nsource %08x ctx_user %08x ctx_control %08x trapped %08x/%08x\n",
-          NV4_GR(nv4, NV4_PGRAPH_INTR), NV4_GR(nv4, NV4_PGRAPH_INTR_EN), NV4_GR(nv4, NV4_PGRAPH_FIFO),
-          NV4_GR(nv4, NV4_PGRAPH_NSOURCE), NV4_GR(nv4, NV4_PGRAPH_CTX_USER), NV4_GR(nv4, NV4_PGRAPH_CTX_CONTROL),
-          NV4_GR(nv4, NV4_PGRAPH_TRAPPED_ADDR), NV4_GR(nv4, NV4_PGRAPH_TRAPPED_DATA));
-    pclog("nv4: engine busy for %.0f us more (nvclk %.1f MHz, mclk %.1f MHz)\n",
-          nv4_pfifo_engine_busy(nv4) ? (double) (nv4->eng_tsc - tsc) * 1000000.0 / cpuclock : 0.0,
-          nv4->nvclk_hz / 1000000.0, nv4->mclk_hz / 1000000.0);
-    pclog("nv4: switch %08x %08x %08x %08x debug %08x %08x %08x %08x\n", NV4_GR(nv4, NV4_PGRAPH_CTX_SWITCH1),
-          NV4_GR(nv4, NV4_PGRAPH_CTX_SWITCH2), NV4_GR(nv4, NV4_PGRAPH_CTX_SWITCH3), NV4_GR(nv4, NV4_PGRAPH_CTX_SWITCH4),
-          NV4_GR(nv4, NV4_PGRAPH_DEBUG_0), NV4_GR(nv4, NV4_PGRAPH_DEBUG_1), NV4_GR(nv4, NV4_PGRAPH_DEBUG_2),
-          NV4_GR(nv4, NV4_PGRAPH_DEBUG_3));
-    for (int i = 0; i < 4; i++) /* 2D source and destination, 3D colour and zeta */
-        pclog("nv4: surf %d base %08x off %08x pitch %04x limit %08x fmt %x\n", i, NV4_GR(nv4, NV4_PGRAPH_BBASE + i * 4),
-              NV4_GR(nv4, NV4_PGRAPH_BOFFSET + i * 4), NV4_GR(nv4, NV4_PGRAPH_BPITCH + i * 4),
-              NV4_GR(nv4, NV4_PGRAPH_BLIMIT + i * 4), (NV4_GR(nv4, NV4_PGRAPH_BPIXEL) >> (i * 4)) & 0xf);
-    pclog("nv4: 3D surface type %u (2: swizzled, %u x %u) | swizzled surface %u x %u\n", NV4_GR(nv4, NV4_PGRAPH_SURFACE),
-          1u << ((NV4_GR(nv4, NV4_PGRAPH_BSWIZZLE2) >> 16) & 0xf), 1u << ((NV4_GR(nv4, NV4_PGRAPH_BSWIZZLE2) >> 24) & 0xf),
-          1u << ((NV4_GR(nv4, NV4_PGRAPH_BSWIZZLE5) >> 16) & 0xf), 1u << ((NV4_GR(nv4, NV4_PGRAPH_BSWIZZLE5) >> 24) & 0xf));
-    pclog("nv4: uclip x %05x..%05x y %05x..%05x | image clip x %05x..%05x y %05x..%05x\n",
-          NV4_GR(nv4, NV4_PGRAPH_UCLIP_MIN), NV4_GR(nv4, NV4_PGRAPH_UCLIP_MAX),
-          NV4_GR(nv4, NV4_PGRAPH_UCLIP_MIN + 4), NV4_GR(nv4, NV4_PGRAPH_UCLIP_MAX + 4),
-          NV4_GR(nv4, NV4_PGRAPH_UCLIPA_MIN), NV4_GR(nv4, NV4_PGRAPH_UCLIPA_MAX),
-          NV4_GR(nv4, NV4_PGRAPH_UCLIPA_MIN + 4), NV4_GR(nv4, NV4_PGRAPH_UCLIPA_MAX + 4));
-    for (int i = 0; i < 256; i++)
-        if (nv4->dbg_cls_count[i])
-            pclog("nv4: class %02x: %u methods\n", i, nv4->dbg_cls_count[i]);
-    for (int i = 0; i < 16; i++)
-        if (nv4->dbg_user[i].reads || nv4->dbg_user[i].writes)
-            pclog("nv4: user ch %d: %u reads, %u writes, last %04x = %08x%s\n", i, nv4->dbg_user[i].reads,
-                  nv4->dbg_user[i].writes, nv4->dbg_user[i].last_off, nv4->dbg_user[i].last_val,
-                  (nv4->pfifo.mode & (1u << i)) ? " (DMA)" : "");
-    pclog("nv4: pvideo overlay %08x point %08x size %08x scale %08x start %06x/%06x pitch %x/%x key %08x shown %u intr %x/%x\n",
-          nv4->pvideo_regs[0x244 >> 2], nv4->pvideo_regs[0x230 >> 2], nv4->pvideo_regs[0x234 >> 2],
-          nv4->pvideo_regs[0x200 >> 2], nv4->pvideo_regs[0x20c >> 2], nv4->pvideo_regs[0x210 >> 2],
-          nv4->pvideo_regs[0x214 >> 2], nv4->pvideo_regs[0x218 >> 2], nv4->pvideo_regs[0x240 >> 2],
-          nv4->pvideo_shown, nv4->pvideo_intr, nv4->pvideo_intr_en);
-    pclog("nv4: dma to system memory: %u writes, %u through not-present PTEs (last inst %04x offset %08x pte %08x)\n",
-          nv4->dbg_sysw_n, nv4->dbg_dma_np, nv4->dbg_np_inst, nv4->dbg_np_offset, nv4->dbg_np_pte);
-    for (uint32_t i = 0; (i < 8) && (i < nv4->dbg_sysw_n); i++) {
-        uint32_t n = (nv4->dbg_sysw_n - 1 - i) & 7;
-
-        pclog("nv4:   inst %04x offset %08x -> %08x (%u bytes)\n", nv4->dbg_sysw[n].inst, nv4->dbg_sysw[n].offset,
-              nv4->dbg_sysw[n].addr, nv4->dbg_sysw[n].len);
-    }
-    for (int i = 0; i < nv4->dbg_gaps; i++)
-        pclog("nv4: not modeled: class %02x method %04x: %s (%u times)\n", nv4->dbg_gap[i].cls,
-              nv4->dbg_gap[i].mthd, nv4->dbg_gap[i].what, nv4->dbg_gap[i].count);
+    /* The depth, pixel clock and cursor follow the registers just
+       cleared; the svga core only recalculates on a register write. */
+    nv4->svga.fullchange = nv4->svga.monitor->mon_changeframecount;
+    svga_recalctimings(&nv4->svga);
 }
 
 static void *
@@ -1028,8 +894,6 @@ nv4_init(const device_t *info)
     nv4_3d_init(nv4);
     nv4_reset(nv4);
 
-    nv4_debug_dev = nv4;
-
     return nv4;
 }
 
@@ -1038,9 +902,6 @@ nv4_close(void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
 
-    if (nv4_debug_dev == nv4) {
-        nv4_debug_dev = NULL;
-    }
     timer_disable(&nv4->ptimer_timer);
     nv4_pfifo_close(nv4);
     nv4_vga_close(nv4);

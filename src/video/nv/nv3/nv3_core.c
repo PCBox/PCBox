@@ -1614,7 +1614,6 @@ static void nv3_reset(UNUSED(void* priv))
 
 void nv3_close(UNUSED(void* priv))
 {
-    //debug_cmd_set_device_hook(NULL);
     nv3_d3d_close();
     // Shut down logging
     log_close(nv3->nvbase.log);

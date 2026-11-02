@@ -67,7 +67,7 @@ void nv3_class_00c_method(uint32_t param, uint32_t method_id, nv3_ramin_context_
             nv_log("Method Execution: GDI-B Clip Bottom,Right %04x,%04x\n", nv3->pgraph.win95_gdi_text.clip_b.right, nv3->pgraph.win95_gdi_text.clip_b.bottom);
             nv3_gdi_share_clip(&nv3->pgraph.win95_gdi_text.clip_b);
             break;
-        /* Type C: Unclipped Bitmap */
+        /* Type C: Clipped transparent bitmap, shared input/output size */
         case NV3_W95TXT_C_CLIP_COLOR:
             nv3->pgraph.win95_gdi_text.color1_c = param;
             nv_log("Method Execution: GDI-C Color 0x%08x\n", nv3->pgraph.win95_gdi_text.color1_c);
@@ -101,7 +101,7 @@ void nv3_class_00c_method(uint32_t param, uint32_t method_id, nv3_ramin_context_
             nv_log("Method Execution: GDI-C Clip Right,Bottom %04x,%04x\n", nv3->pgraph.win95_gdi_text.clip_c.right, nv3->pgraph.win95_gdi_text.clip_c.bottom);
             nv3_gdi_share_clip(&nv3->pgraph.win95_gdi_text.clip_c);
             break;
-        /* Type B and C not implemented YET, as they are not used by NT GDI driver */
+        /* Type D: Clipped transparent bitmap, separate input/output sizes */
         case NV3_W95TXT_D_CLIP_TOPLEFT: 
             nv3->pgraph.win95_gdi_text.clip_d.left = (param & 0xFFFF);
             nv3->pgraph.win95_gdi_text.clip_d.top = ((param >> 16) & 0xFFFF);
@@ -243,7 +243,7 @@ void nv3_class_00c_method(uint32_t param, uint32_t method_id, nv3_ramin_context_
             else if (method_id >= NV3_W95TXT_C_CLIP_CLIPRECT_START && method_id <= NV3_W95TXT_C_CLIP_CLIPRECT_END)
             {
                 /* lol */
-                uint32_t index = (method_id - NV3_W95TXT_C_CLIP_CLIPRECT_START) >> 3;
+                uint32_t index = (method_id - NV3_W95TXT_C_CLIP_CLIPRECT_START) >> 2;
 
                 nv3->pgraph.win95_gdi_text.bitmap_c[index] = param;
 
@@ -262,7 +262,7 @@ void nv3_class_00c_method(uint32_t param, uint32_t method_id, nv3_ramin_context_
             else if (method_id >= NV3_W95TXT_D_CLIP_CLIPRECT_START && method_id <= NV3_W95TXT_D_CLIP_CLIPRECT_END)
             {
                 /* lol */
-                uint32_t index = (method_id - NV3_W95TXT_D_CLIP_CLIPRECT_START) >> 3;
+                uint32_t index = (method_id - NV3_W95TXT_D_CLIP_CLIPRECT_START) >> 2;
 
                 nv3->pgraph.win95_gdi_text.bitmap_d[index] = param;
 
@@ -282,7 +282,7 @@ void nv3_class_00c_method(uint32_t param, uint32_t method_id, nv3_ramin_context_
             else if (method_id >= NV3_W95TXT_E_CLIP_CLIPRECT_START && method_id <= NV3_W95TXT_E_CLIP_CLIPRECT_END)
             {
                 /* lol */
-                uint32_t index = (method_id - NV3_W95TXT_E_CLIP_CLIPRECT_START) >> 3;
+                uint32_t index = (method_id - NV3_W95TXT_E_CLIP_CLIPRECT_START) >> 2;
 
                 nv3->pgraph.win95_gdi_text.bitmap_e[index] = param;
 

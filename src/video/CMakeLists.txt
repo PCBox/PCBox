@@ -207,6 +207,25 @@ add_library(vid OBJECT
     nv/nv3/subsystems/nv3_pvideo.c
     nv/nv3/subsystems/nv3_user.c
 
+    # NVidia RIVA TNT / TNT2
+    nv/nv4/nv4_core.c
+    nv/nv4/nv4_vga.c
+    nv/nv4/subsystems/nv4_pmc.c
+    nv/nv4/subsystems/nv4_pbus.c
+    nv/nv4/subsystems/nv4_ptimer.c
+    nv/nv4/subsystems/nv4_pfb.c
+    nv/nv4/subsystems/nv4_pramdac.c
+    nv/nv4/subsystems/nv4_pcrtc.c
+    nv/nv4/subsystems/nv4_pramin.c
+    nv/nv4/subsystems/nv4_dma.c
+    nv/nv4/subsystems/nv4_pfifo.c
+    nv/nv4/subsystems/nv4_pgraph.c
+    nv/nv4/subsystems/nv4_pgraph_2d.c
+    nv/nv4/subsystems/nv4_pgraph_3d.c
+    nv/nv4/subsystems/nv4_pgraph_3d_gpu.c
+    nv/nv4/subsystems/nv4_pvideo.c
+    nv/nv4/subsystems/nv4_stubs.c
+
     # NVidia RIVA 128 - Object Classes
     nv/nv3/classes/nv3_class_names.c
     nv/nv3/classes/nv3_class_shared_methods.c
@@ -360,6 +379,7 @@ find_package(Vulkan QUIET)
 find_path(R128_VULKAN_INCLUDE_DIR vulkan/vulkan.h HINTS ${Vulkan_INCLUDE_DIR})
 if(R128_VULKAN_INCLUDE_DIR)
     target_compile_definitions(vid PRIVATE R128_GPU_HAVE_VULKAN)
+    # the RIVA TNT's GPU lane (nv4_pgraph_3d_gpu.c) loads Vulkan the same way
     target_compile_definitions(vid PRIVATE NV4_GPU_HAVE_VULKAN)
     # and the RIVA 128's (nv3_render_d3d_gpu.c)
     target_compile_definitions(vid PRIVATE NV3_GPU_HAVE_VULKAN)

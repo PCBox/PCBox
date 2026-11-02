@@ -397,6 +397,8 @@ nv4_pgraph_reset(nv4_t *nv4)
         nv4_pgraph_2d_reset_chan(&nv4->gr_chan[i]);
     }
     nv4_3d_reset(nv4);
+    /* 2D pixels still waiting to join the batch go with it */
+    nv4->run2d.n = 0;
     /* no channel until the driver loads one */
     GR(NV4_PGRAPH_CTX_USER) = 0x0f000000;
     /* Its reset values: FIFO access on, every surface invalid. */

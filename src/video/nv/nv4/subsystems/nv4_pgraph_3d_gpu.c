@@ -65,7 +65,6 @@
 #include <86box/thread.h>
 #include <86box/video.h>
 #include <86box/vid_svga.h>
-#include <86box/plat_unused.h>
 #include <86box/nv/vid_nv4.h>
 #include "nv4_pgraph_3d.h"
 
