@@ -1,6 +1,8 @@
 #ifndef QT_SETTINGSOTHERREMOVABLE_HPP
 #define QT_SETTINGSOTHERREMOVABLE_HPP
 
+#include <cstdint>
+
 #include <QWidget>
 #include <QStandardItemModel>
 
@@ -10,6 +12,8 @@ class QComboBox;
 namespace Ui {
 class SettingsOtherRemovable;
 }
+
+class SettingsCompleter;
 
 class SettingsOtherRemovable : public QWidget {
     Q_OBJECT
@@ -73,6 +77,8 @@ private:
     void setRDiskBus(QAbstractItemModel *model, const QModelIndex &idx, uint8_t bus, uint32_t type, uint8_t channel);
     void setRDiskType(QAbstractItemModel *model, const QModelIndex &idx, uint8_t bus, uint32_t type);
     void setTapeBus(QAbstractItemModel *model, const QModelIndex &idx, uint8_t bus, uint8_t channel);
+    void updateRDiskTypeCombo();
+    QIcon rdiskIconForType(uint32_t type) const;
     void updateTapeTypeCombo();
     void enableCurrentlySelectedChannel_MO();
     void enableCurrentlySelectedChannel_RDisk();
