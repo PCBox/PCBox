@@ -14,6 +14,7 @@
 #    include "codegen_backend.h"
 #    include "codegen_backend_arm64_defs.h"
 #    include "codegen_backend_arm64_ops.h"
+#    include "codegen_link.h"
 #    include "codegen_ir_defs.h"
 #    include "codegen_reg.h"
 #    include "x86.h"
