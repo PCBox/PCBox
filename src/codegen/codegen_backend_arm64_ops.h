@@ -24,6 +24,7 @@ void host_arm64_ANDS_IMM(codeblock_t *block, int dst_reg, int src_n_reg, uint32_
 void host_arm64_ASR(codeblock_t *block, int dst_reg, int src_n_reg, int shift_reg);
 
 void host_arm64_B(codeblock_t *block, void *dest);
+uint32_t *host_arm64_B_(codeblock_t *block);
 
 void host_arm64_BFI(codeblock_t *block, int dst_reg, int src_reg, int lsb, int width);
 
@@ -108,6 +109,8 @@ void host_arm64_CSELX_EQ(codeblock_t *block, int dst_reg, int src_n_reg, int src
 void host_arm64_CSEL_NE(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_CSEL_VS(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 
+void host_arm64_CSET_NE(codeblock_t *block, int dst_reg);
+
 void host_arm64_DUP_V2S(codeblock_t *block, int dst_reg, int src_n_reg, int element);
 void host_arm64_INS_D(codeblock_t *block, int dst_reg, int src_reg, int dst_index, int src_index);
 void host_arm64_INS_S(codeblock_t *block, int dst_reg, int src_reg, int dst_index, int src_index);
@@ -134,13 +137,8 @@ void host_arm64_FMIN_V2S(codeblock_t *block, int dst_reg, int src_n_reg, int src
 void host_arm64_FMSUB_D(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg, int src_a_reg);
 void host_arm64_FMUL_D(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_FMUL_V2S(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
-void host_arm64_MUL(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
-void host_arm64_SMULL(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
-void host_arm64_UMULL(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_FSUB_D(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_FSUB_V2S(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
-
-void host_arm64_FCSEL_D_EQ(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 
 void host_arm64_FCVT_D_S(codeblock_t *block, int dst_reg, int src_reg);
 void host_arm64_FCVT_S_D(codeblock_t *block, int dst_reg, int src_reg);
@@ -169,6 +167,8 @@ void host_arm64_FRINTX_D(codeblock_t *block, int dst_reg, int src_reg);
 void host_arm64_FSQRT_D(codeblock_t *block, int dst_reg, int src_reg);
 void host_arm64_FSQRT_S(codeblock_t *block, int dst_reg, int src_reg);
 
+void host_arm64_LDP_IMM_W(codeblock_t *block, int dest_reg1, int dest_reg2, int base_reg, int offset);
+void host_arm64_LDP_IMM_X(codeblock_t *block, int dest_reg1, int dest_reg2, int base_reg, int offset);
 void host_arm64_LDP_POSTIDX_X(codeblock_t *block, int src_reg1, int src_reg2, int base_reg, int offset);
 
 void host_arm64_LDR_IMM_W(codeblock_t *block, int dest_reg, int base_reg, int offset);
@@ -178,7 +178,6 @@ void host_arm64_LDR_REG_X(codeblock_t *block, int dest_reg, int base_reg, int of
 
 void host_arm64_LDR_REG_F32(codeblock_t *block, int dest_reg, int base_reg, int offset_reg);
 void host_arm64_LDR_IMM_F64(codeblock_t *block, int dest_reg, int base_reg, int offset);
-void host_arm64_LDR_IMM_F128(codeblock_t *block, int dest_reg, int base_reg, int offset);
 void host_arm64_LDR_REG_F64(codeblock_t *block, int dest_reg, int base_reg, int offset_reg);
 void host_arm64_LDR_REG_F64_S(codeblock_t *block, int dest_reg, int base_reg, int offset_reg);
 
@@ -186,10 +185,13 @@ void host_arm64_LDRB_IMM_W(codeblock_t *block, int dest_reg, int base_reg, int o
 void host_arm64_LDRB_REG(codeblock_t *block, int dest_reg, int base_reg, int offset_reg);
 
 void host_arm64_LDRH_IMM(codeblock_t *block, int dest_reg, int base_reg, int offset);
-uint32_t *host_arm64_insn_(codeblock_t *block, uint32_t insn);
 void host_arm64_LDRH_REG(codeblock_t *block, int dest_reg, int base_reg, int offset_reg);
 
 void host_arm64_LDRX_REG_LSL3(codeblock_t *block, int dest_reg, int base_reg, int offset_reg);
+
+void host_arm64_LDR_POSTIDX_W(codeblock_t *block, int dest_reg, int base_reg, int offset);
+void host_arm64_LDRB_POSTIDX(codeblock_t *block, int dest_reg, int base_reg, int offset);
+void host_arm64_LDRH_POSTIDX(codeblock_t *block, int dest_reg, int base_reg, int offset);
 
 void host_arm64_LSL(codeblock_t *block, int dst_reg, int src_n_reg, int shift_reg);
 void host_arm64_LSLX(codeblock_t *block, int dst_reg, int src_n_reg, int shift_reg);
@@ -203,8 +205,6 @@ void host_arm64_MOV_REG_ROR(codeblock_t *block, int dst_reg, int src_m_reg, int 
 
 void host_arm64_MOVX_IMM(codeblock_t *block, int reg, uint64_t imm_data);
 void host_arm64_MOVX_REG(codeblock_t *block, int dst_reg, int src_m_reg, int shift);
-void host_arm64_MOVX_REG_ASR(codeblock_t *block, int dst_reg, int src_m_reg, int shift);
-void host_arm64_MOVX_REG_LSR(codeblock_t *block, int dst_reg, int src_m_reg, int shift);
 
 void host_arm64_MOVZ_IMM(codeblock_t *block, int reg, uint32_t imm_data);
 void host_arm64_MOVK_IMM(codeblock_t *block, int reg, uint32_t imm_data);
@@ -212,13 +212,13 @@ void host_arm64_MOVK_IMM(codeblock_t *block, int reg, uint32_t imm_data);
 void host_arm64_MSR_FPCR(codeblock_t *block, int src_reg);
 
 void host_arm64_MUL_V4H(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
+void host_arm64_MUL_W(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 
 void host_arm64_NOP(codeblock_t *block);
 
 void host_arm64_ORR_IMM(codeblock_t *block, int dst_reg, int src_n_reg, uint32_t imm_data);
 void host_arm64_ORR_REG(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg, int shift);
 void host_arm64_ORR_REG_V(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
-void host_arm64_ORR_REG_V16B(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_ORRX_REG(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg, int shift);
 
 void host_arm64_RET(codeblock_t *block, int reg);
@@ -260,6 +260,7 @@ void host_arm64_SRSHR_V4S(codeblock_t *block, int dst_reg, int src_reg, int shif
 
 void host_arm64_STP_IMM_X(codeblock_t *block, int src_reg1, int src_reg2, int base_reg, int offset);
 void host_arm64_STP_PREIDX_X(codeblock_t *block, int src_reg1, int src_reg2, int base_reg, int offset);
+void host_arm64_STP_POSTIDX_X(codeblock_t *block, int src_reg1, int src_reg2, int base_reg, int offset);
 
 void host_arm64_STR_IMM_W(codeblock_t *block, int dest_reg, int base_reg, int offset);
 void host_arm64_STR_IMM_Q(codeblock_t *block, int dest_reg, int base_reg, int offset);
@@ -267,7 +268,6 @@ void host_arm64_STR_REG(codeblock_t *block, int src_reg, int base_reg, int offse
 
 void host_arm64_STR_REG_F32(codeblock_t *block, int src_reg, int base_reg, int offset_reg);
 void host_arm64_STR_IMM_F64(codeblock_t *block, int src_reg, int base_reg, int offset);
-void host_arm64_STR_IMM_F128(codeblock_t *block, int src_reg, int base_reg, int offset);
 void host_arm64_STR_REG_F64(codeblock_t *block, int src_reg, int base_reg, int offset_reg);
 void host_arm64_STR_REG_F64_S(codeblock_t *block, int src_reg, int base_reg, int offset_reg);
 
@@ -277,9 +277,14 @@ void host_arm64_STRB_REG(codeblock_t *block, int src_reg, int base_reg, int offs
 void host_arm64_STRH_IMM(codeblock_t *block, int dest_reg, int base_reg, int offset);
 void host_arm64_STRH_REG(codeblock_t *block, int src_reg, int base_reg, int offset_reg);
 
+void host_arm64_STR_POSTIDX_W(codeblock_t *block, int src_reg, int base_reg, int offset);
+void host_arm64_STRB_POSTIDX(codeblock_t *block, int src_reg, int base_reg, int offset);
+void host_arm64_STRH_POSTIDX(codeblock_t *block, int src_reg, int base_reg, int offset);
+
 void host_arm64_SUB_IMM(codeblock_t *block, int dst_reg, int src_n_reg, uint32_t imm_data);
 void host_arm64_SUB_REG(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg, int shift);
 void host_arm64_SUB_REG_LSR(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg, int shift);
+void host_arm64_SUBX_REG(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_SUB_V8B(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_SUB_V4H(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_SUB_V2S(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
@@ -290,6 +295,8 @@ uint32_t *host_arm64_TBNZ(codeblock_t *block, int reg, int bit);
 
 void host_arm64_UBFX(codeblock_t *block, int dst_reg, int src_reg, int lsb, int width);
 void host_arm64_UBFX_X(codeblock_t *block, int dst_reg, int src_reg, int lsb, int width);
+
+void host_arm64_UDIV(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 
 void host_arm64_UQADD_V8B(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_UQADD_V4H(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
@@ -316,12 +323,12 @@ void host_arm64_call(codeblock_t *block, void *dst_addr);
 void host_arm64_jump(codeblock_t *block, uintptr_t dst_addr);
 void host_arm64_mov_imm(codeblock_t *block, int reg, uint32_t imm_data);
 
+#define in_range7_w(offset)  (((offset) >= -0x100) && ((offset) < (0x100)) && !((offset) &3))
 #define in_range7_x(offset)  (((offset) >= -0x200) && ((offset) < (0x200)) && !((offset) &7))
 #define in_range12_b(offset) (((offset) >= 0) && ((offset) < 0x1000))
 #define in_range12_h(offset) (((offset) >= 0) && ((offset) < 0x2000) && !((offset) &1))
 #define in_range12_w(offset) (((offset) >= 0) && ((offset) < 0x4000) && !((offset) &3))
 #define in_range12_q(offset) (((offset) >= 0) && ((offset) < 0x8000) && !((offset) &7))
-#define in_range12_dq(offset) (((offset) >= 0) && ((offset) < 0x10000) && !((offset) &15))
 
 void codegen_direct_read_8(codeblock_t *block, int host_reg, void *p);
 
