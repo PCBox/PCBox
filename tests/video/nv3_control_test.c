@@ -27,12 +27,14 @@ nv3_t          *nv3 = &card;
 static uint8_t  vram[1 << 20];
 static uint16_t pixels[16][128];
 const char     *nv3_class_names[32];
+int             nv_do_log;
+/* the names in parentheses: vid_nv.h defines them as macros as well */
 void
-nv_log(const char *fmt, ...)
+(nv_log)(const char *fmt, ...)
 {
 }
 void
-nv_log_verbose_only(const char *fmt, ...)
+(nv_log_verbose_only)(const char *fmt, ...)
 {
 }
 void
@@ -78,6 +80,45 @@ nv3_render_pixel_ex(int32_t x, int32_t y, nv3_color_expanded_t c, nv3_grobj_t ob
     CHECK(own);
     CHECK(x >= 0 && x < 128 && y >= 0 && y < 16);
     pixels[y][x] = c.r;
+}
+/* The primitives' per-object setup and span helpers, captured the same way */
+void
+nv3_render_setup(nv3_render_setup_t *st, nv3_grobj_t grobj, bool own_clip)
+{
+    CHECK(own_clip);
+    memset(st, 0, sizeof(*st));
+}
+void
+nv3_render_pixel_st(const nv3_render_setup_t *st, int32_t x, int32_t y, nv3_color_expanded_t s)
+{
+    nv3_render_pixel_ex(x, y, s, (nv3_grobj_t) { 0 }, true);
+}
+void
+nv3_render_span_st(const nv3_render_setup_t *st, int32_t y, int32_t x0, int32_t x1, nv3_color_expanded_t s)
+{
+    for (int32_t x = x0; x < x1; x++)
+        nv3_render_pixel_st(st, x, y, s);
+}
+bool
+nv3_render_fill_value_st(const nv3_render_setup_t *st, nv3_color_expanded_t s, uint32_t *val)
+{
+    return false;
+}
+bool
+nv3_render_rows_direct(const nv3_render_setup_t *st, uint32_t j, int32_t x0, int32_t x1, int32_t y, uint32_t *addr)
+{
+    return false;
+}
+void
+nv3_render_store_row(uint32_t addr, int32_t n, uint32_t cpp, uint32_t val)
+{
+    CHECK(0);
+}
+const uint8_t *
+agpgart_bus_ptr(uint32_t addr, uint32_t len)
+{
+    CHECK(0);
+    return NULL;
 }
 /* Other classes are outside this fixture. Unexpected dispatch fails the test. */
 #define OTHER_METHOD(name) \
