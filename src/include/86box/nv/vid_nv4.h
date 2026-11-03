@@ -497,6 +497,10 @@ typedef struct nv4_s {
     uint64_t   eng_bytes; /* framebuffer bytes moved by the current method */
     uint64_t   eng_px3d;  /* 3D pixels drawn by the current method */
     pc_timer_t eng_timer;
+    /* TSC ticks per method, per byte and per 3D pixel, for the clocks in
+       eng_clk (nvclk, mclk, CPU) */
+    double     eng_k_base, eng_k_byte, eng_k_px;
+    double     eng_clk[3];
 
     /* PFB and PEXTDEV */
     uint32_t pfb_boot_0;

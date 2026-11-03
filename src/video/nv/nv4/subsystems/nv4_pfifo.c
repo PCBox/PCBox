@@ -488,16 +488,38 @@ nv4_dma_push(nv4_t *nv4)
 {
     nv4_pfifo_t *p    = &nv4->pfifo;
     int          work = 0;
+    /* The words are read a run at a time, up to the end of the page and
+       the window's limit: a translation and a bus read per dword were a
+       seventh of the emulation thread in image uploads. Words read but not
+       used when the pusher stops are read again next time. */
+    uint32_t     run[64];
+    uint32_t     run_off   = 0;
+    uint32_t     run_bytes = 0;
 
     while (nv4_dma_can_push(p) && !nv4_cache1_full(p)) {
         uint32_t word;
         uint32_t count = (p->c1_dma_state >> 18) & 0x7ff;
 
-        if (nv4_dma_read32(nv4, p->c1_dma_instance, p->c1_dma_get, &word) != NV4_DMA_OK) {
-            nv4_dma_error(nv4, DMA_ERR_PROTECTION);
-            nv4_pfifo_intr(nv4, INTR_DMA_PT);
-            break;
+        if ((p->c1_dma_get - run_off) >= run_bytes) {
+            uint32_t lim = nv4_dma_limit(nv4, p->c1_dma_instance);
+
+            run_off   = p->c1_dma_get;
+            run_bytes = nv4_dma_page_left(nv4, p->c1_dma_instance, run_off) & ~3u;
+            if (!run_bytes)
+                run_bytes = 4; /* a word across the page end: read in two parts */
+            if (run_bytes > sizeof(run))
+                run_bytes = sizeof(run);
+            /* no word past the limit: that one faults when it is reached */
+            if ((lim >= run_off) && (run_bytes > ((lim - run_off) & ~3u) + 4))
+                run_bytes = ((lim - run_off) & ~3u) + 4;
+            if (nv4_dma_read(nv4, p->c1_dma_instance, run_off, (uint8_t *) run, run_bytes) != NV4_DMA_OK) {
+                run_bytes = 0;
+                nv4_dma_error(nv4, DMA_ERR_PROTECTION);
+                nv4_pfifo_intr(nv4, INTR_DMA_PT);
+                break;
+            }
         }
+        word = run[(p->c1_dma_get - run_off) >> 2];
         if (!nv4->dbg_trace_novtx && NV4_TRACE(nv4, CHID(p)))
             pclog("nv4 trace: push ch %d get %08x word %08x\n", CHID(p), p->c1_dma_get, word);
         p->c1_dma_get = (p->c1_dma_get + 4) & 0x1ffffffc;
@@ -561,18 +583,28 @@ static void
 nv4_eng_charge(nv4_t *nv4)
 {
     uint64_t now = tsc;
-    double   mem = (nv4->mclk_hz > 0.0) ? (double) nv4->eng_bytes / (16.0 * nv4->mclk_hz) : 0.0;
-    double   px  = (nv4->nvclk_hz > 0.0) ? (double) nv4->eng_px3d / (2.0 * nv4->nvclk_hz) : 0.0;
-    double   sec = (nv4->nvclk_hz > 0.0) ? 1.0 / nv4->nvclk_hz : 0.0;
+    double   mem, px;
 
-    sec += (mem > px) ? mem : px;
+    /* the costs in TSC ticks, worked out again only when a clock changes:
+       three divisions per method were a tenth of the emulation thread in
+       image uploads */
+    if ((nv4->eng_clk[0] != nv4->nvclk_hz) || (nv4->eng_clk[1] != nv4->mclk_hz) || (nv4->eng_clk[2] != cpuclock)) {
+        nv4->eng_clk[0]  = nv4->nvclk_hz;
+        nv4->eng_clk[1]  = nv4->mclk_hz;
+        nv4->eng_clk[2]  = cpuclock;
+        nv4->eng_k_base  = (nv4->nvclk_hz > 0.0) ? cpuclock / nv4->nvclk_hz : 0.0;
+        nv4->eng_k_byte  = (nv4->mclk_hz > 0.0) ? cpuclock / (16.0 * nv4->mclk_hz) : 0.0;
+        nv4->eng_k_px    = (nv4->nvclk_hz > 0.0) ? cpuclock / (2.0 * nv4->nvclk_hz) : 0.0;
+    }
+    mem            = (double) nv4->eng_bytes * nv4->eng_k_byte;
+    px             = (double) nv4->eng_px3d * nv4->eng_k_px;
     nv4->eng_bytes = 0;
     nv4->eng_px3d  = 0;
     if (cpuclock <= 0.0)
         return;
     if (nv4->eng_tsc < now)
         nv4->eng_tsc = now;
-    nv4->eng_tsc += (uint64_t) (sec * cpuclock);
+    nv4->eng_tsc += (uint64_t) (nv4->eng_k_base + ((mem > px) ? mem : px));
 }
 
 /* Whether PGRAPH is still busy with the work it was given. */
