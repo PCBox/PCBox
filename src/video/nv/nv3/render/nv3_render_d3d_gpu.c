@@ -224,6 +224,7 @@ nv3_gpu_close(struct nv3_gpu_s *g)
     for (int i = 0; i < g->vk.nslots; i++)
         if (g->slot[i].pending)
             g->vk.vkWaitForFences(g->vk.dev, 1, &g->vk.slot[i].fence, VK_TRUE, UINT64_MAX);
+    nv3_gpu_inflight = 0;
     nv_gpu_log("NV3 GPU: %llu batches on the GPU, %llu left to the CPU\n", (unsigned long long) g->batches,
                (unsigned long long) g->fallbacks);
     nv_gpu_vk_fallbacks(&g->vk, 1);
@@ -417,6 +418,7 @@ gpu_complete(nv3_gpu_t *g, gpu_slot_t *sl)
     }
     g->us_copy += nv_gpu_now_us() - t1;
     sl->pending = 0;
+    nv3_gpu_inflight--;
 }
 
 /* Complete the batches in flight up to number <seq>, oldest first (a later batch's rows are
@@ -445,6 +447,8 @@ nv3_gpu_wait(struct nv3_gpu_s *g)
 int
 nv3_gpu_pending_overlaps(struct nv3_gpu_s *g, uint32_t lo, uint32_t hi)
 {
+    if (!nv3_gpu_inflight)
+        return 0;
     for (int s = 0; s < g->vk.nslots; s++) {
         const gpu_slot_t *sl = &g->slot[s];
 
@@ -652,6 +656,7 @@ nv3_gpu_shade(struct nv3_gpu_s *g, const nv3_d3d_batch_t *b)
 
     /* in flight: the rows come back when a later batch needs the slot or a sync point waits */
     sl->pending = 1;
+    nv3_gpu_inflight++;
     sl->seq     = ++g->seq;
     sl->pndown  = ndown;
     for (int i = 0; i < ndown; i++)

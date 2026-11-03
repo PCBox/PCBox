@@ -557,11 +557,17 @@ void nv3_pgraph_submit(uint32_t param, uint16_t method, uint8_t channel, uint8_t
     // we need to shift left by 4 to get the real address, something to do with the 16 byte unit of reversal 
     uint32_t real_ramin_base = context.ramin_offset << 4;
 
-    // readin our grobj
-    grobj.grobj_0 = nv3_ramin_read32(real_ramin_base, nv3);
-    grobj.grobj_1 = nv3_ramin_read32(real_ramin_base + 4, nv3);
-    grobj.grobj_2 = nv3_ramin_read32(real_ramin_base + 8, nv3);
-    grobj.grobj_3 = nv3_ramin_read32(real_ramin_base + 12, nv3);
+    /* read in our grobj: RAMIN reverses 16-byte units, so its four words lie together in VRAM
+       (nv3_ramin_read32's mapping, worked out once per method instead of per word) */
+    {
+        uint32_t        unit = real_ramin_base & (NV3_LFB_MAPPING_SIZE - 1) & (nv3->nvbase.svga.vram_max - 1);
+        const uint32_t *w    = (const uint32_t *) &nv3->nvbase.svga.vram[unit ^ (nv3->nvbase.svga.vram_max - 0x10)];
+
+        grobj.grobj_0 = w[0];
+        grobj.grobj_1 = w[1];
+        grobj.grobj_2 = w[2];
+        grobj.grobj_3 = w[3];
+    }
 
     /* The object's options (colour format, operation, buffers...) live in PGRAPH: a bind loads the
        grobj's word 0 into the subchannel's CTX_CACHE entry, and a change of subchannel (or a bind)

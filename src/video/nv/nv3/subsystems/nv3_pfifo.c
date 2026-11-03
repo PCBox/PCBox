@@ -26,6 +26,7 @@
 #include <86box/device.h>
 #include <86box/dma.h>
 #include <86box/mem.h>
+#include <86box/agpgart.h>
 #include <86box/pci.h>
 #include <86box/rom.h> // DEPENDENT!!!
 #include <86box/video.h>
@@ -310,6 +311,13 @@ void nv3_pfifo_cache1_drain(void)
 void nv3_pfifo_trigger_dma_if_required(void)
 {
     nv3_pfifo_cache_t *c1 = &nv3->pfifo.cache1_settings;
+    /* the words are fetched a run at a time, up to the end of the page: one bus read (with its
+       AGP translation) per dword was a sixth of the pusher's time. A run in RAM or behind the
+       AGP aperture is copied straight from the page (agpgart_bus_ptr); other memory goes through
+       dma_bm_read. Words fetched but not used when the pusher stops are fetched again next time. */
+    uint32_t           run[64];
+    uint32_t           run_linear = 0;
+    uint32_t           run_words  = 0;
 
     if (nv3_pfifo_dma_pusher_active)
         return;
@@ -344,7 +352,23 @@ void nv3_pfifo_trigger_dma_if_required(void)
             nv3_pmc_handle_interrupts(true);
             break;
         }
-        dma_bm_read((c1->dma_tlb_pte & 0xFFFFF000) | (linear & 0xFFF), (uint8_t *) &word, 4, 4);
+        if ((linear - run_linear) >= (run_words << 2)) {
+            run_words = (0x1000 - (linear & 0xFFF)) >> 2;
+            if (run_words > (c1->dma_length >> 2))
+                run_words = c1->dma_length >> 2;
+            if (run_words > (sizeof(run) / sizeof(run[0])))
+                run_words = sizeof(run) / sizeof(run[0]);
+            run_linear = linear;
+
+            uint32_t       phys = (c1->dma_tlb_pte & 0xFFFFF000) | (linear & 0xFFF);
+            const uint8_t *host = agpgart_bus_ptr(phys, run_words << 2);
+
+            if (host)
+                memcpy(run, host, run_words << 2);
+            else
+                dma_bm_read(phys, (uint8_t *) run, run_words << 2, 4);
+        }
+        word = run[(linear - run_linear) >> 2];
 
         c1->dma_address += 4;
         c1->dma_length -= 4;
