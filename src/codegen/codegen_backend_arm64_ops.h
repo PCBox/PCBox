@@ -140,6 +140,8 @@ void host_arm64_FMUL_V2S(codeblock_t *block, int dst_reg, int src_n_reg, int src
 void host_arm64_FSUB_D(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 void host_arm64_FSUB_V2S(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
 
+void host_arm64_FCSEL_D_EQ(codeblock_t *block, int dst_reg, int src_n_reg, int src_m_reg);
+
 void host_arm64_FCVT_D_S(codeblock_t *block, int dst_reg, int src_reg);
 void host_arm64_FCVT_S_D(codeblock_t *block, int dst_reg, int src_reg);
 
@@ -178,6 +180,7 @@ void host_arm64_LDR_REG_X(codeblock_t *block, int dest_reg, int base_reg, int of
 
 void host_arm64_LDR_REG_F32(codeblock_t *block, int dest_reg, int base_reg, int offset_reg);
 void host_arm64_LDR_IMM_F64(codeblock_t *block, int dest_reg, int base_reg, int offset);
+void host_arm64_LDR_IMM_F128(codeblock_t *block, int dest_reg, int base_reg, int offset);
 void host_arm64_LDR_REG_F64(codeblock_t *block, int dest_reg, int base_reg, int offset_reg);
 void host_arm64_LDR_REG_F64_S(codeblock_t *block, int dest_reg, int base_reg, int offset_reg);
 
@@ -205,6 +208,8 @@ void host_arm64_MOV_REG_ROR(codeblock_t *block, int dst_reg, int src_m_reg, int 
 
 void host_arm64_MOVX_IMM(codeblock_t *block, int reg, uint64_t imm_data);
 void host_arm64_MOVX_REG(codeblock_t *block, int dst_reg, int src_m_reg, int shift);
+void host_arm64_MOVX_REG_ASR(codeblock_t *block, int dst_reg, int src_m_reg, int shift);
+void host_arm64_MOVX_REG_LSR(codeblock_t *block, int dst_reg, int src_m_reg, int shift);
 
 void host_arm64_MOVZ_IMM(codeblock_t *block, int reg, uint32_t imm_data);
 void host_arm64_MOVK_IMM(codeblock_t *block, int reg, uint32_t imm_data);
@@ -268,6 +273,7 @@ void host_arm64_STR_REG(codeblock_t *block, int src_reg, int base_reg, int offse
 
 void host_arm64_STR_REG_F32(codeblock_t *block, int src_reg, int base_reg, int offset_reg);
 void host_arm64_STR_IMM_F64(codeblock_t *block, int src_reg, int base_reg, int offset);
+void host_arm64_STR_IMM_F128(codeblock_t *block, int src_reg, int base_reg, int offset);
 void host_arm64_STR_REG_F64(codeblock_t *block, int src_reg, int base_reg, int offset_reg);
 void host_arm64_STR_REG_F64_S(codeblock_t *block, int src_reg, int base_reg, int offset_reg);
 
@@ -329,6 +335,7 @@ void host_arm64_mov_imm(codeblock_t *block, int reg, uint32_t imm_data);
 #define in_range12_h(offset) (((offset) >= 0) && ((offset) < 0x2000) && !((offset) &1))
 #define in_range12_w(offset) (((offset) >= 0) && ((offset) < 0x4000) && !((offset) &3))
 #define in_range12_q(offset) (((offset) >= 0) && ((offset) < 0x8000) && !((offset) &7))
+#define in_range12_dq(offset) (((offset) >= 0) && ((offset) < 0x10000) && !((offset) &15))
 
 void codegen_direct_read_8(codeblock_t *block, int host_reg, void *p);
 

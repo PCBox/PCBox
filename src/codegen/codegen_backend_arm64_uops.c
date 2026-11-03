@@ -2300,7 +2300,7 @@ codegen_MOV(codeblock_t *block, uop_t *uop)
     } else if (REG_IS_Q(dest_size) && REG_IS_Q(src_size)) {
         host_arm64_FMOV_D_D(block, dest_reg, src_reg);
     } else if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size)) {
-        host_arm64_ORR_REG_V16B(block, dest_reg, src_reg, src_reg);
+        host_arm64_ORR_REG_V(block, dest_reg, src_reg, src_reg);
     } else if (REG_IS_W(dest_size) && REG_IS_L(src_size)) {
         /* Preserve upper destination bits; only replace the architected low 16 bits. */
         host_arm64_BFI(block, dest_reg, src_reg, 0, 16);
