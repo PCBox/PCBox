@@ -988,15 +988,19 @@ nv3_d3d_gpu_wait(nv3_d3d_batch_t *b, uint32_t lo, uint32_t hi, int cause)
 
 /* Draw the batch and, when the GPU has batches in flight, wait for their pixels: for anything
    that reads or writes VRAM itself. */
+int nv3_gpu_inflight;
+
 void
 nv3_d3d_sync(int cause)
 {
     nv3_d3d_batch_t *b = nv3 ? nv3->batch3d : NULL;
 
+    /* every CPU access to the frame buffer comes here; most find nothing to wait for */
     if (!b)
         return;
-    nv3_d3d_flush();
-    if (b->gpu)
+    if (b->nstates)
+        nv3_d3d_flush();
+    if (b->gpu && nv3_gpu_inflight)
         nv3_d3d_gpu_wait(b, 0, 0xFFFFFFFF, cause);
 }
 

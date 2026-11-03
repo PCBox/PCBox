@@ -143,6 +143,7 @@ extern void              nv3_gpu_close(struct nv3_gpu_s *g);
    do they touch bytes lo..hi? */
 extern void              nv3_gpu_wait(struct nv3_gpu_s *g);
 extern int               nv3_gpu_pending_overlaps(struct nv3_gpu_s *g, uint32_t lo, uint32_t hi);
+extern int               nv3_gpu_inflight; /* GPU batches in flight: VRAM accesses test it inline */
 extern void              nv3_gpu_counts(struct nv3_gpu_s *g, uint64_t *batches, uint64_t *fallbacks);
 
 /* A 16-bit texture word as the span shader reads it; NULL-safe for any
