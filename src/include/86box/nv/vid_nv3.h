@@ -535,11 +535,21 @@ extern const device_config_t nv3t_config[];                             // Confi
 #define NV3_PALT_START                                  0x120000    // ??? but it exists
 #define NV3_PALT_END                                    0x12FFFF
 #define NV3_PME_START                                   0x200000    // Mediaport 
-#define NV3_PME_INTR                                    0x200100    // Mediaport: Interrupt Pending?
+#define NV3_PME_DEBUG_0                                 0x200080
+#define NV3_PME_DEBUG_1                                 0x200084
+#define NV3_PME_INTR                                    0x200100    // Mediaport: Interrupt Pending (NOTIFY 0, VMI 4)
 #define NV3_PME_INTR_EN                                 0x200140    // Mediaport: Interrupt Enable
 #define NV3_PME_INTR_NOTIFY                             0x00000001
 #define NV3_PME_INTR_VMI                                0x00000010
 #define NV3_PME_INTR_MASK                               (NV3_PME_INTR_NOTIFY | NV3_PME_INTR_VMI)
+#define NV3_PME_CONFIG_0                                0x200200    // CCIR656 0, VMI 4, VBI_MODE 9:8, VID_CD 12, AUD_CD 16
+#define NV3_PME_CONFIG_1                                0x200204    // BUFFS 0, HOST 4 (no function on the RIVA 128)
+#define NV3_PME_VBI_BUFF0_START                         0x200380    // 0x380-0x3A4: VBI capture buffers and flow control
+#define NV3_PME_VBI                                     0x2003A4    // START_LINE 4:0, NUM_LINES 20:16
+#define NV3_PME_IMAGE_BUFF0_START                       0x200400    // 0x400-0x42C: image capture buffers and flow control
+#define NV3_PME_IMAGE_Y_CROP                            0x20042C
+#define NV3_PME_FIFO_LINE_START                         0x200480    // read only (the media engine's FIFO pointers)
+#define NV3_PME_FIFO_CURRENT                            0x200484
 #define NV3_PME_END                                     0x200FFF
 
 #define NV3_PGRAPH_START                                0x400000    // Scene graph for 2d/3d rendering...the most important part
@@ -1452,6 +1462,10 @@ typedef struct nv3_pme_s                // Mediaport
 {
     uint32_t intr;
     uint32_t intr_en;
+    uint32_t debug[2];                  // 0x080-0x084
+    uint32_t config[2];                 // 0x200-0x204
+    uint32_t vbi[10];                   // 0x380-0x3A4: VBI buffer start, pitch, length, ME/SU/RM state, VBI
+    uint32_t image[12];                 // 0x400-0x42C: image buffer start, pitch, length, ME/SU/RM state, scale, Y crop
 } nv3_pme_t;
 
 typedef struct nv3_s
