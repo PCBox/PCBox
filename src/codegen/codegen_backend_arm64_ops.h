@@ -188,6 +188,7 @@ void host_arm64_LDRB_IMM_W(codeblock_t *block, int dest_reg, int base_reg, int o
 void host_arm64_LDRB_REG(codeblock_t *block, int dest_reg, int base_reg, int offset_reg);
 
 void host_arm64_LDRH_IMM(codeblock_t *block, int dest_reg, int base_reg, int offset);
+uint32_t *host_arm64_insn_(codeblock_t *block, uint32_t insn);
 void host_arm64_LDRH_REG(codeblock_t *block, int dest_reg, int base_reg, int offset_reg);
 
 void host_arm64_LDRX_REG_LSL3(codeblock_t *block, int dest_reg, int base_reg, int offset_reg);
