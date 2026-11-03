@@ -644,16 +644,43 @@ nv4_eng_timer(void *priv)
     nv4_pfifo_run((nv4_t *) priv);
 }
 
+/* A register write that lets the pullers go on (CACHE1 pull or PGRAPH
+   FIFO access turned on, an interrupt acknowledged, a context loaded)
+   takes effect a little later, as on the chip, not inside the write: the
+   resman's context switch handler turns CACHE1 pulling back on, then
+   reads PGRAPH_INTR and writes back what it read to drop anything left
+   over from the switch. Run at once, the NOTIFY trapped by the switch
+   and the NOP after it raised the notification in between, and that
+   write acknowledged it unserviced: an awaken notify was never woken, and
+   DirectDraw waited for its notifier for ever (DxDiag's DirectDraw test
+   after the windowed off-screen box, every NVIDIA 4.1x driver). */
+#define NV4_KICK_US 2.0
+
+static void
+nv4_kick_timer(void *priv)
+{
+    nv4_pfifo_run((nv4_t *) priv);
+}
+
+void
+nv4_pfifo_kick(nv4_t *nv4)
+{
+    if (!timer_is_on(&nv4->kick_timer))
+        timer_set_delay_u64(&nv4->kick_timer, (uint64_t) (NV4_KICK_US * TIMER_USEC));
+}
+
 void
 nv4_pfifo_init(nv4_t *nv4)
 {
     timer_add(&nv4->eng_timer, nv4_eng_timer, nv4, 0);
+    timer_add(&nv4->kick_timer, nv4_kick_timer, nv4, 0);
 }
 
 void
 nv4_pfifo_close(nv4_t *nv4)
 {
     timer_disable(&nv4->eng_timer);
+    timer_disable(&nv4->kick_timer);
 }
 
 /* ------------------------------------------------------------------ */
@@ -787,6 +814,7 @@ nv4_pfifo_reset(nv4_t *nv4)
 
     memset(p, 0, sizeof(*p));
     timer_disable(&nv4->eng_timer);
+    timer_disable(&nv4->kick_timer);
     nv4->eng_tsc   = 0;
     nv4->eng_bytes = 0;
     nv4->eng_px3d  = 0;
@@ -1114,5 +1142,5 @@ nv4_pfifo_write(nv4_t *nv4, uint32_t addr, uint32_t val)
     }
 
     /* Anything may have unblocked the pusher or the pullers. */
-    nv4_pfifo_run(nv4);
+    nv4_pfifo_kick(nv4);
 }
