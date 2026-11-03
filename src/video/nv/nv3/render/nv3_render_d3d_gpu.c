@@ -82,6 +82,12 @@ nv3_gpu_wait(UNUSED(struct nv3_gpu_s *g))
 }
 
 int
+nv3_gpu_seal(UNUSED(struct nv3_gpu_s *g), UNUSED(nv3_d3d_batch_t *b))
+{
+    return 0;
+}
+
+int
 nv3_gpu_pending_overlaps(UNUSED(struct nv3_gpu_s *g), UNUSED(uint32_t lo), UNUSED(uint32_t hi))
 {
     return 0;
@@ -99,7 +105,7 @@ nv3_gpu_counts(UNUSED(struct nv3_gpu_s *g), uint64_t *batches, uint64_t *fallbac
 #    include <86box/nv/nv_gpu_vk.h>
 #    include <86box/nv/nv3_d3d_gpu_spv.h>
 
-#    define GPU_TEX_ARENA (32u << 20)
+#    define GPU_TEX_ARENA (48u << 20)
 #    define GPU_ROWS      2048
 
 /* A draw state as the kernel reads it (std430, every field 4 bytes) */
@@ -143,7 +149,8 @@ typedef struct {
     int               pntex;
 } gpu_slot_t;
 
-/* A texture in the arena: where its bytes came from, a hash of them, and where they are */
+/* A texture in the arena: where its bytes came from, a hash of them, and where they are. A
+   batch left open across notifies (nv3_gpu_seal) can hold two versions of the same texture. */
 typedef struct {
     int      vram;
     uint32_t l0, size, pages, base;
@@ -151,6 +158,15 @@ typedef struct {
 } gpu_texent_t;
 
 #    define GPU_TEX_CACHE 1024
+
+/* The most arena a batch can take: a new texture for every state. Kept free when a batch starts,
+   so the textures a batch has gathered stay where they are until it is shaded. */
+#    define GPU_TEX_BATCH (D3_STATES * (D3_TEX_PAGES * 0x1000u + 4))
+
+/* A texture the batch being gathered uses, and the gathering round (seal) that read it */
+typedef struct {
+    int ent, round;
+} gpu_used_t;
 
 /* The pieces a batch's rows upload in: each region less the rows of every batch in flight */
 #    define GPU_UPLOADS (D3_REGIONS * (1 + NV_GPU_SLOTS * D3_REGIONS))
@@ -167,8 +183,10 @@ typedef struct nv3_gpu_s {
     gpu_texent_t cache[GPU_TEX_CACHE];
     int          ncache;
     uint32_t     tex_used;              /* arena bytes taken */
-    int          flush_tex[D3_STATES]; /* cache entries this batch checked */
+    gpu_used_t   flush_tex[D3_STATES]; /* cache entries this batch uses */
     int          nflush_tex;
+    int          round;                /* this batch's gathering rounds, one per seal */
+    uint32_t     sbase[D3_STATES];     /* each state's texture in the arena */
     VkBufferCopy tcopy[D3_STATES];     /* arena regions to upload */
     int          ntcopy;
     uint32_t     row_count[GPU_ROWS];
@@ -265,28 +283,61 @@ gpu_tex_settle(nv3_gpu_t *g, const nv3_d3d_dstate_t *s)
     }
 }
 
-/* A 64-bit hash of a texture's bytes, read where they are. */
+#    define GPU_HASH_STEP(h, w) \
+        do {                       \
+            (h) = ((h) ^ (w)) * 0x100000001B3ull; \
+            (h) ^= (h) >> 29;      \
+        } while (0)
+
+/* A 64-bit hash of a texture's bytes, read where they are: four lanes of 8 bytes, which the CPU
+   runs side by side */
 static uint64_t
 gpu_tex_hash(nv3_gpu_t *g, const nv3_d3d_dstate_t *s)
 {
-    uint64_t h = 0x9E3779B97F4A7C15ull ^ s->tex_size;
+    uint64_t h[4] = { 0x9E3779B97F4A7C15ull ^ s->tex_size, 0xC2B2AE3D27D4EB4Full, 0x165667B19E3779F9ull, 0x27D4EB2F165667C5ull };
 
     gpu_tex_settle(g, s);
     GPU_TEX_PIECES(s, {
         uint32_t i = 0;
 
+        for (; i + 32 <= len; i += 32) {
+            uint64_t w[4];
+
+            memcpy(w, p + i, 32);
+            GPU_HASH_STEP(h[0], w[0]);
+            GPU_HASH_STEP(h[1], w[1]);
+            GPU_HASH_STEP(h[2], w[2]);
+            GPU_HASH_STEP(h[3], w[3]);
+        }
         for (; i + 8 <= len; i += 8) {
             uint64_t w;
 
             memcpy(&w, p + i, 8);
-            h = (h ^ w) * 0x100000001B3ull;
-            h ^= h >> 29;
+            GPU_HASH_STEP(h[0], w);
         }
         for (; i < len; i++)
-            h = (h ^ p[i]) * 0x100000001B3ull;
+            h[0] = (h[0] ^ p[i]) * 0x100000001B3ull;
     });
     g->hash_bytes += s->tex_size;
-    return h;
+    for (int i = 1; i < 4; i++)
+        GPU_HASH_STEP(h[0], h[i]);
+    return h[0];
+}
+
+/* Are a texture's bytes, read where they are, those staged for the arena at <base>? */
+static int
+gpu_tex_equal(nv3_gpu_t *g, const nv3_d3d_dstate_t *s, uint32_t base)
+{
+    const uint8_t *stage = (const uint8_t *) g->vk.b[NV_GPU_B_TSTAGE].map + base;
+    int            same  = 1;
+
+    gpu_tex_settle(g, s);
+    GPU_TEX_PIECES(s, {
+        if (same && memcmp(p, stage + done, len))
+            same = 0;
+    });
+    g->hash_bytes += s->tex_size;
+    return same;
 }
 
 /* Where a texture's pages are, as one number */
@@ -328,8 +379,19 @@ gpu_tex_copy(nv3_gpu_t *g, const nv3_d3d_dstate_t *s, uint32_t base)
     g->tex_bytes += s->tex_size;
 }
 
+/* Is cache entry <e> used by the batch being gathered? */
+static int
+gpu_tex_used(const nv3_gpu_t *g, int e)
+{
+    for (int i = 0; i < g->nflush_tex; i++)
+        if (g->flush_tex[i].ent == e)
+            return 1;
+    return 0;
+}
+
 /* A texture's place in the arena for this batch: from the cache when its bytes have not changed,
-   else copied in. UINT32_MAX when the arena is full. */
+   else copied in. A version an earlier round of this batch uses is kept: the changed bytes go to
+   a new entry. UINT32_MAX when the arena is full. */
 static uint32_t
 gpu_gather_tex(nv3_gpu_t *g, const nv3_d3d_dstate_t *s)
 {
@@ -338,15 +400,39 @@ gpu_gather_tex(nv3_gpu_t *g, const nv3_d3d_dstate_t *s)
     gpu_texent_t *e = NULL;
 
 #    define GPU_TEX_SAME(c) (((c)->vram == s->tex_vram) && ((c)->l0 == s->tex_l0) && ((c)->size == s->tex_size) && ((c)->pages == pages))
+    /* read this round already; VRAM textures this batch (anything that changes VRAM draws the
+       batch first) */
     for (int i = 0; i < g->nflush_tex; i++)
-        if (GPU_TEX_SAME(&g->cache[g->flush_tex[i]]))
-            return g->cache[g->flush_tex[i]].base;
-    h = gpu_tex_hash(g, s);
-    for (int i = 0; i < g->ncache; i++)
-        if (GPU_TEX_SAME(&g->cache[i])) {
-            e = &g->cache[i];
-            break;
-        }
+        if (((g->flush_tex[i].round == g->round) || s->tex_vram) && GPU_TEX_SAME(&g->cache[g->flush_tex[i].ent]))
+            return g->cache[g->flush_tex[i].ent].base;
+    /* these bytes are in the arena; else an entry for the place the batch does not use. With
+       cached staging the bytes are compared with the staged ones themselves: no hash to compute
+       (the staged bytes are what the arena has: only gpu_tex_copy writes them) */
+    if (g->vk.b[NV_GPU_B_TSTAGE].cached) {
+        h = 0;
+        for (int i = 0; i < g->ncache; i++)
+            if (GPU_TEX_SAME(&g->cache[i])) {
+                if (gpu_tex_equal(g, s, g->cache[i].base)) {
+                    g->flush_tex[g->nflush_tex].ent   = i;
+                    g->flush_tex[g->nflush_tex].round = g->round;
+                    g->nflush_tex++;
+                    return g->cache[i].base;
+                }
+                if (!e && !gpu_tex_used(g, i))
+                    e = &g->cache[i];
+            }
+    } else {
+        h = gpu_tex_hash(g, s);
+        for (int i = 0; i < g->ncache; i++)
+            if (GPU_TEX_SAME(&g->cache[i])) {
+                if (g->cache[i].hash == h) {
+                    e = &g->cache[i];
+                    break;
+                }
+                if (!e && !gpu_tex_used(g, i))
+                    e = &g->cache[i];
+            }
+    }
 #    undef GPU_TEX_SAME
     if (!e) {
         if ((g->ncache >= GPU_TEX_CACHE) || (s->tex_size + 4 > GPU_TEX_ARENA - g->tex_used))
@@ -360,12 +446,67 @@ gpu_gather_tex(nv3_gpu_t *g, const nv3_d3d_dstate_t *s)
         e->hash     = ~h; /* not there yet */
         g->tex_used = (e->base + s->tex_size + 3) & ~3u;
     }
-    if (e->hash != h) {
+    /* compared, it differs (or the entry is new); hashed, an equal hash means it is there */
+    if (g->vk.b[NV_GPU_B_TSTAGE].cached || (e->hash != h)) {
         gpu_tex_copy(g, s, e->base);
         e->hash = h;
     }
-    g->flush_tex[g->nflush_tex++] = (int) (e - g->cache);
+    g->flush_tex[g->nflush_tex].ent   = (int) (e - g->cache);
+    g->flush_tex[g->nflush_tex].round = g->round;
+    g->nflush_tex++;
     return e->base;
+}
+
+/* Gather the textures of the batch's states from <first> on. A new batch (first 0) starts with
+   room for all of its textures: the arena is emptied when it has less. 0 when the arena is full
+   (it cannot be once emptied). */
+static int
+gpu_gather_states(nv3_gpu_t *g, const nv3_d3d_batch_t *b, int first)
+{
+    if (!first) {
+        g->nflush_tex = 0;
+        g->ntcopy     = 0;
+        if ((GPU_TEX_ARENA - g->tex_used < GPU_TEX_BATCH) || (g->ncache > GPU_TEX_CACHE - D3_STATES)) {
+            g->ncache   = 0;
+            g->tex_used = 0;
+        }
+    }
+    g->round++;
+    for (int i = first; i < b->nstates; i++) {
+        const nv3_d3d_dstate_t *s = &b->states[i];
+
+        g->sbase[i] = 0;
+        if (s->textured && s->tex_size && ((g->sbase[i] = gpu_gather_tex(g, s)) == UINT32_MAX))
+            return 0;
+    }
+    return 1;
+}
+
+/* The batch was shaded or left to the CPU: the next one gathers anew */
+static void
+gpu_gather_done(nv3_gpu_t *g)
+{
+    g->nflush_tex = 0;
+    g->ntcopy     = 0;
+}
+
+/* A notify: the driver may now change what the batch's triangles read. Only their textures are
+   read when the batch is shaded (the rest was copied into it), so gathering them now lets the batch
+   stay open: its states so far are sealed (b->nsealed) and later triangles take new ones. 0 when
+   the GPU would not take the batch: the caller draws it now. */
+int
+nv3_gpu_seal(struct nv3_gpu_s *g, nv3_d3d_batch_t *b)
+{
+    for (int r = 0; r < b->nregions; r++)
+        if ((b->regions[r].wlo <= b->regions[r].whi) && (b->regions[r].whi >= g->vram_size))
+            return 0;
+    for (int i = b->nsealed; i < b->nstates; i++)
+        if (b->states[i].textured && (b->states[i].tex_l0 & 1))
+            return 0;
+    if (!gpu_gather_states(g, b, b->nsealed))
+        return 0;
+    b->nsealed = b->nstates;
+    return 1;
 }
 
 static void
@@ -528,30 +669,13 @@ nv3_gpu_shade(struct nv3_gpu_s *g, const nv3_d3d_batch_t *b)
         if (b->states[i].textured && (b->states[i].tex_l0 & 1))
             goto fallback;
 
-    /* draw states and their textures; a full arena is emptied once and the batch's textures
-       gathered again */
-    t0 = nv_gpu_now_us();
-    for (int pass = 0;; pass++) {
-        int full = 0;
-
-        g->nflush_tex = 0;
-        g->ntcopy     = 0;
-        for (int i = 0; (i < b->nstates) && !full; i++) {
-            const nv3_d3d_dstate_t *s    = &b->states[i];
-            uint32_t                base = 0;
-
-            if (s->textured && s->tex_size && ((base = gpu_gather_tex(g, s)) == UINT32_MAX))
-                full = 1;
-            gpu_pack_state(&gs[i], s, base);
-        }
-        if (!full)
-            break;
-        g->ncache   = 0;
-        g->tex_used = 0;
-        why         = NV_GPU_FB_ARENA;
-        if (pass)
-            goto fallback;
-    }
+    /* draw states and their textures: those sealed at a notify were gathered then */
+    t0  = nv_gpu_now_us();
+    why = NV_GPU_FB_ARENA;
+    if (!gpu_gather_states(g, b, b->nsealed))
+        goto fallback;
+    for (int i = 0; i < b->nstates; i++)
+        gpu_pack_state(&gs[i], &b->states[i], (b->states[i].textured && b->states[i].tex_size) ? g->sbase[i] : 0);
     t1 = nv_gpu_now_us();
     g->us_gather += t1 - t0;
     memcpy(sl->vk->rech[NV_GPU_R_TRIS].map, b->tris, sizeof(nv3_d3d_tri_t) * b->ntris);
@@ -666,9 +790,11 @@ nv3_gpu_shade(struct nv3_gpu_s *g, const nv3_d3d_batch_t *b)
         sl->ptex[i] = g->tcopy[i];
     g->next = (g->next + 1) % g->vk.nslots;
     g->batches++;
+    gpu_gather_done(g);
     return 1;
 
 fallback:
+    gpu_gather_done(g);
     g->fallbacks++;
     nv_gpu_vk_fallback(&g->vk, why);
     return 0;

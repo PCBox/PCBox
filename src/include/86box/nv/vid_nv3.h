@@ -1659,6 +1659,7 @@ void        nv3_d3d_init(int threads, int gpu);
 void        nv3_d3d_close(void);
 void        nv3_d3d_reset(void);
 void        nv3_d3d_flush(void);
+void        nv3_d3d_notify(void); /* a notify: draw, or with the GPU lane read the textures */
 void        nv3_d3d_sync(int cause);
 void        nv3_d3d_vblank(uint32_t lo, uint32_t hi);
 /* only when the 3D work reaches VRAM bytes lo..hi, or a 2D draw's rows (nv3_render_d3d.c) */

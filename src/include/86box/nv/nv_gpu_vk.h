@@ -99,6 +99,7 @@ typedef struct {
     VkDeviceMemory mem;
     void          *map; /* host-visible ones */
     VkDeviceSize   size;
+    int            cached; /* host-visible and cached: quick for the CPU to read */
 } nv_gpu_buf_t;
 
 enum {
