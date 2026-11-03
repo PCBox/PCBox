@@ -99,6 +99,9 @@ host_reg_def_t codegen_host_reg_list[CODEGEN_HOST_REGS] = {
    MXCSR scratch at 0x60, and saved XMM6-XMM15. Both frames align helper calls.
    Align the 16-byte saves too, so none straddles a cache line. */
 #define CODEGEN_WIN64_FRAME 0x118
+/* The frame elsewhere: the slots above, up to the MXCSR scratch. Every
+   epilogue must release what the prologue took. */
+#define CODEGEN_SYSV_FRAME  0x68
 #define CODEGEN_XMM6_SAVE   0x70 /*XMM6-XMM15 are saved at 16 byte intervals from here*/
 /* 0x28/0x30 hold FP temporaries, 0x40 holds memory scratch. The intervening
    slot points at this block's epilogue, including on helper/fault exits. */
@@ -1533,7 +1536,7 @@ build_link_routine(codeblock_t *block)
     host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM7, REG_RSP, CODEGEN_XMM7_SAVE);
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
 #        else
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x48);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_SYSV_FRAME);
 #        endif
     host_x86_POP(block, REG_R15);
     host_x86_POP(block, REG_R14);
@@ -1915,7 +1918,7 @@ codegen_backend_init(void)
     host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM7, REG_RSP, CODEGEN_XMM7_SAVE);
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
 #else
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x48);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_SYSV_FRAME);
 #endif
     host_x86_POP(block, REG_R15);
     host_x86_POP(block, REG_R14);
@@ -2000,7 +2003,7 @@ codegen_backend_prologue(codeblock_t *block)
     host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, CODEGEN_XMM7_SAVE+112, REG_XMM14);
     host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, CODEGEN_XMM7_SAVE+128, REG_XMM15);
 #else
-    host_x86_SUB64_REG_IMM(block, REG_RSP, 0x68);
+    host_x86_SUB64_REG_IMM(block, REG_RSP, CODEGEN_SYSV_FRAME);
 #endif
 #    ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
     if (block_pos != BLOCK_START + CODEGEN_LINK_ENTRY_OFFSET)
@@ -2062,7 +2065,7 @@ codegen_backend_epilogue(codeblock_t *block)
         host_x86_MOVDQU_XREG_BASE_OFFSET(block, reg, REG_RSP, CODEGEN_XMM6_SAVE + (reg - REG_XMM6) * 16);
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
 #else
-    host_x86_ADD64_REG_IMM(block, REG_RSP, 0x48);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_SYSV_FRAME);
 #endif
     host_x86_POP(block, REG_R15);
     host_x86_POP(block, REG_R14);

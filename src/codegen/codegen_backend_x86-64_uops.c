@@ -2828,13 +2828,6 @@ codegen_MEM_LOAD_ABS(codeblock_t *block, uop_t *uop)
     else
         fatal("MEM_LOAD_ABS - %02x\n", uop->dest_reg_a_real);
 #    endif
-    if (REG_IS_B(dest_size)) {
-        host_x86_MOV8_REG_REG(block, dest_reg, REG_ECX);
-    } else if (REG_IS_W(dest_size)) {
-        host_x86_MOV16_REG_REG(block, dest_reg, REG_ECX);
-    } else if (REG_IS_L(dest_size)) {
-        host_x86_MOV32_REG_REG(block, dest_reg, REG_ECX);
-    }
 
     return 0;
 }
@@ -2912,15 +2905,6 @@ codegen_MEM_LOAD_REG(codeblock_t *block, uop_t *uop)
     else
         fatal("MEM_LOAD_REG - %02x\n", uop->dest_reg_a_real);
 #    endif
-    if (REG_IS_B(dest_size)) {
-        host_x86_MOV8_REG_REG(block, dest_reg, REG_ECX);
-    } else if (REG_IS_W(dest_size)) {
-        host_x86_MOV16_REG_REG(block, dest_reg, REG_ECX);
-    } else if (REG_IS_L(dest_size)) {
-        host_x86_MOV32_REG_REG(block, dest_reg, REG_ECX);
-    } else if (REG_IS_Q(dest_size)) {
-        host_x86_MOVQ_XREG_XREG(block, dest_reg, REG_XMM_TEMP);
-    }
 
     return 0;
 }

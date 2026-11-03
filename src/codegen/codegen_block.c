@@ -1305,7 +1305,6 @@ codegen_block_end_recompile(codeblock_t *block)
 #ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
     codegen_link_block_changed(block);
 #endif
-    codegen_ir_compile(ir_data, block);
 
     /*Record what this version was compiled from, so it can be kept when the
       guest rewrites the block: the bytes and mappings as at the start of the

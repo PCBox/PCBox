@@ -852,8 +852,6 @@ exec386_dynarec_dyn(const int dbg)
 #    else
         code();
 #    endif
-        inrecomp = 1;
-        code();
         inrecomp = 0;
         /* Only a reset raised inside the block defers, and it sets
            x86_was_reset as it does (reset_common()). */

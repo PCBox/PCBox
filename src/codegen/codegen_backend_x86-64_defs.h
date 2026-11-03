@@ -54,7 +54,8 @@
 
 #define REG_XMM_TEMP         REG_XMM0
 
-#define CODEGEN_HOST_REGS    8
+/*The number of entries in codegen_host_reg_list and codegen_host_fp_reg_list*/
+#define CODEGEN_HOST_REGS    6
 #define CODEGEN_HOST_FP_REGS 15
 
 extern void *codegen_mem_load_byte;
