@@ -78,7 +78,6 @@ jobs:
           - name: Dev Debug
             preset: dev_debug
             slug: -Dev-Debug
-            manual: true
           - name: Dev
             preset: development
             slug: -Dev
@@ -106,7 +105,6 @@ jobs:
           - arch: x86_64
             slug: -x86_64
             runner: macos-15-intel
-            manual: true
           - arch: arm64
             slug: -arm64
             runner: macos-15
