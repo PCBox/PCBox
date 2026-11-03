@@ -394,6 +394,29 @@ RecompOpFn recomp_opcodes_3DNOW[256] = {
     // clang-format on
 };
 
+RecompOpFn recomp_opcodes_REPE[512] = {
+    [0x0a4] = ropREP_MOVSB,
+    [0x0a5] = ropREP_MOVSW,
+    [0x0aa] = ropREP_STOSB,
+    [0x0ab] = ropREP_STOSW,
+    [0x1a4] = ropREP_MOVSB,
+    [0x1a5] = ropREP_MOVSL,
+    [0x1aa] = ropREP_STOSB,
+    [0x1ab] = ropREP_STOSL,
+};
+
+RecompOpFn recomp_opcodes_REPNE[512] = {
+    [0x0a4] = ropREP_MOVSB,
+    [0x0a5] = ropREP_MOVSW,
+    [0x0aa] = ropREP_STOSB,
+    [0x0ab] = ropREP_STOSW,
+    [0x1a4] = ropREP_MOVSB,
+    [0x1a5] = ropREP_MOVSL,
+    [0x1aa] = ropREP_STOSB,
+    [0x1ab] = ropREP_STOSL,
+};
+
+
 RecompOpFn recomp_opcodes_d8[512] = {
     // clang-format off
         /*16-bit data*/
