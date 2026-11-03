@@ -283,6 +283,7 @@
 #    define OFFSET12_H(offset)        ((offset >> 1) << 10)
 #    define OFFSET12_W(offset)        ((offset >> 2) << 10)
 #    define OFFSET12_Q(offset)        ((offset >> 3) << 10)
+#    define OFFSET12_DQ(offset)       ((offset >> 4) << 10)
 
 #    define SHIFT_IMM_V4H(shift)      (((shift) | 0x10) << 16)
 #    define SHIFT_IMM_V2S(shift)      (((shift) | 0x20) << 16)
