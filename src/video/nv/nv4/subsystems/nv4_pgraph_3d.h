@@ -130,18 +130,42 @@ typedef struct {
     event_t  *done; /* this worker finished the batch */
 } nv4_3d_worker_t;
 
+/* A batch the worker threads shade: its arrays and spans, and, while it
+   is in flight (shaded as emulation goes on), the VRAM bytes it reads or
+   writes, which nothing else may touch until it is done */
+typedef struct {
+    const nv4_3d_state_t *states;
+    const nv4_3d_tri_t   *tris;
+    const nv4_3d_span_t  *spans;
+    int                   nspans;
+    int                   busy;
+    int                   nranges;
+    uint32_t              lo[B3D_REGIONS + 1], hi[B3D_REGIONS + 1];
+} nv4_3d_fly_t;
+
 typedef struct nv4_3d_batch_s {
-    nv4_3d_state_t states[B3D_STATES];
-    nv4_3d_tri_t   tris[B3D_TRIS];
-    nv4_3d_span_t  spans[B3D_SPANS];
-    int            nstates, ntris, nspans;
+    /* the arrays being filled: one of the two sets, the other in flight */
+    nv4_3d_state_t *states;
+    nv4_3d_tri_t   *tris;
+    nv4_3d_span_t  *spans;
+    int             nstates, ntris, nspans;
+    nv4_3d_state_t *set_states[2];
+    nv4_3d_tri_t   *set_tris[2];
+    nv4_3d_span_t  *set_spans[2];
+    int             set;
 
     /* The row layouts the batch draws into (threads and GPU only), with
        the bytes each has touched (depth also when only read) */
     nv4_3d_region_t regions[B3D_REGIONS];
     int             nregions;
     uint32_t        tex_lo, tex_hi; /* VRAM its textures read; lo > hi: none */
+    int             bus_tex; /* a texture is (or may be) outside VRAM */
     int             serial; /* rows alias: shade on one thread */
+
+    /* The worker threads shade a batch while emulation goes on (no GPU,
+       no verify or recording); the batch they are given */
+    int          async;
+    nv4_3d_fly_t fly;
 
     /* 3D seen lately (vertical blank count of the last triangle): large
        2D fills then join the batch instead of waiting for it */
