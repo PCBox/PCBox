@@ -2045,7 +2045,6 @@ codegen_MEM_LOAD_REG(codeblock_t *block, uop_t *uop)
     } else if (REG_IS_L(dest_size)) {
         codegen_mem_inline_ex(block, 4, 0, 0, codegen_mem_load_long, -1, MEM_SRC_W1, dest_reg); /* straight into it */
     } else if (REG_IS_Q(dest_size)) {
-        codegen_reg_emit_slow(block); /* always called: the stores before it */
         host_arm64_call(block, codegen_mem_load_quad);
         host_arm64_CBNZ(block, REG_X1, (uintptr_t) codegen_exit_rout);
     } else
@@ -2077,7 +2076,6 @@ codegen_MEM_LOAD_DOUBLE(codeblock_t *block, uop_t *uop)
     host_arm64_ADD_REG(block, REG_X0, seg_reg, addr_reg, 0);
     if (uop->imm_data)
         host_arm64_ADD_IMM(block, REG_X0, REG_X0, uop->imm_data);
-    codegen_reg_emit_slow(block); /* always called: the stores before it */
     host_arm64_call(block, codegen_mem_load_double);
     codegen_exit_CBNZ(block, uop, REG_X1, codegen_exit_rout);
     host_arm64_FMOV_D_D(block, dest_reg, REG_V_TEMP);
@@ -2098,7 +2096,6 @@ codegen_MEM_LOAD_SINGLE(codeblock_t *block, uop_t *uop)
     host_arm64_ADD_REG(block, REG_X0, seg_reg, addr_reg, 0);
     if (uop->imm_data)
         host_arm64_ADD_IMM(block, REG_X0, REG_X0, uop->imm_data);
-    codegen_reg_emit_slow(block); /* always called: the stores before it */
     host_arm64_call(block, codegen_mem_load_single);
     codegen_exit_CBNZ(block, uop, REG_X1, codegen_exit_rout);
     host_arm64_FCVT_D_S(block, dest_reg, REG_V_TEMP);
@@ -2151,7 +2148,6 @@ codegen_MEM_STORE_REG(codeblock_t *block, uop_t *uop)
         codegen_mem_inline_ex(block, 4, 1, 0, codegen_mem_store_long, src_reg, MEM_SRC_L, -1);
     } else if (REG_IS_Q(src_size)) {
         host_arm64_FMOV_D_D(block, REG_V_TEMP, src_reg);
-        codegen_reg_emit_slow(block); /* always called: the stores before it */
         host_arm64_call(block, codegen_mem_store_quad);
         host_arm64_CBNZ(block, REG_X1, (uintptr_t) codegen_exit_rout);
     } else
@@ -2216,7 +2212,6 @@ codegen_MEM_STORE_SINGLE(codeblock_t *block, uop_t *uop)
     if (uop->imm_data)
         host_arm64_ADD_IMM(block, REG_X0, REG_X0, uop->imm_data);
     host_arm64_FCVT_S_D(block, REG_V_TEMP, src_reg);
-    codegen_reg_emit_slow(block); /* always called: the stores before it */
     host_arm64_call(block, codegen_mem_store_single);
     codegen_exit_CBNZ(block, uop, REG_X1, codegen_exit_rout);
 
@@ -2237,7 +2232,6 @@ codegen_MEM_STORE_DOUBLE(codeblock_t *block, uop_t *uop)
     if (uop->imm_data)
         host_arm64_ADD_IMM(block, REG_X0, REG_X0, uop->imm_data);
     host_arm64_FMOV_D_D(block, REG_V_TEMP, src_reg);
-    codegen_reg_emit_slow(block); /* always called: the stores before it */
     host_arm64_call(block, codegen_mem_store_double);
     codegen_exit_CBNZ(block, uop, REG_X1, codegen_exit_rout);
 
