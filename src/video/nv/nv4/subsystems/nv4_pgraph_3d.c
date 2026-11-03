@@ -238,9 +238,10 @@ nv4_3d_tex_hazard(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_tex_t *t)
     return 0;
 }
 
-/* Widen lo..hi to the VRAM pages texture <t> reads. */
+/* Widen lo..hi to the VRAM pages texture <t> reads; set *bus when it
+   reads (or may read) system memory. */
 static void
-nv4_3d_tex_range(nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t *lo, uint32_t *hi)
+nv4_3d_tex_range(nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t *lo, uint32_t *hi, int *bus)
 {
     uint32_t first, last;
 
@@ -249,20 +250,25 @@ nv4_3d_tex_range(nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t *lo, uint32_t *hi)
     first = t->offset & ~0xfffu;
     last  = (t->offset + t->size - 1) & ~0xfffu;
     if (((last - first) >> 12) >= 1024) {
-        *lo = 0;
-        *hi = 0xffffffff;
+        *lo  = 0;
+        *hi  = 0xffffffff;
+        *bus = 1;
         return;
     }
     for (uint32_t o = first;; o += 0x1000) {
         uint32_t a;
         int      target;
 
-        if ((nv4_dma_translate(nv4, t->dma, o, 0, &a, &target) == NV4_DMA_OK) && !target) {
-            a &= ~0xfffu;
-            if (a < *lo)
-                *lo = a;
-            if (a + 0xfff > *hi)
-                *hi = a + 0xfff;
+        if (nv4_dma_translate(nv4, t->dma, o, 0, &a, &target) == NV4_DMA_OK) {
+            if (target)
+                *bus = 1;
+            else {
+                a &= ~0xfffu;
+                if (a < *lo)
+                    *lo = a;
+                if (a + 0xfff > *hi)
+                    *hi = a + 0xfff;
+            }
         }
         if (o == last)
             break;
@@ -354,8 +360,8 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
         if (flush)
             nv4_3d_flush(nv4);
         b->serial = 1;
-        nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi);
-        nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi);
+        nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi, &b->bus_tex);
+        nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi, &b->bus_tex);
         b->states[b->nstates] = *s;
         return b->nstates++;
     }
@@ -395,8 +401,8 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
         }
     }
     if (b->parallel) {
-        nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi);
-        nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi);
+        nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi, &b->bus_tex);
+        nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi, &b->bus_tex);
     }
     b->states[b->nstates] = *s;
     return b->nstates++;
@@ -1090,10 +1096,10 @@ nv4_lod(const nv4_3d_tri_t *t, int au, int av, float q, float uq, float vq, int 
 }
 
 static void
-nv4_3d_span(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_span_t *sp)
+nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, const nv4_3d_span_t *sp)
 {
-    const nv4_3d_tri_t   *t = &b->tris[sp->tri];
-    const nv4_3d_state_t *s = &b->states[t->state];
+    const nv4_3d_tri_t   *t = &tris[sp->tri];
+    const nv4_3d_state_t *s = &states[t->state];
     nv4_3d_tcache_t       tc[2] = { { ~0u, 0, 0 }, { ~0u, 0, 0 } };
     uint8_t              *vram  = nv4->svga.vram;
     uint32_t              vm    = nv4->vram_mask;
@@ -1329,6 +1335,8 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_span_t *sp)
     }
 }
 
+static uint64_t nv4_3d_now_us(void);
+
 static void
 nv4_3d_worker(void *priv)
 {
@@ -1341,29 +1349,93 @@ nv4_3d_worker(void *priv)
         thread_reset_event(w->wake);
         if (!b->run)
             break;
-        for (int i = 0; i < b->nspans; i++)
-            if (((unsigned) b->spans[i].y % (unsigned) b->nthreads) == (unsigned) w->id)
-                nv4_3d_span(nv4, b, &b->spans[i]);
+        for (int i = 0; i < b->fly.nspans; i++)
+            if (((unsigned) b->fly.spans[i].y % (unsigned) b->nthreads) == (unsigned) w->id)
+                nv4_3d_span(nv4, b->fly.states, b->fly.tris, &b->fly.spans[i]);
         thread_set_event(w->done);
     }
+}
+
+/* Hand the batch being filled to the worker threads */
+static void
+nv4_3d_fly_start(nv4_3d_batch_t *b)
+{
+    b->fly.states = b->states;
+    b->fly.tris   = b->tris;
+    b->fly.spans  = b->spans;
+    b->fly.nspans = b->nspans;
+    b->fly.busy   = 1;
+    for (int i = 0; i < b->nthreads; i++)
+        thread_set_event(b->workers[i].wake);
+}
+
+/* Wait for the worker threads' batch, if any */
+static void
+nv4_3d_fly_wait(nv4_3d_batch_t *b, int cause)
+{
+    uint64_t t0;
+
+    if (!b->fly.busy)
+        return;
+    t0 = nv4_3d_now_us();
+    for (int i = 0; i < b->nthreads; i++)
+        thread_wait_event(b->workers[i].done, -1);
+    for (int i = 0; i < b->nthreads; i++)
+        thread_reset_event(b->workers[i].done);
+    b->fly.busy = 0;
+    if (cause >= 0) {
+        b->st_sync_us[cause] += nv4_3d_now_us() - t0;
+        b->st_sync_n[cause]++;
+    }
+}
+
+/* Does the worker threads' batch read or write any of bytes lo..hi? */
+static int
+nv4_3d_fly_overlaps(const nv4_3d_batch_t *b, uint32_t lo, uint32_t hi)
+{
+    for (int i = 0; b->fly.busy && (i < b->fly.nranges); i++)
+        if ((lo <= b->fly.hi[i]) && (b->fly.lo[i] <= hi))
+            return 1;
+    return 0;
+}
+
+/* Let the worker threads shade the batch being filled while emulation
+   goes on, and fill the other set of arrays meanwhile. Until they are
+   done nothing else may touch the bytes it reads or writes: its rows and
+   the VRAM its textures read (nv4_3d_touch). Textures in system memory
+   are not watched, so such a batch is never handed off this way. */
+static void
+nv4_3d_shade_async(nv4_3d_batch_t *b)
+{
+    b->fly.nranges = 0;
+    for (int r = 0; r < b->nregions; r++)
+        if (b->regions[r].wlo <= b->regions[r].whi) {
+            b->fly.lo[b->fly.nranges]   = b->regions[r].wlo;
+            b->fly.hi[b->fly.nranges++] = b->regions[r].whi;
+        }
+    if (b->tex_lo <= b->tex_hi) {
+        b->fly.lo[b->fly.nranges]   = b->tex_lo;
+        b->fly.hi[b->fly.nranges++] = b->tex_hi;
+    }
+    nv4_3d_fly_start(b);
+    b->set ^= 1;
+    b->states = b->set_states[b->set];
+    b->tris   = b->set_tris[b->set];
+    b->spans  = b->set_spans[b->set];
 }
 
 static void
 nv4_3d_shade_threaded(nv4_3d_batch_t *b)
 {
-    for (int i = 0; i < b->nthreads; i++)
-        thread_set_event(b->workers[i].wake);
-    for (int i = 0; i < b->nthreads; i++)
-        thread_wait_event(b->workers[i].done, -1);
-    for (int i = 0; i < b->nthreads; i++)
-        thread_reset_event(b->workers[i].done);
+    nv4_3d_fly_start(b);
+    nv4_3d_fly_wait(b, -1);
 }
 
 static void
 nv4_3d_shade_serial(nv4_t *nv4, nv4_3d_batch_t *b)
 {
     for (int i = 0; i < b->nspans; i++)
-        nv4_3d_span(nv4, b, &b->spans[i]);
+        nv4_3d_span(nv4, b->states, b->tris, &b->spans[i]);
 }
 
 /* Shade on the GPU or the worker threads. 0: neither took the batch,
@@ -1624,7 +1696,14 @@ nv4_3d_flush(nv4_t *nv4)
         b->st_serial++;
         b->st_serial_spans += b->nspans;
     }
-    if (b->parallel && (!b->serial || b->gpu) && (b->nspans > 1)) {
+    /* one batch in flight at a time, and none while this one is drawn
+       any other way */
+    nv4_3d_fly_wait(b, -1);
+    b->st_flushes++;
+    b->st_spans += b->nspans;
+    if (b->async && !b->serial && !b->bus_tex && (b->nspans > 1))
+        nv4_3d_shade_async(b);
+    else if (b->parallel && (!b->serial || b->gpu) && (b->nspans > 1)) {
         if (b->verify)
             nv4_3d_shade_verify(nv4, b);
         else if (!nv4_3d_shade_parallel(nv4, b))
@@ -1635,8 +1714,6 @@ nv4_3d_flush(nv4_t *nv4)
             nv4_gpu_wait(b->gpu, nv4);
         nv4_3d_shade_serial(nv4, b);
     }
-    b->st_flushes++;
-    b->st_spans += b->nspans;
     b->st_us += nv4_3d_now_us() - t0;
     b->nspans   = 0;
     b->ntris    = 0;
@@ -1645,6 +1722,7 @@ nv4_3d_flush(nv4_t *nv4)
     b->serial   = 0;
     b->tex_lo   = 0xffffffff;
     b->tex_hi   = 0;
+    b->bus_tex  = 0;
     for (int c = 0; c < NV4_CHANNELS; c++)
         nv4->d3d[c].state = -1;
 }
@@ -1668,6 +1746,8 @@ void
 nv4_3d_sync(nv4_t *nv4, int cause)
 {
     nv4_3d_flush(nv4);
+    if (nv4->batch3d)
+        nv4_3d_fly_wait(nv4->batch3d, cause);
     if (nv4->batch3d && nv4->batch3d->gpu)
         nv4_3d_gpu_wait(nv4, cause);
 }
@@ -1679,6 +1759,8 @@ void
 nv4_3d_vblank(nv4_t *nv4, uint32_t lo, uint32_t hi)
 {
     nv4_3d_flush(nv4);
+    if (nv4->batch3d && nv4_3d_fly_overlaps(nv4->batch3d, lo, hi))
+        nv4_3d_fly_wait(nv4->batch3d, NV4_SYNC_VBLANK);
     if (nv4->batch3d && nv4->batch3d->gpu && nv4_gpu_pending_overlaps(nv4->batch3d->gpu, lo, hi))
         nv4_3d_gpu_wait(nv4, NV4_SYNC_VBLANK);
 }
@@ -1924,6 +2006,9 @@ nv4_3d_touch(nv4_t *nv4, uint32_t lo, uint32_t hi, int cause)
         if (hit)
             nv4_3d_flush(nv4);
     }
+    /* (after the flush: the batch it handed off may reach them too) */
+    if (nv4_3d_fly_overlaps(b, lo, hi))
+        nv4_3d_fly_wait(b, cause);
     if (b->gpu && nv4_gpu_pending_overlaps(b->gpu, lo, hi))
         nv4_3d_gpu_wait(nv4, cause);
 }
@@ -2216,6 +2301,7 @@ void
 nv4_3d_reset(nv4_t *nv4)
 {
     if (nv4->batch3d) {
+        nv4_3d_fly_wait(nv4->batch3d, -1);
         if (nv4->batch3d->gpu)
             nv4_gpu_wait(nv4->batch3d->gpu, nv4);
         nv4->batch3d->nspans   = 0;
@@ -2225,6 +2311,7 @@ nv4_3d_reset(nv4_t *nv4)
         nv4->batch3d->serial   = 0;
         nv4->batch3d->tex_lo   = 0xffffffff;
         nv4->batch3d->tex_hi   = 0;
+        nv4->batch3d->bus_tex  = 0;
     }
     memset(nv4->d3d, 0, sizeof(nv4->d3d));
     for (int c = 0; c < NV4_CHANNELS; c++)
@@ -2237,7 +2324,17 @@ nv4_3d_init(nv4_t *nv4)
     nv4_3d_batch_t *b = calloc(1, sizeof(nv4_3d_batch_t));
     int             n = nv4->render_threads;
     const char     *v = getenv("NV4_3D_VERIFY");
+    const char     *a = getenv("NV4_3D_ASYNC");
 
+    /* two sets of arrays: one filled while the threads shade the other */
+    for (int s = 0; s < 2; s++) {
+        b->set_states[s] = calloc(B3D_STATES, sizeof(nv4_3d_state_t));
+        b->set_tris[s]   = calloc(B3D_TRIS, sizeof(nv4_3d_tri_t));
+        b->set_spans[s]  = calloc(B3D_SPANS, sizeof(nv4_3d_span_t));
+    }
+    b->states    = b->set_states[0];
+    b->tris      = b->set_tris[0];
+    b->spans     = b->set_spans[0];
     nv4->batch3d = b;
     nv4_3d_reset(nv4);
     if (n < 1)
@@ -2278,6 +2375,8 @@ nv4_3d_init(nv4_t *nv4)
             pclog("nv4 3D: recording every %u-th flush, %u at most, in %s\n", b->rec_every, b->rec_max, b->rec_dir);
         }
     }
+    /* NV4_3D_ASYNC=0: the threads' batch is waited for at once */
+    b->async = (n > 1) && !b->gpu && !b->verify && !b->rec_max && !(a && (*a == '0'));
     for (int i = 0; (n > 1) && (i < n); i++) {
         nv4_3d_worker_t *w = &b->workers[i];
 
@@ -2296,6 +2395,7 @@ nv4_3d_close(nv4_t *nv4)
 
     if (!b)
         return;
+    nv4_3d_fly_wait(b, -1);
     if (b->nthreads > 1) {
         b->run = 0;
         for (int i = 0; i < b->nthreads; i++)
@@ -2308,6 +2408,11 @@ nv4_3d_close(nv4_t *nv4)
     }
     if (b->gpu)
         nv4_gpu_close(b->gpu);
+    for (int s = 0; s < 2; s++) {
+        free(b->set_states[s]);
+        free(b->set_tris[s]);
+        free(b->set_spans[s]);
+    }
     free(b->vsnap);
     free(b->vres);
     free(b);
