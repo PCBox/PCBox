@@ -2162,6 +2162,24 @@ codegen_chain_patch(uint8_t *stub, codeblock_t *target, uint64_t gen)
 }
 #    endif /* CODEGEN_CHAIN */
 
+
+#    ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+/*Leave the block with every register written back and cpu_state.pc set, as
+  at its end. The link routine returns through the same register restores on
+  a miss. Each exit has a slot of its own, so the block's end and its taken
+  branches do not take turns filling the same one; a block with more exits
+  than slots shares them from the first again.*/
+void
+codegen_link_exit(codeblock_t *block)
+{
+    codegen_link_slot_t *slot = &codegen_link_slots[get_block_nr(block)][link_site++ % CODEGEN_LINK_SLOTS];
+
+    codegen_alloc(block, 20);
+    host_arm64_MOVX_IMM(block, REG_X0, (uint64_t) (uintptr_t) slot);
+    host_arm64_B(block, codegen_link_rout);
+}
+#    endif
+
 void
 codegen_backend_epilogue(codeblock_t *block)
 {
