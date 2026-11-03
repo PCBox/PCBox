@@ -185,6 +185,8 @@ typedef enum nv4_chip_e {
 #define NV4_CR_HCUR_ADDR1        0x31
 #define NV4_CR_RL0               0x34
 #define NV4_CR_RL1               0x35
+#define NV4_CR_SP1_STATUS        0x36 /* NV5: second serial port, in */
+#define NV4_CR_SP1_WR            0x37 /* NV5: second serial port, out */
 #define NV4_CR_RMA               0x38
 #define NV4_CR_ILACE             0x39
 #define NV4_CR_DDC_STATUS        0x3e
@@ -549,6 +551,7 @@ typedef struct nv4_s {
     /* DDC */
     void *i2c;
     void *ddc;
+    void *i2c1; /* NV5's second serial port (SPSCL1/SPSDA1), nothing on it */
 
     nv4_pfifo_t pfifo;
 
