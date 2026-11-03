@@ -37,6 +37,7 @@
 #include <86box/device.h>
 #include <86box/dma.h>
 #include <86box/mem.h>
+#include <86box/agpgart.h>
 #include <86box/pci.h>
 #include <86box/rom.h>
 #include <86box/timer.h>
@@ -124,8 +125,16 @@ nv4_dma_read(nv4_t *nv4, uint32_t inst, uint32_t offset, uint8_t *buf, uint32_t 
         if (target == NV4_DMA_TARGET_VRAM) {
             for (uint32_t i = 0; i < chunk; i++)
                 buf[i] = nv4->svga.vram[(addr + i) & nv4->vram_mask];
-        } else
-            dma_bm_read(addr, buf, chunk, 4);
+        } else {
+            /* RAM, or RAM behind the AGP aperture, straight from its page;
+               anything else through the bus */
+            const uint8_t *host = agpgart_bus_ptr(addr, chunk);
+
+            if (host)
+                memcpy(buf, host, chunk);
+            else
+                dma_bm_read(addr, buf, chunk, 4);
+        }
         buf += chunk;
         offset += chunk;
         len -= chunk;
