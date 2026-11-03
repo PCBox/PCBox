@@ -417,9 +417,9 @@ test_depth(void)
 
     card_new();
     surfaces(1, 3, 3, 0, 1);
-    /* clear depth to the far plane */
+    /* clear depth to the far plane: Z in bits 31:8, stencil 0 */
     for (int i = 0; i < 64; i++) {
-        uint32_t far = 0x00ffffff;
+        uint32_t far = 0xffffff00;
 
         memcpy(nv4->svga.vram + Z_BASE + i * 4, &far, 4);
     }
@@ -433,7 +433,7 @@ test_depth(void)
             uint32_t col = (y < 4) ? 0xff0000ff : 0xffff0000;
             uint32_t z   = (uint32_t) (((y < 4) ? 0.25f : 0.75f) * 16777215.0f);
 
-            if ((rd32(COL_BASE + o) != col) || ((rd32(Z_BASE + o) & 0xffffff) != z))
+            if ((rd32(COL_BASE + o) != col) || ((rd32(Z_BASE + o) >> 8) != z))
                 bad++;
         }
     CHECK(bad == 0);
