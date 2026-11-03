@@ -703,6 +703,8 @@ extern const device_t nv5_tnt2_pci_device;
 extern const device_t nv5_tnt2_agp_device;
 extern const device_t nv5_tnt2_ultra_pci_device;
 extern const device_t nv5_tnt2_ultra_agp_device;
+extern const device_t nv5_vanta_pci_device;
+extern const device_t nv5_vanta_agp_device;
 
 #endif
 
