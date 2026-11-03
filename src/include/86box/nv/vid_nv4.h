@@ -513,6 +513,11 @@ typedef struct nv4_s {
     uint32_t pcrtc_intr_en;
     uint32_t pcrtc_start;
     uint32_t pcrtc_config;
+    /* 15/16 bpp scan-out through the palette as a gamma ramp: a table
+       per format, built for the palette in gamma_clut */
+    uint32_t gamma_table[2][65536]; /* [0] X1R5G5B5, [1] R5G6B5 */
+    uint32_t gamma_clut[256];
+    int      gamma_valid[2];
 
     /* PRAMDAC */
     uint32_t cursor_pos;
