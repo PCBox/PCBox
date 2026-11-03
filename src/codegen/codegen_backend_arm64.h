@@ -22,9 +22,6 @@
 
 /* Let generic uop emitters use backend-specific immediate store helpers. */
 #define CODEGEN_BACKEND_HAS_MOV_IMM
-/*A memory access's slow path makes the stores the flush before it would
-  (codegen_reg_emit_slow): its fast path, inline, calls no C code*/
-#define CODEGEN_BACKEND_SLOW_STORES
 /* The integer uops of the SETcc, BSWAP, BSF/BSR, CMPXCHG and multiply
    handlers: CMP_SET, TEST_SET, BSF, BSR, BSWAP, IMUL, IMUL_HI, IMUL_OV and
    MUL_HI. A backend without them leaves those instructions to the
