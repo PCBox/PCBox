@@ -25,6 +25,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 #include <86box/86box.h>
 #include <86box/device.h>
 #include <86box/mem.h>
@@ -337,10 +338,9 @@ nv3_render_state_downconvert(int mode, uint32_t val)
 /* Translate an NV3 patch configuration ("operation") and a ROP3 into the
    ROP3 actually applied to (pattern, source, destination). From envytools'
    nv01_pgraph_xlat_rop. */
-uint8_t
-nv3_render_translate_nvrop(nv3_grobj_t grobj, uint32_t rop)
+static uint8_t
+nv3_render_translate_nvrop_calc(uint32_t op, uint32_t rop)
 {
-    uint32_t op = (grobj.grobj_0 >> NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG) & 0x1F;
     uint8_t  res = 0;
     int      swizzle[3];
 
@@ -400,12 +400,63 @@ nv3_render_translate_nvrop(nv3_grobj_t grobj, uint32_t rop)
     return res;
 }
 
-/* ROP3 on bit vectors: bit (p << 2 | s << 1 | d) of the ROP gives the result */
+/* The translation depends on only the patch configuration and the ROP's low byte: kept in a
+   table, it was the dearest step of drawing a pixel */
+uint8_t
+nv3_render_translate_nvrop(nv3_grobj_t grobj, uint32_t rop)
+{
+    static uint16_t memo[32][256]; /* bit 8: known */
+    uint32_t        op = (grobj.grobj_0 >> NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG) & 0x1F;
+    uint16_t       *m  = &memo[op][rop & 0xFF];
+
+    if (!*m)
+        *m = 0x100 | nv3_render_translate_nvrop_calc(op, rop & 0xFF);
+    return *m & 0xFF;
+}
+
+/* ROP3 on bit vectors: bit (p << 2 | s << 1 | d) of the ROP gives the result. The ROPs drivers
+   use most are written out; the loop gives the same bits for every ROP. */
 static uint32_t
 nv3_render_do_rop(uint8_t rop, uint32_t dst, uint32_t src, uint32_t pat)
 {
     uint32_t res = 0;
 
+    switch (rop) {
+        case 0x00:
+            return 0;
+        case 0xFF:
+            return 0xFFFFFFFF;
+        case 0xCC:
+            return src;
+        case 0x33:
+            return ~src;
+        case 0xAA:
+            return dst;
+        case 0x55:
+            return ~dst;
+        case 0xF0:
+            return pat;
+        case 0x0F:
+            return ~pat;
+        case 0x66:
+            return src ^ dst;
+        case 0x5A:
+            return pat ^ dst;
+        case 0x88:
+            return src & dst;
+        case 0xEE:
+            return src | dst;
+        case 0xC0:
+            return pat & src;
+        case 0xBB:
+            return ~src | dst;
+        case 0x44:
+            return src & ~dst;
+        case 0x22:
+            return ~src & dst;
+        default:
+            break;
+    }
     for (int i = 0; i < 8; i++) {
         if (rop & (1 << i))
             res |= ((i & 4) ? pat : ~pat) & ((i & 2) ? src : ~src) & ((i & 1) ? dst : ~dst);
@@ -445,26 +496,31 @@ nv3_render_do_blend(uint8_t factor, uint32_t dst, uint32_t src)
 
 /* One pixel through pattern, ROP or blend and the chroma key. pixel is what
    the surface holds; returns what it should hold. (nvhw nv03_pgraph_rop) */
-static uint32_t
-nv3_render_rop_pixel(int32_t x, int32_t y, uint32_t pixel, nv3_color_expanded_t s, uint32_t ctx, uint32_t fmt)
+static int
+nv3_render_work_mode(uint32_t fmt, const nv3_color_expanded_t *s)
 {
-    bool     bd       = (ctx >> 9) & 1;
-    uint32_t op       = (ctx >> NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG) & 0x1F;
-    bool     blend_en = op > 0x17;
-    int      mode;
-    uint32_t src, dst, mask;
-
     fmt &= 3;
     if (fmt == bpixel_fmt_8bit)
-        mode = NV3_MODE_Y8;
-    else if (fmt == bpixel_fmt_32bit)
-        mode = NV3_MODE_RGB10;
-    else if (fmt == bpixel_fmt_y16 && s.pixel_format == NV3_MODE_Y16)
-        mode = NV3_MODE_Y16;
-    else if (s.pixel_format == NV3_MODE_RGB5)
-        mode = NV3_MODE_RGB5;
-    else
-        mode = NV3_MODE_RGB10;
+        return NV3_MODE_Y8;
+    if (fmt == bpixel_fmt_32bit)
+        return NV3_MODE_RGB10;
+    if (fmt == bpixel_fmt_y16 && s->pixel_format == NV3_MODE_Y16)
+        return NV3_MODE_Y16;
+    if (s->pixel_format == NV3_MODE_RGB5)
+        return NV3_MODE_RGB5;
+    return NV3_MODE_RGB10;
+}
+
+static inline __attribute__((always_inline)) uint32_t
+nv3_render_rop_pixel(const nv3_render_setup_t *st, int32_t x, int32_t y, uint32_t pixel, nv3_color_expanded_t s)
+{
+    uint32_t ctx      = st->ctx;
+    uint32_t fmt      = st->fmt & 3;
+    bool     bd       = (ctx >> 9) & 1;
+    uint32_t op       = st->op;
+    bool     blend_en = st->blend;
+    int      mode     = nv3_render_work_mode(fmt, &s);
+    uint32_t src, dst, mask;
 
     if (!s.a)
         return pixel;
@@ -523,13 +579,11 @@ nv3_render_rop_pixel(int32_t x, int32_t y, uint32_t pixel, nv3_color_expanded_t 
 
     uint32_t ropres;
     if (!blend_en) {
-        uint8_t rop = nv3_render_translate_nvrop((nv3_grobj_t) { .grobj_0 = ctx }, nv3->pgraph.rop);
-
         /* write-only ROPs leave the pixel alone for "D" */
-        if (rop == 0xAA && ((nv3->pgraph.debug_0 >> NV3_PGRAPH_DEBUG_0_WRITE_ONLY_ROPS_2D) & 1) && !((ctx >> NV3_PGRAPH_CTX_SWITCH_PLANE_MASK) & 1))
+        if (st->rop_noop)
             return pixel;
-        ropres = nv3_render_do_rop(rop, dst, src, pat) & mask;
-        if ((ctx >> NV3_PGRAPH_CTX_SWITCH_CHROMA_KEY) & 1) {
+        ropres = nv3_render_do_rop(st->rop, dst, src, pat) & mask;
+        if (st->chroma) {
             uint32_t chr = nv3_render_state_downconvert(mode, nv3->pgraph.chroma_key);
             if (chr == ropres && ((nv3->pgraph.chroma_key >> 30) & 1))
                 return pixel;
@@ -578,70 +632,293 @@ nv3_render_rop_pixel(int32_t x, int32_t y, uint32_t pixel, nv3_color_expanded_t 
     }
 }
 
-/* Does a fill of source colour s through grobj store one value in every pixel, whatever the
-   pixel held? Then *val is that value (in the surface's format). The ROP must take only the
-   source (no pattern, no blend); dither repeats every 16 pixels both ways, so a 16 by 16 tile is
-   tried over two opposite destinations through the pixel pipeline itself -- the chroma key, a
-   zero alpha and the rest decide as they do when drawing. */
-bool
-nv3_render_fill_value(nv3_color_expanded_t s, nv3_grobj_t grobj, uint32_t *val)
+/* Work out what a primitive's pixels are drawn with: everything nv3_render_pixel_ex would
+   otherwise find again for each pixel. The canvas and the user clip become one rectangle;
+   maxima are exclusive. */
+void
+nv3_render_setup(nv3_render_setup_t *st, nv3_grobj_t grobj, bool own_clip)
 {
-    uint32_t ctx  = grobj.grobj_0;
-    uint32_t op   = (ctx >> NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG) & 0x1F;
-    uint32_t fmt  = nv3_render_surface_format(grobj);
-    uint32_t cpp  = nv3_render_cpp(fmt);
-    uint32_t mask = (cpp == 1) ? 0xFF : ((cpp == 2) ? 0xFFFF : 0xFFFFFFFF);
+    uint32_t ctx    = grobj.grobj_0;
+    int32_t  cmin_x = nv3->pgraph.dst_canvas_min & 0x7FF;
+    int32_t  cmin_y = (nv3->pgraph.dst_canvas_min >> 16) & 0x3FFF;
+    int32_t  cmax_x = nv3->pgraph.dst_canvas_max & 0x7FF;
+    int32_t  cmax_y = (nv3->pgraph.dst_canvas_max >> 16) & 0x3FFF;
+
+    st->ctx      = ctx;
+    st->fmt      = nv3_render_surface_format(grobj);
+    st->cpp      = nv3_render_cpp(st->fmt);
+    st->op       = (ctx >> NV3_PGRAPH_CTX_SWITCH_PATCH_CONFIG) & 0x1F;
+    st->blend    = st->op > 0x17;
+    st->rop      = nv3_render_translate_nvrop(grobj, nv3->pgraph.rop);
+    st->rop_noop = (st->rop == 0xAA) && ((nv3->pgraph.debug_0 >> NV3_PGRAPH_DEBUG_0_WRITE_ONLY_ROPS_2D) & 1)
+        && !((ctx >> NV3_PGRAPH_CTX_SWITCH_PLANE_MASK) & 1);
+    st->chroma    = (ctx >> NV3_PGRAPH_CTX_SWITCH_CHROMA_KEY) & 1;
+    st->bufs      = (ctx >> NV3_PGRAPH_CTX_SWITCH_DST_BUFFER0_ENABLED) & ((1 << NV3_PGRAPH_MAX_BUFFERS) - 1);
+    st->cliprects = nv3->pgraph.cliprect_ctrl & 3;
+
+    /* pixels left of or above 0 are never drawn */
+    st->cx0 = 0;
+    st->cy0 = 0;
+    st->cx1 = INT32_MAX;
+    st->cy1 = INT32_MAX;
+    /* a canvas nobody set up does not clip */
+    if (cmax_x > cmin_x && cmax_y > cmin_y) {
+        st->cx0 = MAX(st->cx0, cmin_x);
+        st->cy0 = MAX(st->cy0, cmin_y);
+        st->cx1 = MIN(st->cx1, cmax_x);
+        st->cy1 = MIN(st->cy1, cmax_y);
+    }
+    if (!own_clip && ((ctx >> NV3_PGRAPH_CTX_SWITCH_USER_CLIP) & 1)) {
+        st->cx0 = MAX(st->cx0, nv3->pgraph.uclip_min[0]);
+        st->cy0 = MAX(st->cy0, nv3->pgraph.uclip_min[1]);
+        st->cx1 = MIN(st->cx1, nv3->pgraph.uclip_max[0]);
+        st->cy1 = MIN(st->cy1, nv3->pgraph.uclip_max[1]);
+    }
+}
+
+/* The clip rectangles, which nv3_render_setup leaves to each pixel */
+static bool
+nv3_render_cliprects_pass(int32_t x, int32_t y)
+{
+    uint32_t num     = nv3->pgraph.cliprect_ctrl & 3;
+    bool     covered = false;
+
+    if (num == 3)
+        num = 2;
+    for (uint32_t i = 0; i < num; i++) {
+        if (x >= (int32_t) (nv3->pgraph.cliprect_min[i] & 0xFFFF) && y >= (int32_t) (nv3->pgraph.cliprect_min[i] >> 16)
+            && x < (int32_t) (nv3->pgraph.cliprect_max[i] & 0xFFFF) && y < (int32_t) (nv3->pgraph.cliprect_max[i] >> 16))
+            covered = true;
+    }
+    return covered != !!(nv3->pgraph.cliprect_ctrl & 0x10);
+}
+
+/* Does a fill of source colour s store one value in every pixel, whatever the pixel held? Then
+   *val is that value (in the surface's format). The ROP must take only the source (no pattern,
+   no blend), and the pixel pipeline itself decides with two opposite destinations -- the chroma
+   key, a zero alpha and the rest decide as they do when drawing. Only the dither depends on the
+   position, repeating every 16 pixels both ways: a 16 by 16 tile is tried when it is on. */
+bool
+nv3_render_fill_value_st(const nv3_render_setup_t *st, nv3_color_expanded_t s, uint32_t *val)
+{
+    uint32_t mask = (st->cpp == 1) ? 0xFF : ((st->cpp == 2) ? 0xFFFF : 0xFFFFFFFF);
+    int      mode = nv3_render_work_mode(st->fmt, &s);
+    int32_t  tile = (((st->fmt & 3) != bpixel_fmt_32bit) && (mode == NV3_MODE_RGB10)) ? 16 : 1;
     uint32_t first;
 
-    if (op > 0x17)
+    if (st->blend)
         return false;
     /* these leave a pixel alone where the pattern's alpha is 0, which repeats every 64 pixels */
-    if ((op >= 9) && (op < 0x16) && !(nv3->pgraph.pattern_mono_a[0] && nv3->pgraph.pattern_mono_a[1]))
+    if ((st->op >= 9) && (st->op < 0x16) && !(nv3->pgraph.pattern_mono_a[0] && nv3->pgraph.pattern_mono_a[1]))
         return false;
-    if (nv3_render_translate_nvrop(grobj, nv3->pgraph.rop) != 0xCC)
+    if (st->rop != 0xCC)
         return false;
-    first = nv3_render_rop_pixel(0, 0, 0, s, ctx, fmt);
-    for (int32_t y = 0; y < 16; y++)
-        for (int32_t x = 0; x < 16; x++)
-            if ((nv3_render_rop_pixel(x, y, 0, s, ctx, fmt) != first) || (nv3_render_rop_pixel(x, y, mask, s, ctx, fmt) != first))
+    first = nv3_render_rop_pixel(st, 0, 0, 0, s);
+    for (int32_t y = 0; y < tile; y++)
+        for (int32_t x = 0; x < tile; x++)
+            if ((nv3_render_rop_pixel(st, x, y, 0, s) != first) || (nv3_render_rop_pixel(st, x, y, mask, s) != first))
                 return false;
     *val = first;
     return true;
 }
 
-/* Draw one pixel of source colour s at (x, y) on every destination surface
-   the object writes. own_clip: the class clips with its own rectangle (GDI,
-   SIFM, SIFC), so the user clip does not apply; the canvas still does. */
-void
-nv3_render_pixel_ex(int32_t x, int32_t y, nv3_color_expanded_t s, nv3_grobj_t grobj, bool own_clip)
+bool
+nv3_render_fill_value(nv3_color_expanded_t s, nv3_grobj_t grobj, uint32_t *val)
 {
-    uint32_t ctx = grobj.grobj_0;
+    nv3_render_setup_t st;
 
-    if (x < 0 || y < 0)
-        return;
-    if (!nv3_render_clip_pass(x, y, grobj, own_clip))
-        return;
+    nv3_render_setup(&st, grobj, false);
+    return nv3_render_fill_value_st(&st, s, val);
+}
 
-    uint32_t fmt = nv3_render_surface_format(grobj);
-    uint32_t cpp = nv3_render_cpp(fmt);
+/* One pixel inside the clip, on every destination surface */
+static inline __attribute__((always_inline)) void
+nv3_render_pixel_body(const nv3_render_setup_t *st, int32_t x, int32_t y, nv3_color_expanded_t s)
+{
+    uint32_t cpp = st->cpp;
 
     for (uint32_t j = 0; j < NV3_PGRAPH_MAX_BUFFERS; j++) {
-        if (!((ctx >> (NV3_PGRAPH_CTX_SWITCH_DST_BUFFER0_ENABLED + j)) & 1))
+        if (!((st->bufs >> j) & 1))
             continue;
 
-        uint32_t addr  = (nv3->pgraph.boffset[j] + (uint32_t) y * nv3->pgraph.bpitch[j] + (uint32_t) x * cpp) & nv3->nvbase.svga.vram_mask;
-        uint32_t pixel = nv3_render_read_surface(j, x, y, cpp);
-        uint32_t res   = nv3_render_rop_pixel(x, y, pixel, s, ctx, fmt);
+        uint32_t addr = (nv3->pgraph.boffset[j] + (uint32_t) y * nv3->pgraph.bpitch[j] + (uint32_t) x * cpp) & nv3->nvbase.svga.vram_mask;
+        uint32_t pixel;
+
+        switch (cpp) {
+            case 1:
+                pixel = nv3->nvbase.svga.vram[addr];
+                break;
+            case 2:
+                pixel = *(uint16_t *) &nv3->nvbase.svga.vram[addr & ~1];
+                break;
+            default:
+                pixel = *(uint32_t *) &nv3->nvbase.svga.vram[addr & ~3];
+                break;
+        }
+
+        uint32_t res = nv3_render_rop_pixel(st, x, y, pixel, s);
 
         if (res != pixel)
             nv3_render_write_surface(addr, res, cpp);
     }
 }
 
+/* Draw one pixel of source colour s at (x, y) on every destination surface of a primitive */
+void
+nv3_render_pixel_st(const nv3_render_setup_t *st, int32_t x, int32_t y, nv3_color_expanded_t s)
+{
+    if ((x < st->cx0) || (y < st->cy0) || (x >= st->cx1) || (y >= st->cy1))
+        return;
+    if (st->cliprects && !nv3_render_cliprects_pass(x, y))
+        return;
+    nv3_render_pixel_body(st, x, y, s);
+}
+
+/* Pixels [x0, x1) of row y in source colour s, as nv3_render_pixel_st one after another */
+void
+nv3_render_span_st(const nv3_render_setup_t *st, int32_t y, int32_t x0, int32_t x1, nv3_color_expanded_t s)
+{
+    if ((y < st->cy0) || (y >= st->cy1))
+        return;
+    x0 = MAX(x0, st->cx0);
+    x1 = MIN(x1, st->cx1);
+    for (int32_t x = x0; x < x1; x++) {
+        if (st->cliprects && !nv3_render_cliprects_pass(x, y))
+            continue;
+        nv3_render_pixel_body(st, x, y, s);
+    }
+}
+
+/* Draw one pixel of source colour s at (x, y) on every destination surface the object writes.
+   own_clip: the class clips with its own rectangle (GDI, SIFM, SIFC), so the user clip does not
+   apply; the canvas still does. */
+void
+nv3_render_pixel_ex(int32_t x, int32_t y, nv3_color_expanded_t s, nv3_grobj_t grobj, bool own_clip)
+{
+    nv3_render_setup_t st;
+
+    if (x < 0 || y < 0)
+        return;
+    nv3_render_setup(&st, grobj, own_clip);
+    nv3_render_pixel_st(&st, x, y, s);
+}
+
 void
 nv3_render_pixel(int32_t x, int32_t y, nv3_color_expanded_t s, nv3_grobj_t grobj)
 {
     nv3_render_pixel_ex(x, y, s, grobj, false);
+}
+
+/* Can row y, pixels [x0, x1), of destination surface j be written as one run of bytes? Then
+   *addr is where it starts. Not when the surface's offset or pitch is not a multiple of the
+   pixel size (the engine aligns each pixel's address down) or the row wraps around the end of
+   VRAM. */
+bool
+nv3_render_rows_direct(const nv3_render_setup_t *st, uint32_t j, int32_t x0, int32_t x1, int32_t y, uint32_t *addr)
+{
+    uint32_t cpp  = st->cpp;
+    uint32_t mask = nv3->nvbase.svga.vram_mask;
+    uint32_t a    = nv3->pgraph.boffset[j] + (uint32_t) y * nv3->pgraph.bpitch[j] + (uint32_t) x0 * cpp;
+
+    if ((nv3->pgraph.boffset[j] | nv3->pgraph.bpitch[j]) & (cpp - 1))
+        return false;
+    if (((a & mask) + (uint32_t) (x1 - x0) * cpp) > (mask + 1))
+        return false;
+    *addr = a & mask;
+    return true;
+}
+
+/* Store val in n pixels of cpp bytes from addr (nv3_render_rows_direct said the run fits) */
+void
+nv3_render_store_row(uint32_t addr, int32_t n, uint32_t cpp, uint32_t val)
+{
+    uint8_t *p = &nv3->nvbase.svga.vram[addr];
+
+    switch (cpp) {
+        case 1:
+            memset(p, val, n);
+            break;
+        case 2:
+            for (int32_t i = 0; i < n; i++)
+                ((uint16_t *) p)[i] = val;
+            break;
+        default:
+            for (int32_t i = 0; i < n; i++)
+                ((uint32_t *) p)[i] = val;
+            break;
+    }
+    for (uint32_t a = addr & ~0xFFFu; a < addr + (uint32_t) n * cpp; a += 0x1000)
+        nv3->nvbase.svga.changedvram[a >> 12] = changeframecount;
+}
+
+/* What a plain copy stores for a pixel p read from a surface of the destination's format:
+   pixel_format and the ROP's output conversion keep the pixel but for the top bit, which comes
+   from the context (bit 9); 32-bit pixels also lose bit 30 */
+static uint32_t
+nv3_render_copy_value(const nv3_render_setup_t *st, uint32_t p)
+{
+    uint32_t bd = (st->ctx >> 9) & 1;
+
+    switch (st->fmt & 3) {
+        case bpixel_fmt_8bit:
+            return p & 0xFF;
+        case bpixel_fmt_y16:
+            return p & 0xFFFF;
+        case bpixel_fmt_16bit:
+            return (bd << 15) | (p & 0x7FFF);
+        default:
+            return (bd << 31) | (p & 0x3FFFFFFF);
+    }
+}
+
+/* Is a blit through st a plain copy: source only through the ROP, no blend, chroma key, write
+   mask or pattern alpha, and no clip rectangles? The pixel pipeline confirms it gives
+   nv3_render_copy_value for a few pixels, positions and destinations (it has no dither for
+   pixels in the destination's own format). */
+bool
+nv3_render_copy_ok(const nv3_render_setup_t *st)
+{
+    static const uint32_t samples[] = { 0x00000000, 0xFFFFFFFF, 0x12345678, 0x87654321, 0x7FFF8000, 0x55AA33CC, 0xC0000003, 0x3FFFFFFF };
+    uint32_t              mask      = (st->cpp == 1) ? 0xFF : ((st->cpp == 2) ? 0xFFFF : 0xFFFFFFFF);
+
+    if (st->blend || st->rop_noop || (st->rop != 0xCC) || st->chroma || st->cliprects)
+        return false;
+    if ((st->op >= 9) && (st->op < 0x16) && !(nv3->pgraph.pattern_mono_a[0] && nv3->pgraph.pattern_mono_a[1]))
+        return false;
+    for (uint32_t i = 0; i < sizeof(samples) / sizeof(samples[0]); i++) {
+        uint32_t             p = samples[i] & mask;
+        nv3_color_expanded_t s = nv3_render_expand_surface(st->fmt, p);
+        uint32_t             v = nv3_render_copy_value(st, p);
+
+        if ((nv3_render_rop_pixel(st, 0, 0, 0, s) != v) || (nv3_render_rop_pixel(st, 5, 3, mask, s) != v)
+            || (nv3_render_rop_pixel(st, 2, 7, p ^ mask, s) != v))
+            return false;
+    }
+    return true;
+}
+
+/* Store the copies of n source pixels from addr (nv3_render_rows_direct said the run fits) */
+void
+nv3_render_copy_row(const nv3_render_setup_t *st, uint32_t addr, const uint32_t *src, int32_t n)
+{
+    uint8_t *p = &nv3->nvbase.svga.vram[addr];
+
+    switch (st->cpp) {
+        case 1:
+            for (int32_t i = 0; i < n; i++)
+                p[i] = nv3_render_copy_value(st, src[i]);
+            break;
+        case 2:
+            for (int32_t i = 0; i < n; i++)
+                ((uint16_t *) p)[i] = nv3_render_copy_value(st, src[i]);
+            break;
+        default:
+            for (int32_t i = 0; i < n; i++)
+                ((uint32_t *) p)[i] = nv3_render_copy_value(st, src[i]);
+            break;
+    }
+    for (uint32_t a = addr & ~0xFFFu; a < addr + (uint32_t) n * st->cpp; a += 0x1000)
+        nv3->nvbase.svga.changedvram[a >> 12] = changeframecount;
 }
 
 /* Draw a pixel given a colour in the object's own colour format */

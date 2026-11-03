@@ -36,6 +36,32 @@ void     nv3_render_pixel_ex(int32_t x, int32_t y, nv3_color_expanded_t s, nv3_g
 void     nv3_render_write_pixel(nv3_coord_16_t position, uint32_t color, nv3_grobj_t grobj);
 bool     nv3_render_fill_value(nv3_color_expanded_t s, nv3_grobj_t grobj, uint32_t *val);      // One value for every pixel of a fill?
 
+/* What every pixel of a primitive is drawn with, worked out once per primitive: the surface
+   format, the ROP after the patch configuration, the destination surfaces and the clip as one
+   rectangle (the clip rectangles, when on, are still tested per pixel) */
+typedef struct nv3_render_setup_s {
+    uint32_t ctx;
+    uint32_t fmt;
+    uint32_t cpp;
+    uint32_t op;        // patch configuration
+    uint8_t  rop;       // translated ROP3
+    bool     blend;     // op > 0x17: beta/alpha blend, no ROP
+    bool     rop_noop;  // the "D" ROP with write-only ROPs on: pixels are left alone
+    bool     chroma;
+    uint32_t bufs;      // destination surfaces, bit n = surface n
+    int32_t  cx0, cy0, cx1, cy1;
+    uint32_t cliprects;
+} nv3_render_setup_t;
+
+void     nv3_render_setup(nv3_render_setup_t *st, nv3_grobj_t grobj, bool own_clip);
+void     nv3_render_pixel_st(const nv3_render_setup_t *st, int32_t x, int32_t y, nv3_color_expanded_t s);
+void     nv3_render_span_st(const nv3_render_setup_t *st, int32_t y, int32_t x0, int32_t x1, nv3_color_expanded_t s);
+bool     nv3_render_fill_value_st(const nv3_render_setup_t *st, nv3_color_expanded_t s, uint32_t *val);
+bool     nv3_render_rows_direct(const nv3_render_setup_t *st, uint32_t j, int32_t x0, int32_t x1, int32_t y, uint32_t *addr);
+void     nv3_render_store_row(uint32_t addr, int32_t n, uint32_t cpp, uint32_t val);
+bool     nv3_render_copy_ok(const nv3_render_setup_t *st);
+void     nv3_render_copy_row(const nv3_render_setup_t *st, uint32_t addr, const uint32_t *src, int32_t n);
+
 /* Primitives */
 void nv3_render_fill(int32_t x0, int32_t y0, int32_t x1, int32_t y1, nv3_color_expanded_t c, nv3_grobj_t grobj, bool own_clip);
 void nv3_render_rect(nv3_coord_16_t position, nv3_coord_16_t size, uint32_t color, nv3_grobj_t grobj);        // Class 0x07 rectangle
