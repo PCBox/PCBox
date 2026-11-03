@@ -559,20 +559,41 @@ nv4_3d_make_state(nv4_t *nv4, nv4_3d_batch_t *b, int cls, const nv4_d3d_t *d)
 /* Texturing.                                                          */
 /* ------------------------------------------------------------------ */
 /* Swizzled texel offset: u and v bits interleave, u first, until the
-   smaller dimension runs out. */
-static uint32_t
+   smaller dimension runs out; the larger one's other bits follow. Only
+   the bits below wl and hl count (both are at most 15). The two halves
+   do not share bits, so the offset is nv4_swz_u | nv4_swz_v. */
+static inline uint32_t
+nv4_spread(uint32_t x) /* bits 15:0 to the even bits */
+{
+    x &= 0xffff;
+    x = (x | (x << 8)) & 0x00ff00ff;
+    x = (x | (x << 4)) & 0x0f0f0f0f;
+    x = (x | (x << 2)) & 0x33333333;
+    return (x | (x << 1)) & 0x55555555;
+}
+
+static inline uint32_t
+nv4_swz_u(uint32_t u, int wl, int hl)
+{
+    int m = (wl < hl) ? wl : hl;
+
+    u &= (1u << wl) - 1;
+    return nv4_spread(u & ((1u << m) - 1)) | ((u >> m) << (2 * m));
+}
+
+static inline uint32_t
+nv4_swz_v(uint32_t v, int wl, int hl)
+{
+    int m = (wl < hl) ? wl : hl;
+
+    v &= (1u << hl) - 1;
+    return (nv4_spread(v & ((1u << m) - 1)) << 1) | ((v >> m) << (2 * m));
+}
+
+static inline uint32_t
 nv4_swizzle(uint32_t u, uint32_t v, int wl, int hl)
 {
-    uint32_t r   = 0;
-    int      bit = 0;
-
-    for (int i = 0; (i < wl) || (i < hl); i++) {
-        if (i < wl)
-            r |= ((u >> i) & 1) << bit++;
-        if (i < hl)
-            r |= ((v >> i) & 1) << bit++;
-    }
-    return r;
+    return nv4_swz_u(u, wl, hl) | nv4_swz_v(v, wl, hl);
 }
 
 /* Byte offset of pixel x,y in a 3D surface of <pitch>, or in the
@@ -591,16 +612,23 @@ typedef struct {
     int            target; /* 0 VRAM, else bus */
     const uint8_t *host;   /* a bus page in system memory, NULL: read it
                               through the bus */
+    uint32_t       adj;    /* the window's start in its first page
+                              (nv4_dma_page_left), ~0: not read yet */
 } nv4_3d_tcache_t;
+
+#define NV4_TCACHE_INIT { ~0u, 0, 0, NULL, ~0u }
 
 static uint32_t
 nv4_3d_tex_read(nv4_t *nv4, const nv4_3d_tex_t *t, nv4_3d_tcache_t *tc, uint32_t off, int bytes)
 {
-    uint32_t a;
+    uint32_t a, in, page;
+
     /* the window's page of <off> and the byte in it (the window starts
        part way into its first page) */
-    uint32_t in   = 0x1000 - nv4_dma_page_left(nv4, t->dma, off);
-    uint32_t page = off - in;
+    if (tc->adj == ~0u)
+        tc->adj = (0x1000 - nv4_dma_page_left(nv4, t->dma, 0)) & 0xfff;
+    in   = (off + tc->adj) & 0xfff;
+    page = off - in;
 
     if (page != tc->page) {
         uint32_t ra;
@@ -634,6 +662,12 @@ nv4_3d_tex_read(nv4_t *nv4, const nv4_3d_tex_t *t, nv4_3d_tcache_t *tc, uint32_t
         uint8_t *v = nv4->svga.vram;
         uint32_t m = nv4->vram_mask;
 
+        if ((a & m) + 3 <= m) {
+            uint32_t w;
+
+            memcpy(&w, v + (a & m), 4);
+            return (bytes == 4) ? w : (w & ((bytes == 2) ? 0xffff : 0xff));
+        }
         if (bytes == 1)
             return v[a & m];
         if (bytes == 2)
@@ -695,51 +729,50 @@ nv4_wrap(int i, int n, int mode, int *border)
     }
 }
 
-/* One texel of level <l>; returns 0 with *killed set for a color-keyed
-   texel. */
-static uint32_t
-nv4_texel(nv4_t *nv4, const nv4_3d_tex_t *t, nv4_3d_tcache_t *tc, int l, int iu, int iv, uint32_t key, int *killed)
+/* The texel at swizzled index <sw> of the level at byte <base> (or
+   border: 0); returns 0 with *killed set for a color-keyed texel. */
+static inline uint32_t
+nv4_texel_at(nv4_t *nv4, const nv4_3d_tex_t *t, nv4_3d_tcache_t *tc, uint32_t base, uint32_t sw, int border,
+             uint32_t key, int *killed)
 {
-    int      wl     = (t->wlog - l > 0) ? t->wlog - l : 0;
-    int      hl     = (t->hlog - l > 0) ? t->hlog - l : 0;
-    int      border = 0;
     uint32_t raw;
 
-    iu  = nv4_wrap(iu, 1 << wl, t->wrap_u, &border);
-    iv  = nv4_wrap(iv, 1 << hl, t->wrap_v, &border);
     if (border)
         return 0;
-    raw = nv4_3d_tex_read(nv4, t, tc, t->offset + t->level_off[l] + nv4_swizzle(iu, iv, wl, hl) * t->bpp, t->bpp);
+    raw = nv4_3d_tex_read(nv4, t, tc, base + sw * t->bpp, t->bpp);
     if (t->ckey && killed && (raw == (key & ((t->bpp == 4) ? 0xffffffff : ((t->bpp == 2) ? 0xffff : 0xff)))))
         *killed = 1;
     return nv4_texel_argb(raw, t->fmt);
 }
 
-static uint32_t
+static inline uint32_t
 nv4_lerp4(uint32_t a, uint32_t b, int f) /* f 0-256 */
 {
-    uint32_t r = 0;
+    /* two channels a multiply: each sum is at most 255 * 256, so none
+       carries into the next */
+    uint32_t rb = (((a & 0x00ff00ff) * (uint32_t) (256 - f) + (b & 0x00ff00ff) * (uint32_t) f) >> 8) & 0x00ff00ff;
+    uint32_t ag = ((((a >> 8) & 0x00ff00ff) * (uint32_t) (256 - f) + ((b >> 8) & 0x00ff00ff) * (uint32_t) f)) & 0xff00ff00;
 
-    for (int s = 0; s < 32; s += 8) {
-        int ca = (a >> s) & 0xff;
-        int cb = (b >> s) & 0xff;
-
-        r |= (uint32_t) ((ca * (256 - f) + cb * f) >> 8) << s;
-    }
-    return r;
+    return rb | ag;
 }
 
 static uint32_t
 nv4_sample_level(nv4_t *nv4, const nv4_3d_tex_t *t, nv4_3d_tcache_t *tc, int l, float u, float v, int linear,
                  uint32_t key, int *killed)
 {
-    int   wl = (t->wlog - l > 0) ? t->wlog - l : 0;
-    int   hl = (t->hlog - l > 0) ? t->hlog - l : 0;
-    float fu = u * (float) (1 << wl);
-    float fv = v * (float) (1 << hl);
+    int      wl   = (t->wlog - l > 0) ? t->wlog - l : 0;
+    int      hl   = (t->hlog - l > 0) ? t->hlog - l : 0;
+    float    fu   = u * (float) (1 << wl);
+    float    fv   = v * (float) (1 << hl);
+    uint32_t base = t->offset + t->level_off[l];
 
-    if (!linear)
-        return nv4_texel(nv4, t, tc, l, nv4_f2i(floorf(fu)), nv4_f2i(floorf(fv)), key, killed);
+    if (!linear) {
+        int bu = 0, bv = 0;
+        int iu = nv4_wrap(nv4_f2i(floorf(fu)), 1 << wl, t->wrap_u, &bu);
+        int iv = nv4_wrap(nv4_f2i(floorf(fv)), 1 << hl, t->wrap_v, &bv);
+
+        return nv4_texel_at(nv4, t, tc, base, nv4_swizzle(iu, iv, wl, hl), bu | bv, key, killed);
+    }
     if (t->center) {
         fu -= 0.5f;
         fv -= 0.5f;
@@ -749,10 +782,16 @@ nv4_sample_level(nv4_t *nv4, const nv4_3d_tex_t *t, nv4_3d_tcache_t *tc, int l, 
         int      iv = nv4_f2i(floorf(fv));
         int      au = nv4_f2i((fu - (float) iu) * 256.0f);
         int      av = nv4_f2i((fv - (float) iv) * 256.0f);
-        uint32_t t00 = nv4_texel(nv4, t, tc, l, iu, iv, key, killed);
-        uint32_t t10 = nv4_texel(nv4, t, tc, l, iu + 1, iv, key, NULL);
-        uint32_t t01 = nv4_texel(nv4, t, tc, l, iu, iv + 1, key, NULL);
-        uint32_t t11 = nv4_texel(nv4, t, tc, l, iu + 1, iv + 1, key, NULL);
+        /* each axis wraps and swizzles once for the 2x2 footprint */
+        int      bu0 = 0, bu1 = 0, bv0 = 0, bv1 = 0;
+        uint32_t su0 = nv4_swz_u(nv4_wrap(iu, 1 << wl, t->wrap_u, &bu0), wl, hl);
+        uint32_t su1 = nv4_swz_u(nv4_wrap(iu + 1, 1 << wl, t->wrap_u, &bu1), wl, hl);
+        uint32_t sv0 = nv4_swz_v(nv4_wrap(iv, 1 << hl, t->wrap_v, &bv0), wl, hl);
+        uint32_t sv1 = nv4_swz_v(nv4_wrap(iv + 1, 1 << hl, t->wrap_v, &bv1), wl, hl);
+        uint32_t t00 = nv4_texel_at(nv4, t, tc, base, su0 | sv0, bu0 | bv0, key, killed);
+        uint32_t t10 = nv4_texel_at(nv4, t, tc, base, su1 | sv0, bu1 | bv0, key, NULL);
+        uint32_t t01 = nv4_texel_at(nv4, t, tc, base, su0 | sv1, bu0 | bv1, key, NULL);
+        uint32_t t11 = nv4_texel_at(nv4, t, tc, base, su1 | sv1, bu1 | bv1, key, NULL);
 
         return nv4_lerp4(nv4_lerp4(t00, t10, au), nv4_lerp4(t01, t11, au), av);
     }
@@ -1100,7 +1139,7 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, 
 {
     const nv4_3d_tri_t   *t = &tris[sp->tri];
     const nv4_3d_state_t *s = &states[t->state];
-    nv4_3d_tcache_t       tc[2] = { { ~0u, 0, 0 }, { ~0u, 0, 0 } };
+    nv4_3d_tcache_t       tc[2] = { NV4_TCACHE_INIT, NV4_TCACHE_INIT };
     uint8_t              *vram  = nv4->svga.vram;
     uint32_t              vm    = nv4->vram_mask;
     float                 py    = (float) sp->y + s->origin - t->y0;
