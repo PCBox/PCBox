@@ -35,9 +35,9 @@
 #include "cpu.h"
 
 
-static uint32_t nv3_pfifo_cache1_ptr_mask(void);
+static inline uint32_t nv3_pfifo_cache1_ptr_mask(void);
 static uint32_t nv3_pfifo_ramro_ptr_mask(void);
-static uint32_t nv3_pfifo_gray_to_binary(uint32_t gray);
+static inline uint32_t nv3_pfifo_gray_to_binary(uint32_t gray);
 uint32_t        nv3_pfifo_cache1_slot(uint32_t ptr);
 uint32_t        nv3_pfifo_cache1_next(uint32_t ptr);
 
@@ -678,7 +678,7 @@ uint32_t nv3_pfifo_cache1_gray2normal(uint32_t val)
    32 entries. The RIVA 128 ZX: 7 bits over 64 entries, one bit more than the ring needs so a full
    ring differs from an empty one -- NV3RM.VXD steps them as gray((binary + 1) & 0x7F) and finds
    the entry at 0x3400 + 8 * the 6-bit Gray code of the binary pointer. */
-static uint32_t nv3_pfifo_cache1_ptr_mask(void)
+static inline uint32_t nv3_pfifo_cache1_ptr_mask(void)
 {
     return (nv3->nvbase.gpu_revision >= NV3_PCI_CFG_REVISION_C00) ? 0x7F : 0x1F;
 }
@@ -691,7 +691,7 @@ static uint32_t nv3_pfifo_ramro_ptr_mask(void)
     return (((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01) ? 0x2000 : 0x200) - 0x08;
 }
 
-static uint32_t nv3_pfifo_gray_to_binary(uint32_t gray)
+static inline uint32_t nv3_pfifo_gray_to_binary(uint32_t gray)
 {
     gray ^= gray >> 4;
     gray ^= gray >> 2;
@@ -785,7 +785,8 @@ void nv3_pfifo_cache0_pull(void)
     #ifndef RELEASE_BUILD
     nv_log_verbose_only("***** DEBUG: CACHE0 PULLED ****** Contextual information below\n");
     nv3_ramin_context_t context_structure = *(nv3_ramin_context_t*)&current_context;
-    nv3_debug_ramin_print_context_info(current_param, context_structure);
+    if (nv_do_log)
+        nv3_debug_ramin_print_context_info(current_param, context_structure);
     #endif
 
     nv3_pgraph_submit(current_param, current_method, current_channel, current_subchannel, class_id & 0x1F, context_structure);
@@ -955,7 +956,8 @@ void nv3_pfifo_cache1_pull(void)
     #ifndef RELEASE_BUILD
     nv_log_verbose_only("***** DEBUG: CACHE1 PULLED ****** Contextual information below\n");
     nv3_ramin_context_t context_structure = *(nv3_ramin_context_t*)&current_context;
-    nv3_debug_ramin_print_context_info(current_param, context_structure);
+    if (nv_do_log)
+        nv3_debug_ramin_print_context_info(current_param, context_structure);
     #endif
     
     nv3_pgraph_submit(current_param, current_method, current_channel, current_subchannel, class_id & 0x1F, context_structure);

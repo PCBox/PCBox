@@ -654,18 +654,56 @@ nv3_gamma_check(svga_t *svga, int which)
     }
 }
 
+/* svga_render_15bpp_highres / svga_render_16bpp_highres for a line with no address remapping,
+   the table read inline rather than through conv_16to32 for every pixel; other lines go to them */
+static void
+nv3_render_gamma_line(svga_t *svga, int which, void (*generic)(svga_t *svga))
+{
+    const uint32_t *tab = nv3_gamma_table[which];
+    uint32_t        changed_addr;
+    uint32_t       *p;
+    int             x;
+
+    if (svga->force_old_addr || svga->remap_required) {
+        generic(svga);
+        return;
+    }
+    if (((svga->displine + svga->y_add) < 0) || (svga->monitor->target_buffer == NULL)
+        || (svga->monitor->target_buffer->line[svga->displine + svga->y_add] == NULL))
+        return;
+
+    changed_addr = svga->remap_func(svga, svga->memaddr);
+    if (!(svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange))
+        return;
+    p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
+    if (svga->firstline_draw == 2000)
+        svga->firstline_draw = svga->displine;
+    svga->lastline_draw = svga->displine;
+
+    for (x = 0; x <= (svga->hdisp + svga->scrollcache); x += 8) {
+        for (int i = 0; i < 16; i += 4) {
+            uint32_t dat = *(uint32_t *) (&svga->vram[(svga->memaddr + (x << 1) + i) & svga->vram_display_mask]);
+
+            *p++ = tab[dat & 0xffff];
+            *p++ = tab[dat >> 16];
+        }
+    }
+    svga->memaddr += x << 1;
+    svga->memaddr &= svga->vram_display_mask;
+}
+
 static void
 nv3_render_15bpp_gamma(svga_t *svga)
 {
     nv3_gamma_check(svga, 0);
-    svga_render_15bpp_highres(svga);
+    nv3_render_gamma_line(svga, 0, svga_render_15bpp_highres);
 }
 
 static void
 nv3_render_16bpp_gamma(svga_t *svga)
 {
     nv3_gamma_check(svga, 1);
-    svga_render_16bpp_highres(svga);
+    nv3_render_gamma_line(svga, 1, svga_render_16bpp_highres);
 }
 
 void nv3_recalc_timings(svga_t* svga)
@@ -1007,6 +1045,11 @@ void nv3_svga_write(uint16_t addr, uint8_t val, UNUSED(void* priv))
 
             /* Recalculate the timings if we actually changed them 
             Additionally only do it if the value actually changed*/
+            /* a page flip: what the 3D engine has queued goes to the GPU now, rather than at the
+               vertical blank that shows it */
+            if ((old_value != val) && ((crtcreg == 0x0C) || (crtcreg == 0x0D) || (crtcreg == NV3_CRTC_REGISTER_RPC0)))
+                nv3_d3d_flush();
+
             if (old_value != val)
             {
                 // Thx to Fuel who basically wrote most of the SVGA compatibility code already (although I fixed some issues), because VGA is boring 
