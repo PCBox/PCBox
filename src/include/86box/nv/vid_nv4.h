@@ -604,8 +604,8 @@ typedef struct nv4_s {
     uint32_t pvideo_intr, pvideo_intr_en;
     uint32_t pvideo_shown;
 
-    /* Register file of the unit not yet modeled: what the driver wrote
-       reads back. */
+    /* PME (nv4_pme.c), INTR_0 and INTR_EN_0 among them; with the media
+       port idle the engine changes none of them */
     uint32_t pme_regs[0x1000 / 4];
 } nv4_t;
 
