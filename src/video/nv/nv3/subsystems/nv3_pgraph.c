@@ -695,5 +695,6 @@ void nv3_pgraph_submit(uint32_t param, uint16_t method, uint8_t channel, uint8_t
         }
     }
 
-    nv3_notify_if_needed(param, method, context, grobj);
+    if (nv3->pgraph.notify_pending)
+        nv3_notify_if_needed(param, method, context, grobj);
 }
