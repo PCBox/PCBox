@@ -510,8 +510,15 @@ nv4_update_mappings(nv4_t *nv4)
 static uint32_t
 nv4_agp_status(const nv4_t *nv4)
 {
-    /* RQ 32 deep, sideband addressing, 1x/2x (TNT) or 1x/2x/4x (TNT2) */
-    return (0x1fu << 24) | (1u << 9) | ((nv4->chip == NV4_CHIP_TNT2) ? 0x07 : 0x03);
+    /* RQ 32 deep, sideband addressing, 1x/2x (TNT). On the TNT2 the
+       straps' AGP mode decides: bit 9 exposes 4x, bit 10 sideband. */
+    uint32_t straps;
+
+    if (nv4->chip != NV4_CHIP_TNT2)
+        return (0x1fu << 24) | (1u << 9) | 0x03;
+
+    straps = (nv4->straps_ovr & 0x800) ? nv4->straps_ovr : nv4_straps(nv4);
+    return (0x1fu << 24) | ((straps & (1u << 10)) ? (1u << 9) : 0) | ((straps & (1u << 9)) ? 0x07 : 0x03);
 }
 
 uint8_t

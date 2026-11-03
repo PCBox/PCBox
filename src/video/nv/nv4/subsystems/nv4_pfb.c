@@ -63,25 +63,30 @@ nv4_pfb_clamp_boot_0(const nv4_t *nv4, uint32_t val)
    width, the bus, the crystal, and TV out disabled. AGP boards also
    strap the 66 MHz bus.
 
-   The TNT2 moved them about (envytools' nv4_straps): bits 5:2 are a
-   memory configuration the video BIOS looks up in a table of PFB_BOOT_0
-   values, the bus type is bit 14 and bits 13:12 are the low device id
-   bits. The ELSA ERAZOR III BIOSes' table starts with 32 MB SDRAM at
-   128 bits (0) and at 64 bits (1); PFB_BOOT_0 is held to the fitted
-   memory, and their probe then finds it. */
+   The TNT2 and Vanta moved them about (their datasheets' section 12,
+   "Power-on reset configuration"): bit 0 the PCI address pinout (1:
+   normal), bits 5:2 a memory configuration the video BIOS looks up in a
+   table of PFB_BOOT_0 values, bits 10:9 the AGP modes exposed (bit 9 4x,
+   bit 10 sideband; the AGP status register follows them), bits 13:12
+   the low device id bits, bit 14 a 32 MB BAR1 (every board here decodes
+   32 MB) and bit 15 strapped to VDD. The ELSA ERAZOR III BIOSes' table
+   starts with 32 MB SDRAM at 128 bits (0) and at 64 bits (1);
+   PFB_BOOT_0 is held to the fitted memory, and their probe then finds
+   it. The Vanta has no sideband (bit 10 reserved, to GND). */
 uint32_t
 nv4_straps(const nv4_t *nv4)
 {
     uint32_t straps = 0x02 | (3u << 7);
 
     if (nv4->chip == NV4_CHIP_TNT2) {
+        straps |= 0x01 | (1u << 14) | (1u << 15);
         if (nv4->board->mem_64bit)
             straps |= 1u << 2;
         if (nv4->board->crystal_14m)
             straps |= 0x40;
-        straps |= (nv4->board->device_id & 3) << 12;
         if (nv4->is_agp)
-            straps |= 1u << 14;
+            straps |= (nv4->board->device_id == NV4_PCI_DEVICE_VANTA) ? (1u << 9) : (3u << 9);
+        straps |= (nv4->board->device_id & 3) << 12;
         return straps;
     }
 
