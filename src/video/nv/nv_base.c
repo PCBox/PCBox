@@ -69,7 +69,7 @@ void nv_log_internal(const char* fmt, va_list arg)
     
 }
 
-void nv_log(const char *fmt, ...)
+void (nv_log)(const char *fmt, ...)
 {
     va_list arg; 
 
@@ -81,7 +81,7 @@ void nv_log(const char *fmt, ...)
     va_end(arg);
 }
 
-void nv_log_verbose_only(const char *fmt, ...)
+void (nv_log_verbose_only)(const char *fmt, ...)
 {
     //#ifdef ENABLE_NV_LOG_ULTRA
     va_list arg; 
