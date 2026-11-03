@@ -626,11 +626,46 @@ void nv3_pci_write(int32_t func, int32_t addr, UNUSED(int32_t len), uint8_t val,
 //
 extern uint32_t svga_conv_16to32(svga_t *svga, uint16_t color, uint8_t bpp); /* vid_svga.c */
 
-/* 15/16 bpp through the CLUT as a gamma ramp (PRAMDAC_GENERAL_CONTROL IDC_MODE = gamma) */
+/* 15/16 bpp through the CLUT as a gamma ramp (PRAMDAC_GENERAL_CONTROL IDC_MODE = gamma). A pixel
+   is a table lookup: the scan-out renderer runs this for every pixel of every changed line, and
+   the conversion and three CLUT reads took a tenth of the emulation thread in 16-bit 3D. The
+   tables are built for the CLUT as it stands at the start of each line (nv3_gamma_check). */
+static uint32_t nv3_gamma_clut[256];
+static uint32_t nv3_gamma_table[2][65536]; /* [0] X1R5G5B5, [1] R5G6B5 */
+static bool     nv3_gamma_valid[2];
+
 static uint32_t
-nv3_conv_16to32(svga_t *svga, uint16_t color, uint8_t bpp)
+nv3_conv_16to32(UNUSED(svga_t *svga), uint16_t color, uint8_t bpp)
 {
-    return svga_lookup_lut_ram(svga, svga_conv_16to32(svga, color, bpp));
+    return nv3_gamma_table[bpp != 15][color];
+}
+
+static void
+nv3_gamma_check(svga_t *svga, int which)
+{
+    if (memcmp(nv3_gamma_clut, svga->pallook, sizeof(nv3_gamma_clut))) {
+        memcpy(nv3_gamma_clut, svga->pallook, sizeof(nv3_gamma_clut));
+        nv3_gamma_valid[0] = nv3_gamma_valid[1] = false;
+    }
+    if (!nv3_gamma_valid[which]) {
+        for (uint32_t c = 0; c < 65536; c++)
+            nv3_gamma_table[which][c] = svga_lookup_lut_ram(svga, svga_conv_16to32(svga, c, which ? 16 : 15));
+        nv3_gamma_valid[which] = true;
+    }
+}
+
+static void
+nv3_render_15bpp_gamma(svga_t *svga)
+{
+    nv3_gamma_check(svga, 0);
+    svga_render_15bpp_highres(svga);
+}
+
+static void
+nv3_render_16bpp_gamma(svga_t *svga)
+{
+    nv3_gamma_check(svga, 1);
+    svga_render_16bpp_highres(svga);
 }
 
 void nv3_recalc_timings(svga_t* svga)
@@ -759,7 +794,14 @@ void nv3_recalc_timings(svga_t* svga)
         bool gamma = (pixel_mode >= NV3_CRTC_REGISTER_PIXELMODE_16BPP)
                   && !((nv3->pramdac.general_control >> NV3_PRAMDAC_GENERAL_CONTROL_IDC_MODE) & 1);
         svga->lut_map     = gamma;
-        svga->conv_16to32 = gamma ? nv3_conv_16to32 : svga_conv_16to32;
+        svga->conv_16to32 = svga_conv_16to32;
+        if (gamma && (svga->render == svga_render_15bpp_highres)) {
+            svga->render      = nv3_render_15bpp_gamma;
+            svga->conv_16to32 = nv3_conv_16to32;
+        } else if (gamma && (svga->render == svga_render_16bpp_highres)) {
+            svga->render      = nv3_render_16bpp_gamma;
+            svga->conv_16to32 = nv3_conv_16to32;
+        }
     }
 
     /* Hardware cursor: CR31 bit 0 shows it; the image is 32x32 A1R5G5B5 in instance memory */
