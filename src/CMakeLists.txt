@@ -27,6 +27,7 @@ endif()
 add_executable(PCBox
     86box.c
     debugger.c
+    debugger_register.c
     config.c
     timer.c
     io.c
