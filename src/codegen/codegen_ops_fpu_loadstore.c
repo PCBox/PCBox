@@ -67,9 +67,6 @@ ropFLDd(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
     return op_pc + 1;
 }
 
-/*Narrowing to single precision rounds by RC, which the host conversion
-  doesn't follow: leave directed modes to the interpreter, as the arithmetic
-  ops do (RC != nearest is part of the block key).*/
 uint32_t
 ropFSTs(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
@@ -85,7 +82,8 @@ ropFSTs(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
     op_pc--;
     target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
     codegen_fpu_guard_empty(ir, fetchdat, op_32, op_pc, target_seg); /* an empty ST(0) */
-    codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 4);
+    codegen_check_seg_write(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 3);
     uop_MEM_STORE_SINGLE(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_ST(0));
     uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~FPU_SW_C1); /*no rounding to report*/
 
@@ -106,7 +104,8 @@ ropFSTPs(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
     op_pc--;
     target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
     codegen_fpu_guard_empty(ir, fetchdat, op_32, op_pc, target_seg); /* an empty ST(0) */
-    codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 4);
+    codegen_check_seg_write(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 3);
     uop_MEM_STORE_SINGLE(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_ST(0));
     uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~FPU_SW_C1); /*no rounding to report*/
     uop_MOV_IMM(ir, IREG_tag(0), TAG_EMPTY);
@@ -124,7 +123,8 @@ ropFSTd(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
     op_pc--;
     target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
     codegen_fpu_guard_empty(ir, fetchdat, op_32, op_pc, target_seg); /* an empty ST(0) */
-    codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 8);
+    codegen_check_seg_write(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 7);
     uop_MEM_STORE_DOUBLE(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_ST(0));
     uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~FPU_SW_C1); /*no rounding to report*/
 
@@ -140,7 +140,8 @@ ropFSTPd(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
     op_pc--;
     target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
     codegen_fpu_guard_empty(ir, fetchdat, op_32, op_pc, target_seg); /* an empty ST(0) */
-    codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 8);
+    codegen_check_seg_write(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 7);
     uop_MEM_STORE_DOUBLE(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_ST(0));
     uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~FPU_SW_C1); /*no rounding to report*/
     uop_MOV_IMM(ir, IREG_tag(0), TAG_EMPTY);
@@ -207,29 +208,6 @@ ropFILDq(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
     return op_pc + 1;
 }
 
-/*ST(0) rounded to 16 bits in IREG_temp0_W. A result outside -32768..32767
-  stores the integer indefinite (0x8000), as the chip does with IE masked, so
-  convert to 32 bits and replace an out-of-range value. Straight-line, as the
-  register allocator can't merge writes from converging paths. Uses
-  IREG_temp0-2.*/
-static void
-fist_w_value(ir_data_t *ir)
-{
-    uop_MOV_INT_DOUBLE(ir, IREG_temp0, IREG_ST(0));
-    /*temp1 = (temp0 + 0x8000) >> 16, zero only when temp0 fits in 16 bits*/
-    uop_ADD_IMM(ir, IREG_temp1, IREG_temp0, 0x8000);
-    uop_SHR_IMM(ir, IREG_temp1, IREG_temp1, 16);
-    /*temp1 = all ones when out of range, else zero*/
-    uop_MOV_IMM(ir, IREG_temp2, 0);
-    uop_SUB(ir, IREG_temp2, IREG_temp2, IREG_temp1);
-    uop_OR(ir, IREG_temp1, IREG_temp1, IREG_temp2);
-    uop_SAR_IMM(ir, IREG_temp1, IREG_temp1, 31);
-    /*temp0 ^= (temp0 ^ 0x8000) & mask*/
-    uop_XOR_IMM(ir, IREG_temp2, IREG_temp0, 0x8000);
-    uop_AND(ir, IREG_temp2, IREG_temp2, IREG_temp1);
-    uop_XOR(ir, IREG_temp0, IREG_temp0, IREG_temp2);
-}
-
 uint32_t
 ropFISTw(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
@@ -245,7 +223,8 @@ ropFISTw(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
     uop_MOV_INT_DOUBLE(ir, IREG_temp0_W, IREG_ST(0));
     if (FIST_INDEFINITE_GUARD)
         codegen_fpu_guard_int_indefinite(ir, fetchdat, op_32, op_pc, target_seg, IREG_temp0_W, 0x8000); /* out of range or a NaN */
-    codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 2);
+    codegen_check_seg_write(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 1);
     uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0_W);
     uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~FPU_SW_C1); /*no rounding to report*/
     /* FIST leaves ST(0) where it is: its tag stays as it was. */
@@ -267,7 +246,8 @@ ropFISTPw(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
     uop_MOV_INT_DOUBLE(ir, IREG_temp0_W, IREG_ST(0));
     if (FIST_INDEFINITE_GUARD)
         codegen_fpu_guard_int_indefinite(ir, fetchdat, op_32, op_pc, target_seg, IREG_temp0_W, 0x8000); /* out of range or a NaN */
-    codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 2);
+    codegen_check_seg_write(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 1);
     uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0_W);
     uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~FPU_SW_C1); /*no rounding to report*/
     uop_MOV_IMM(ir, IREG_tag(0), TAG_EMPTY);
@@ -290,7 +270,8 @@ ropFISTl(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
     uop_MOV_INT_DOUBLE(ir, IREG_temp0, IREG_ST(0));
     if (FIST_INDEFINITE_GUARD)
         codegen_fpu_guard_int_indefinite(ir, fetchdat, op_32, op_pc, target_seg, IREG_temp0, 0x80000000); /* out of range or a NaN */
-    codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 4);
+    codegen_check_seg_write(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 3);
     uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0);
     uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~FPU_SW_C1); /*no rounding to report*/
     /* FIST leaves ST(0) where it is: its tag stays as it was. */
@@ -312,7 +293,8 @@ ropFISTPl(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fe
     uop_MOV_INT_DOUBLE(ir, IREG_temp0, IREG_ST(0));
     if (FIST_INDEFINITE_GUARD)
         codegen_fpu_guard_int_indefinite(ir, fetchdat, op_32, op_pc, target_seg, IREG_temp0, 0x80000000); /* out of range or a NaN */
-    codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 4);
+    codegen_check_seg_write(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 3);
     uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0);
     uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~FPU_SW_C1); /*no rounding to report*/
     uop_MOV_IMM(ir, IREG_tag(0), TAG_EMPTY);
@@ -331,7 +313,8 @@ ropFISTPq(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, 
     target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
     codegen_fpu_guard_empty(ir, fetchdat, op_32, op_pc, target_seg); /* an empty ST(0) */
     codegen_fpu_guard_int_range(ir, fetchdat, op_32, op_pc, target_seg, fist64_bounds); /* out of range or a NaN */
-    codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 8);
+    codegen_check_seg_write(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 7);
     uop_MOV_INT_DOUBLE_64(ir, IREG_temp0_Q, IREG_ST(0), IREG_ST_i64(0), IREG_tag(0));
     uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0_Q);
     uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~FPU_SW_C1); /*no rounding to report*/

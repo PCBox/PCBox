@@ -39,6 +39,11 @@ typedef struct codeblock_t {
     uint16_t flags;
     uint8_t  ins;
     uint8_t  TOP;
+#if defined(__aarch64__) || defined(_M_ARM64) || defined(__amd64__) || defined(_M_X64)
+    /*Changes whenever the block is freed, recompiled or has a field a link
+      slot relies on changed; never 0. See codegen_link.h.*/
+    uint32_t link_gen;
+#endif
     int      valid;
 
     /*Pointers for codeblock tree, used to search for blocks when hash lookup
@@ -64,32 +69,6 @@ typedef struct codeblock_t {
       once (codegen_delete_random_block).*/
     uint8_t used;
 
-#ifdef CODEGEN_CHAIN
-    /*Where a linked block enters it (data[chain_entry]): past the part of
-      the prologue every block shares, so a chain keeps one frame.*/
-    uint16_t chain_entry;
-
-    /*Links into this block hold while this is the value they were made
-      under: anything that changes what they reach (its code written, the
-      block deleted, its page's translation changed) adds one. Never reset
-      while the block's number is in use again, so a stale link cannot
-      match a new block.*/
-    uint64_t link_gen;
-    /*The block's pages as translated when a link to it was last made
-      (mmu_link_translate): a translation flush compares them again.*/
-    uint64_t link_pte, link_pte2;
-    /*While it is a link target: its group (codegen_block.c), or the solo
-      list, and its neighbours there.*/
-    int32_t link_group;
-    int32_t link_gnext, link_gprev;
-    /*A link to it was made at CPL 3: its pages' user bit counts.*/
-    uint8_t link_cpl3;
-    /*The physical pages counted for it while it is a link target.*/
-    uint32_t link_phys, link_phys_2;
-    /*Its places in the lists of linked blocks on those pages (codegen_lp),
-      one per page: 0 for the first, 1 for the second.*/
-    int32_t lp_next[2], lp_prev[2];
-#endif
     /*Set once this compile's code has been reached again and run from
       block->data (the CODEBLOCK_WAS_RECOMPILED fast path), rather than just
       the single execution the compile pass itself performs. Cleared at the
@@ -114,75 +93,6 @@ typedef struct codeblock_t {
     uint8_t  smc_strikes;
     uint64_t smc_cooldown_until;
 } codeblock_t;
-
-#ifdef CODEGEN_CHAIN
-/*Moved whenever compiled code is freed or every link goes
-  (codegen_block.c).*/
-extern uint64_t codegen_chain_gen;
-/*Set by a link stub that left for want of a link: the dispatcher links it.*/
-extern uint8_t *codegen_chain_last_exit;
-extern int      codegen_end_link_ok;
-extern int      codegen_end_link_pending;
-extern int      codegen_block_full;
-/*A link stub found the signal word set: answers 0 for the chain to go on,
-  non-zero to leave it (386_dynarec.c).*/
-extern int codegen_chain_service(void);
-/*STI in a block: an interrupt already pending breaks the chain, at the end
-  of the block STI's shadow ends (386_dynarec.c).*/
-extern void codegen_chain_sti(void);
-/*What a link or an indirect entry was made under and holds only while it
-  matches: the status word, and the CPL (bits 17:16) -- a page's user or
-  supervisor check was made at the CPL a link was made at, so privilege
-  changes need not drop the links.*/
-#    define CODEGEN_CHAIN_KEY() ((cpu_cur_status & 0xffff) | ((uint32_t) (cpu_state.seg_cs.access & 0x60) << 11))
-/*A link generation no block has: where an unlinked stub or an empty
-  indirect entry points.*/
-extern uint64_t codegen_link_unlinked;
-/*The indirect link table: the blocks a near RET, CALL or indirect JMP last
-  reached, looked up by linear PC in the exit stub, each valid for the CS
-  base and key it was filled under and while its block's link generation
-  is the one it was filled under.*/
-#    define CODEGEN_IND_SIZE 32768
-typedef struct codegen_ind_t {
-    uint32_t  pc;
-    uint32_t  cs_base;
-    uint32_t  status; /* CODEGEN_CHAIN_KEY() */
-    uint32_t  pad;
-    uint64_t  gen; /* the block's link_gen when filled */
-    uint8_t  *target;
-    uint64_t *link_gen;   /* &block->link_gen, or &codegen_link_unlinked */
-    uint64_t *group_word; /* its group's word, as a link's (codegen_link_group_word) */
-    uint64_t  group_value;
-    uint64_t  spare;
-} codegen_ind_t; /* 64 bytes: the stub indexes it with SHL 6 */
-extern codegen_ind_t codegen_ind_cache[CODEGEN_IND_SIZE];
-extern uint32_t      codegen_ind_miss;
-extern void          codegen_ind_fill(codeblock_t *block, uint64_t gen);
-/*A link's second test: the word of the target's link group and the value
-  it must hold (codegen_block.c).*/
-extern uint64_t  codegen_lg_solo_word;
-extern uint64_t *codegen_link_group_word(const codeblock_t *block, uint64_t *value);
-/*Point a link stub at a block, under the block's link generation `gen`
-  (read before its code was found clean); answers whether it could.*/
-extern int codegen_chain_patch(uint8_t *stub, codeblock_t *target, uint64_t gen);
-
-/*Links into a block, kept exact (codegen_block.c):
-  - note: a link or indirect entry to `block` was just made;
-  - drop: every link into `block` goes (from anywhere);
-  - drop_all: every link goes (`owner`: from the dispatcher's side, which
-    also empties the link lists; else from anywhere, generations only);
-  - revalidate_request: translations may have changed (all of them, or the
-    linear page `lin` alone); the links are checked against the page
-    tables at the loop's next look (codegen_links_revalidate).*/
-extern void codegen_links_note(codeblock_t *block);
-extern void codegen_links_drop(codeblock_t *block);
-extern void codegen_links_drop_all(int owner);
-extern void codegen_links_revalidate_request(int all, uint32_t lin);
-extern void codegen_links_revalidate(void);
-/*Compiled code was written: the links into the written blocks go, at the
-  loop's next look.*/
-extern void codegen_links_written(void);
-#endif
 
 /*Keep the cutoff below the measured break-even point for fragmented SMC
   workloads: a block that ran this often is cheaper to compile than to
@@ -445,9 +355,42 @@ codeblock_tree_delete(codeblock_t *block)
 
 void codegen_mark_code_present_multibyte(codeblock_t *block, uint32_t start_pc, int len);
 
+/*The second 4 KB page's walk (dynarec_fetch_walk), emitted once per compile
+  where the interpreter's fetch first reads from that page: at the front of
+  the instruction whose own fetch reaches it, else where a handler takes a
+  byte from it (codegen_fetch_walk_mark). codegen_fetch_walk_off: the marks
+  of bytes that fetch covers, which do not walk. codegen_fetch_walk_defer:
+  the marks of an EA whose walk is made later, by a hand-over's op in its
+  fetch_ea or after a compiled x87 instruction's address is formed; the
+  address is kept in codegen_fetch_walk_deferred with bit 0 set, 0 for
+  none. Such a walk is past the instruction's front, where the bytes before
+  it are on the first page (a page-2 byte among those the front fetch reads
+  walks there), so its address is always a page's first byte, linear 0
+  included, and the low bits are free*/
+extern int      codegen_page2_walked;
+extern int      codegen_fetch_walk_off;
+extern int      codegen_fetch_walk_defer;
+extern uint32_t codegen_fetch_walk_deferred;
+extern void     codegen_fetch_walk(uint32_t addr);
+extern int      dynarec_fetch_walk(uint32_t addr);
+
+/*The walk for bytes a handler takes, where it is called. The interpreter's
+  op fetches an immediate after the EA and the segment's null and writable
+  test, before the operand (IMUL and TEST r/m,imm read the operand first),
+  so a handler that marks it after the access calls this there. In a block
+  that reads its immediates from RAM (CODEBLOCK_NO_IMMEDIATES) an immediate
+  not wholly on the first page is still marked (immediate_off_first_page)*/
+static inline void
+codegen_fetch_walk_mark(codeblock_t *block, uint32_t start_pc, int len)
+{
+    if (!codegen_page2_walked && !codegen_fetch_walk_off && (((start_pc + len - 1) ^ block->pc) & ~0xfff))
+        codegen_fetch_walk(((start_pc ^ block->pc) & ~0xfff) ? start_pc : ((start_pc + len - 1) & ~0xfff));
+}
+
 static inline void
 codegen_mark_code_present(codeblock_t *block, uint32_t start_pc, int len)
 {
+    codegen_fetch_walk_mark(block, start_pc, len);
     if (len == 1) {
         if (block->flags & CODEBLOCK_BYTE_MASK) {
             if (!((start_pc ^ block->pc) & ~0x3f)) /*Starts in second page*/
@@ -482,7 +425,7 @@ extern void codegen_check_flush(struct page_t *page, uint64_t mask, uint32_t phy
 struct ir_data_t;
 x86seg     *codegen_generate_ea(struct ir_data_t *ir, x86seg *op_ea_seg, uint32_t fetchdat, int op_ssegs, uint32_t *op_pc, uint32_t op_32, int stack_offset);
 extern void codegen_check_seg_read(codeblock_t *block, struct ir_data_t *ir, x86seg *seg);
-extern void codegen_check_seg_write(codeblock_t *block, struct ir_data_t *ir, x86seg *seg, int addr_reg, int size);
+extern void codegen_check_seg_write(codeblock_t *block, struct ir_data_t *ir, x86seg *seg);
 extern void codegen_check_seg_write_abs(codeblock_t *block, struct ir_data_t *ir, x86seg *seg, uint32_t addr, int size);
 extern void codegen_check_regs(void);
 
@@ -506,6 +449,16 @@ extern void (*codegen_timing_block_start)(void);
 extern void (*codegen_timing_block_end)(void);
 extern int (*codegen_timing_jump_cycles)(void);
 
+/*What a model's block start keeps from the block before*/
+typedef struct codegen_timing_state_t {
+    uint32_t regmask_modified;
+    int      fpu_latency;
+    int      fpu_st_latency[8];
+} codegen_timing_state_t;
+
+extern void (*codegen_timing_save)(codegen_timing_state_t *state);
+extern void (*codegen_timing_load)(const codegen_timing_state_t *state);
+
 typedef struct codegen_timing_t {
     void (*start)(void);
     void (*prefix)(uint8_t prefix, uint32_t fetchdat);
@@ -513,6 +466,10 @@ typedef struct codegen_timing_t {
     void (*block_start)(void);
     void (*block_end)(void);
     int (*jump_cycles)(void);
+    /*save copies the kept state out, load sets it, or clears it when given
+      NULL. NULL where block start clears it all*/
+    void (*save)(codegen_timing_state_t *state);
+    void (*load)(const codegen_timing_state_t *state);
 } codegen_timing_t;
 
 extern codegen_timing_t codegen_timing_pentium;
@@ -546,7 +503,18 @@ extern int codegen_flags_changed;
 /*Forgets the block's inline flags rebuilds (codegen_ops_helpers.c)*/
 extern void codegen_flags_known_reset(void);
 
+/*Set while the block being recompiled is a V86 block entered with every
+  segment limit 0..0xffff (CPU_STATUS_NOT64K clear): V86 segment loads keep
+  them so, an instruction run by the interpreter may not*/
+extern int codegen_v86_64k;
+/*The first uop of the instruction being recompiled*/
+extern int codegen_instr_first_uop;
+
 extern int codegen_fpu_entered;
+/*Set when a compiled instruction since the block's last pending exception
+  check can have set ES and gone on: the next waiting x87 instruction checks
+  again although the block has entered the FPU*/
+extern int codegen_fpu_es_check;
 /* 0: unchecked, 2: entry checked, 1: MMX state committed. */
 extern int codegen_mmx_entered;
 
@@ -558,10 +526,39 @@ extern int codegen_in_recompile;
 void codegen_generate_reset(void);
 
 int  codegen_get_instruction_uop(codeblock_t *block, uint32_t pc, int *first_instruction, int *TOP, int *flags_op);
+void codegen_get_instruction_entered(int ins, int *fpu_entered, int *fpu_es_check, int *mmx_entered);
+void codegen_get_instruction_tags(int ins, uint8_t *tag_valid, uint8_t *tag_empty);
 void codegen_set_loop_start(struct ir_data_t *ir, int first_instruction);
 
 #ifdef DEBUG_EXTRA
 extern uint32_t instr_counts[256 * 256];
 #endif
+
+/*Compiled far transfers: the x86seg routine and the globals around it
+  (386_dynarec_ops.c)*/
+extern void dynarec_iret_pm(int is32);
+extern void dynarec_iret_cs(uint16_t seg);
+extern int  dynarec_dtr(uint32_t op);
+extern void dynarec_lmsw(uint16_t tempw);
+extern int  dynarec_call_far_w(uint16_t new_cs, uint32_t ret_pc);
+extern int  dynarec_call_far_l(uint16_t new_cs, uint32_t ret_pc);
+
+/*The interpreted loop's RF handling after an instruction, with the 486
+  debug registers option (386_dynarec_ops.c)*/
+extern void dynarec_rf_after_op(void);
+
+/*Compiled MOV CRx and MOV DRx: the control register writes with what they
+  flush, and the debug register accesses (386_dynarec_ops.c)*/
+extern int  dynarec_mov_cr0(uint32_t rm);
+extern void dynarec_mov_cr2(uint32_t rm);
+extern int  dynarec_mov_cr3(uint32_t rm);
+extern int  dynarec_mov_cr4(uint32_t rm);
+extern int  dynarec_mov_drx_gd(void);
+extern int  dynarec_mov_drx(uint32_t op);
+
+/*A compiled MOV SS and the instruction after it (codegen.c)*/
+extern int      codegen_mov_ss_pair_valid;
+extern uint32_t codegen_mov_ss_pair_pc;
+extern int      codegen_instruction_room(void);
 
 #endif

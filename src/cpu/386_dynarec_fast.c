@@ -40,14 +40,12 @@
 /* These are defined in 386_dynarec.c */
 extern int cpu_block_end;
 extern int cpu_end_block_after_ins;
-extern int cpu_force_interpreter;
-extern int cpu_override_dynarec;
 extern int32_t cycles_main;
 
 /* Import the accurate dynarec helpers - we reuse their block validation
    and recompilation logic, but with coarse timing */
 extern void exec386_dynarec_int(void);
-extern void exec386_dynarec_dyn(void);
+extern void exec386_dynarec_dyn(const int dbg);
 
 #ifdef USE_DEBUG_REGS_486
 #define CACHE_ON() (!(cr0 & (1 << 30)) && !(cpu_state.flags & T_FLAG) && !(dr[7] & 0xFF))
@@ -98,7 +96,7 @@ exec386_dynarec_fast(int32_t cycs)
             if (cpu_force_interpreter || cpu_override_dynarec || !CACHE_ON()) {
                 exec386_dynarec_int();
             } else {
-                exec386_dynarec_dyn();
+                exec386_dynarec_dyn(0);
             }
 
             if (cpu_init) {

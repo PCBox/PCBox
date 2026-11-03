@@ -14,7 +14,9 @@ opESCAPE_d8_a16(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_d8_a16[(fetchdat >> 3) & 0x1f](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    /* An instruction left unexecuted (#NM, a pending exception reported,
+       an undefined escape's #UD) keeps the previous instruction's pointers */
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -33,7 +35,7 @@ opESCAPE_d8_a32(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_d8_a32[(fetchdat >> 3) & 0x1f](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -53,7 +55,7 @@ opESCAPE_d9_a16(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_d9_a16[fetchdat & 0xff](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -72,7 +74,7 @@ opESCAPE_d9_a32(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_d9_a32[fetchdat & 0xff](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -92,7 +94,7 @@ opESCAPE_da_a16(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_da_a16[fetchdat & 0xff](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -111,7 +113,7 @@ opESCAPE_da_a32(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_da_a32[fetchdat & 0xff](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -131,7 +133,7 @@ opESCAPE_db_a16(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_db_a16[fetchdat & 0xff](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -150,7 +152,7 @@ opESCAPE_db_a32(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_db_a32[fetchdat & 0xff](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -170,7 +172,7 @@ opESCAPE_dc_a16(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_dc_a16[(fetchdat >> 3) & 0x1f](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -189,7 +191,7 @@ opESCAPE_dc_a32(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_dc_a32[(fetchdat >> 3) & 0x1f](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -209,7 +211,7 @@ opESCAPE_dd_a16(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_dd_a16[fetchdat & 0xff](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -228,7 +230,7 @@ opESCAPE_dd_a32(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_dd_a32[fetchdat & 0xff](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -248,7 +250,7 @@ opESCAPE_de_a16(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_de_a16[fetchdat & 0xff](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -267,7 +269,7 @@ opESCAPE_de_a32(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_de_a32[fetchdat & 0xff](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -287,7 +289,7 @@ opESCAPE_df_a16(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_df_a16[fetchdat & 0xff](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;
@@ -306,7 +308,7 @@ opESCAPE_df_a32(uint32_t fetchdat)
     else if (!fpu_softfloat && x87_legacy_pending_entry())
         return 1;
     int ret = x86_2386_opcodes_df_a32[fetchdat & 0xff](fetchdat);
-    if (!x87_op_is_control(x87_op)) {
+    if (!x87_op_is_control(x87_op) && !(x87_op & X87_OP_NOT_EXECUTED)) {
         cpu_state.fpu_op = x87_op;
         cpu_state.fpu_CS = cpu_state.temp_CS;
         cpu_state.fpu_cs = cpu_state.temp_cs;

@@ -8,6 +8,7 @@
 #include "codegen_allocator.h"
 #include "codegen_backend.h"
 #include "codegen_ir.h"
+#include "codegen_accumulate.h"
 #include "codegen_reg.h"
 
 extern int       has_ea;
@@ -16,6 +17,9 @@ static ir_data_t ir_block;
 static int codegen_unroll_start;
 static int codegen_unroll_count;
 static int codegen_unroll_first_instruction;
+static int codegen_unroll_branch;
+
+extern int codegen_get_loop_timing(int first_instruction);
 
 ir_data_t *
 codegen_ir_init(void)
@@ -23,6 +27,7 @@ codegen_ir_init(void)
     ir_block.wr_pos = 0;
 
     codegen_unroll_count = 0;
+    codegen_accumulate_begin();
 
     return &ir_block;
 }
@@ -39,6 +44,7 @@ codegen_ir_set_unroll(int count, int start, int first_instruction)
     codegen_unroll_count             = count;
     codegen_unroll_start             = start;
     codegen_unroll_first_instruction = first_instruction;
+    codegen_unroll_branch            = ir_block.wr_pos;
 }
 
 static void
@@ -55,10 +61,11 @@ duplicate_uop(ir_data_t *ir, uop_t *uop, int offset)
     if (!ir_reg_is_invalid(uop->dest_reg_a))
         new_uop->dest_reg_a = codegen_reg_write(uop->dest_reg_a.reg, ir->wr_pos - 1);
 
-    new_uop->type     = uop->type;
-    new_uop->imm_data = uop->imm_data;
-    new_uop->p        = uop->p;
-    new_uop->pc       = uop->pc;
+    new_uop->type      = uop->type;
+    new_uop->imm_data  = uop->imm_data;
+    new_uop->imm_data2 = uop->imm_data2;
+    new_uop->p         = uop->p;
+    new_uop->pc        = uop->pc;
 #if defined __ARM_EABI__ || defined _ARM_ || defined _M_ARM || defined __aarch64__ || defined _M_ARM64 || defined __loongarch_lp64
     new_uop->is_a16   = uop->is_a16;
 #endif
@@ -67,90 +74,6 @@ duplicate_uop(ir_data_t *ir, uop_t *uop, int offset)
         new_uop->jump_dest_uop = uop->jump_dest_uop + offset;
     }
 }
-
-#ifdef CODEGEN_BACKEND_SLOW_STORES
-/* A guest memory access: C code only on its slow path, where the backend
-   makes the stores a flush would have made before it (codegen_reg_emit_slow). */
-static int
-uop_is_mem_access(const uop_t *uop)
-{
-    switch (uop->type & UOP_MASK) {
-        case UOP_MEM_LOAD_ABS & UOP_MASK:
-        case UOP_MEM_LOAD_REG & UOP_MASK:
-        case UOP_MEM_LOAD_REG_EA & UOP_MASK:
-        case UOP_MEM_LOAD_SINGLE & UOP_MASK:
-        case UOP_MEM_LOAD_DOUBLE & UOP_MASK:
-        case UOP_MEM_STORE_ABS & UOP_MASK:
-        case UOP_MEM_STORE_REG & UOP_MASK:
-        case UOP_MEM_STORE_IMM_8 & UOP_MASK:
-        case UOP_MEM_STORE_IMM_16 & UOP_MASK:
-        case UOP_MEM_STORE_IMM_32 & UOP_MASK:
-        case UOP_MEM_STORE_SINGLE & UOP_MASK:
-        case UOP_MEM_STORE_DOUBLE & UOP_MASK:
-            return 1;
-        default:
-            return 0;
-    }
-}
-#endif
-
-#ifdef CODEGEN_BACKEND_HAS_MEM_LOOKUP_REUSE
-/* Only these operations preserve the backend's lookup scratch registers.
-   Keep this an allowlist: a new uop must not silently inherit that promise.
-   -1 preserves the cache; 0 invalidates; 1/2 selects read/write lookups. */
-static inline int
-codegen_mem_lookup_kind(const uop_t *uop)
-{
-    if (uop->type & (UOP_TYPE_BARRIER | UOP_TYPE_JUMP_DEST | UOP_TYPE_JUMP))
-        return 0;
-    switch (uop->type & UOP_MASK) {
-        case UOP_MEM_LOAD_REG & UOP_MASK:
-            if (uop->is_a16 && IREG_GET_SIZE(uop->dest_reg_a.reg) == IREG_SIZE_DQ)
-                return 0;
-            return 1;
-        case UOP_MEM_LOAD_ABS & UOP_MASK:
-        case UOP_MEM_LOAD_SINGLE & UOP_MASK:
-        case UOP_MEM_LOAD_DOUBLE & UOP_MASK:
-            return 1;
-        case UOP_MEM_STORE_REG & UOP_MASK:
-            if (uop->is_a16 && IREG_GET_SIZE(uop->src_reg_c.reg) == IREG_SIZE_DQ)
-                return 0;
-            return 2;
-        case UOP_MEM_STORE_ABS & UOP_MASK:
-        case UOP_MEM_STORE_IMM_8 & UOP_MASK:
-        case UOP_MEM_STORE_IMM_16 & UOP_MASK:
-        case UOP_MEM_STORE_IMM_32 & UOP_MASK:
-        case UOP_MEM_STORE_SINGLE & UOP_MASK:
-        case UOP_MEM_STORE_DOUBLE & UOP_MASK:
-            return 2;
-        case UOP_ADD_IMM & UOP_MASK:
-        case UOP_SUB_IMM & UOP_MASK:
-            /* A page-sized stride has no useful locality for this cache. */
-            if ((int32_t) uop->imm_data >= 4096 || (int32_t) uop->imm_data <= -4096)
-                return 0;
-            return uop->type & UOP_TYPE_ORDER_BARRIER ? 0 : -1;
-        case UOP_MOV_IMM & UOP_MASK:
-        case UOP_MOV & UOP_MASK:
-        case UOP_MOVZX & UOP_MASK:
-        case UOP_MOVSX & UOP_MASK:
-        case UOP_ADD & UOP_MASK:
-        case UOP_ADD_LSHIFT & UOP_MASK:
-        case UOP_SUB & UOP_MASK:
-        case UOP_AND & UOP_MASK:
-        case UOP_AND_IMM & UOP_MASK:
-        case UOP_OR & UOP_MASK:
-        case UOP_OR_IMM & UOP_MASK:
-        case UOP_XOR & UOP_MASK:
-        case UOP_XOR_IMM & UOP_MASK:
-        case UOP_SHL_IMM & UOP_MASK:
-        case UOP_SHR_IMM & UOP_MASK:
-        case UOP_SAR_IMM & UOP_MASK:
-            return uop->type & UOP_TYPE_ORDER_BARRIER ? 0 : -1;
-        default:
-            return 0;
-    }
-}
-#endif
 
 #ifdef CODEGEN_BACKEND_HAS_SSE_MXCSR
 /* 1 starts/continues native SSE, -1 preserves its MXCSR, 0 ends the run.
@@ -194,6 +117,43 @@ codegen_sse_mxcsr_kind(const uop_t *uop)
 }
 #endif
 
+#ifdef CODEGEN_BACKEND_HAS_LAZY_WRITEBACK
+/*An order barrier whose C, if any, reads none of the guest's state on the
+  way on, and whose only branch leaves the block for a fault: an access, or
+  a check that branches to a fault route. Everything else that orders (the
+  ordered calls, the REP routine, the SMI and x87 exits, the jumps whose
+  join expects memory current) keeps the full flush.*/
+static int
+codegen_uop_is_lazy(const uop_t *uop)
+{
+    switch (uop->type & UOP_MASK) {
+        case UOP_MEM_LOAD_ABS & UOP_MASK:
+        case UOP_MEM_LOAD_REG & UOP_MASK:
+        case UOP_MEM_LOAD_REG_EA & UOP_MASK:
+        case UOP_MEM_LOAD_SINGLE & UOP_MASK:
+        case UOP_MEM_LOAD_DOUBLE & UOP_MASK:
+        case UOP_MEM_STORE_ABS & UOP_MASK:
+        case UOP_MEM_STORE_REG & UOP_MASK:
+        case UOP_MEM_STORE_IMM_8 & UOP_MASK:
+        case UOP_MEM_STORE_IMM_16 & UOP_MASK:
+        case UOP_MEM_STORE_IMM_32 & UOP_MASK:
+        case UOP_MEM_STORE_SINGLE & UOP_MASK:
+        case UOP_MEM_STORE_DOUBLE & UOP_MASK:
+            return 1;
+
+        case UOP_CMP_JNWITHIN & UOP_MASK:
+        case UOP_CMP_IMM_JZ & UOP_MASK:
+        case UOP_CMP_JB & UOP_MASK:
+        case UOP_CMP_JNBE & UOP_MASK:
+        case UOP_CMN_IMM_JC & UOP_MASK:
+            return (uop->p == codegen_gpf_rout) || (uop->p == codegen_ss_rout) || (uop->p == codegen_exit_rout);
+
+        default:
+            return 0;
+    }
+}
+#endif
+
 void
 codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
 {
@@ -201,10 +161,7 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
     int c;
     enum { MMX_UNCHECKED, MMX_CHECKED, MMX_COMMITTED, MMX_UNREACHABLE } mmx_state = MMX_UNCHECKED;
     uint8_t mmx_incoming[UOP_NR_MAX];
-#ifdef CODEGEN_BACKEND_HAS_MEM_LOOKUP_REUSE
-    int mem_lookup = 0;
-    const uop_t *last_mem = NULL;
-#endif
+
 #ifdef CODEGEN_HAS_SSE
     enum { SSE_UNCHECKED, SSE_CHECKED, SSE_AFTER_MEMORY };
     int sse_entered = SSE_UNCHECKED;
@@ -215,9 +172,11 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
 
     if (codegen_unroll_count) {
         int unroll_end;
+        int taken_cycles;
 
         codegen_set_loop_start(ir, codegen_unroll_first_instruction);
         unroll_end = ir->wr_pos;
+        taken_cycles = codegen_accumulate_unroll(ir, codegen_get_loop_timing(codegen_unroll_first_instruction), codegen_unroll_start, codegen_unroll_branch);
 
         for (int unroll_count = 1; unroll_count < codegen_unroll_count; unroll_count++) {
             int offset = ir->wr_pos - codegen_unroll_start;
@@ -225,7 +184,10 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
             for (c = codegen_unroll_start; c < unroll_end; c++) {
                 //                                pclog(" Duplicate uop %i\n", c);
                 duplicate_uop(ir, &ir->uops[c], offset);
+                codegen_accumulate_copy(ir, c);
             }
+            if (taken_cycles)
+                uop_ADD_IMM(ir, IREG_cycles, IREG_cycles, taken_cycles);
         }
     }
 
@@ -370,6 +332,12 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
 #endif
         )
             codegen_reg_flush_invalidate(ir, block);
+#ifdef CODEGEN_BACKEND_HAS_LAZY_WRITEBACK
+        /*The jumps left memory current: what the path that falls through
+          holds back since then is stored on that path, before the join*/
+        else if (uop->type & UOP_TYPE_JUMP_DEST)
+            codegen_reg_flush(ir, block);
+#endif
 
         if (uop->type & UOP_TYPE_JUMP_DEST) {
             uop_t *uop_dest = uop;
@@ -402,7 +370,11 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
         if ((uop->type & UOP_MASK) == (UOP_MOV_IMM & UOP_MASK) && reg_is_native_size(uop->dest_reg_a) && !codegen_reg_is_loaded(uop->dest_reg_a) && reg_version[IREG_GET_REG(uop->dest_reg_a.reg)][uop->dest_reg_a.version].refcount <= 0) {
             /*Special case for UOP_MOV_IMM - if destination not already in host register
               and won't be used again then just store directly to memory*/
+#    ifdef CODEGEN_BACKEND_HAS_LAZY_WRITEBACK
+            codegen_reg_defer_imm(block, uop->dest_reg_a, uop->imm_data);
+#    else
             codegen_reg_write_imm(block, uop->dest_reg_a, uop->imm_data);
+#    endif
         } else
 #endif
             if ((uop->type & UOP_MASK) == (UOP_MOV & UOP_MASK) && reg_version[IREG_GET_REG(uop->src_reg_a.reg)][uop->src_reg_a.version].refcount <= 1 && reg_is_native_size(uop->src_reg_a) && reg_is_native_size(uop->dest_reg_a) && (ireg_is_byte_accessed(IREG_GET_REG(uop->src_reg_a.reg)) || !ireg_is_byte_accessed(IREG_GET_REG(uop->dest_reg_a.reg)))) {
@@ -429,9 +401,9 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
             }
 
             if (uop->type & UOP_TYPE_ORDER_BARRIER) {
-#ifdef CODEGEN_BACKEND_SLOW_STORES
-                if (uop_is_mem_access(uop))
-                    codegen_reg_flush_slow(ir, block);
+#ifdef CODEGEN_BACKEND_HAS_LAZY_WRITEBACK
+                if (codegen_uop_is_lazy(uop))
+                    codegen_reg_flush_lazy(ir, block);
                 else
 #endif
                     codegen_reg_flush(ir, block);
@@ -447,9 +419,8 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
                 fatal("!uop_handlers[uop->type & UOP_MASK] %08x\n", uop->type);
 #endif
             uop_handlers[uop->type & UOP_MASK](block, uop);
-#ifdef CODEGEN_BACKEND_SLOW_STORES
-            if (codegen_slow_open)
-                fatal("codegen_ir_compile - memory access %08x made no slow-path stores\n", uop->type);
+#ifdef CODEGEN_BACKEND_HAS_LAZY_WRITEBACK
+            codegen_lazy_site = NULL;
 #endif
             if (uop->type & UOP_TYPE_ORDER_BARRIER)
                 codegen_reg_drop_cycles();

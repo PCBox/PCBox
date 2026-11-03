@@ -44,10 +44,9 @@ if(DYNAREC)
         codegen_ops_mmx_pack.c
         codegen_ops_mmx_shift.c
         codegen_ops_mov.c
-        codegen_ops_setcc.c
         codegen_ops_shift.c
-        codegen_ops_x87h.c
         codegen_ops_stack.c
+        codegen_ops_rep.c
         codegen_reg.c
     )
 

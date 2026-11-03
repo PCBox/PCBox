@@ -6,7 +6,6 @@
 
 #include "x86.h"
 #include "x86_flags.h"
-#include "x86_ops.h"
 #include "x86seg_common.h"
 #include "x86seg.h"
 #include "386_common.h"
@@ -18,7 +17,6 @@
 #include "codegen_ops.h"
 #include "codegen_ops_fpu_misc.h"
 #include "codegen_ops_helpers.h"
-#include "codegen_ops_setcc.h"
 
 uint32_t
 ropFFREE(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, UNUSED(uint32_t op_32), uint32_t op_pc)
@@ -85,8 +83,39 @@ ropFSTCW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
     op_pc--;
     target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
-    codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 2);
+    codegen_check_seg_write(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 1);
     uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_NPXC);
+
+    return op_pc + 1;
+}
+/* FLDCW. The loaded word is the control word as it is; a flag it leaves
+   unmasked that is set "will result in a floating-point error condition"
+   (486 PRM, FLDCW): raised as the interpreter raises it, and the block
+   ends. Otherwise ES and B go clear and FERR# is lowered, the host rounding
+   follows the new RC, and the next compiled instruction built for the
+   control word's classes checks them (codegen_fpu_class_dirty). */
+uint32_t
+ropFLDCW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    x86seg *target_seg;
+
+#if !(defined __aarch64__ || defined _M_ARM64 || defined __amd64__ || defined _M_X64)
+    /*Only the arm64 and x86-64 backends implement UOP_FP_CONTROL_SET*/
+    return 0;
+#endif
+    uop_FP_ENTER(ir);
+    uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+    op_pc--;
+    target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+    codegen_check_seg_read(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 1);
+    uop_MEM_LOAD_REG(ir, IREG_temp0_W, ireg_seg_base(target_seg), IREG_eaaddr);
+    codegen_fpu_guard_cw_unmasks(ir, op_pc + 1, IREG_temp0_W);
+    uop_MOV(ir, IREG_NPXC, IREG_temp0_W);
+    uop_AND_IMM(ir, IREG_NPXS, IREG_NPXS, ~0x8080); /*ES and B*/
+    uop_FP_CONTROL_SET(ir, IREG_NPXC);
+    codegen_fpu_class_dirty = 1;
 
     return op_pc + 1;
 }
@@ -110,7 +139,8 @@ ropFSTSW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
     op_pc--;
     target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
-    codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 2);
+    codegen_check_seg_write(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 1);
     fpu_status_word(ir, IREG_temp0_W);
     uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0_W);
 
@@ -124,59 +154,6 @@ ropFSTSW_AX(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), U
 
     return op_pc;
 }
-
-/*FCMOVcc only exists on 686-class CPUs, but the recompiler uses one set of x87
-  tables for every CPU. cpu.c installs the FCMOV-capable interpreter tables for
-  exactly the CPUs that have it, so key off those instead of duplicating the CPU
-  list here - without this the recompiler would execute FCMOV on (for example) a
-  486, where it should raise an illegal opcode exception instead.*/
-static int
-fcmov_present(void)
-{
-    return (x86_dynarec_opcodes_da_a16 == dynarec_ops_fpu_686_da_a16);
-}
-
-static uint32_t
-ropFCMOV_common(ir_data_t *ir, uint32_t fetchdat, uint32_t op_pc,
-                void (*gen_cond)(ir_data_t *ir, int invert), int invert)
-{
-    int src_reg = fetchdat & 7;
-
-    if (!fcmov_present())
-        return 0;
-
-    /*FP_ENTER is a barrier, so it has to come before the condition is
-      evaluated - a flush would otherwise discard IREG_temp0*/
-    uop_FP_ENTER(ir);
-    gen_cond(ir, invert);
-    uop_CMOVNZ(ir, IREG_ST(0), IREG_ST(0), IREG_ST(src_reg), IREG_temp0);
-    uop_CMOVNZ(ir, IREG_ST_i64(0), IREG_ST_i64(0), IREG_ST_i64(src_reg), IREG_temp0);
-    uop_CMOVNZ(ir, IREG_tag(0), IREG_tag(0), IREG_tag(src_reg), IREG_temp0);
-
-    return op_pc;
-}
-
-// clang-format off
-#define ropFCMOV(cond, gen, invert)                                     \
-    uint32_t ropFCMOV##cond(UNUSED(codeblock_t *block),                 \
-                            ir_data_t *ir,                              \
-                            UNUSED(uint8_t opcode),                     \
-                            uint32_t fetchdat,                          \
-                            UNUSED(uint32_t op_32),                     \
-                            uint32_t op_pc)                             \
-    {                                                                   \
-        return ropFCMOV_common(ir, fetchdat, op_pc, gen, invert);       \
-    }
-
-ropFCMOV(B,   setcc_gen_B,  0)
-ropFCMOV(E,   setcc_gen_E,  0)
-ropFCMOV(BE,  setcc_gen_BE, 0)
-ropFCMOV(U,   setcc_gen_P,  0)
-ropFCMOV(NB,  setcc_gen_B,  1)
-ropFCMOV(NE,  setcc_gen_E,  1)
-ropFCMOV(NBE, setcc_gen_BE, 1)
-ropFCMOV(NU,  setcc_gen_P,  1)
-// clang-format on
 
 uint32_t
 ropFXCH(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
@@ -194,6 +171,9 @@ ropFXCH(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), uint3
     uop_MOV(ir, IREG_ST(dest_reg), IREG_temp0_D);
     uop_MOV(ir, IREG_ST_i64(dest_reg), IREG_temp1_Q);
     uop_MOV(ir, IREG_tag(dest_reg), IREG_temp2);
+    /*Both were valid past the guard, so both still are: the copy through
+      temp2 hides that from the tag tracking*/
+    codegen_fpu_tag_valid |= (1 << ((cpu_state.TOP + 0) & 7)) | (1 << ((cpu_state.TOP + dest_reg) & 7));
 
     return op_pc;
 }

@@ -143,7 +143,8 @@ x87h_rop_mem(codeblock_t *block, ir_data_t *ir, int esc, uint32_t fetchdat, uint
            written: a store the handler does not make (an unmasked
            exception) faults on nothing else. */
         case X87H_STORE:
-            codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, size);
+            codegen_check_seg_write(block, ir, target_seg);
+            CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, size - 1);
             jump_slow = x87h_inline(ir, X87H_DESC(X87H_OP_MEM, esc, digit, 0, 0));
             uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, x87h_operand_reg(size));
             uop_X87H_DONE(ir, X87H_DESC(X87H_OP_MEM, esc, digit, 0, 0));
@@ -151,7 +152,8 @@ x87h_rop_mem(codeblock_t *block, ir_data_t *ir, int esc, uint32_t fetchdat, uint
 
         case X87H_COPY_STORE:
         default:
-            codegen_check_seg_write(block, ir, target_seg, IREG_eaaddr, 10);
+            codegen_check_seg_write(block, ir, target_seg);
+            CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 9);
             jump_slow = x87h_inline(ir, X87H_DESC(X87H_OP_MEM, esc, digit, 0, 0));
             uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_x87h_q);
             uop_MEM_STORE_REG_OFFSET(ir, ireg_seg_base(target_seg), IREG_eaaddr, 8, IREG_x87h_W);
