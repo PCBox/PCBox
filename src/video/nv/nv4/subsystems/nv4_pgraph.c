@@ -77,7 +77,7 @@ nv4_pgraph_pending(nv4_t *nv4)
 static void
 nv4_pgraph_intr(nv4_t *nv4, uint32_t bits)
 {
-    if (nv4->dbg_trace)
+    if (nv4->dbg_trace || nv4->dbg_regtrace)
         pclog("nv4 trace: pgraph intr %08x (en %08x), fifo off, ctx_user %08x trapped %08x/%08x\n", bits,
               GR(NV4_PGRAPH_INTR_EN), GR(NV4_PGRAPH_CTX_USER), GR(NV4_PGRAPH_TRAPPED_ADDR), GR(NV4_PGRAPH_TRAPPED_DATA));
     GR(NV4_PGRAPH_INTR) |= bits;
@@ -480,5 +480,5 @@ nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val)
     }
 
     if (resume && (GR(NV4_PGRAPH_FIFO) & 1))
-        nv4_pfifo_run(nv4);
+        nv4_pfifo_kick(nv4);
 }

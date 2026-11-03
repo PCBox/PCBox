@@ -322,6 +322,9 @@ nv4_mmio_read(nv4_t *nv4, uint32_t addr, int len)
 
     /* A narrow read of a 32-bit register picks its bytes out. */
     uint32_t val = nv4_reg_read32(nv4, addr & ~3);
+    if (nv4->dbg_regtrace && nv4->dbg_regtrace_reads && (addr < NV4_PRAMIN_START)
+        && ((addr < NV4_PTIMER_START) || (addr > NV4_PTIMER_END)) && nv4->dbg_regtrace--)
+        pclog("nv4 regs: read %06x = %08x (%d)\n", addr, val, len);
     if (len == 4)
         return val;
     val >>= (addr & 3) * 8;
