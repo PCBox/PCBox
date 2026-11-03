@@ -1948,7 +1948,7 @@ codegen_mem_inline_ex(codeblock_t *block, int size, int store, int ea_rule, void
     uint32_t *slow[3] = { NULL, NULL, NULL };
     uint32_t *done;
 
-    codegen_alloc(block, 136 + codegen_reg_slow_size());
+    codegen_alloc(block, 136);
     host_arm64_MOV_REG_LSR(block, ent, REG_W0, 12);
     host_arm64_LDR_IMM_X(block, tbl, REG_CPUSTATE, (int) ((uintptr_t) (store ? &cpu_state.lookup2_w : &cpu_state.lookup2_r) - (uintptr_t) &cpu_state));
     host_arm64_LDRX_REG_LSL3(block, ent, tbl, ent);
@@ -1990,7 +1990,6 @@ codegen_mem_inline_ex(codeblock_t *block, int size, int store, int ea_rule, void
         else if (src_kind == MEM_SRC_L)
             host_arm64_MOV_REG(block, REG_W1, src, 0);
     }
-    codegen_reg_emit_slow(block); /* what the fast path never needs written back */
     host_arm64_call(block, rout);
     host_arm64_CBNZ(block, REG_X1, (uintptr_t) codegen_exit_rout);
     if (to != REG_W0)
