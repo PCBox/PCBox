@@ -101,7 +101,7 @@ extern uint16_t codegen_link_site_set[BLOCK_SIZE * CODEGEN_LINK_SLOTS];
 #    define CODEGEN_LINK_ENTRY_OFFSET 24
 #elif defined(_WIN64)
 /*Eight pushes, the frame and the XMM6/XMM7 saves*/
-#    define CODEGEN_LINK_ENTRY_OFFSET 28
+#    define CODEGEN_LINK_ENTRY_OFFSET 114
 #else
 /*Six pushes and the frame*/
 #    define CODEGEN_LINK_ENTRY_OFFSET 14
