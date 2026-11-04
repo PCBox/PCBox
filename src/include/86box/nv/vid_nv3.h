@@ -1422,21 +1422,25 @@ typedef struct nv3_ramin_context_s
     };
 } nv3_ramin_context_t;
 
+/* RAMRO entry reasons, bits 31:28 (envytools rnndb nv1_pfifo.xml, NV1_RAMRO) */
 typedef enum nv3_ramin_ramro_reason_e
 {
+    // A read of a method, or a write to FREE.
     nv3_runout_reason_illegal_access = 0,
 
-    // PFIFO CACHE0/CACHE1 were turned off, so the graphics object could not be processed.
+    // No cache could take it: push access off, or CACHE1 holds another channel's data, or reassignment is off.
     nv3_runout_reason_no_cache_available = 1,
 
-    // Ran out of CACHE0 & CACHE1 space.
+    // RAMRO already holds this channel's earlier writes: this one goes there too, to keep the order.
     nv3_runout_reason_cache_ran_out = 2,
 
+    // CACHE1 was full: the driver did not check FREE.
     nv3_runout_reason_free_count_overrun = 3,
 
+    // The card said there was room and there was not (FREE_LIE, NV1).
     nv3_runout_reason_caught_lying = 4,
 
-    // Access reserved by pagetable
+    // A write to a reserved offset of the control area (04h-FCh).
     nv3_runout_reason_reserved_access = 5,
 
 } nv3_ramin_ramro_reason;

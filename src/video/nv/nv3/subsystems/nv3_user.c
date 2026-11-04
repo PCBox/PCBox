@@ -31,15 +31,22 @@
 #include <86box/nv/vid_nv3.h>
 
 // PIO Method Submission
-// 128 channels conceptually supported - a hangover from nv1 where multiple windows all directly programming the gpu were supported? total lunacy. 
+// 128 channels conceptually supported - a hangover from nv1 where multiple windows all directly programming the gpu were supported? total lunacy.
+/* Reads: each subchannel's first 256 bytes are the control area (PRM 9.1.1). FREE is a 16-bit
+   count at 10h (NVIDIA's NV_USER_FREE016: bits 9:2 are the count, 1:0 and 15:10 zero) and
+   12h-1Fh read zero (NV_USER_ZERO016/ZERO032). Anything else is a method, write only: reading
+   one is an illegal access, which the pusher puts in RAMRO as a read (envytools' NV1_RAMRO,
+   reason ILLEGAL_ACCESS "you tried to read a normal method"); the data read is unknown, 0 here. */
 uint32_t nv3_user_read(uint32_t address)
 {
     uint16_t method_offset = address & 0x1FFC;
 
     switch (method_offset) {
         case NV3_SUBCHANNEL_PIO_IS_PFIFO_FREE:
-            return nv3_pfifo_cache1_num_free_spaces();
+            return nv3_pfifo_cache1_num_free_spaces() & 0x3FC;
         case NV3_SUBCHANNEL_PIO_ALWAYS_ZERO:
+        case 0x18:
+        case 0x1C:
             return 0;
         default:
             /* Methods are write-only. Record the read for the resource manager. */
