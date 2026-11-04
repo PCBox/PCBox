@@ -1183,6 +1183,49 @@ void nv3_prom_write(uint32_t address, uint32_t value)
     nv_log("What's going on here? Tried to write to the Video BIOS ROM? (Address=0x%05x, value=0x%02x)", real_addr, value);
 }
 
+/* The guest's accesses through the BARs cost it the bus time the card's timings give (as
+   svga_read/svga_write charge them for the VGA window). Without it a register or frame buffer read
+   took about one instruction, so a loop polling a status register went round many more times per
+   guest microsecond than on the chip, each time through the whole dispatch. Only the mappings
+   charge: the arbiter and the subsystems call the handlers below directly, free. */
+#define NV3_BUS_CHARGE(kind) (cycles -= nv3->nvbase.svga.monitor->mon_video_timing_##kind)
+
+#define NV3_BUS_WRAPPERS(name)                                                                    \
+    static uint8_t name##_bus_read8(uint32_t addr, void *priv)                                    \
+    {                                                                                             \
+        NV3_BUS_CHARGE(read_b);                                                                   \
+        return name##_read8(addr, priv);                                                          \
+    }                                                                                             \
+    static uint16_t name##_bus_read16(uint32_t addr, void *priv)                                  \
+    {                                                                                             \
+        NV3_BUS_CHARGE(read_w);                                                                   \
+        return name##_read16(addr, priv);                                                         \
+    }                                                                                             \
+    static uint32_t name##_bus_read32(uint32_t addr, void *priv)                                  \
+    {                                                                                             \
+        NV3_BUS_CHARGE(read_l);                                                                   \
+        return name##_read32(addr, priv);                                                         \
+    }                                                                                             \
+    static void name##_bus_write8(uint32_t addr, uint8_t val, void *priv)                         \
+    {                                                                                             \
+        NV3_BUS_CHARGE(write_b);                                                                  \
+        name##_write8(addr, val, priv);                                                           \
+    }                                                                                             \
+    static void name##_bus_write16(uint32_t addr, uint16_t val, void *priv)                       \
+    {                                                                                             \
+        NV3_BUS_CHARGE(write_w);                                                                  \
+        name##_write16(addr, val, priv);                                                          \
+    }                                                                                             \
+    static void name##_bus_write32(uint32_t addr, uint32_t val, void *priv)                       \
+    {                                                                                             \
+        NV3_BUS_CHARGE(write_l);                                                                  \
+        name##_write32(addr, val, priv);                                                          \
+    }
+
+NV3_BUS_WRAPPERS(nv3_mmio)
+NV3_BUS_WRAPPERS(nv3_ramin)
+NV3_BUS_WRAPPERS(nv3_dfb)
+
 // Initialise the MMIO mappings
 void nv3_init_mappings_mmio(void)
 {
@@ -1193,31 +1236,31 @@ void nv3_init_mappings_mmio(void)
 
     // initialize the mmio mapping
     mem_mapping_add(&nv3->nvbase.mmio_mapping, 0, 0, 
-        nv3_mmio_read8,
-        nv3_mmio_read16,
-        nv3_mmio_read32,
-        nv3_mmio_write8,
-        nv3_mmio_write16,
-        nv3_mmio_write32,
+        nv3_mmio_bus_read8,
+        nv3_mmio_bus_read16,
+        nv3_mmio_bus_read32,
+        nv3_mmio_bus_write8,
+        nv3_mmio_bus_write16,
+        nv3_mmio_bus_write32,
         NULL, MEM_MAPPING_EXTERNAL, nv3);
     
     // initialize the mmio mapping
     mem_mapping_add(&nv3->nvbase.ramin_mapping, 0, 0, 
-        nv3_ramin_read8,
-        nv3_ramin_read16,
-        nv3_ramin_read32,
-        nv3_ramin_write8,
-        nv3_ramin_write16,
-        nv3_ramin_write32,
+        nv3_ramin_bus_read8,
+        nv3_ramin_bus_read16,
+        nv3_ramin_bus_read32,
+        nv3_ramin_bus_write8,
+        nv3_ramin_bus_write16,
+        nv3_ramin_bus_write32,
         NULL, MEM_MAPPING_EXTERNAL, nv3);
 
     mem_mapping_add(&nv3->nvbase.ramin_mapping_mirror, 0, 0,
-        nv3_ramin_read8,
-        nv3_ramin_read16,
-        nv3_ramin_read32,
-        nv3_ramin_write8,
-        nv3_ramin_write16,
-        nv3_ramin_write32,
+        nv3_ramin_bus_read8,
+        nv3_ramin_bus_read16,
+        nv3_ramin_bus_read32,
+        nv3_ramin_bus_write8,
+        nv3_ramin_bus_write16,
+        nv3_ramin_bus_write32,
         NULL, MEM_MAPPING_EXTERNAL, nv3);
 
 }
@@ -1268,22 +1311,22 @@ void nv3_init_mappings_svga(void)
     nv_log("Initialising SVGA core memory mapping\n");
     // setup the svga mappings
     mem_mapping_add(&nv3->nvbase.framebuffer_mapping, 0, 0,
-        nv3_dfb_read8,
-        nv3_dfb_read16,
-        nv3_dfb_read32,
-        nv3_dfb_write8,
-        nv3_dfb_write16,
-        nv3_dfb_write32,
+        nv3_dfb_bus_read8,
+        nv3_dfb_bus_read16,
+        nv3_dfb_bus_read32,
+        nv3_dfb_bus_write8,
+        nv3_dfb_bus_write16,
+        nv3_dfb_bus_write32,
         nv3->nvbase.svga.vram, 0, &nv3->nvbase.svga);
 
     // the SVGA/LFB mapping is also mirrored
     mem_mapping_add(&nv3->nvbase.framebuffer_mapping_mirror, 0, 0, 
-        nv3_dfb_read8,
-        nv3_dfb_read16,
-        nv3_dfb_read32,
-        nv3_dfb_write8,
-        nv3_dfb_write16,
-        nv3_dfb_write32,
+        nv3_dfb_bus_read8,
+        nv3_dfb_bus_read16,
+        nv3_dfb_bus_read32,
+        nv3_dfb_bus_write8,
+        nv3_dfb_bus_write16,
+        nv3_dfb_bus_write32,
         nv3->nvbase.svga.vram, 0, &nv3->nvbase.svga);
 
     io_sethandler(0x03c0, 0x0020, 
