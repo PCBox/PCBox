@@ -113,6 +113,7 @@ static uint8_t
 nextFreeRDiskChannel(SettingsBusTracking *sbt, int bus)
 {
     switch (bus) {
+        case RDISK_BUS_IDE:
         case RDISK_BUS_ATAPI:
             return sbt->next_free_ide_channel();
         case RDISK_BUS_LPT:
@@ -187,7 +188,7 @@ SettingsOtherRemovable::setRDiskBus(QAbstractItemModel *model, const QModelIndex
         case RDISK_BUS_DISABLED:
             icon = rdisk_disabled_icon;
             break;
-        case HDD_BUS_DISCONNECTED:
+        case RDISK_BUS_IDE:
         case RDISK_BUS_ATAPI:
         case RDISK_BUS_SCSI:
         case RDISK_BUS_LPT:
@@ -262,7 +263,7 @@ SettingsOtherRemovable::setRDiskType(QAbstractItemModel *model, const QModelInde
         case RDISK_BUS_DISABLED:
             icon = rdisk_disabled_icon;
             break;
-        case HDD_BUS_DISCONNECTED:
+        case RDISK_BUS_IDE:
         case RDISK_BUS_ATAPI:
         case RDISK_BUS_SCSI:
         case RDISK_BUS_LPT:
@@ -339,6 +340,14 @@ SettingsOtherRemovable::SettingsOtherRemovable(QWidget *parent)
     Harddrives::populateRemovableBuses(ui->comboBoxRDiskBus->model());
     if ((ui->comboBoxRDiskBus->model()->rowCount() - 4) > 0)
         ui->comboBoxRDiskBus->model()->removeRows(4, ui->comboBoxRDiskBus->model()->rowCount() - 4);
+    {
+        /* Native ATA cartridge drives (the SyQuest EZ135A and EZ230A). */
+        auto *busModel = ui->comboBoxRDiskBus->model();
+        int   row      = busModel->rowCount();
+        busModel->insertRows(row, 1);
+        busModel->setData(busModel->index(row, 0), "IDE");
+        busModel->setData(busModel->index(row, 0), RDISK_BUS_IDE, Qt::UserRole);
+    }
     model = ui->comboBoxRDiskType->model();
     {
         Models::Batch typeRows(model);
@@ -357,7 +366,9 @@ SettingsOtherRemovable::SettingsOtherRemovable(QWidget *parent)
         auto idx = model->index(i, 0);
         setRDiskBus(model, idx, Harddrives::configuredBus(rdisk_drives[i], RDISK_BUS_ATAPI), rdisk_drives[i].type, Harddrives::configuredChannel(rdisk_drives[i], rdisk_drives[i].res));
         setRDiskType(model, idx.siblingAtColumn(1), rdisk_drives[i].bus_type, rdisk_drives[i].type);
-        Harddrives::busTrackClass->device_track(1, DEV_RDISK, rdisk_drives[i].bus_type, rdisk_drives[i].bus_type == RDISK_BUS_ATAPI ? rdisk_drives[i].ide_channel : rdisk_drives[i].scsi_device_id);
+        Harddrives::busTrackClass->device_track(1, DEV_RDISK, rdisk_drives[i].bus_type,
+                                                ((rdisk_drives[i].bus_type == RDISK_BUS_ATAPI) || (rdisk_drives[i].bus_type == RDISK_BUS_IDE)) ?
+                                                rdisk_drives[i].ide_channel : rdisk_drives[i].scsi_device_id);
     }
 
 
