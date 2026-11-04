@@ -1032,6 +1032,7 @@ exec386_dynarec_dyn(const int dbg)
             }
             if ((cpu_state.flags & I_FLAG) && x86_external_interrupt_pending() && !cpu_end_block_after_ins) {
                 CPU_BLOCK_END();
+            }
 
             if (cpu_end_block_after_ins) {
                 cpu_end_block_after_ins--;

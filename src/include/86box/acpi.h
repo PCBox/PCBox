@@ -64,6 +64,7 @@ typedef struct acpi_regs_t {
     uint8_t  acpitst;
     uint8_t  auxen;
     uint8_t  auxsts;
+    uint8_t  bus_cyc_track;
     uint8_t  plvl2;
     uint8_t  plvl3;
     uint8_t  smicmd;
