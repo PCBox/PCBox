@@ -602,6 +602,7 @@
 /*UOP_CALL_REP_STRING - call REP string routine at p with immediate, exit block if it returns non-zero.
   The routine reads and writes the guest registers in cpu_state, so the caller reloads them*/
 #define UOP_CALL_REP_STRING (UOP_TYPE_PARAMS_POINTER | UOP_TYPE_PARAMS_IMM | 0x122 | UOP_TYPE_ORDER_BARRIER)
+
 #define UOP_MAX     0x123
 
 #define UOP_INVALID 0xffff
