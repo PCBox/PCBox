@@ -238,9 +238,10 @@ nv4_3d_tex_hazard(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_tex_t *t)
     return 0;
 }
 
-/* Widen lo..hi to the VRAM pages texture <t> reads. */
+/* Widen lo..hi to the VRAM pages texture <t> reads; set *bus when it
+   reads (or may read) system memory. */
 static void
-nv4_3d_tex_range(nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t *lo, uint32_t *hi)
+nv4_3d_tex_range(nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t *lo, uint32_t *hi, int *bus)
 {
     uint32_t first, last;
 
@@ -249,20 +250,25 @@ nv4_3d_tex_range(nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t *lo, uint32_t *hi)
     first = t->offset & ~0xfffu;
     last  = (t->offset + t->size - 1) & ~0xfffu;
     if (((last - first) >> 12) >= 1024) {
-        *lo = 0;
-        *hi = 0xffffffff;
+        *lo  = 0;
+        *hi  = 0xffffffff;
+        *bus = 1;
         return;
     }
     for (uint32_t o = first;; o += 0x1000) {
         uint32_t a;
         int      target;
 
-        if ((nv4_dma_translate(nv4, t->dma, o, 0, &a, &target) == NV4_DMA_OK) && !target) {
-            a &= ~0xfffu;
-            if (a < *lo)
-                *lo = a;
-            if (a + 0xfff > *hi)
-                *hi = a + 0xfff;
+        if (nv4_dma_translate(nv4, t->dma, o, 0, &a, &target) == NV4_DMA_OK) {
+            if (target)
+                *bus = 1;
+            else {
+                a &= ~0xfffu;
+                if (a < *lo)
+                    *lo = a;
+                if (a + 0xfff > *hi)
+                    *hi = a + 0xfff;
+            }
         }
         if (o == last)
             break;
@@ -354,8 +360,8 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
         if (flush)
             nv4_3d_flush(nv4);
         b->serial = 1;
-        nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi);
-        nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi);
+        nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi, &b->bus_tex);
+        nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi, &b->bus_tex);
         b->states[b->nstates] = *s;
         return b->nstates++;
     }
@@ -395,8 +401,8 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
         }
     }
     if (b->parallel) {
-        nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi);
-        nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi);
+        nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi, &b->bus_tex);
+        nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi, &b->bus_tex);
     }
     b->states[b->nstates] = *s;
     return b->nstates++;
@@ -553,20 +559,41 @@ nv4_3d_make_state(nv4_t *nv4, nv4_3d_batch_t *b, int cls, const nv4_d3d_t *d)
 /* Texturing.                                                          */
 /* ------------------------------------------------------------------ */
 /* Swizzled texel offset: u and v bits interleave, u first, until the
-   smaller dimension runs out. */
-static uint32_t
+   smaller dimension runs out; the larger one's other bits follow. Only
+   the bits below wl and hl count (both are at most 15). The two halves
+   do not share bits, so the offset is nv4_swz_u | nv4_swz_v. */
+static inline uint32_t
+nv4_spread(uint32_t x) /* bits 15:0 to the even bits */
+{
+    x &= 0xffff;
+    x = (x | (x << 8)) & 0x00ff00ff;
+    x = (x | (x << 4)) & 0x0f0f0f0f;
+    x = (x | (x << 2)) & 0x33333333;
+    return (x | (x << 1)) & 0x55555555;
+}
+
+static inline uint32_t
+nv4_swz_u(uint32_t u, int wl, int hl)
+{
+    int m = (wl < hl) ? wl : hl;
+
+    u &= (1u << wl) - 1;
+    return nv4_spread(u & ((1u << m) - 1)) | ((u >> m) << (2 * m));
+}
+
+static inline uint32_t
+nv4_swz_v(uint32_t v, int wl, int hl)
+{
+    int m = (wl < hl) ? wl : hl;
+
+    v &= (1u << hl) - 1;
+    return (nv4_spread(v & ((1u << m) - 1)) << 1) | ((v >> m) << (2 * m));
+}
+
+static inline uint32_t
 nv4_swizzle(uint32_t u, uint32_t v, int wl, int hl)
 {
-    uint32_t r   = 0;
-    int      bit = 0;
-
-    for (int i = 0; (i < wl) || (i < hl); i++) {
-        if (i < wl)
-            r |= ((u >> i) & 1) << bit++;
-        if (i < hl)
-            r |= ((v >> i) & 1) << bit++;
-    }
-    return r;
+    return nv4_swz_u(u, wl, hl) | nv4_swz_v(v, wl, hl);
 }
 
 /* Byte offset of pixel x,y in a 3D surface of <pitch>, or in the
@@ -585,16 +612,23 @@ typedef struct {
     int            target; /* 0 VRAM, else bus */
     const uint8_t *host;   /* a bus page in system memory, NULL: read it
                               through the bus */
+    uint32_t       adj;    /* the window's start in its first page
+                              (nv4_dma_page_left), ~0: not read yet */
 } nv4_3d_tcache_t;
+
+#define NV4_TCACHE_INIT { ~0u, 0, 0, NULL, ~0u }
 
 static uint32_t
 nv4_3d_tex_read(nv4_t *nv4, const nv4_3d_tex_t *t, nv4_3d_tcache_t *tc, uint32_t off, int bytes)
 {
-    uint32_t a;
+    uint32_t a, in, page;
+
     /* the window's page of <off> and the byte in it (the window starts
        part way into its first page) */
-    uint32_t in   = 0x1000 - nv4_dma_page_left(nv4, t->dma, off);
-    uint32_t page = off - in;
+    if (tc->adj == ~0u)
+        tc->adj = (0x1000 - nv4_dma_page_left(nv4, t->dma, 0)) & 0xfff;
+    in   = (off + tc->adj) & 0xfff;
+    page = off - in;
 
     if (page != tc->page) {
         uint32_t ra;
@@ -628,6 +662,12 @@ nv4_3d_tex_read(nv4_t *nv4, const nv4_3d_tex_t *t, nv4_3d_tcache_t *tc, uint32_t
         uint8_t *v = nv4->svga.vram;
         uint32_t m = nv4->vram_mask;
 
+        if ((a & m) + 3 <= m) {
+            uint32_t w;
+
+            memcpy(&w, v + (a & m), 4);
+            return (bytes == 4) ? w : (w & ((bytes == 2) ? 0xffff : 0xff));
+        }
         if (bytes == 1)
             return v[a & m];
         if (bytes == 2)
@@ -689,51 +729,50 @@ nv4_wrap(int i, int n, int mode, int *border)
     }
 }
 
-/* One texel of level <l>; returns 0 with *killed set for a color-keyed
-   texel. */
-static uint32_t
-nv4_texel(nv4_t *nv4, const nv4_3d_tex_t *t, nv4_3d_tcache_t *tc, int l, int iu, int iv, uint32_t key, int *killed)
+/* The texel at swizzled index <sw> of the level at byte <base> (or
+   border: 0); returns 0 with *killed set for a color-keyed texel. */
+static inline uint32_t
+nv4_texel_at(nv4_t *nv4, const nv4_3d_tex_t *t, nv4_3d_tcache_t *tc, uint32_t base, uint32_t sw, int border,
+             uint32_t key, int *killed)
 {
-    int      wl     = (t->wlog - l > 0) ? t->wlog - l : 0;
-    int      hl     = (t->hlog - l > 0) ? t->hlog - l : 0;
-    int      border = 0;
     uint32_t raw;
 
-    iu  = nv4_wrap(iu, 1 << wl, t->wrap_u, &border);
-    iv  = nv4_wrap(iv, 1 << hl, t->wrap_v, &border);
     if (border)
         return 0;
-    raw = nv4_3d_tex_read(nv4, t, tc, t->offset + t->level_off[l] + nv4_swizzle(iu, iv, wl, hl) * t->bpp, t->bpp);
+    raw = nv4_3d_tex_read(nv4, t, tc, base + sw * t->bpp, t->bpp);
     if (t->ckey && killed && (raw == (key & ((t->bpp == 4) ? 0xffffffff : ((t->bpp == 2) ? 0xffff : 0xff)))))
         *killed = 1;
     return nv4_texel_argb(raw, t->fmt);
 }
 
-static uint32_t
+static inline uint32_t
 nv4_lerp4(uint32_t a, uint32_t b, int f) /* f 0-256 */
 {
-    uint32_t r = 0;
+    /* two channels a multiply: each sum is at most 255 * 256, so none
+       carries into the next */
+    uint32_t rb = (((a & 0x00ff00ff) * (uint32_t) (256 - f) + (b & 0x00ff00ff) * (uint32_t) f) >> 8) & 0x00ff00ff;
+    uint32_t ag = ((((a >> 8) & 0x00ff00ff) * (uint32_t) (256 - f) + ((b >> 8) & 0x00ff00ff) * (uint32_t) f)) & 0xff00ff00;
 
-    for (int s = 0; s < 32; s += 8) {
-        int ca = (a >> s) & 0xff;
-        int cb = (b >> s) & 0xff;
-
-        r |= (uint32_t) ((ca * (256 - f) + cb * f) >> 8) << s;
-    }
-    return r;
+    return rb | ag;
 }
 
 static uint32_t
 nv4_sample_level(nv4_t *nv4, const nv4_3d_tex_t *t, nv4_3d_tcache_t *tc, int l, float u, float v, int linear,
                  uint32_t key, int *killed)
 {
-    int   wl = (t->wlog - l > 0) ? t->wlog - l : 0;
-    int   hl = (t->hlog - l > 0) ? t->hlog - l : 0;
-    float fu = u * (float) (1 << wl);
-    float fv = v * (float) (1 << hl);
+    int      wl   = (t->wlog - l > 0) ? t->wlog - l : 0;
+    int      hl   = (t->hlog - l > 0) ? t->hlog - l : 0;
+    float    fu   = u * (float) (1 << wl);
+    float    fv   = v * (float) (1 << hl);
+    uint32_t base = t->offset + t->level_off[l];
 
-    if (!linear)
-        return nv4_texel(nv4, t, tc, l, nv4_f2i(floorf(fu)), nv4_f2i(floorf(fv)), key, killed);
+    if (!linear) {
+        int bu = 0, bv = 0;
+        int iu = nv4_wrap(nv4_f2i(floorf(fu)), 1 << wl, t->wrap_u, &bu);
+        int iv = nv4_wrap(nv4_f2i(floorf(fv)), 1 << hl, t->wrap_v, &bv);
+
+        return nv4_texel_at(nv4, t, tc, base, nv4_swizzle(iu, iv, wl, hl), bu | bv, key, killed);
+    }
     if (t->center) {
         fu -= 0.5f;
         fv -= 0.5f;
@@ -743,10 +782,16 @@ nv4_sample_level(nv4_t *nv4, const nv4_3d_tex_t *t, nv4_3d_tcache_t *tc, int l, 
         int      iv = nv4_f2i(floorf(fv));
         int      au = nv4_f2i((fu - (float) iu) * 256.0f);
         int      av = nv4_f2i((fv - (float) iv) * 256.0f);
-        uint32_t t00 = nv4_texel(nv4, t, tc, l, iu, iv, key, killed);
-        uint32_t t10 = nv4_texel(nv4, t, tc, l, iu + 1, iv, key, NULL);
-        uint32_t t01 = nv4_texel(nv4, t, tc, l, iu, iv + 1, key, NULL);
-        uint32_t t11 = nv4_texel(nv4, t, tc, l, iu + 1, iv + 1, key, NULL);
+        /* each axis wraps and swizzles once for the 2x2 footprint */
+        int      bu0 = 0, bu1 = 0, bv0 = 0, bv1 = 0;
+        uint32_t su0 = nv4_swz_u(nv4_wrap(iu, 1 << wl, t->wrap_u, &bu0), wl, hl);
+        uint32_t su1 = nv4_swz_u(nv4_wrap(iu + 1, 1 << wl, t->wrap_u, &bu1), wl, hl);
+        uint32_t sv0 = nv4_swz_v(nv4_wrap(iv, 1 << hl, t->wrap_v, &bv0), wl, hl);
+        uint32_t sv1 = nv4_swz_v(nv4_wrap(iv + 1, 1 << hl, t->wrap_v, &bv1), wl, hl);
+        uint32_t t00 = nv4_texel_at(nv4, t, tc, base, su0 | sv0, bu0 | bv0, key, killed);
+        uint32_t t10 = nv4_texel_at(nv4, t, tc, base, su1 | sv0, bu1 | bv0, key, NULL);
+        uint32_t t01 = nv4_texel_at(nv4, t, tc, base, su0 | sv1, bu0 | bv1, key, NULL);
+        uint32_t t11 = nv4_texel_at(nv4, t, tc, base, su1 | sv1, bu1 | bv1, key, NULL);
 
         return nv4_lerp4(nv4_lerp4(t00, t10, au), nv4_lerp4(t01, t11, au), av);
     }
@@ -1090,11 +1135,11 @@ nv4_lod(const nv4_3d_tri_t *t, int au, int av, float q, float uq, float vq, int 
 }
 
 static void
-nv4_3d_span(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_span_t *sp)
+nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, const nv4_3d_span_t *sp)
 {
-    const nv4_3d_tri_t   *t = &b->tris[sp->tri];
-    const nv4_3d_state_t *s = &b->states[t->state];
-    nv4_3d_tcache_t       tc[2] = { { ~0u, 0, 0 }, { ~0u, 0, 0 } };
+    const nv4_3d_tri_t   *t = &tris[sp->tri];
+    const nv4_3d_state_t *s = &states[t->state];
+    nv4_3d_tcache_t       tc[2] = { NV4_TCACHE_INIT, NV4_TCACHE_INIT };
     uint8_t              *vram  = nv4->svga.vram;
     uint32_t              vm    = nv4->vram_mask;
     float                 py    = (float) sp->y + s->origin - t->y0;
@@ -1329,6 +1374,8 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_span_t *sp)
     }
 }
 
+static uint64_t nv4_3d_now_us(void);
+
 static void
 nv4_3d_worker(void *priv)
 {
@@ -1341,29 +1388,93 @@ nv4_3d_worker(void *priv)
         thread_reset_event(w->wake);
         if (!b->run)
             break;
-        for (int i = 0; i < b->nspans; i++)
-            if (((unsigned) b->spans[i].y % (unsigned) b->nthreads) == (unsigned) w->id)
-                nv4_3d_span(nv4, b, &b->spans[i]);
+        for (int i = 0; i < b->fly.nspans; i++)
+            if (((unsigned) b->fly.spans[i].y % (unsigned) b->nthreads) == (unsigned) w->id)
+                nv4_3d_span(nv4, b->fly.states, b->fly.tris, &b->fly.spans[i]);
         thread_set_event(w->done);
     }
+}
+
+/* Hand the batch being filled to the worker threads */
+static void
+nv4_3d_fly_start(nv4_3d_batch_t *b)
+{
+    b->fly.states = b->states;
+    b->fly.tris   = b->tris;
+    b->fly.spans  = b->spans;
+    b->fly.nspans = b->nspans;
+    b->fly.busy   = 1;
+    for (int i = 0; i < b->nthreads; i++)
+        thread_set_event(b->workers[i].wake);
+}
+
+/* Wait for the worker threads' batch, if any */
+static void
+nv4_3d_fly_wait(nv4_3d_batch_t *b, int cause)
+{
+    uint64_t t0;
+
+    if (!b->fly.busy)
+        return;
+    t0 = nv4_3d_now_us();
+    for (int i = 0; i < b->nthreads; i++)
+        thread_wait_event(b->workers[i].done, -1);
+    for (int i = 0; i < b->nthreads; i++)
+        thread_reset_event(b->workers[i].done);
+    b->fly.busy = 0;
+    if (cause >= 0) {
+        b->st_sync_us[cause] += nv4_3d_now_us() - t0;
+        b->st_sync_n[cause]++;
+    }
+}
+
+/* Does the worker threads' batch read or write any of bytes lo..hi? */
+static int
+nv4_3d_fly_overlaps(const nv4_3d_batch_t *b, uint32_t lo, uint32_t hi)
+{
+    for (int i = 0; b->fly.busy && (i < b->fly.nranges); i++)
+        if ((lo <= b->fly.hi[i]) && (b->fly.lo[i] <= hi))
+            return 1;
+    return 0;
+}
+
+/* Let the worker threads shade the batch being filled while emulation
+   goes on, and fill the other set of arrays meanwhile. Until they are
+   done nothing else may touch the bytes it reads or writes: its rows and
+   the VRAM its textures read (nv4_3d_touch). Textures in system memory
+   are not watched, so such a batch is never handed off this way. */
+static void
+nv4_3d_shade_async(nv4_3d_batch_t *b)
+{
+    b->fly.nranges = 0;
+    for (int r = 0; r < b->nregions; r++)
+        if (b->regions[r].wlo <= b->regions[r].whi) {
+            b->fly.lo[b->fly.nranges]   = b->regions[r].wlo;
+            b->fly.hi[b->fly.nranges++] = b->regions[r].whi;
+        }
+    if (b->tex_lo <= b->tex_hi) {
+        b->fly.lo[b->fly.nranges]   = b->tex_lo;
+        b->fly.hi[b->fly.nranges++] = b->tex_hi;
+    }
+    nv4_3d_fly_start(b);
+    b->set ^= 1;
+    b->states = b->set_states[b->set];
+    b->tris   = b->set_tris[b->set];
+    b->spans  = b->set_spans[b->set];
 }
 
 static void
 nv4_3d_shade_threaded(nv4_3d_batch_t *b)
 {
-    for (int i = 0; i < b->nthreads; i++)
-        thread_set_event(b->workers[i].wake);
-    for (int i = 0; i < b->nthreads; i++)
-        thread_wait_event(b->workers[i].done, -1);
-    for (int i = 0; i < b->nthreads; i++)
-        thread_reset_event(b->workers[i].done);
+    nv4_3d_fly_start(b);
+    nv4_3d_fly_wait(b, -1);
 }
 
 static void
 nv4_3d_shade_serial(nv4_t *nv4, nv4_3d_batch_t *b)
 {
     for (int i = 0; i < b->nspans; i++)
-        nv4_3d_span(nv4, b, &b->spans[i]);
+        nv4_3d_span(nv4, b->states, b->tris, &b->spans[i]);
 }
 
 /* Shade on the GPU or the worker threads. 0: neither took the batch,
@@ -1624,7 +1735,14 @@ nv4_3d_flush(nv4_t *nv4)
         b->st_serial++;
         b->st_serial_spans += b->nspans;
     }
-    if (b->parallel && (!b->serial || b->gpu) && (b->nspans > 1)) {
+    /* one batch in flight at a time, and none while this one is drawn
+       any other way */
+    nv4_3d_fly_wait(b, -1);
+    b->st_flushes++;
+    b->st_spans += b->nspans;
+    if (b->async && !b->serial && !b->bus_tex && (b->nspans > 1))
+        nv4_3d_shade_async(b);
+    else if (b->parallel && (!b->serial || b->gpu) && (b->nspans > 1)) {
         if (b->verify)
             nv4_3d_shade_verify(nv4, b);
         else if (!nv4_3d_shade_parallel(nv4, b))
@@ -1635,8 +1753,6 @@ nv4_3d_flush(nv4_t *nv4)
             nv4_gpu_wait(b->gpu, nv4);
         nv4_3d_shade_serial(nv4, b);
     }
-    b->st_flushes++;
-    b->st_spans += b->nspans;
     b->st_us += nv4_3d_now_us() - t0;
     b->nspans   = 0;
     b->ntris    = 0;
@@ -1645,6 +1761,7 @@ nv4_3d_flush(nv4_t *nv4)
     b->serial   = 0;
     b->tex_lo   = 0xffffffff;
     b->tex_hi   = 0;
+    b->bus_tex  = 0;
     for (int c = 0; c < NV4_CHANNELS; c++)
         nv4->d3d[c].state = -1;
 }
@@ -1668,6 +1785,8 @@ void
 nv4_3d_sync(nv4_t *nv4, int cause)
 {
     nv4_3d_flush(nv4);
+    if (nv4->batch3d)
+        nv4_3d_fly_wait(nv4->batch3d, cause);
     if (nv4->batch3d && nv4->batch3d->gpu)
         nv4_3d_gpu_wait(nv4, cause);
 }
@@ -1679,6 +1798,8 @@ void
 nv4_3d_vblank(nv4_t *nv4, uint32_t lo, uint32_t hi)
 {
     nv4_3d_flush(nv4);
+    if (nv4->batch3d && nv4_3d_fly_overlaps(nv4->batch3d, lo, hi))
+        nv4_3d_fly_wait(nv4->batch3d, NV4_SYNC_VBLANK);
     if (nv4->batch3d && nv4->batch3d->gpu && nv4_gpu_pending_overlaps(nv4->batch3d->gpu, lo, hi))
         nv4_3d_gpu_wait(nv4, NV4_SYNC_VBLANK);
 }
@@ -1924,6 +2045,9 @@ nv4_3d_touch(nv4_t *nv4, uint32_t lo, uint32_t hi, int cause)
         if (hit)
             nv4_3d_flush(nv4);
     }
+    /* (after the flush: the batch it handed off may reach them too) */
+    if (nv4_3d_fly_overlaps(b, lo, hi))
+        nv4_3d_fly_wait(b, cause);
     if (b->gpu && nv4_gpu_pending_overlaps(b->gpu, lo, hi))
         nv4_3d_gpu_wait(nv4, cause);
 }
@@ -2216,6 +2340,7 @@ void
 nv4_3d_reset(nv4_t *nv4)
 {
     if (nv4->batch3d) {
+        nv4_3d_fly_wait(nv4->batch3d, -1);
         if (nv4->batch3d->gpu)
             nv4_gpu_wait(nv4->batch3d->gpu, nv4);
         nv4->batch3d->nspans   = 0;
@@ -2225,6 +2350,7 @@ nv4_3d_reset(nv4_t *nv4)
         nv4->batch3d->serial   = 0;
         nv4->batch3d->tex_lo   = 0xffffffff;
         nv4->batch3d->tex_hi   = 0;
+        nv4->batch3d->bus_tex  = 0;
     }
     memset(nv4->d3d, 0, sizeof(nv4->d3d));
     for (int c = 0; c < NV4_CHANNELS; c++)
@@ -2237,7 +2363,17 @@ nv4_3d_init(nv4_t *nv4)
     nv4_3d_batch_t *b = calloc(1, sizeof(nv4_3d_batch_t));
     int             n = nv4->render_threads;
     const char     *v = getenv("NV4_3D_VERIFY");
+    const char     *a = getenv("NV4_3D_ASYNC");
 
+    /* two sets of arrays: one filled while the threads shade the other */
+    for (int s = 0; s < 2; s++) {
+        b->set_states[s] = calloc(B3D_STATES, sizeof(nv4_3d_state_t));
+        b->set_tris[s]   = calloc(B3D_TRIS, sizeof(nv4_3d_tri_t));
+        b->set_spans[s]  = calloc(B3D_SPANS, sizeof(nv4_3d_span_t));
+    }
+    b->states    = b->set_states[0];
+    b->tris      = b->set_tris[0];
+    b->spans     = b->set_spans[0];
     nv4->batch3d = b;
     nv4_3d_reset(nv4);
     if (n < 1)
@@ -2278,6 +2414,8 @@ nv4_3d_init(nv4_t *nv4)
             pclog("nv4 3D: recording every %u-th flush, %u at most, in %s\n", b->rec_every, b->rec_max, b->rec_dir);
         }
     }
+    /* NV4_3D_ASYNC=0: the threads' batch is waited for at once */
+    b->async = (n > 1) && !b->gpu && !b->verify && !b->rec_max && !(a && (*a == '0'));
     for (int i = 0; (n > 1) && (i < n); i++) {
         nv4_3d_worker_t *w = &b->workers[i];
 
@@ -2296,6 +2434,7 @@ nv4_3d_close(nv4_t *nv4)
 
     if (!b)
         return;
+    nv4_3d_fly_wait(b, -1);
     if (b->nthreads > 1) {
         b->run = 0;
         for (int i = 0; i < b->nthreads; i++)
@@ -2308,6 +2447,11 @@ nv4_3d_close(nv4_t *nv4)
     }
     if (b->gpu)
         nv4_gpu_close(b->gpu);
+    for (int s = 0; s < 2; s++) {
+        free(b->set_states[s]);
+        free(b->set_tris[s]);
+        free(b->set_spans[s]);
+    }
     free(b->vsnap);
     free(b->vres);
     free(b);

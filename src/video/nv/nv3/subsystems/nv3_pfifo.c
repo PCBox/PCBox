@@ -26,6 +26,7 @@
 #include <86box/device.h>
 #include <86box/dma.h>
 #include <86box/mem.h>
+#include <86box/agpgart.h>
 #include <86box/pci.h>
 #include <86box/rom.h> // DEPENDENT!!!
 #include <86box/video.h>
@@ -34,9 +35,9 @@
 #include "cpu.h"
 
 
-static uint32_t nv3_pfifo_cache1_ptr_mask(void);
+static inline uint32_t nv3_pfifo_cache1_ptr_mask(void);
 static uint32_t nv3_pfifo_ramro_ptr_mask(void);
-static uint32_t nv3_pfifo_gray_to_binary(uint32_t gray);
+static inline uint32_t nv3_pfifo_gray_to_binary(uint32_t gray);
 uint32_t        nv3_pfifo_cache1_slot(uint32_t ptr);
 uint32_t        nv3_pfifo_cache1_next(uint32_t ptr);
 
@@ -310,6 +311,17 @@ void nv3_pfifo_cache1_drain(void)
 void nv3_pfifo_trigger_dma_if_required(void)
 {
     nv3_pfifo_cache_t *c1 = &nv3->pfifo.cache1_settings;
+    /* the words are fetched a run at a time, up to the end of the page: one bus read (with its
+       AGP translation) per dword was a sixth of the pusher's time. A run in RAM or behind the
+       AGP aperture is copied straight from the page (agpgart_bus_ptr); other memory goes through
+       dma_bm_read. Words fetched but not used when the pusher stops are fetched again next time. */
+    uint32_t           run[64];
+    uint32_t           run_linear = 0;
+    uint32_t           run_words  = 0;
+    /* CACHE1's pointer width and size, for the direct path's PUT/GET steps */
+    const uint32_t     ptr_mask   = nv3_pfifo_cache1_ptr_mask();
+    const uint32_t     slots      = (nv3->nvbase.gpu_revision >= NV3_PCI_CFG_REVISION_C00) ? NV3_PFIFO_CACHE1_SIZE_REV_C
+                                                                                         : NV3_PFIFO_CACHE1_SIZE_REV_AB;
 
     if (nv3_pfifo_dma_pusher_active)
         return;
@@ -327,7 +339,7 @@ void nv3_pfifo_trigger_dma_if_required(void)
         uint32_t word;
 
         /* a command word needs a free CACHE1 slot; a header doesn't */
-        if (((c1->dma_status >> 18) & 0x7FF) && !nv3_pfifo_cache1_num_free_spaces())
+        if (((c1->dma_status >> 18) & 0x7FF) && (c1->put_address != c1->get_address) && !nv3_pfifo_cache1_num_free_spaces())
             break;
 
         /* a cached PTE that isn't present is a miss, not a fault: the 1997 resman (Viper V330
@@ -344,7 +356,23 @@ void nv3_pfifo_trigger_dma_if_required(void)
             nv3_pmc_handle_interrupts(true);
             break;
         }
-        dma_bm_read((c1->dma_tlb_pte & 0xFFFFF000) | (linear & 0xFFF), (uint8_t *) &word, 4, 4);
+        if ((linear - run_linear) >= (run_words << 2)) {
+            run_words = (0x1000 - (linear & 0xFFF)) >> 2;
+            if (run_words > (c1->dma_length >> 2))
+                run_words = c1->dma_length >> 2;
+            if (run_words > (sizeof(run) / sizeof(run[0])))
+                run_words = sizeof(run) / sizeof(run[0]);
+            run_linear = linear;
+
+            uint32_t       phys = (c1->dma_tlb_pte & 0xFFFFF000) | (linear & 0xFFF);
+            const uint8_t *host = agpgart_bus_ptr(phys, run_words << 2);
+
+            if (host)
+                memcpy(run, host, run_words << 2);
+            else
+                dma_bm_read(phys, (uint8_t *) run, run_words << 2, 4);
+        }
+        word = run[(linear - run_linear) >> 2];
 
         c1->dma_address += 4;
         c1->dma_length -= 4;
@@ -358,8 +386,34 @@ void nv3_pfifo_trigger_dma_if_required(void)
 
         uint32_t method = c1->dma_status & 0x1FFC;
         uint32_t subch  = (c1->dma_status >> 13) & 7;
-        nv3_pfifo_cache1_push(NV3_USER_START | ((c1->channel & 0x7F) << 16) | (subch << 13) | method, word);
-        nv3_pfifo_cache1_pull();
+        uint32_t ctx    = c1->context[subch];
+
+        /* What nv3_pfifo_cache1_push and _pull do when CACHE1 is empty and the method goes
+           straight on to PGRAPH: the word still passes through its CACHE1 entry and PUT and GET
+           both step past it, without the checks and pointer decoding either side would repeat
+           (a third of the pusher's time in 3DMark 99's Game 2). Anything else takes the full path. */
+        if ((method >= 0x100) && (c1->put_address == c1->get_address)
+            && (nv3->pfifo.runout_get == nv3->pfifo.runout_put)
+            && (c1->pull0 & (1 << NV3_PFIFO_CACHE1_PULL0_ENABLED)) && (ctx & 0x800000) && nv3->pgraph.fifo_access
+            && ((nv3->pgraph.context_control >> NV3_PGRAPH_CONTEXT_CONTROL_CHID_VALID) & 1)
+            && (((nv3->pgraph.context_user >> NV3_PGRAPH_CONTEXT_USER_CHANNEL) & 0x7F) == c1->channel)) {
+            /* nv3_pfifo_cache1_slot and _next, the pointer decoded once */
+            uint32_t            bin  = nv3_pfifo_gray_to_binary((c1->put_address >> 2) & ptr_mask);
+            uint32_t            slot = bin & (slots - 1);
+            uint32_t            next = (bin + 1) & ptr_mask;
+            nv3_ramin_context_t rc   = *(nv3_ramin_context_t *) &ctx;
+
+            slot ^= slot >> 1;
+
+            nv3->pfifo.cache1_entries[slot].subchannel = subch;
+            nv3->pfifo.cache1_entries[slot].method     = method;
+            nv3->pfifo.cache1_entries[slot].data       = word;
+            c1->put_address = c1->get_address = (next ^ (next >> 1)) << 2;
+            nv3_pgraph_submit(word, method, c1->channel, subch, rc.class_id & 0x1F, rc);
+        } else {
+            nv3_pfifo_cache1_push(NV3_USER_START | ((c1->channel & 0x7F) << 16) | (subch << 13) | method, word);
+            nv3_pfifo_cache1_pull();
+        }
 
         c1->dma_status = (c1->dma_status & ~(0x7FF << 18) & ~0x1FFC) | ((count - 1) << 18) | ((method + 4) & 0x1FFC);
     }
@@ -654,7 +708,7 @@ uint32_t nv3_pfifo_cache1_gray2normal(uint32_t val)
    32 entries. The RIVA 128 ZX: 7 bits over 64 entries, one bit more than the ring needs so a full
    ring differs from an empty one -- NV3RM.VXD steps them as gray((binary + 1) & 0x7F) and finds
    the entry at 0x3400 + 8 * the 6-bit Gray code of the binary pointer. */
-static uint32_t nv3_pfifo_cache1_ptr_mask(void)
+static inline uint32_t nv3_pfifo_cache1_ptr_mask(void)
 {
     return (nv3->nvbase.gpu_revision >= NV3_PCI_CFG_REVISION_C00) ? 0x7F : 0x1F;
 }
@@ -667,7 +721,7 @@ static uint32_t nv3_pfifo_ramro_ptr_mask(void)
     return (((nv3->pfifo.ramro_config >> NV3_PFIFO_CONFIG_RAMRO_SIZE) & 0x01) ? 0x2000 : 0x200) - 0x08;
 }
 
-static uint32_t nv3_pfifo_gray_to_binary(uint32_t gray)
+static inline uint32_t nv3_pfifo_gray_to_binary(uint32_t gray)
 {
     gray ^= gray >> 4;
     gray ^= gray >> 2;
@@ -761,7 +815,8 @@ void nv3_pfifo_cache0_pull(void)
     #ifndef RELEASE_BUILD
     nv_log_verbose_only("***** DEBUG: CACHE0 PULLED ****** Contextual information below\n");
     nv3_ramin_context_t context_structure = *(nv3_ramin_context_t*)&current_context;
-    nv3_debug_ramin_print_context_info(current_param, context_structure);
+    if (nv_do_log)
+        nv3_debug_ramin_print_context_info(current_param, context_structure);
     #endif
 
     nv3_pgraph_submit(current_param, current_method, current_channel, current_subchannel, class_id & 0x1F, context_structure);
@@ -931,7 +986,8 @@ void nv3_pfifo_cache1_pull(void)
     #ifndef RELEASE_BUILD
     nv_log_verbose_only("***** DEBUG: CACHE1 PULLED ****** Contextual information below\n");
     nv3_ramin_context_t context_structure = *(nv3_ramin_context_t*)&current_context;
-    nv3_debug_ramin_print_context_info(current_param, context_structure);
+    if (nv_do_log)
+        nv3_debug_ramin_print_context_info(current_param, context_structure);
     #endif
     
     nv3_pgraph_submit(current_param, current_method, current_channel, current_subchannel, class_id & 0x1F, context_structure);

@@ -488,16 +488,38 @@ nv4_dma_push(nv4_t *nv4)
 {
     nv4_pfifo_t *p    = &nv4->pfifo;
     int          work = 0;
+    /* The words are read a run at a time, up to the end of the page and
+       the window's limit: a translation and a bus read per dword were a
+       seventh of the emulation thread in image uploads. Words read but not
+       used when the pusher stops are read again next time. */
+    uint32_t     run[64];
+    uint32_t     run_off   = 0;
+    uint32_t     run_bytes = 0;
 
     while (nv4_dma_can_push(p) && !nv4_cache1_full(p)) {
         uint32_t word;
         uint32_t count = (p->c1_dma_state >> 18) & 0x7ff;
 
-        if (nv4_dma_read32(nv4, p->c1_dma_instance, p->c1_dma_get, &word) != NV4_DMA_OK) {
-            nv4_dma_error(nv4, DMA_ERR_PROTECTION);
-            nv4_pfifo_intr(nv4, INTR_DMA_PT);
-            break;
+        if ((p->c1_dma_get - run_off) >= run_bytes) {
+            uint32_t lim = nv4_dma_limit(nv4, p->c1_dma_instance);
+
+            run_off   = p->c1_dma_get;
+            run_bytes = nv4_dma_page_left(nv4, p->c1_dma_instance, run_off) & ~3u;
+            if (!run_bytes)
+                run_bytes = 4; /* a word across the page end: read in two parts */
+            if (run_bytes > sizeof(run))
+                run_bytes = sizeof(run);
+            /* no word past the limit: that one faults when it is reached */
+            if ((lim >= run_off) && (run_bytes > ((lim - run_off) & ~3u) + 4))
+                run_bytes = ((lim - run_off) & ~3u) + 4;
+            if (nv4_dma_read(nv4, p->c1_dma_instance, run_off, (uint8_t *) run, run_bytes) != NV4_DMA_OK) {
+                run_bytes = 0;
+                nv4_dma_error(nv4, DMA_ERR_PROTECTION);
+                nv4_pfifo_intr(nv4, INTR_DMA_PT);
+                break;
+            }
         }
+        word = run[(p->c1_dma_get - run_off) >> 2];
         if (!nv4->dbg_trace_novtx && NV4_TRACE(nv4, CHID(p)))
             pclog("nv4 trace: push ch %d get %08x word %08x\n", CHID(p), p->c1_dma_get, word);
         p->c1_dma_get = (p->c1_dma_get + 4) & 0x1ffffffc;
@@ -561,18 +583,28 @@ static void
 nv4_eng_charge(nv4_t *nv4)
 {
     uint64_t now = tsc;
-    double   mem = (nv4->mclk_hz > 0.0) ? (double) nv4->eng_bytes / (16.0 * nv4->mclk_hz) : 0.0;
-    double   px  = (nv4->nvclk_hz > 0.0) ? (double) nv4->eng_px3d / (2.0 * nv4->nvclk_hz) : 0.0;
-    double   sec = (nv4->nvclk_hz > 0.0) ? 1.0 / nv4->nvclk_hz : 0.0;
+    double   mem, px;
 
-    sec += (mem > px) ? mem : px;
+    /* the costs in TSC ticks, worked out again only when a clock changes:
+       three divisions per method were a tenth of the emulation thread in
+       image uploads */
+    if ((nv4->eng_clk[0] != nv4->nvclk_hz) || (nv4->eng_clk[1] != nv4->mclk_hz) || (nv4->eng_clk[2] != cpuclock)) {
+        nv4->eng_clk[0]  = nv4->nvclk_hz;
+        nv4->eng_clk[1]  = nv4->mclk_hz;
+        nv4->eng_clk[2]  = cpuclock;
+        nv4->eng_k_base  = (nv4->nvclk_hz > 0.0) ? cpuclock / nv4->nvclk_hz : 0.0;
+        nv4->eng_k_byte  = (nv4->mclk_hz > 0.0) ? cpuclock / (16.0 * nv4->mclk_hz) : 0.0;
+        nv4->eng_k_px    = (nv4->nvclk_hz > 0.0) ? cpuclock / (2.0 * nv4->nvclk_hz) : 0.0;
+    }
+    mem            = (double) nv4->eng_bytes * nv4->eng_k_byte;
+    px             = (double) nv4->eng_px3d * nv4->eng_k_px;
     nv4->eng_bytes = 0;
     nv4->eng_px3d  = 0;
     if (cpuclock <= 0.0)
         return;
     if (nv4->eng_tsc < now)
         nv4->eng_tsc = now;
-    nv4->eng_tsc += (uint64_t) (sec * cpuclock);
+    nv4->eng_tsc += (uint64_t) (nv4->eng_k_base + ((mem > px) ? mem : px));
 }
 
 /* Whether PGRAPH is still busy with the work it was given. */
@@ -612,16 +644,43 @@ nv4_eng_timer(void *priv)
     nv4_pfifo_run((nv4_t *) priv);
 }
 
+/* A register write that lets the pullers go on (CACHE1 pull or PGRAPH
+   FIFO access turned on, an interrupt acknowledged, a context loaded)
+   takes effect a little later, as on the chip, not inside the write: the
+   resman's context switch handler turns CACHE1 pulling back on, then
+   reads PGRAPH_INTR and writes back what it read to drop anything left
+   over from the switch. Run at once, the NOTIFY trapped by the switch
+   and the NOP after it raised the notification in between, and that
+   write acknowledged it unserviced: an awaken notify was never woken, and
+   DirectDraw waited for its notifier for ever (DxDiag's DirectDraw test
+   after the windowed off-screen box, every NVIDIA 4.1x driver). */
+#define NV4_KICK_US 2.0
+
+static void
+nv4_kick_timer(void *priv)
+{
+    nv4_pfifo_run((nv4_t *) priv);
+}
+
+void
+nv4_pfifo_kick(nv4_t *nv4)
+{
+    if (!timer_is_on(&nv4->kick_timer))
+        timer_set_delay_u64(&nv4->kick_timer, (uint64_t) (NV4_KICK_US * TIMER_USEC));
+}
+
 void
 nv4_pfifo_init(nv4_t *nv4)
 {
     timer_add(&nv4->eng_timer, nv4_eng_timer, nv4, 0);
+    timer_add(&nv4->kick_timer, nv4_kick_timer, nv4, 0);
 }
 
 void
 nv4_pfifo_close(nv4_t *nv4)
 {
     timer_disable(&nv4->eng_timer);
+    timer_disable(&nv4->kick_timer);
 }
 
 /* ------------------------------------------------------------------ */
@@ -755,6 +814,7 @@ nv4_pfifo_reset(nv4_t *nv4)
 
     memset(p, 0, sizeof(*p));
     timer_disable(&nv4->eng_timer);
+    timer_disable(&nv4->kick_timer);
     nv4->eng_tsc   = 0;
     nv4->eng_bytes = 0;
     nv4->eng_px3d  = 0;
@@ -1082,5 +1142,5 @@ nv4_pfifo_write(nv4_t *nv4, uint32_t addr, uint32_t val)
     }
 
     /* Anything may have unblocked the pusher or the pullers. */
-    nv4_pfifo_run(nv4);
+    nv4_pfifo_kick(nv4);
 }

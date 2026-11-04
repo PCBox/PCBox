@@ -350,36 +350,6 @@ nv3_d3d_sample(const nv3_d3d_dstate_t *st, float u, float v, int level)
     return res;
 }
 
-/* Debug ("dev nv3 tex"): log each mip level of the texture -- offset, size, mean colour, first texels */
-int nv3_d3d_tex_dump;
-
-static void
-nv3_d3d_dump_texture(const nv3_d3d_dstate_t *st)
-{
-    int      max_log, min_log;
-    uint32_t offset  = 0;
-
-    nv3_d3d_tex_logs(st->tex_format, &max_log, &min_log);
-    always_log("nv3: d3d tex %08x format %08x levels %d..%d%c", nv3->pgraph.prim.d3d.tex_offset, st->tex_format, max_log, min_log, 10);
-    for (int l = max_log; l >= min_log && l >= 0; l--) {
-        uint32_t size = 1u << l;
-        uint64_t sum[4] = { 0 };
-        for (uint32_t t = 0; t < size; t++)
-            for (uint32_t s = 0; s < size; s++) {
-                uint32_t c = nv3_d3d_texel(st, offset, s, t);
-                for (int i = 0; i < 4; i++)
-                    sum[i] += (c >> (24 - 8 * i)) & 0xFF;
-            }
-        uint32_t n = size * size;
-        always_log("nv3:   level %2u offset %06x mean argb %02x %02x %02x %02x | %04x %04x %04x %04x %04x %04x %04x %04x%c", size, offset,
-                   (uint32_t) (sum[0] / n), (uint32_t) (sum[1] / n), (uint32_t) (sum[2] / n), (uint32_t) (sum[3] / n),
-                   nv3_d3d_read_tex16(st, offset), nv3_d3d_read_tex16(st, offset + 2), nv3_d3d_read_tex16(st, offset + 4),
-                   nv3_d3d_read_tex16(st, offset + 6), nv3_d3d_read_tex16(st, offset + 8), nv3_d3d_read_tex16(st, offset + 10),
-                   nv3_d3d_read_tex16(st, offset + 12), nv3_d3d_read_tex16(st, offset + 14), 10);
-        offset += n * 2;
-    }
-}
-
 /* ---- pixel output ---- */
 
 static uint32_t
@@ -788,8 +758,14 @@ nv3_d3d_place_state(nv3_d3d_batch_t *b, nv3_d3d_dstate_t *s)
             nv3_d3d_reach(s, s->boff[idx[i]], s->bpitch[idx[i]], &lo[i], &hi[i]);
             if (nv3_d3d_region_find(b, s->boff[idx[i]], s->bpitch[idx[i]], lo[i], hi[i]) == -2)
                 flush = 1;
+            /* below: shaded on one thread, which a sealed batch must not be */
+            if (b->nsealed && ((s->bpitch[idx[i]] < (uint32_t) s->cx1 * s->bpp) || (hi[i] >= size)))
+                flush = 1;
         }
         if (nv3_d3d_tex_hazard(b, s))
+            flush = 1;
+        /* a texture the GPU lane leaves to the CPU */
+        if (b->nsealed && s->textured && (s->tex_l0 & 1))
             flush = 1;
     }
     if (flush)
@@ -971,6 +947,7 @@ nv3_d3d_empty(nv3_d3d_batch_t *b)
     b->nspans   = 0;
     b->ntris    = 0;
     b->nstates  = 0;
+    b->nsealed  = 0;
     b->nregions = 0;
     b->serial   = 0;
     b->tex_lo   = 0xFFFFFFFF;
@@ -1018,16 +995,35 @@ nv3_d3d_gpu_wait(nv3_d3d_batch_t *b, uint32_t lo, uint32_t hi, int cause)
 
 /* Draw the batch and, when the GPU has batches in flight, wait for their pixels: for anything
    that reads or writes VRAM itself. */
+int nv3_gpu_inflight;
+
 void
 nv3_d3d_sync(int cause)
 {
     nv3_d3d_batch_t *b = nv3 ? nv3->batch3d : NULL;
 
+    /* every CPU access to the frame buffer comes here; most find nothing to wait for */
     if (!b)
         return;
-    nv3_d3d_flush();
-    if (b->gpu)
+    if (b->nstates)
+        nv3_d3d_flush();
+    if (b->gpu && nv3_gpu_inflight)
         nv3_d3d_gpu_wait(b, 0, 0xFFFFFFFF, cause);
+}
+
+/* A notify: the driver takes it for "done" and may then change what the queued triangles read.
+   With the GPU lane their textures are gathered now and the batch stays open (more triangles,
+   fewer submits); otherwise it is drawn now. Their pixels are waited for where they are read. */
+void
+nv3_d3d_notify(void)
+{
+    nv3_d3d_batch_t *b = nv3 ? nv3->batch3d : NULL;
+
+    if (!b || !b->nstates)
+        return;
+    if ((b->nspans < D3_SEAL_SPANS) && b->gpu && b->parallel && !b->serial && !b->verify && (b->nspans > 1) && nv3_gpu_seal(b->gpu, b))
+        return;
+    nv3_d3d_flush();
 }
 
 /* The CPU is about to read or write VRAM bytes lo..hi (a 2D draw): draw the batch first if it
@@ -1210,7 +1206,7 @@ nv3_d3d_make_state(nv3_d3d_dstate_t *s, nv3_grobj_t grobj, bool textures)
 static int
 nv3_d3d_state(nv3_d3d_batch_t *b, nv3_d3d_dstate_t *s)
 {
-    if (b->nstates) {
+    if ((b->nstates > b->nsealed) || (b->nstates && !(b->states[b->nstates - 1].textured && !b->states[b->nstates - 1].tex_vram))) {
         const nv3_d3d_dstate_t *o = &b->states[b->nstates - 1];
 
         if (!memcmp(s, o, offsetof(nv3_d3d_dstate_t, rg)))
@@ -1350,7 +1346,7 @@ nv3_d3d_cylinder(float *c0, float *c1, float *c2)
    differently and compare with Z EQUAL (3DMark 99's filtering tunnel: 286 triangles write Z, 1626
    test it), and float weights on small triangles were off by up to a 16-bit Z step */
 static bool
-nv3_d3d_inside(const nv3_d3d_vertex_t *const v[3], double darea, float area, int32_t x, int32_t y)
+nv3_d3d_inside_slow(const nv3_d3d_vertex_t *const v[3], double darea, float area, int32_t x, int32_t y)
 {
     for (int e = 0; e < 3; e++) {
         const nv3_d3d_vertex_t *p  = v[(e + 1) % 3];
@@ -1370,15 +1366,159 @@ nv3_d3d_inside(const nv3_d3d_vertex_t *const v[3], double darea, float area, int
     return true;
 }
 
+/* The pixel test for one triangle, its edges' terms taken out: edge e runs from p = v[e + 1] to
+   q = v[e + 2], and its function at (x, y) is ex (y - py) - ey (x - px), as nv3_d3d_inside_slow
+   computes it. Its weight ef / darea is never 0 for ef != 0 (both are finite: darea is, and the
+   vertices are floats), so the weight's sign is ef's times darea's. */
+typedef struct {
+    const nv3_d3d_vertex_t *const *v;
+    double                         darea;
+    float                          area;
+    int                            fast;  /* darea is finite */
+    int                            neg;   /* darea < 0 */
+    double                         ex[3], ey[3], px[3], py[3];
+    double                         ay[3]; /* ex (y - py) for the row being walked */
+    double                         r[3];  /* ex / ey: how far the edge's crossing moves per row */
+    bool                           own[3]; /* the edge owns pixels on it: top or left */
+} nv3_d3d_edges_t;
+
+static void
+nv3_d3d_edges(nv3_d3d_edges_t *t, const nv3_d3d_vertex_t *const v[3], double darea, float area)
+{
+    t->v     = v;
+    t->darea = darea;
+    t->area  = area;
+    t->fast  = isfinite(darea);
+    t->neg   = darea < 0.0;
+    for (int e = 0; e < 3; e++) {
+        const nv3_d3d_vertex_t *p  = v[(e + 1) % 3];
+        const nv3_d3d_vertex_t *q  = v[(e + 2) % 3];
+        float                   dy = (area > 0.0f) ? (q->y - p->y) : (p->y - q->y);
+        float                   dx = (area > 0.0f) ? (q->x - p->x) : (p->x - q->x);
+
+        t->ex[e]  = (double) q->x - p->x;
+        t->ey[e]  = (double) q->y - p->y;
+        t->px[e]  = p->x;
+        t->py[e]  = p->y;
+        t->own[e] = (dy < 0.0f) || (dy == 0.0f && dx > 0.0f);
+        t->r[e]   = (t->ey[e] != 0.0) ? (t->ex[e] / t->ey[e]) : 0.0;
+    }
+}
+
+static inline void
+nv3_d3d_edges_row(nv3_d3d_edges_t *t, int32_t y)
+{
+    for (int e = 0; e < 3; e++)
+        t->ay[e] = t->ex[e] * ((double) y - t->py[e]);
+}
+
+/* Does pixel x of the row nv3_d3d_edges_row was given pass edge e's test? (fast case) */
+static inline bool
+nv3_d3d_edge_pass(const nv3_d3d_edges_t *t, int e, int32_t x)
+{
+    double ef = t->ay[e] - t->ey[e] * ((double) x - t->px[e]);
+
+    if (ef == 0.0)
+        return t->own[e];
+    return (ef < 0.0) == t->neg;
+}
+
+/* nv3_d3d_inside_slow for (x, y), y the row nv3_d3d_edges_row was given */
+static inline bool
+nv3_d3d_inside(const nv3_d3d_edges_t *t, int32_t x, int32_t y)
+{
+    if (!t->fast)
+        return nv3_d3d_inside_slow(t->v, t->darea, t->area, x, y);
+    for (int e = 0; e < 3; e++)
+        if (!nv3_d3d_edge_pass(t, e, x))
+            return false;
+    return true;
+}
+
+/* The pixels of row y inside the triangle, within bx0..bx1, edge by edge (fast case). The edge
+   function as computed, ay - ey (x - px), is monotonic in x even rounded: x - px, its product
+   with ey and the difference each round a monotonic function of the exact value. So the
+   pixels passing an edge's test are those on one side of a point: from where the edge crosses
+   the row (px + (y - py) ex / ey, an estimate) each edge's last or first passing pixel is
+   found with that edge's test alone, and the row is what lies between them -- the pixels
+   nv3_d3d_inside passes, with a third of the tests or fewer. */
+static bool
+nv3_d3d_row_edges(nv3_d3d_edges_t *t, int32_t y, int32_t bx0, int32_t bx1, int32_t *plo, int32_t *phi)
+{
+    int32_t l = bx0, h = bx1;
+
+    nv3_d3d_edges_row(t, y);
+    for (int e = 0; e < 3; e++) {
+        double B = t->ey[e];
+
+        if (B == 0.0) {
+            /* the same at every x */
+            if (!nv3_d3d_edge_pass(t, e, bx0))
+                return false;
+            continue;
+        }
+
+        /* the function falls as x grows for B > 0; it must keep the area's sign: B > 0 with a
+           positive area (or B < 0 with a negative one) bounds the row on the right */
+        bool    right = (B > 0.0) != t->neg;
+        double  xb    = t->px[e] + ((double) y - t->py[e]) * t->r[e];
+        int32_t x;
+
+        if (!(xb > (double) (l - 1)))
+            xb = l - 1;
+        if (!(xb < (double) (h + 1)))
+            xb = h + 1;
+        /* floor, through a truncation (xb is within -3..2049 here) */
+        x = (int32_t) xb;
+        if ((double) x > xb)
+            x--;
+        if (right) {
+            /* the last passing pixel, no further right than h */
+            if (x > h)
+                x = h;
+            if (nv3_d3d_edge_pass(t, e, x)) {
+                while ((x < h) && nv3_d3d_edge_pass(t, e, x + 1))
+                    x++;
+            } else {
+                do
+                    x--;
+                while ((x >= l) && !nv3_d3d_edge_pass(t, e, x));
+            }
+            h = x;
+        } else {
+            /* the first passing pixel, no further left than l */
+            x++;
+            if (x < l)
+                x = l;
+            if (nv3_d3d_edge_pass(t, e, x)) {
+                while ((x > l) && nv3_d3d_edge_pass(t, e, x - 1))
+                    x--;
+            } else {
+                do
+                    x++;
+                while ((x <= h) && !nv3_d3d_edge_pass(t, e, x));
+            }
+            l = x;
+        }
+        if (l > h)
+            return false;
+    }
+    *plo = l;
+    *phi = h;
+    return true;
+}
+
 /* The pixels of row y inside the triangle, within bx0..bx1: from where each edge crosses the
    row, then settled with the pixel test itself. False when none. */
 static bool
-nv3_d3d_row(const nv3_d3d_vertex_t *const v[3], double darea, float area, int32_t y, int32_t bx0, int32_t bx1, int32_t *plo,
-            int32_t *phi)
+nv3_d3d_row(nv3_d3d_edges_t *t, int32_t y, int32_t bx0, int32_t bx1, int32_t *plo, int32_t *phi)
 {
-    double  lo = bx0, hi = bx1;
-    int32_t l, h;
+    const nv3_d3d_vertex_t *const *v     = t->v;
+    double                         darea = t->darea;
+    double                         lo = bx0, hi = bx1;
+    int32_t                        l, h;
 
+    nv3_d3d_edges_row(t, y);
     for (int e = 0; e < 3; e++) {
         const nv3_d3d_vertex_t *p = v[(e + 1) % 3];
         const nv3_d3d_vertex_t *q = v[(e + 2) % 3];
@@ -1401,8 +1541,13 @@ nv3_d3d_row(const nv3_d3d_vertex_t *const v[3], double darea, float area, int32_
     }
     if (lo > hi + 2.0)
         return false;
-    l = (int32_t) ceil(lo);
-    h = (int32_t) floor(hi);
+    /* lo >= bx0 and hi <= bx1 from here (both within -2..2049): ceil and floor through a truncation */
+    l = (int32_t) lo;
+    if ((double) l < lo)
+        l++;
+    h = (int32_t) hi;
+    if ((double) h > hi)
+        h--;
     if (l < bx0)
         l = bx0;
     if (h > bx1)
@@ -1416,7 +1561,7 @@ nv3_d3d_row(const nv3_d3d_vertex_t *const v[3], double darea, float area, int32_
         if (z > bx1)
             z = bx1;
         for (int32_t x = a; x <= z; x++)
-            if (nv3_d3d_inside(v, darea, area, x, y)) {
+            if (nv3_d3d_inside(t, x, y)) {
                 seed = x;
                 break;
             }
@@ -1424,15 +1569,15 @@ nv3_d3d_row(const nv3_d3d_vertex_t *const v[3], double darea, float area, int32_
             return false;
         l = h = seed;
     }
-    while ((l <= h) && !nv3_d3d_inside(v, darea, area, l, y))
+    while ((l <= h) && !nv3_d3d_inside(t, l, y))
         l++;
-    while ((h >= l) && !nv3_d3d_inside(v, darea, area, h, y))
+    while ((h >= l) && !nv3_d3d_inside(t, h, y))
         h--;
     if (l > h)
         return false;
-    while ((l > bx0) && nv3_d3d_inside(v, darea, area, l - 1, y))
+    while ((l > bx0) && nv3_d3d_inside(t, l - 1, y))
         l--;
-    while ((h < bx1) && nv3_d3d_inside(v, darea, area, h + 1, y))
+    while ((h < bx1) && nv3_d3d_inside(t, h + 1, y))
         h++;
     *plo = l;
     *phi = h;
@@ -1539,11 +1684,37 @@ nv3_d3d_triangle(nv3_grobj_t grobj, const nv3_d3d_vertex_t *a_in, const nv3_d3d_
     /* a span per row */
     const nv3_d3d_dstate_t *s    = &bt->states[t->state];
     int32_t                 ymin = INT32_MAX, ymax = INT32_MIN;
+    nv3_d3d_edges_t         ed;
 
+    nv3_d3d_edges(&ed, v, darea, area);
     for (int32_t y = y0; y <= y1; y++) {
         int32_t lo, hi;
 
-        if (!nv3_d3d_row(v, darea, area, y, x0, x1, &lo, &hi))
+        bool ok = ed.fast ? nv3_d3d_row_edges(&ed, y, x0, x1, &lo, &hi) : nv3_d3d_row(&ed, y, x0, x1, &lo, &hi);
+#ifdef NV3_D3D_ROW_CHECK
+        {
+            /* the row against the pixel test, pixel by pixel: one run, the same ends */
+            static uint64_t rows, bad;
+            int32_t         rl = INT32_MAX, rh = INT32_MIN, runs = 0;
+
+            for (int32_t x = x0; x <= x1; x++)
+                if (nv3_d3d_inside(&ed, x, y)) {
+                    if ((x == x0) || !nv3_d3d_inside(&ed, x - 1, y))
+                        runs++;
+                    if (x < rl)
+                        rl = x;
+                    rh = x;
+                }
+            rows++;
+            if ((runs > 1) || (ok ? ((rl != lo) || (rh != hi)) : (runs != 0))) {
+                bad++;
+                pclog("nv3 3D row check: y %d ok %d run %d..%d, pixel test %d..%d (%d runs)\n", y, ok, ok ? lo : 0, ok ? hi : 0, rl, rh, runs);
+            }
+            if ((rows & 0xFFFFF) == 0)
+                pclog("nv3 3D row check: %llu rows, %llu bad\n", (unsigned long long) rows, (unsigned long long) bad);
+        }
+#endif
+        if (!ok)
             continue;
         bt->spans[bt->nspans].y   = (int16_t) y;
         bt->spans[bt->nspans].x0  = (int16_t) lo;

@@ -225,7 +225,7 @@ add_library(vid OBJECT
     nv/nv4/subsystems/nv4_pgraph_3d.c
     nv/nv4/subsystems/nv4_pgraph_3d_gpu.c
     nv/nv4/subsystems/nv4_pvideo.c
-    nv/nv4/subsystems/nv4_stubs.c
+    nv/nv4/subsystems/nv4_pme.c
 
     # NVidia RIVA 128 - Object Classes
     nv/nv3/classes/nv3_class_names.c
@@ -258,24 +258,6 @@ add_library(vid OBJECT
     nv/nv3/render/nv3_render_d3d.c
     nv/nv3/render/nv3_render_d3d_gpu.c
 
-    # NVidia RIVA TNT / TNT2
-    nv/nv4/nv4_core.c
-    nv/nv4/nv4_vga.c
-    nv/nv4/subsystems/nv4_pmc.c
-    nv/nv4/subsystems/nv4_pbus.c
-    nv/nv4/subsystems/nv4_ptimer.c
-    nv/nv4/subsystems/nv4_pfb.c
-    nv/nv4/subsystems/nv4_pramdac.c
-    nv/nv4/subsystems/nv4_pcrtc.c
-    nv/nv4/subsystems/nv4_pramin.c
-    nv/nv4/subsystems/nv4_dma.c
-    nv/nv4/subsystems/nv4_pfifo.c
-    nv/nv4/subsystems/nv4_pgraph.c
-    nv/nv4/subsystems/nv4_pgraph_2d.c
-    nv/nv4/subsystems/nv4_pgraph_3d.c
-    nv/nv4/subsystems/nv4_pgraph_3d_gpu.c
-    nv/nv4/subsystems/nv4_pvideo.c
-    nv/nv4/subsystems/nv4_stubs.c
 
     # Generic
     vid_bochs_vbe.c

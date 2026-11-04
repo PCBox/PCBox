@@ -51,10 +51,44 @@ nv3_render_fill(int32_t x0, int32_t y0, int32_t x1, int32_t y1, nv3_color_expand
         return;
     nv3_d3d_touch_rect(grobj, y0, y1 - 1, x1, NV3_SYNC_CLASS + ((nv3->pgraph.context_user >> NV3_PGRAPH_CONTEXT_USER_CLASS) & 0x1F));
 
-    for (int32_t y = y0; y < y1; y++) {
-        for (int32_t x = x0; x < x1; x++)
-            nv3_render_pixel_ex(x, y, c, grobj, own_clip);
+    nv3_render_setup_t st;
+    uint32_t           val;
+
+    nv3_render_setup(&st, grobj, own_clip);
+
+    /* A fill that stores one value whatever the pixels held, with no clip rectangles, is a
+       store of that value along each row of the clipped rectangle */
+    if (!st.cliprects && nv3_render_fill_value_st(&st, c, &val)) {
+        int32_t fx0 = MAX(x0, st.cx0);
+        int32_t fy0 = MAX(y0, st.cy0);
+        int32_t fx1 = MIN(x1, st.cx1);
+        int32_t fy1 = MIN(y1, st.cy1);
+
+        if (fx0 >= fx1)
+            return;
+        for (int32_t y = fy0; y < fy1; y++) {
+            for (uint32_t j = 0; j < NV3_PGRAPH_MAX_BUFFERS; j++) {
+                uint32_t addr;
+
+                if (!((st.bufs >> j) & 1))
+                    continue;
+                if (nv3_render_rows_direct(&st, j, fx0, fx1, y, &addr)) {
+                    nv3_render_store_row(addr, fx1 - fx0, st.cpp, val);
+                    continue;
+                }
+                /* this surface's row is not one run: pixel by pixel (the value is the same) */
+                nv3_render_setup_t one = st;
+
+                one.bufs = 1 << j;
+                for (int32_t x = fx0; x < fx1; x++)
+                    nv3_render_pixel_st(&one, x, y, c);
+            }
+        }
+        return;
     }
+
+    for (int32_t y = y0; y < y1; y++)
+        nv3_render_span_st(&st, y, x0, x1, c);
 }
 
 /* Rectangle (class 0x07): signed position, unsigned size */
@@ -103,9 +137,11 @@ nv3_render_gdi_mono(uint32_t data, nv3_grobj_t grobj, nv3_coord_16_t point, nv3_
     uint32_t             mono  = nv3_render_expand_mono(data, grobj);
     nv3_color_expanded_t c0    = nv3_render_expand_color(color0, grobj);
     nv3_color_expanded_t c1    = nv3_render_expand_color(color1, grobj);
+    nv3_render_setup_t   st;
 
     if (!size_in.x)
         return;
+    nv3_render_setup(&st, grobj, true);
 
     for (int i = 0; i < 32; i++) {
         uint32_t n = nv3->pgraph.win95_gdi_text_bit_count;
@@ -128,7 +164,7 @@ nv3_render_gdi_mono(uint32_t data, nv3_grobj_t grobj, nv3_coord_16_t point, nv3_
         if (x < (int16_t) clip->left || y < (int16_t) clip->top || x >= (int16_t) clip->right || y >= (int16_t) clip->bottom)
             continue;
 
-        nv3_render_pixel_ex(x, y, on ? c1 : c0, grobj, true);
+        nv3_render_pixel_st(&st, x, y, on ? c1 : c0);
     }
 }
 
@@ -161,12 +197,14 @@ nv3_render_line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, nv3_color_expand
     int32_t sx  = (x0 < x1) ? 1 : -1;
     int32_t sy  = (y0 < y1) ? 1 : -1;
     int32_t err = dx + dy;
+    nv3_render_setup_t st;
 
+    nv3_render_setup(&st, grobj, false);
     for (int guard = 0; guard < 0x10000; guard++) {
         bool at_end = (x0 == x1) && (y0 == y1);
 
         if (!at_end || last_pixel)
-            nv3_render_pixel(x0, y0, c, grobj);
+            nv3_render_pixel_st(&st, x0, y0, c);
         if (at_end)
             break;
 
@@ -210,6 +248,9 @@ nv3_render_triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, 
         { x1, y1, x2, y2 },
         { x2, y2, x0, y0 },
     };
+    nv3_render_setup_t st;
+
+    nv3_render_setup(&st, grobj, false);
 
     for (int32_t y = miny; y <= maxy; y++) {
         for (int32_t x = minx; x <= maxx; x++) {
@@ -226,7 +267,7 @@ nv3_render_triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, 
                     inside = false;
             }
             if (inside)
-                nv3_render_pixel(x, y, c, grobj);
+                nv3_render_pixel_st(&st, x, y, c);
         }
     }
 }

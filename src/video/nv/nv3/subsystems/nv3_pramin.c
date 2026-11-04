@@ -267,6 +267,8 @@ uint32_t nv3_ramht_hash(uint32_t name, uint32_t channel)
 void nv3_debug_ramin_print_context_info(uint32_t name, nv3_ramin_context_t context)
 {
     #ifndef RELEASE_BUILD
+    if (!nv_do_log)
+        return;
     nv_log_verbose_only("Found object:\n");
     nv_log_verbose_only("Param: 0x%04x\n", name);
 

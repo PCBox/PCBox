@@ -65,9 +65,11 @@ nv3_render_blit_image(uint32_t color, nv3_grobj_t grobj)
     uint32_t     bits;
     uint32_t     count = nv3_render_pixels_per_word(grobj, &bits);
     uint32_t     total = (uint32_t) img->size_in.x * img->size_in.y;
+    nv3_render_setup_t st;
 
     if (!img->size_in.x)
         return;
+    nv3_render_setup(&st, grobj, false);
 
     for (uint32_t i = 0; i < count; i++) {
         uint32_t n = nv3->pgraph.image_pixel_count;
@@ -81,8 +83,8 @@ nv3_render_blit_image(uint32_t color, nv3_grobj_t grobj)
             continue;
 
         uint32_t pixel = (bits == 32) ? color : ((color >> (i * bits)) & ((1u << bits) - 1));
-        nv3_render_pixel((int16_t) img->point.x + (int32_t) rx, (int16_t) img->point.y + (int32_t) ry,
-                         nv3_render_expand_color(pixel, grobj), grobj);
+        nv3_render_pixel_st(&st, (int16_t) img->point.x + (int32_t) rx, (int16_t) img->point.y + (int32_t) ry,
+                            nv3_render_expand_color(pixel, grobj));
     }
 }
 
@@ -108,6 +110,9 @@ nv3_render_bitmap(uint32_t data, nv3_grobj_t grobj)
         strips = (bmp->size.x + bmp->size_in.x - 1) / bmp->size_in.x;
 
     uint32_t total = strip * strips;
+    nv3_render_setup_t st;
+
+    nv3_render_setup(&st, grobj, false);
 
     if (nv3->pgraph.image_pixel_count >= total)
         nv3->pgraph.image_pixel_count = 0;
@@ -123,8 +128,8 @@ nv3_render_bitmap(uint32_t data, nv3_grobj_t grobj)
         if (rx >= bmp->size.x || ry >= bmp->size.y)
             continue;
 
-        nv3_render_pixel((int16_t) bmp->point.x + (int32_t) rx, (int16_t) bmp->point.y + (int32_t) ry,
-                         ((mono >> i) & 1) ? bmp->color_1 : bmp->color_0, grobj);
+        nv3_render_pixel_st(&st, (int16_t) bmp->point.x + (int32_t) rx, (int16_t) bmp->point.y + (int32_t) ry,
+                            ((mono >> i) & 1) ? bmp->color_1 : bmp->color_0);
     }
 }
 
@@ -142,30 +147,103 @@ nv3_render_blit_screen2screen(nv3_grobj_t grobj)
     int32_t     dx         = (int16_t) blit->point_out.x;
     int32_t     dy         = (int16_t) blit->point_out.y;
     uint32_t    src_buffer = (grobj.grobj_0 >> NV3_PGRAPH_CTX_SWITCH_SRC_BUFFER) & 0x03;
-    uint32_t    fmt        = nv3_render_surface_format(grobj);
-    uint32_t    cpp        = nv3_render_cpp(fmt);
+    static uint32_t *src;
+    static size_t    src_size;
+    nv3_render_setup_t st;
 
     if (w <= 0 || h <= 0)
         return;
+    nv3_render_setup(&st, grobj, false);
 
-    uint32_t *src = malloc((size_t) w * h * sizeof(uint32_t));
-    if (!src)
+    /* Only the part that lands inside the clip is drawn, so only that part is read */
+    int32_t x0 = MAX(dx, st.cx0);
+    int32_t y0 = MAX(dy, st.cy0);
+    int32_t x1 = (int32_t) MIN((int64_t) dx + w, (int64_t) st.cx1);
+    int32_t y1 = (int32_t) MIN((int64_t) dy + h, (int64_t) st.cy1);
+    int32_t cw = x1 - x0;
+    int32_t ch = y1 - y0;
+    uint32_t cpp = st.cpp;
+
+    if (cw <= 0 || ch <= 0)
         return;
+    if (((size_t) cw * ch) > src_size) {
+        uint32_t *n = realloc(src, (size_t) cw * ch * sizeof(uint32_t));
 
-    for (int32_t y = 0; y < h; y++) {
-        for (int32_t x = 0; x < w; x++) {
-            int32_t px = sx + x;
-            int32_t py = sy + y;
-            src[y * w + x] = (px < 0 || py < 0) ? 0 : nv3_render_read_surface(src_buffer, px, py, cpp);
+        if (!n)
+            return;
+        src      = n;
+        src_size = (size_t) cw * ch;
+    }
+
+    for (int32_t y = 0; y < ch; y++) {
+        int32_t   py  = sy + (y0 - dy) + y;
+        int32_t   px0 = sx + (x0 - dx);
+        uint32_t *row = &src[(size_t) y * cw];
+        uint32_t  addr;
+
+        if ((py >= 0) && (px0 >= 0) && nv3_render_rows_direct(&st, src_buffer, px0, px0 + cw, py, &addr)) {
+            const uint8_t *p = &nv3->nvbase.svga.vram[addr];
+
+            for (int32_t x = 0; x < cw; x++)
+                row[x] = (cpp == 1) ? p[x] : ((cpp == 2) ? ((const uint16_t *) p)[x] : ((const uint32_t *) p)[x]);
+            continue;
+        }
+        for (int32_t x = 0; x < cw; x++) {
+            int32_t px = px0 + x;
+
+            row[x] = (px < 0 || py < 0) ? 0 : nv3_render_read_surface(src_buffer, px, py, cpp);
         }
     }
 
-    for (int32_t y = 0; y < h; y++) {
-        for (int32_t x = 0; x < w; x++)
-            nv3_render_pixel(dx + x, dy + y, nv3_render_expand_surface(fmt, src[y * w + x]), grobj);
+    /* A plain copy stores, for each source pixel, a value that depends on that pixel alone. It
+       goes a row and a surface at a time, not a pixel at a time across the surfaces, so the
+       destination surfaces must not share bytes unless they are laid out alike. */
+    bool    copy = nv3_render_copy_ok(&st);
+    int64_t lo[NV3_PGRAPH_MAX_BUFFERS], hi[NV3_PGRAPH_MAX_BUFFERS];
+
+    for (uint32_t j = 0; copy && (j < NV3_PGRAPH_MAX_BUFFERS); j++) {
+        if (!((st.bufs >> j) & 1))
+            continue;
+        lo[j] = (int64_t) nv3->pgraph.boffset[j] + (int64_t) y0 * nv3->pgraph.bpitch[j] + (int64_t) x0 * cpp;
+        hi[j] = (int64_t) nv3->pgraph.boffset[j] + (int64_t) (y1 - 1) * nv3->pgraph.bpitch[j] + (int64_t) x1 * cpp;
+        if (hi[j] > (int64_t) nv3->nvbase.svga.vram_mask + 1)
+            copy = false;
+        for (uint32_t k = 0; copy && (k < j); k++) {
+            if (!((st.bufs >> k) & 1))
+                continue;
+            if ((nv3->pgraph.boffset[j] == nv3->pgraph.boffset[k]) && (nv3->pgraph.bpitch[j] == nv3->pgraph.bpitch[k]))
+                continue;
+            if ((lo[j] < hi[k]) && (lo[k] < hi[j]))
+                copy = false;
+        }
+    }
+    if (copy) {
+        for (int32_t y = 0; y < ch; y++) {
+            const uint32_t *row = &src[(size_t) y * cw];
+
+            for (uint32_t j = 0; j < NV3_PGRAPH_MAX_BUFFERS; j++) {
+                uint32_t addr;
+
+                if (!((st.bufs >> j) & 1))
+                    continue;
+                if (nv3_render_rows_direct(&st, j, x0, x1, y0 + y, &addr)) {
+                    nv3_render_copy_row(&st, addr, row, cw);
+                    continue;
+                }
+                nv3_render_setup_t one = st;
+
+                one.bufs = 1 << j;
+                for (int32_t x = 0; x < cw; x++)
+                    nv3_render_pixel_st(&one, x0 + x, y0 + y, nv3_render_expand_surface(st.fmt, row[x]));
+            }
+        }
+        return;
     }
 
-    free(src);
+    for (int32_t y = 0; y < ch; y++) {
+        for (int32_t x = 0; x < cw; x++)
+            nv3_render_pixel_st(&st, x0 + x, y0 + y, nv3_render_expand_surface(st.fmt, src[(size_t) y * cw + x]));
+    }
 }
 
 /* Stretched image from CPU (class 0x15): SIZE_IN source pixels, each
@@ -197,9 +275,11 @@ nv3_render_sifc(uint32_t color, nv3_grobj_t grobj)
     int32_t                         cy0   = (int16_t) sifc->clip_0.y;
     int32_t                         cx1   = cx0 + sifc->clip_1.x;
     int32_t                         cy1   = cy0 + sifc->clip_1.y;
+    nv3_render_setup_t              st;
 
     if (!sifc->size_in.x)
         return;
+    nv3_render_setup(&st, grobj, true);
 
     for (uint32_t i = 0; i < count; i++) {
         uint32_t n = nv3->pgraph.image_pixel_count;
@@ -219,7 +299,7 @@ nv3_render_sifc(uint32_t color, nv3_grobj_t grobj)
         nv3_color_expanded_t c = nv3_render_expand_color(pixel, grobj);
         for (int32_t y = MAX(ya, cy0); y < MIN(yb, cy1); y++) {
             for (int32_t x = MAX(xa, cx0); x < MIN(xb, cx1); x++)
-                nv3_render_pixel_ex(x, y, c, grobj, true);
+                nv3_render_pixel_st(&st, x, y, c);
         }
     }
 }

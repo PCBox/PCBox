@@ -32,8 +32,6 @@
 #include <86box/nv/vid_nv3.h>
 #include <86box/nv/classes/vid_nv3_classes.h>
 
-extern uint32_t nv3_debug_class_count[32];
-
 // Initialise the PGRAPH subsystem.
 void nv3_pgraph_init(void)
 {
@@ -485,39 +483,6 @@ void nv3_pgraph_interrupt_valid(uint32_t num)
     nv3_pmc_handle_interrupts(true);
 }
 
-// Fire an INVALID pgraph interrupt
-// The method in TRAPPED_ADDR/DATA is not one the hardware executes: flag it in
-// INVALID and INTR bit 0 and stop taking methods until the driver's interrupt
-// handler (which runs software methods such as the patchcord ones) turns
-// FIFO access back on. An armed notify also raises NOTIFY.
-/* The last methods submitted, logged with the first few traps */
-#define NV3_METHOD_TRACE 256
-static struct {
-    uint32_t addr, data;
-} nv3_method_trace[NV3_METHOD_TRACE];
-static uint32_t nv3_method_trace_pos;
-static uint32_t nv3_method_trace_dumps;
-
-static void
-nv3_pgraph_trace_method(uint32_t addr, uint32_t data)
-{
-    uint32_t i = nv3_method_trace_pos++ % NV3_METHOD_TRACE;
-
-    nv3_method_trace[i].addr = addr;
-    nv3_method_trace[i].data = data;
-}
-
-/* All of the trace, oldest first, for the debug dump */
-void
-nv3_pgraph_dump_methods(void)
-{
-    for (uint32_t n = 0; n < NV3_METHOD_TRACE; n++) {
-        uint32_t i = (nv3_method_trace_pos + n) % NV3_METHOD_TRACE;
-        if (nv3_method_trace[i].addr || nv3_method_trace[i].data)
-            always_log("nv3:   m %08x %08x" "%c", nv3_method_trace[i].addr, nv3_method_trace[i].data, 10);
-    }
-}
-
 /* A method for a channel PGRAPH has not loaded: CONTEXT_SWITCH (INTR_0 bit 4), FIFO access off */
 void nv3_pgraph_interrupt_context_switch(void)
 {
@@ -526,19 +491,13 @@ void nv3_pgraph_interrupt_context_switch(void)
     nv3_pmc_handle_interrupts(true);
 }
 
+// Fire an INVALID pgraph interrupt
+// The method in TRAPPED_ADDR/DATA is not one the hardware executes: flag it in
+// INVALID and INTR bit 0 and stop taking methods until the driver's interrupt
+// handler (which runs software methods such as the patchcord ones) turns
+// FIFO access back on. An armed notify also raises NOTIFY.
 void nv3_pgraph_interrupt_invalid(uint32_t num)
 {
-    if (nv3_method_trace_dumps < 12) {
-        nv3_method_trace_dumps++;
-        always_log("nv3: trap %d at %08x %08x; methods before it (chid<<24|class<<16|subch<<13|mthd, data):\n", num,
-                   nv3->pgraph.trapped_address, nv3->pgraph.trapped_data);
-        for (uint32_t n = NV3_METHOD_TRACE - 24; n < NV3_METHOD_TRACE; n++) {
-            uint32_t i = (nv3_method_trace_pos + n) % NV3_METHOD_TRACE;
-            if (nv3_method_trace[i].addr || nv3_method_trace[i].data)
-                always_log("nv3:   %08x %08x\n", nv3_method_trace[i].addr, nv3_method_trace[i].data);
-        }
-    }
-
     nv3->pgraph.intr_1 |= (1 << num);
     nv3->pgraph.intr_0 |= 1;
     if (nv3->pgraph.notify_pending && ((nv3->pgraph.notifier >> NV3_PGRAPH_NOTIFY_REQUEST_TYPE) & 0xF))
@@ -563,11 +522,6 @@ void nv3_pgraph_vblank_start(svga_t* svga)
     nv3_pramdac_checksum_frame(svga);
     nv3_pgraph_interrupt_valid(NV3_PGRAPH_INTR_0_VBLANK);
     nv3_pvideo_vblank();
-    {
-        extern void (*nv3_debug_vblank_hook)(void);
-        if (nv3_debug_vblank_hook)
-            nv3_debug_vblank_hook();
-    }
 }
 
 /* Arbitrates graphics object submission to the right object types */
@@ -603,19 +557,24 @@ void nv3_pgraph_submit(uint32_t param, uint16_t method, uint8_t channel, uint8_t
     // we need to shift left by 4 to get the real address, something to do with the 16 byte unit of reversal 
     uint32_t real_ramin_base = context.ramin_offset << 4;
 
-    // readin our grobj
-    grobj.grobj_0 = nv3_ramin_read32(real_ramin_base, nv3);
-    grobj.grobj_1 = nv3_ramin_read32(real_ramin_base + 4, nv3);
-    grobj.grobj_2 = nv3_ramin_read32(real_ramin_base + 8, nv3);
-    grobj.grobj_3 = nv3_ramin_read32(real_ramin_base + 12, nv3);
+    /* read in our grobj: RAMIN reverses 16-byte units, so its four words lie together in VRAM
+       (nv3_ramin_read32's mapping, worked out once per method instead of per word) */
+    {
+        uint32_t        unit = real_ramin_base & (NV3_LFB_MAPPING_SIZE - 1) & (nv3->nvbase.svga.vram_max - 1);
+        const uint32_t *w    = (const uint32_t *) &nv3->nvbase.svga.vram[unit ^ (nv3->nvbase.svga.vram_max - 0x10)];
+
+        grobj.grobj_0 = w[0];
+        grobj.grobj_1 = w[1];
+        grobj.grobj_2 = w[2];
+        grobj.grobj_3 = w[3];
+    }
 
     /* The object's options (colour format, operation, buffers...) live in PGRAPH: a bind loads the
        grobj's word 0 into the subchannel's CTX_CACHE entry, and a change of subchannel (or a bind)
        loads CTX_SWITCH from it when DEBUG_1 bit 20 allows (envytools hwtest nv03_pgraph_mthd).
        Drawing uses CTX_SWITCH, which the driver's software methods and context switches edit. */
-    if (!method) {
+    if (!method)
         nv3->pgraph.context_cache[subchannel & 7] = grobj.grobj_0 & 0x3FF3F71F;
-    }
     if ((old_subchannel != (subchannel & 7)) || !method) {
         if ((nv3->pgraph.debug_1 >> NV3_PGRAPH_DEBUG_1_CONTEXT) & 1)
             nv3->pgraph.context_switch = nv3->pgraph.context_cache[subchannel & 7];
@@ -736,5 +695,6 @@ void nv3_pgraph_submit(uint32_t param, uint16_t method, uint8_t channel, uint8_t
         }
     }
 
-    nv3_notify_if_needed(param, method, context, grobj);
+    if (nv3->pgraph.notify_pending)
+        nv3_notify_if_needed(param, method, context, grobj);
 }

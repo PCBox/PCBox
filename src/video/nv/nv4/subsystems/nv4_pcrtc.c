@@ -180,6 +180,46 @@ nv4_conv_16to32(svga_t *svga, uint16_t color, uint8_t bpp)
     return svga_lookup_lut_ram(svga, svga_conv_16to32(svga, color, bpp));
 }
 
+/* The same as a table lookup: the scan-out renderer converts every pixel
+   of every changed line, and the conversion and three palette reads took
+   a tenth of the emulation thread. The tables are built for the palette
+   as it stands at the start of each line (nv4_gamma_check). */
+static uint32_t
+nv4_conv_16to32_table(svga_t *svga, uint16_t color, uint8_t bpp)
+{
+    return ((nv4_t *) svga->priv)->gamma_table[bpp != 15][color];
+}
+
+static void
+nv4_gamma_check(svga_t *svga, int which)
+{
+    nv4_t *nv4 = (nv4_t *) svga->priv;
+
+    if (memcmp(nv4->gamma_clut, svga->pallook, sizeof(nv4->gamma_clut))) {
+        memcpy(nv4->gamma_clut, svga->pallook, sizeof(nv4->gamma_clut));
+        nv4->gamma_valid[0] = nv4->gamma_valid[1] = 0;
+    }
+    if (!nv4->gamma_valid[which]) {
+        for (uint32_t c = 0; c < 65536; c++)
+            nv4->gamma_table[which][c] = nv4_conv_16to32(svga, c, which ? 16 : 15);
+        nv4->gamma_valid[which] = 1;
+    }
+}
+
+static void
+nv4_render_15bpp_gamma(svga_t *svga)
+{
+    nv4_gamma_check(svga, 0);
+    svga_render_15bpp_highres(svga);
+}
+
+static void
+nv4_render_16bpp_gamma(svga_t *svga)
+{
+    nv4_gamma_check(svga, 1);
+    svga_render_16bpp_highres(svga);
+}
+
 void
 nv4_recalctimings(svga_t *svga)
 {
@@ -288,9 +328,17 @@ nv4_recalctimings(svga_t *svga)
             break;
     }
 
-    /* Direct colour modes go through the palette as a gamma ramp. */
+    /* Direct colour modes go through the palette as a gamma ramp, 15/16
+       bpp through tables built from it */
     svga->lut_map     = (format >= 2);
     svga->conv_16to32 = svga->lut_map ? nv4_conv_16to32 : svga_conv_16to32;
+    if (svga->lut_map && (svga->render == svga_render_15bpp_highres)) {
+        svga->render      = nv4_render_15bpp_gamma;
+        svga->conv_16to32 = nv4_conv_16to32_table;
+    } else if (svga->lut_map && (svga->render == svga_render_16bpp_highres)) {
+        svga->render      = nv4_render_16bpp_gamma;
+        svga->conv_16to32 = nv4_conv_16to32_table;
+    }
 
     /* Pixel clock: the VPLL once it is programmed, else the VGA clock
        the core picked from MISC. */

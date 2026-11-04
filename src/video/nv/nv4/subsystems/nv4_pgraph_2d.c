@@ -677,6 +677,48 @@ nv4_pattern(const nv4_draw_t *d, int x, int y, int *skip)
     return d->pat_c[b];
 }
 
+/* What the operation makes of source <sp> (packed: <s>), pattern <pv>
+   and destination <dv>. */
+static uint32_t
+nv4_px_op(const nv4_draw_t *d, nv4_px_t sp, uint32_t s, uint32_t pv, uint32_t dv)
+{
+    switch (d->op) {
+        case 1: /* ROP_AND */
+            return nv4_rop3(d->rop, pv, s, dv);
+        case 2: /* BLEND_AND */
+            {
+                nv4_px_t p = { nv4_lerp_argb(sp.argb, nv4_unpack(dv, d->dst.fmt), d->beta), sp.raw };
+
+                return nv4_pack(p, d->dst.fmt);
+            }
+        case 4: /* SRCCOPY_PREMULT */
+            {
+                nv4_px_t p = { nv4_mul_argb(sp.argb, d->beta4), sp.raw };
+
+                return nv4_pack(p, d->dst.fmt);
+            }
+        case 5: /* BLEND_PREMULT */
+            {
+                uint32_t sm = nv4_mul_argb(sp.argb, d->beta4);
+                uint32_t dc = nv4_unpack(dv, d->dst.fmt);
+                uint32_t ia = 255 - (sm >> 24);
+                uint32_t r  = 0;
+
+                for (int i = 0; i < 32; i += 8) {
+                    uint32_t c = ((sm >> i) & 0xff) + nv4_mul8((dc >> i) & 0xff, ia);
+                    r |= ((c > 255) ? 255 : c) << i;
+                }
+                {
+                    nv4_px_t p = { r, sp.raw };
+
+                    return nv4_pack(p, d->dst.fmt);
+                }
+            }
+        default: /* SRCCOPY, SRCCOPY_AND */
+            return s;
+    }
+}
+
 /* One pixel of source <sp> (whose value packed for the destination is
    <s>) at x,y. */
 static void
@@ -687,7 +729,6 @@ nv4_put(nv4_draw_t *d, int32_t x, int32_t y, nv4_px_t sp, uint32_t s)
     uint32_t a;
     uint32_t dv = 0;
     uint32_t pv = 0;
-    uint32_t out;
 
     if ((x < d->cx0) || (x >= d->cx1) || (y < d->cy0) || (y >= d->cy1))
         return;
@@ -723,45 +764,114 @@ nv4_put(nv4_draw_t *d, int32_t x, int32_t y, nv4_px_t sp, uint32_t s)
     a = d->dst.base + rel;
     if (d->rop_d)
         dv = nv4_vram_rd(nv4, a, d->dst.bpp);
+    nv4_vram_wr(nv4, a, d->dst.bpp, nv4_px_op(d, sp, s, pv, dv));
+}
 
-    switch (d->op) {
-        case 1: /* ROP_AND */
-            out = nv4_rop3(d->rop, pv, s, dv);
-            break;
-        case 2: /* BLEND_AND */
-            {
-                nv4_px_t p = { nv4_lerp_argb(sp.argb, nv4_unpack(dv, d->dst.fmt), d->beta), sp.raw };
-                out        = nv4_pack(p, d->dst.fmt);
-            }
-            break;
-        case 4: /* SRCCOPY_PREMULT */
-            {
-                nv4_px_t p = { nv4_mul_argb(sp.argb, d->beta4), sp.raw };
-                out        = nv4_pack(p, d->dst.fmt);
-            }
-            break;
-        case 5: /* BLEND_PREMULT */
-            {
-                uint32_t sm = nv4_mul_argb(sp.argb, d->beta4);
-                uint32_t dc = nv4_unpack(dv, d->dst.fmt);
-                uint32_t ia = 255 - (sm >> 24);
-                uint32_t r  = 0;
+/* A fill drawn here a row at a time, every pixel as nv4_put draws it and
+   in the same order: into a linear surface whose bytes do not wrap the
+   VRAM, after the 3D work that reaches them. 0: not taken. */
+static int
+nv4_fill_rows(nv4_draw_t *d, int32_t x0, int32_t y0, int32_t x1, int32_t y1, nv4_px_t sp, uint32_t s)
+{
+    nv4_t   *nv4 = d->nv4;
+    uint8_t *v   = nv4->svga.vram;
+    uint32_t bpp = d->dst.bpp;
+    uint32_t ta[64], tb[64]; /* ROP: a destination bit of 1 becomes ta, of 0 tb, per pattern entry */
+    uint32_t c   = 0;
+    int      cst;
+    uint64_t last, drawn = 0;
 
-                for (int i = 0; i < 32; i += 8) {
-                    uint32_t c = ((sm >> i) & 0xff) + nv4_mul8((dc >> i) & 0xff, ia);
-                    r |= ((c > 255) ? 255 : c) << i;
-                }
-                {
-                    nv4_px_t p = { r, sp.raw };
-                    out        = nv4_pack(p, d->dst.fmt);
-                }
-            }
-            break;
-        default: /* SRCCOPY, SRCCOPY_AND */
-            out = s;
-            break;
+    if (d->dst.swz || d->defer || (x0 < 0) || (y0 < 0) || (x0 >= x1) || (y0 >= y1)
+        || ((int64_t) (x1 - x0) * (y1 - y0) < 64))
+        return 0;
+    /* the last byte any pixel may write: inside the limit, and its
+       address must not wrap the VRAM, as nv4_vram_wr's would */
+    last = (uint64_t) d->dst.off + (uint64_t) (y1 - 1) * d->dst.pitch + (uint64_t) x1 * bpp - 1;
+    if (last > d->dst.limit)
+        last = d->dst.limit;
+    if ((last >> 32) || ((uint64_t) d->dst.base + last > nv4->vram_mask))
+        return 0;
+    if (d->chroma && ((s & d->cmask) == d->chroma_val))
+        return 1; /* the key takes every pixel */
+
+    if (d->op == 1) {
+        int n = !d->rop_p ? 1 : (d->pat_color ? 64 : 2);
+
+        for (int i = 0; i < n; i++) {
+            uint32_t p = !d->rop_p ? 0 : (d->pat_color ? d->pat_ram[i] : d->pat_c[i]);
+
+            ta[i] = nv4_rop3(d->rop, p, s, 0xffffffff);
+            tb[i] = nv4_rop3(d->rop, p, s, 0);
+        }
     }
-    nv4_vram_wr(nv4, a, d->dst.bpp, out);
+    /* no pattern and no destination: every pixel is the same */
+    cst = !d->rop_p && !d->rop_d;
+    if (cst)
+        c = (d->op == 1) ? tb[0] : nv4_px_op(d, sp, s, 0, 0);
+
+    if (d->touch) {
+        nv4_3d_touch(nv4, d->lo, d->hi, GR(NV4_PGRAPH_CTX_SWITCH1) & 0xff);
+        d->touch = 0;
+    }
+    for (int32_t y = y0; y < y1; y++) {
+        uint32_t row = d->dst.off + (uint32_t) y * d->dst.pitch;
+        int32_t  xe  = x1; /* pixels from xe on are past the limit */
+        uint8_t *p;
+
+        if ((uint64_t) row + (uint64_t) x0 * bpp + bpp - 1 > d->dst.limit)
+            xe = x0;
+        else if ((uint64_t) row + (uint64_t) x1 * bpp - 1 > d->dst.limit)
+            xe = (int32_t) ((d->dst.limit - row - (bpp - 1)) / bpp) + 1;
+        p = v + d->dst.base + row + (uint32_t) x0 * bpp;
+        if (cst) {
+            drawn += (uint32_t) (x1 - x0);
+            for (int32_t x = x0; x < xe; x++, p += bpp) {
+                if (bpp == 2)
+                    *(uint16_t *) p = c;
+                else if (bpp == 4)
+                    *(uint32_t *) p = c;
+                else
+                    *p = c;
+            }
+        } else {
+            for (int32_t x = x0; x < x1; x++, p += bpp) {
+                uint32_t dv = 0, out;
+                int      k  = 0;
+
+                if (d->rop_p) {
+                    int i = (d->pat_shape == 1) ? (x & 63) : ((d->pat_shape == 2) ? (y & 63) : (((y & 7) << 3) | (x & 7)));
+
+                    if (d->pat_color)
+                        k = i;
+                    else {
+                        k = (d->pat_mono[i >> 5] >> (i & 31)) & 1;
+                        if (d->pat_t[k])
+                            continue;
+                    }
+                }
+                drawn++;
+                if (x >= xe)
+                    continue;
+                if (d->rop_d)
+                    dv = (bpp == 2) ? *(uint16_t *) p : ((bpp == 4) ? *(uint32_t *) p : *p);
+                out = (d->op == 1) ? ((dv & ta[k]) | (~dv & tb[k])) : nv4_px_op(d, sp, s, 0, dv);
+                if (bpp == 2)
+                    *(uint16_t *) p = out;
+                else if (bpp == 4)
+                    *(uint32_t *) p = out;
+                else
+                    *p = out;
+            }
+        }
+        if (xe > x0) {
+            uint32_t a = d->dst.base + row + (uint32_t) x0 * bpp;
+
+            for (uint32_t pg = a >> 12; pg <= ((a + (uint32_t) (xe - x0) * bpp - 1) >> 12); pg++)
+                nv4->svga.changedvram[pg] = nv4->svga.monitor->mon_changeframecount;
+        }
+    }
+    nv4->eng_bytes += drawn * bpp * (d->rop_d ? 2 : 1);
+    return 1;
 }
 
 static void
@@ -817,6 +927,8 @@ nv4_fill(nv4_draw_t *d, int32_t x0, int32_t y0, int32_t x1, int32_t y1, nv4_px_t
             return;
         }
     }
+    if (nv4_fill_rows(d, x0, y0, x1, y1, sp, s))
+        return;
     /* (nv4_draw_begin waited for the 3D work if it reaches these bytes,
        or the pixels join the batch as runs) */
     for (int32_t y = y0; y < y1; y++)

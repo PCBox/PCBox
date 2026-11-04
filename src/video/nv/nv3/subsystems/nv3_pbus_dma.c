@@ -262,8 +262,7 @@ void nv3_notify_if_needed(UNUSED(uint32_t name), uint32_t method_id, UNUSED(nv3_
 
     nv3->pgraph.notify_pending = false;
     nv3->pgraph.notifier &= ~(1 << NV3_PGRAPH_NOTIFY_REQUEST_PENDING);
-    /* the driver takes a notify for "done": what is queued is drawn (the pixels themselves are
-       waited for where they are read) */
-    nv3_d3d_flush();
+    /* the driver takes a notify for "done": what is queued is drawn, or its textures read */
+    nv3_d3d_notify();
     nv3_write_notifier(grobj, (nv3->pgraph.notify_index), NV3_NOTIFICATION_STATUS_DONE_OK, 0, 0);
 }

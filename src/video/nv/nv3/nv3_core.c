@@ -27,7 +27,6 @@
 #include <86box/pci.h>
 #include <86box/rom.h> // DEPENDENT!!!
 #include <86box/plat_unused.h>
-//#include <86box/debug_cmd.h>
 #include <86box/dma.h>
 #include <86box/video.h>
 #include <86box/nv/vid_nv.h>
@@ -336,8 +335,7 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, UNUSED(int32_t len), UNUSED(voi
 
         // device id
 
-        /* device id: the RIVA 128 ZX (revision C) is 0x0019 -- NVIDIA's manufacturing test calls
-           0x0018 with revision C an unknown chip */
+        /* device id: the RIVA 128 ZX (revision C) is 0x0019 */
         case NV3_PCI_CFG_DEVICE_ID:
         case NV3_PCI_CFG_DEVICE_ID + 1:
         {
@@ -364,7 +362,7 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, UNUSED(int32_t len), UNUSED(voi
             break;
 
         // pci status register
-        /* Status (datasheet appendix A): 66MHZ follows the bus speed strap, CAP_LIST is set when
+        /* Status: 66MHZ follows the bus speed strap, CAP_LIST is set when
            strapped for AGP, DEVSEL timing is medium; the abort bits are clear (no aborts here) */
         case PCI_REG_STATUS_L:
             ret = 0x00;
@@ -404,14 +402,14 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, UNUSED(int32_t len), UNUSED(voi
             ret = 0x00;
             break;
 
-        // BARs are marked as prefetchable per the datasheet
+        // Both BARs are marked prefetchable
         case NV3_PCI_CFG_BAR0_L:
         case NV3_PCI_CFG_BAR1_L:
             // only bit that matters is bit 3 (prefetch bit)
             ret = (NV3_PCI_CFG_BAR_PREFETCHABLE_ENABLED << NV3_PCI_CFG_BAR_PREFETCHABLE);
             break;
 
-        // These registers are hardwired to zero per the datasheet
+        // These bits are hardwired to zero
         // Writes have no effect, we can just handle it here though
         case NV3_PCI_CFG_BAR0_BYTE1 ... NV3_PCI_CFG_BAR0_BYTE2:
         case NV3_PCI_CFG_BAR1_BYTE1 ... NV3_PCI_CFG_BAR1_BYTE2:
@@ -427,7 +425,7 @@ uint8_t nv3_pci_read(int32_t func, int32_t addr, UNUSED(int32_t len), UNUSED(voi
             ret = nv3->nvbase.bar1_lfb_base >> 24; //8bit value
             break;
 
-        /* Expansion ROM BAR (NV_CONFIG_PCI_NV_12): ROM_DECODE bit 0, ROM_BASE 31:22 -- a 4 MB
+        /* Expansion ROM BAR: decode enable bit 0, ROM_BASE 31:22 -- a 4 MB
            window, so a BIOS sizing it with all ones reads back FFC00001. Bits 21:1 read 0: AMI
            BIOSes size the ROM from this and found none when 0x31/0x32 read back FF (1 short,
            3 long beeps); Award BIOSes don't size it */
@@ -628,11 +626,84 @@ void nv3_pci_write(int32_t func, int32_t addr, UNUSED(int32_t len), uint8_t val,
 //
 extern uint32_t svga_conv_16to32(svga_t *svga, uint16_t color, uint8_t bpp); /* vid_svga.c */
 
-/* 15/16 bpp through the CLUT as a gamma ramp (PRAMDAC_GENERAL_CONTROL IDC_MODE = gamma) */
+/* 15/16 bpp through the CLUT as a gamma ramp (PRAMDAC_GENERAL_CONTROL IDC_MODE = gamma). A pixel
+   is a table lookup: the scan-out renderer runs this for every pixel of every changed line, and
+   the conversion and three CLUT reads took a tenth of the emulation thread in 16-bit 3D. The
+   tables are built for the CLUT as it stands at the start of each line (nv3_gamma_check). */
+static uint32_t nv3_gamma_clut[256];
+static uint32_t nv3_gamma_table[2][65536]; /* [0] X1R5G5B5, [1] R5G6B5 */
+static bool     nv3_gamma_valid[2];
+
 static uint32_t
-nv3_conv_16to32(svga_t *svga, uint16_t color, uint8_t bpp)
+nv3_conv_16to32(UNUSED(svga_t *svga), uint16_t color, uint8_t bpp)
 {
-    return svga_lookup_lut_ram(svga, svga_conv_16to32(svga, color, bpp));
+    return nv3_gamma_table[bpp != 15][color];
+}
+
+static void
+nv3_gamma_check(svga_t *svga, int which)
+{
+    if (memcmp(nv3_gamma_clut, svga->pallook, sizeof(nv3_gamma_clut))) {
+        memcpy(nv3_gamma_clut, svga->pallook, sizeof(nv3_gamma_clut));
+        nv3_gamma_valid[0] = nv3_gamma_valid[1] = false;
+    }
+    if (!nv3_gamma_valid[which]) {
+        for (uint32_t c = 0; c < 65536; c++)
+            nv3_gamma_table[which][c] = svga_lookup_lut_ram(svga, svga_conv_16to32(svga, c, which ? 16 : 15));
+        nv3_gamma_valid[which] = true;
+    }
+}
+
+/* svga_render_15bpp_highres / svga_render_16bpp_highres for a line with no address remapping,
+   the table read inline rather than through conv_16to32 for every pixel; other lines go to them */
+static void
+nv3_render_gamma_line(svga_t *svga, int which, void (*generic)(svga_t *svga))
+{
+    const uint32_t *tab = nv3_gamma_table[which];
+    uint32_t        changed_addr;
+    uint32_t       *p;
+    int             x;
+
+    if (svga->force_old_addr || svga->remap_required) {
+        generic(svga);
+        return;
+    }
+    if (((svga->displine + svga->y_add) < 0) || (svga->monitor->target_buffer == NULL)
+        || (svga->monitor->target_buffer->line[svga->displine + svga->y_add] == NULL))
+        return;
+
+    changed_addr = svga->remap_func(svga, svga->memaddr);
+    if (!(svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange))
+        return;
+    p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
+    if (svga->firstline_draw == 2000)
+        svga->firstline_draw = svga->displine;
+    svga->lastline_draw = svga->displine;
+
+    for (x = 0; x <= (svga->hdisp + svga->scrollcache); x += 8) {
+        for (int i = 0; i < 16; i += 4) {
+            uint32_t dat = *(uint32_t *) (&svga->vram[(svga->memaddr + (x << 1) + i) & svga->vram_display_mask]);
+
+            *p++ = tab[dat & 0xffff];
+            *p++ = tab[dat >> 16];
+        }
+    }
+    svga->memaddr += x << 1;
+    svga->memaddr &= svga->vram_display_mask;
+}
+
+static void
+nv3_render_15bpp_gamma(svga_t *svga)
+{
+    nv3_gamma_check(svga, 0);
+    nv3_render_gamma_line(svga, 0, svga_render_15bpp_highres);
+}
+
+static void
+nv3_render_16bpp_gamma(svga_t *svga)
+{
+    nv3_gamma_check(svga, 1);
+    nv3_render_gamma_line(svga, 1, svga_render_16bpp_highres);
 }
 
 void nv3_recalc_timings(svga_t* svga)
@@ -709,8 +780,8 @@ void nv3_recalc_timings(svga_t* svga)
 
     /* The extended modes scan VRAM out linearly, so CPU accesses through the banked A0000 window
        in chain-4 must be linear too; only VGA mode 13h keeps the planar chain-4 layout its
-       doubleword scan-out reads. (Packed modes drawn through the window -- NVIDIA's mfgtest, VESA
-       DOS programs -- came out as 4-pixel slivers every 16 pixels.) */
+       doubleword scan-out reads. (Packed modes drawn through the window by DOS VESA programs came
+       out as 4-pixel slivers every 16 pixels.) */
     svga->packed_chain4 = (pixel_mode != NV3_CRTC_REGISTER_PIXELMODE_VGA);
 
     switch (pixel_mode)
@@ -761,7 +832,14 @@ void nv3_recalc_timings(svga_t* svga)
         bool gamma = (pixel_mode >= NV3_CRTC_REGISTER_PIXELMODE_16BPP)
                   && !((nv3->pramdac.general_control >> NV3_PRAMDAC_GENERAL_CONTROL_IDC_MODE) & 1);
         svga->lut_map     = gamma;
-        svga->conv_16to32 = gamma ? nv3_conv_16to32 : svga_conv_16to32;
+        svga->conv_16to32 = svga_conv_16to32;
+        if (gamma && (svga->render == svga_render_15bpp_highres)) {
+            svga->render      = nv3_render_15bpp_gamma;
+            svga->conv_16to32 = nv3_conv_16to32;
+        } else if (gamma && (svga->render == svga_render_16bpp_highres)) {
+            svga->render      = nv3_render_16bpp_gamma;
+            svga->conv_16to32 = nv3_conv_16to32;
+        }
     }
 
     /* Hardware cursor: CR31 bit 0 shows it; the image is 32x32 A1R5G5B5 in instance memory */
@@ -937,11 +1015,11 @@ void nv3_svga_write(uint16_t addr, uint8_t val, UNUSED(void* priv))
             nv3->nvbase.svga.crtc[crtcreg] = val;
             // ...now act on it
 
-            /* CR1D/CR1E, the page registers: pages sit on 32K boundaries of the CPU's address in
-               normal (planar), odd/even and chain-4 modes. In planar mode a CPU byte spans all
-               four planes, so that is 32K of plane address -- the SVGA core adds the bank before it
-               spreads the address over the planes. (It used to be 8K in planar modes, so VESA
-               planar modes past 64K per plane -- 1280x1024x16 -- wrapped onto themselves.) */
+            /* CR1D/CR1E, the page registers, count 32K of CPU address in every mode. In planar
+               mode a CPU byte spans all four planes, so that is 32K of plane address -- the SVGA
+               core adds the bank before it spreads the address over the planes. (It used to be 8K
+               in planar modes, so VESA planar modes past 64K per plane -- 1024x768 and 1280x1024
+               in 16 colours -- drew over their own top.) */
             switch (crtcreg)
             {
                 case NV3_CRTC_REGISTER_READ_BANK:
@@ -967,6 +1045,11 @@ void nv3_svga_write(uint16_t addr, uint8_t val, UNUSED(void* priv))
 
             /* Recalculate the timings if we actually changed them 
             Additionally only do it if the value actually changed*/
+            /* a page flip: what the 3D engine has queued goes to the GPU now, rather than at the
+               vertical blank that shows it */
+            if ((old_value != val) && ((crtcreg == 0x0C) || (crtcreg == 0x0D) || (crtcreg == NV3_CRTC_REGISTER_RPC0)))
+                nv3_d3d_flush();
+
             if (old_value != val)
             {
                 // Thx to Fuel who basically wrote most of the SVGA compatibility code already (although I fixed some issues), because VGA is boring 
@@ -1013,23 +1096,10 @@ uint32_t nv3_dfb_read32(uint32_t addr, UNUSED(void* priv))
     (nv3->nvbase.svga.vram[addr + 1] << 8) | nv3->nvbase.svga.vram[addr];
 }
 
-/* Debug: "dev nv3 watch <start> <end> <count>" logs framebuffer and RAMIN writes into VRAM [start, end)
-   (RAMIN writes log as w1xx) */
-uint32_t nv3_watch_lo, nv3_watch_hi, nv3_watch_left;
-
-void nv3_watch(uint32_t addr, uint32_t val, int size)
-{
-    if (nv3_watch_left && (addr >= nv3_watch_lo) && (addr < nv3_watch_hi)) {
-        nv3_watch_left--;
-        always_log("nv3: lfb w%d %06x %08x (cs:eip %04x:%08x)%c", size, addr, val, CS, cpu_state.pc, 10);
-    }
-}
-
 void nv3_dfb_write8(uint32_t addr, uint8_t val, UNUSED(void* priv))
 {
     nv3_d3d_sync(NV3_SYNC_LFB);
     addr &= (nv3->nvbase.svga.vram_mask);
-    nv3_watch(addr, val, 8);
     nv3->nvbase.svga.vram[addr] = val;
     nv3->nvbase.svga.changedvram[addr >> 12] = changeframecount;
 }
@@ -1038,7 +1108,6 @@ void nv3_dfb_write16(uint32_t addr, uint16_t val, UNUSED(void* priv))
 {
     nv3_d3d_sync(NV3_SYNC_LFB);
     addr &= (nv3->nvbase.svga.vram_mask);
-    nv3_watch(addr, val, 16);
     nv3->nvbase.svga.vram[addr + 1] = (val >> 8) & 0xFF;
     nv3->nvbase.svga.vram[addr] = (val) & 0xFF;
     nv3->nvbase.svga.changedvram[addr >> 12] = changeframecount;
@@ -1048,7 +1117,6 @@ void nv3_dfb_write32(uint32_t addr, uint32_t val, UNUSED(void* priv))
 {
     nv3_d3d_sync(NV3_SYNC_LFB);
     addr &= (nv3->nvbase.svga.vram_mask);
-    nv3_watch(addr, val, 32);
     nv3->nvbase.svga.vram[addr + 3] = (val >> 24) & 0xFF;
     nv3->nvbase.svga.vram[addr + 2] = (val >> 16) & 0xFF;
     nv3->nvbase.svga.vram[addr + 1] = (val >> 8) & 0xFF;
@@ -1237,7 +1305,6 @@ void nv3_update_mappings(void)
     if (!nv3)
         return; 
 
-    // setting this to 0 doesn't seem to disable it, based on the datasheet
 
     nv_log("\nMemory Mapping Config Change:\n");
 
@@ -1350,63 +1417,6 @@ void nv3_update_mappings(void)
 // 
 // Init code
 //
-/* Debug dump for tests (debug_cmd "dev nv3"): scanout, surfaces, FIFO and the
-   number of methods each class has executed. */
-uint32_t nv3_debug_class_count[32];
-
-/* VRAM to <path>, and the CRTC/sequencer/graphics/attribute registers, miscout, DAC mask and the
-   256-entry palette (as 8-bit RGB from pallook) to <path>.regs */
-static void nv3_debug_save(const char *path_in)
-{
-    svga_t *svga = &nv3->nvbase.svga;
-    char    path[512];
-    FILE   *f;
-
-    nv3_d3d_sync(NV3_SYNC_OTHER);
-
-    snprintf(path, sizeof(path), "%s", path_in);
-    if ((f = fopen(path, "wb"))) {
-        fwrite(svga->vram, 1, svga->vram_max, f);
-        fclose(f);
-    }
-    strncat(path, ".regs", sizeof(path) - strlen(path) - 1);
-    if ((f = fopen(path, "wb"))) {
-        fwrite(svga->crtc, 1, 0x40, f);
-        fwrite(svga->seqregs, 1, 0x20, f);
-        fwrite(svga->gdcreg, 1, 0x10, f);
-        fwrite(svga->attrregs, 1, 0x20, f);
-        fputc(svga->miscout, f);
-        fputc(svga->dac_mask, f);
-        for (int i = 0; i < 256; i++) {
-            uint32_t c = svga->pallook[i];
-            fputc((c >> 16) & 0xFF, f);
-            fputc((c >> 8) & 0xFF, f);
-            fputc(c & 0xFF, f);
-        }
-        fclose(f);
-    }
-    always_log("nv3: saved VRAM and registers to %s\n", path);
-}
-
-/* "dev nv3 arm": a save once a given mode has been on screen for a while (called at vblank) */
-void (*nv3_debug_vblank_hook)(void);
-static int  nv3_arm_w, nv3_arm_h, nv3_arm_frames;
-static char nv3_arm_path[512];
-
-static void nv3_debug_arm_vblank(void)
-{
-    svga_t *svga = &nv3->nvbase.svga;
-
-    if ((svga->hdisp != nv3_arm_w) || (svga->dispend != nv3_arm_h)) {
-        nv3_arm_frames = 0;
-        return;
-    }
-    if (++nv3_arm_frames < 120)
-        return;
-    nv3_debug_vblank_hook = NULL;
-    nv3_debug_save(nv3_arm_path);
-}
-
 void* nv3_init(UNUSED(const device_t *info))
 {
     // set the vram amount and gpu revision
@@ -1502,7 +1512,7 @@ void* nv3_init(UNUSED(const device_t *info))
     nv3_init_mappings();
 
     // make us actually exist
-    nv3->nvbase.pci_config.int_line = 0xFF; // per datasheet
+    nv3->nvbase.pci_config.int_line = 0xFF; // no interrupt line routed yet
     nv3->nvbase.pci_config.pci_regs[PCI_REG_COMMAND] = PCI_COMMAND_IO | PCI_COMMAND_MEM;
 
     // svga is done, so now initialise the real gpu
@@ -1528,7 +1538,6 @@ void* nv3_init(UNUSED(const device_t *info))
     nv3->nvbase.i2c = i2c_gpio_init("nv3_i2c");
     nv3->nvbase.ddc = ddc_init(i2c_gpio_get_bus(nv3->nvbase.i2c));
 
-    //debug_cmd_set_device_hook(nv3_debug_hook);
 
     return nv3;
 }

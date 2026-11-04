@@ -21,6 +21,9 @@
 struct nv3_gpu_s;
 
 #define D3_STATES 64
+/* A batch left open at a notify (nv3_gpu_seal) is submitted at the next one once it has this many
+   spans */
+#define D3_SEAL_SPANS 8192
 #define D3_TRIS   16384
 #define D3_SPANS  262144
 
@@ -101,6 +104,10 @@ typedef struct nv3_d3d_batch_s {
     nv3_d3d_tri_t    tris[D3_TRIS];
     nv3_d3d_span_t   spans[D3_SPANS];
     int              nstates, ntris, nspans;
+    /* States whose textures the GPU lane gathered at a notify (nv3_gpu_seal): later triangles do
+       not share one with a texture in system memory (which the driver may change with no sync
+       point), and the batch must stay one the GPU takes */
+    int              nsealed;
 
     /* The row layouts the batch draws into (threads and GPU only), with
        the bytes each has touched (zeta also when only read) */
@@ -139,10 +146,12 @@ typedef struct nv3_d3d_batch_s {
 extern struct nv3_gpu_s *nv3_gpu_init(void);
 extern int               nv3_gpu_shade(struct nv3_gpu_s *g, const nv3_d3d_batch_t *b);
 extern void              nv3_gpu_close(struct nv3_gpu_s *g);
+extern int               nv3_gpu_seal(struct nv3_gpu_s *g, nv3_d3d_batch_t *b);
 /* The batches in flight: wait for them and copy their rows into VRAM;
    do they touch bytes lo..hi? */
 extern void              nv3_gpu_wait(struct nv3_gpu_s *g);
 extern int               nv3_gpu_pending_overlaps(struct nv3_gpu_s *g, uint32_t lo, uint32_t hi);
+extern int               nv3_gpu_inflight; /* GPU batches in flight: VRAM accesses test it inline */
 extern void              nv3_gpu_counts(struct nv3_gpu_s *g, uint64_t *batches, uint64_t *fallbacks);
 
 /* A 16-bit texture word as the span shader reads it; NULL-safe for any

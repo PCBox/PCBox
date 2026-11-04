@@ -185,6 +185,8 @@ typedef enum nv4_chip_e {
 #define NV4_CR_HCUR_ADDR1        0x31
 #define NV4_CR_RL0               0x34
 #define NV4_CR_RL1               0x35
+#define NV4_CR_SP1_STATUS        0x36 /* NV5: second serial port, in */
+#define NV4_CR_SP1_WR            0x37 /* NV5: second serial port, out */
 #define NV4_CR_RMA               0x38
 #define NV4_CR_ILACE             0x39
 #define NV4_CR_DDC_STATUS        0x3e
@@ -497,6 +499,11 @@ typedef struct nv4_s {
     uint64_t   eng_bytes; /* framebuffer bytes moved by the current method */
     uint64_t   eng_px3d;  /* 3D pixels drawn by the current method */
     pc_timer_t eng_timer;
+    /* TSC ticks per method, per byte and per 3D pixel, for the clocks in
+       eng_clk (nvclk, mclk, CPU) */
+    double     eng_k_base, eng_k_byte, eng_k_px;
+    double     eng_clk[3];
+    pc_timer_t kick_timer; /* the pullers resumed after a register write */
 
     /* PFB and PEXTDEV */
     uint32_t pfb_boot_0;
@@ -513,6 +520,11 @@ typedef struct nv4_s {
     uint32_t pcrtc_intr_en;
     uint32_t pcrtc_start;
     uint32_t pcrtc_config;
+    /* 15/16 bpp scan-out through the palette as a gamma ramp: a table
+       per format, built for the palette in gamma_clut */
+    uint32_t gamma_table[2][65536]; /* [0] X1R5G5B5, [1] R5G6B5 */
+    uint32_t gamma_clut[256];
+    int      gamma_valid[2];
 
     /* PRAMDAC */
     uint32_t cursor_pos;
@@ -540,6 +552,7 @@ typedef struct nv4_s {
     /* DDC */
     void *i2c;
     void *ddc;
+    void *i2c1; /* NV5's second serial port (SPSCL1/SPSDA1), nothing on it */
 
     nv4_pfifo_t pfifo;
 
@@ -568,6 +581,7 @@ typedef struct nv4_s {
     int           dbg_trace_novtx;    /* methods and binds only, no 3D vertices or pushes */
     int           dbg_log_cls;        /* log every method of this class ("dev logclass", NV4_LOGCLASS), or -1 */
     uint32_t      dbg_regtrace;       /* register writes left to log */
+    int           dbg_regtrace_reads; /* and the register reads (but PTIMER's) */
     /* "dev reads N": the registers read most over the next N reads */
     uint32_t      dbg_reads_left;
     uint32_t      dbg_read_addr[64], dbg_read_count[64];
@@ -595,8 +609,8 @@ typedef struct nv4_s {
     uint32_t pvideo_intr, pvideo_intr_en;
     uint32_t pvideo_shown;
 
-    /* Register file of the unit not yet modeled: what the driver wrote
-       reads back. */
+    /* PME (nv4_pme.c), INTR_0 and INTR_EN_0 among them; with the media
+       port idle the engine changes none of them */
     uint32_t pme_regs[0x1000 / 4];
 } nv4_t;
 
@@ -701,6 +715,7 @@ extern uint32_t nv4_pfifo_pending(nv4_t *nv4);
 extern uint32_t nv4_user_read(nv4_t *nv4, uint32_t addr);
 extern void     nv4_user_write(nv4_t *nv4, uint32_t addr, uint32_t val);
 extern void     nv4_pfifo_run(nv4_t *nv4);
+extern void     nv4_pfifo_kick(nv4_t *nv4);
 extern void     nv4_pfifo_init(nv4_t *nv4);
 extern void     nv4_pfifo_close(nv4_t *nv4);
 extern int      nv4_pfifo_engine_busy(nv4_t *nv4);

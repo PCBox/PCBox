@@ -48,6 +48,12 @@ void nv_warning(const char *fmt, ...) __attribute__((format(printf, 1, 2)));    
 // Verbose logging level.
 void nv_log_verbose_only(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
+/* The log calls sit on paths run for every method and register access: test the switch
+   before the call, so with logging off neither the call nor its arguments cost anything */
+extern int nv_do_log;
+#define nv_log(...)              ((void) (nv_do_log ? ((nv_log)(__VA_ARGS__), 0) : 0))
+#define nv_log_verbose_only(...) ((void) (nv_do_log ? ((nv_log_verbose_only)(__VA_ARGS__), 0) : 0))
+
 // Defines common to all NV chip architectural generations
 
 // PCI IDs

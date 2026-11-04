@@ -445,6 +445,10 @@ nv4_vga_in(uint16_t addr, void *priv)
                         return nv4->rma_mode;
                     case NV4_CR_DDC_STATUS:
                         return (i2c_gpio_get_sda(nv4->i2c) << 3) | (i2c_gpio_get_scl(nv4->i2c) << 2);
+                    case NV4_CR_SP1_STATUS:
+                        if (nv4->i2c1)
+                            return (i2c_gpio_get_sda(nv4->i2c1) << 3) | (i2c_gpio_get_scl(nv4->i2c1) << 2);
+                        return svga->crtc[idx];
                     case NV4_CR_PCI_TO:
                         return 0x00; /* write only */
                     default:
@@ -527,6 +531,21 @@ nv4_vga_out(uint16_t addr, uint8_t val, void *priv)
                         svga->crtc[idx] = val;
                         /* bit 5 drives SCL, bit 4 SDA (1 releases the line) */
                         i2c_gpio_set(nv4->i2c, !!(val & 0x20), !!(val & 0x10));
+                        return;
+                    case NV4_CR_SP1_STATUS:
+                        if (nv4->i2c1)
+                            return; /* read only */
+                        break;
+                    case NV4_CR_SP1_WR:
+                        if (!nv4->i2c1)
+                            break;
+                        svga->crtc[idx] = val;
+                        /* The TNT2 and Vanta have a second serial port (their datasheets'
+                           SPSCL1/SPSDA1), CR37 out and CR36 in as CR3F/CR3E. Nothing is on
+                           it, so the lines read back as driven (pulled up when released):
+                           the Vanta 2.05 BIOS sends bytes on it at POST, waiting up to
+                           1.5 s for SCL to rise at every clock (20 s with SCL stuck low). */
+                        i2c_gpio_set(nv4->i2c1, !!(val & 0x20), !!(val & 0x10));
                         return;
                     case NV4_CR_PCI_TO:
                         nv4->pci_to = val;
@@ -622,6 +641,10 @@ nv4_vga_reset(nv4_t *nv4)
     svga->crtc[NV4_CR_ILACE]       = 0xff;
     svga->crtc[NV4_CR_DDC_WR]      = 0x30;
     i2c_gpio_set(nv4->i2c, 1, 1);
+    if (nv4->i2c1) {
+        svga->crtc[NV4_CR_SP1_WR] = 0x30;
+        i2c_gpio_set(nv4->i2c1, 1, 1);
+    }
 
     nv4_vga_update_banks(nv4);
     nv4_vga_close(nv4);

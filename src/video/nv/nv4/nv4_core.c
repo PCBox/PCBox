@@ -322,6 +322,9 @@ nv4_mmio_read(nv4_t *nv4, uint32_t addr, int len)
 
     /* A narrow read of a 32-bit register picks its bytes out. */
     uint32_t val = nv4_reg_read32(nv4, addr & ~3);
+    if (nv4->dbg_regtrace && nv4->dbg_regtrace_reads && (addr < NV4_PRAMIN_START)
+        && ((addr < NV4_PTIMER_START) || (addr > NV4_PTIMER_END)) && nv4->dbg_regtrace--)
+        pclog("nv4 regs: read %06x = %08x (%d)\n", addr, val, len);
     if (len == 4)
         return val;
     val >>= (addr & 3) * 8;
@@ -510,8 +513,15 @@ nv4_update_mappings(nv4_t *nv4)
 static uint32_t
 nv4_agp_status(const nv4_t *nv4)
 {
-    /* RQ 32 deep, sideband addressing, 1x/2x (TNT) or 1x/2x/4x (TNT2) */
-    return (0x1fu << 24) | (1u << 9) | ((nv4->chip == NV4_CHIP_TNT2) ? 0x07 : 0x03);
+    /* RQ 32 deep, sideband addressing, 1x/2x (TNT). On the TNT2 the
+       straps' AGP mode decides: bit 9 exposes 4x, bit 10 sideband. */
+    uint32_t straps;
+
+    if (nv4->chip != NV4_CHIP_TNT2)
+        return (0x1fu << 24) | (1u << 9) | 0x03;
+
+    straps = (nv4->straps_ovr & 0x800) ? nv4->straps_ovr : nv4_straps(nv4);
+    return (0x1fu << 24) | ((straps & (1u << 10)) ? (1u << 9) : 0) | ((straps & (1u << 9)) ? 0x07 : 0x03);
 }
 
 uint8_t
@@ -728,9 +738,10 @@ nv4_pci_cfg_write(nv4_t *nv4, int addr, uint8_t val)
                 nv4->pci_regs[0x4d] = val & 0x03;
             break;
         case 0x4f:
-            /* RQ_DEPTH 28:24 */
+            /* RQ_DEPTH 31:24, a full byte (AGP 2.0 6.1.10; RIVA TNT
+               datasheet A.16: R/W) */
             if (nv4->is_agp)
-                nv4->pci_regs[0x4f] = val & 0x1f;
+                nv4->pci_regs[0x4f] = val;
             break;
         case 0x50:
             nv4->pbus_pci_nv20 = val & 0x01;
@@ -861,6 +872,8 @@ nv4_init(const device_t *info)
 
     nv4->i2c = i2c_gpio_init("ddc_nv4");
     nv4->ddc = ddc_init(i2c_gpio_get_bus(nv4->i2c));
+    if (nv4->chip == NV4_CHIP_TNT2)
+        nv4->i2c1 = i2c_gpio_init("i2c_nv5_sp1");
 
     mem_mapping_add(&nv4->mmio_mapping, 0, 0,
                     nv4_mmio_readb, nv4_mmio_readw, nv4_mmio_readl,
@@ -907,6 +920,8 @@ nv4_close(void *priv)
     nv4_vga_close(nv4);
     ddc_close(nv4->ddc);
     i2c_gpio_close(nv4->i2c);
+    if (nv4->i2c1)
+        i2c_gpio_close(nv4->i2c1);
     nv4_3d_close(nv4);
     svga_close(&nv4->svga);
     free(nv4->bios_rom.rom);
@@ -951,6 +966,12 @@ static const nv4_board_t board_nv5_synergy2_32 = { .name = "nv5_synergy2_32", .r
 static const nv4_board_t board_nv5_viper_v770 = { .name = "nv5_viper_v770", .rom_path = "roms/video/nvidia/nv4/diamond-viper-v770.BIN", .device_id = NV4_PCI_DEVICE_TNT2, .chip = NV4_CHIP_TNT2, .revision = 0x11, .crystal_14m = 1 };
 static const nv4_board_t board_nv5_winfast_s320ii = { .name = "nv5_winfast_s320ii", .rom_path = "roms/video/nvidia/nv4/rivatnt2leadteks320ii.BIN", .device_id = NV4_PCI_DEVICE_TNT2, .chip = NV4_CHIP_TNT2, .revision = 0x11, .crystal_14m = 1 };
 static const nv4_board_t board_nv5_erazor3_ultra = { .name = "nv5_erazor3_ultra", .rom_path = "roms/video/nvidia/nv4/elsa_erazor_iii_ultra_3.05.00.rom", .device_id = NV4_PCI_DEVICE_TNT2_U, .chip = NV4_CHIP_TNT2, .revision = 0x11, .crystal_14m = 1, .sgram = 1 };
+/* The Vanta (NV5 LC, 10DE:002C): the TNT2 core on a 64-bit memory bus, with
+   the M64's revision; the Vanta LT is the same chip at lower clocks, which
+   only its BIOS sets. */
+static const nv4_board_t board_nv5_vanta_gainward = { .name = "nv5_vanta_gainward", .rom_path = "roms/video/nvidia/nv4/vanta_gainward_cardex_v2.05.13.bin", .device_id = NV4_PCI_DEVICE_VANTA, .chip = NV4_CHIP_TNT2, .revision = 0x15, .crystal_14m = 1, .mem_64bit = 1 };
+static const nv4_board_t board_nv5_vanta_inno3d = { .name = "nv5_vanta_inno3d", .rom_path = "roms/video/nvidia/nv4/vanta_inno3d_tornado_v3.05.00.10.rom", .device_id = NV4_PCI_DEVICE_VANTA, .chip = NV4_CHIP_TNT2, .revision = 0x15, .crystal_14m = 1, .mem_64bit = 1 };
+static const nv4_board_t board_nv5_vanta_lt_sparkle = { .name = "nv5_vanta_lt_sparkle", .rom_path = "roms/video/nvidia/nv4/vanta_lt_sparkle_sp5200_v2.05.20.02.59.bin", .device_id = NV4_PCI_DEVICE_VANTA, .chip = NV4_CHIP_TNT2, .revision = 0x15, .crystal_14m = 1, .mem_64bit = 1 };
 
 static const nv4_board_t *const nv4_boards[] = {
     &board_nv4_erazor2_pci,
@@ -971,6 +992,9 @@ static const nv4_board_t *const nv4_boards[] = {
     &board_nv5_viper_v770,
     &board_nv5_winfast_s320ii,
     &board_nv5_erazor3_ultra,
+    &board_nv5_vanta_gainward,
+    &board_nv5_vanta_inno3d,
+    &board_nv5_vanta_lt_sparkle,
     NULL
 };
 
@@ -1289,6 +1313,75 @@ static const device_config_t nv5_tnt2_ultra_config[] = {
     { .name = "", .description = "", .type = CONFIG_END }
 };
 
+static const device_config_t nv5_vanta_config[] = {
+    {
+        .name           = "bios",
+        .description    = "Model",
+        .type           = CONFIG_BIOS,
+        .default_string = "nv5_vanta_inno3d",
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            { .name = "Inno3D Tornado Vanta - Version 3.05.00.10", .internal_name = "nv5_vanta_inno3d", .bios_type = BIOS_NORMAL,
+              .files_no = 1, .local = 0, .size = 0, .files = { "roms/video/nvidia/nv4/vanta_inno3d_tornado_v3.05.00.10.rom", "" } },
+            { .name = "Gainward CARDEXpert Vanta - Version 2.05.13", .internal_name = "nv5_vanta_gainward", .bios_type = BIOS_NORMAL,
+              .files_no = 1, .local = 0, .size = 0, .files = { "roms/video/nvidia/nv4/vanta_gainward_cardex_v2.05.13.bin", "" } },
+            { .name = "Sparkle SP5200 (Vanta LT) - Version 2.05.20.02.59", .internal_name = "nv5_vanta_lt_sparkle", .bios_type = BIOS_NORMAL,
+              .files_no = 1, .local = 0, .size = 0, .files = { "roms/video/nvidia/nv4/vanta_lt_sparkle_sp5200_v2.05.20.02.59.bin", "" } },
+            { .files_no = 0 }
+        }
+    },
+    {
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 16,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "8 MB", .value = 8 },
+            { .description = "16 MB", .value = 16 },
+            { .description = "32 MB", .value = 32 },
+            { .description = "" }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "render_threads",
+        .description    = "Render threads",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1", .value = 1 },
+            { .description = "2", .value = 2 },
+            { .description = "3", .value = 3 },
+            { .description = "4", .value = 4 },
+            { .description = "6", .value = 6 },
+            { .description = "8", .value = 8 },
+            { .description = "" }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "gpu_raster",
+        .description    = "Draw 3D on the host GPU (Vulkan)",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
 const device_t nv4_tnt_pci_device = {
     .name          = "nVIDIA RIVA TNT (NV4) PCI",
     .internal_name = "nv4_tnt_pci",
@@ -1371,6 +1464,34 @@ const device_t nv5_tnt2_ultra_agp_device = {
     .speed_changed = nv4_speed_changed,
     .force_redraw  = nv4_force_redraw,
     .config        = nv5_tnt2_ultra_config
+};
+
+const device_t nv5_vanta_pci_device = {
+    .name          = "nVIDIA Vanta (NV5) PCI",
+    .internal_name = "nv5_vanta_pci",
+    .flags         = DEVICE_PCI,
+    .local         = (uintptr_t) &board_nv5_vanta_inno3d,
+    .init          = nv4_init,
+    .close         = nv4_close,
+    .reset         = nv4_reset,
+    .available     = NULL,
+    .speed_changed = nv4_speed_changed,
+    .force_redraw  = nv4_force_redraw,
+    .config        = nv5_vanta_config
+};
+
+const device_t nv5_vanta_agp_device = {
+    .name          = "nVIDIA Vanta (NV5) AGP",
+    .internal_name = "nv5_vanta_agp",
+    .flags         = DEVICE_AGP,
+    .local         = (uintptr_t) &board_nv5_vanta_inno3d,
+    .init          = nv4_init,
+    .close         = nv4_close,
+    .reset         = nv4_reset,
+    .available     = NULL,
+    .speed_changed = nv4_speed_changed,
+    .force_redraw  = nv4_force_redraw,
+    .config        = nv5_vanta_config
 };
 
 /* clang-format on */

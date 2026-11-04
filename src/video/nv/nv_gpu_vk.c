@@ -266,6 +266,7 @@ gpu_buf(nv_gpu_vk_t *vk, nv_gpu_buf_t *b, VkDeviceSize size, int host)
         ai.memoryTypeIndex = gpu_mem_type(vk, mr.memoryTypeBits,
                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
                                               | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+        b->cached = ai.memoryTypeIndex != UINT32_MAX;
         if (ai.memoryTypeIndex == UINT32_MAX)
             ai.memoryTypeIndex = gpu_mem_type(vk, mr.memoryTypeBits,
                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
