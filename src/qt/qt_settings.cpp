@@ -444,7 +444,7 @@ Settings::accept()
     changed |= otherPeripherals->changed();
 
     if ((changed & SETTINGS_REQUIRE_HARD_RESET) && confirm_save && !settings_only) {
-        QMessageBox questionbox(QMessageBox::Icon::Question, "86Box",
+        QMessageBox questionbox(QMessageBox::Icon::Question, "PCBox",
                                 tr("Do you want to save the settings?"),
                                 QMessageBox::Save | QMessageBox::Cancel, this);
         QCheckBox  *chkbox = new QCheckBox(tr("Don't show this message again"));
