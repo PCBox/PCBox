@@ -738,9 +738,10 @@ nv4_pci_cfg_write(nv4_t *nv4, int addr, uint8_t val)
                 nv4->pci_regs[0x4d] = val & 0x03;
             break;
         case 0x4f:
-            /* RQ_DEPTH 28:24 */
+            /* RQ_DEPTH 31:24, a full byte (AGP 2.0 6.1.10; RIVA TNT
+               datasheet A.16: R/W) */
             if (nv4->is_agp)
-                nv4->pci_regs[0x4f] = val & 0x1f;
+                nv4->pci_regs[0x4f] = val;
             break;
         case 0x50:
             nv4->pbus_pci_nv20 = val & 0x01;
