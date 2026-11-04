@@ -1532,8 +1532,8 @@ build_link_routine(codeblock_t *block)
     /*Miss: the block's own epilogue, RAX still the slots*/
     miss_dest = rx_here();
 #        ifdef _WIN64
-    host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM6, REG_RSP, CODEGEN_XMM6_SAVE);
-    host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM7, REG_RSP, CODEGEN_XMM7_SAVE);
+    for (int reg = REG_XMM6; reg <= REG_XMM15; reg++)
+        host_x86_MOVDQU_XREG_BASE_OFFSET(block, reg, REG_RSP, CODEGEN_XMM6_SAVE + (reg - REG_XMM6) * 16);
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
 #        else
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_SYSV_FRAME);
@@ -1914,8 +1914,8 @@ codegen_backend_init(void)
 #ifdef _WIN64
     /* XMM6 and XMM7 hold guest FPU/MMX values in blocks, and the Windows
        x64 ABI makes them the caller's: put back what the caller had. */
-    host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM6, REG_RSP, CODEGEN_XMM6_SAVE);
-    host_x86_MOVDQU_XREG_BASE_OFFSET(block, REG_XMM7, REG_RSP, CODEGEN_XMM7_SAVE);
+    for (int reg = REG_XMM6; reg <= REG_XMM15; reg++)
+        host_x86_MOVDQU_XREG_BASE_OFFSET(block, reg, REG_RSP, CODEGEN_XMM6_SAVE + (reg - REG_XMM6) * 16);
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_WIN64_FRAME);
 #else
     host_x86_ADD64_REG_IMM(block, REG_RSP, CODEGEN_SYSV_FRAME);
