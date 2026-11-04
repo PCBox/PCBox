@@ -56,6 +56,43 @@ nv_register_t* nv_get_register(uint32_t addr, nv_register_t* register_list)
     return NULL;
 }
 
+
+/* The registers with an on_read/on_write hook (three of them), found once: every access below
+   USER used to walk the whole register list (some 140 entries, to the end for the many with no
+   entry) to find out whether it had a hook, logging on or off. The list is still walked for the
+   register's name, but only when logging is on. */
+#define NV3_REG_HOOKS_MAX 16
+
+static nv_register_t *nv3_reg_hooks[NV3_REG_HOOKS_MAX];
+static int            nv3_reg_hooks_count = -1;
+
+static void nv3_reg_hooks_init(void)
+{
+    nv3_reg_hooks_count = 0;
+
+    for (nv_register_t *reg = nv3_registers; reg->addr != NV_REG_LIST_END; reg++) {
+        /* nv_get_register returns the first entry for an address: a later one is never used */
+        if ((!reg->on_read && !reg->on_write) || (nv_get_register(reg->addr, nv3_registers) != reg))
+            continue;
+        if (nv3_reg_hooks_count == NV3_REG_HOOKS_MAX) {
+            fatal("NV3: more than %d register hooks\n", NV3_REG_HOOKS_MAX);
+            return;
+        }
+        nv3_reg_hooks[nv3_reg_hooks_count++] = reg;
+    }
+}
+
+static inline nv_register_t *nv3_reg_hook(uint32_t addr)
+{
+    if (nv3_reg_hooks_count < 0)
+        nv3_reg_hooks_init();
+    for (int i = 0; i < nv3_reg_hooks_count; i++) {
+        if (nv3_reg_hooks[i]->addr == addr)
+            return nv3_reg_hooks[i];
+    }
+    return NULL;
+}
+
 // Arbitrates an MMIO read
 uint32_t nv3_mmio_arbitrate_read(uint32_t addr)
 {
@@ -116,17 +153,20 @@ uint32_t nv3_mmio_arbitrate_read(uint32_t addr)
     && addr != NV3_PTIMER_TIME_0_NSEC
     && addr != NV3_PTIMER_TIME_1_NSEC)
     {
-        nv_register_t* reg = nv_get_register(addr, nv3_registers);
+        nv_register_t* reg = nv3_reg_hook(addr);
 
-        if (reg)
+        if (reg && reg->on_read)
+            ret = reg->on_read();
+
+        if (nv_do_log)
         {
-            if (reg->on_read)
-                ret = reg->on_read();
-            
-            nv_log_verbose_only("Register read 0x%08x from 0x%08x (%s)\n", ret, addr, reg->friendly_name);
+            reg = nv_get_register(addr, nv3_registers);
+
+            if (reg)
+                nv_log_verbose_only("Register read 0x%08x from 0x%08x (%s)\n", ret, addr, reg->friendly_name);
+            else
+                nv_log_verbose_only("Unknown register read 0x%08x\n", addr);
         }
-        else
-            nv_log_verbose_only("Unknown register read 0x%08x\n", addr);
     }
 
     return ret;
@@ -191,17 +231,20 @@ void nv3_mmio_arbitrate_write(uint32_t addr, uint32_t val)
     && addr != NV3_PTIMER_TIME_0_NSEC
     && addr != NV3_PTIMER_TIME_1_NSEC)
     {
-        nv_register_t* reg = nv_get_register(addr, nv3_registers);
+        nv_register_t* reg = nv3_reg_hook(addr);
 
-        if (reg)
+        if (reg && reg->on_write)
+            reg->on_write(val);
+
+        if (nv_do_log)
         {
-            if (reg->on_write)
-                reg->on_write(val);
-            
-            nv_log_verbose_only("Register write 0x%08x to 0x%08x (%s)\n", addr, val, reg->friendly_name);
+            reg = nv_get_register(addr, nv3_registers);
+
+            if (reg)
+                nv_log_verbose_only("Register write 0x%08x to 0x%08x (%s)\n", addr, val, reg->friendly_name);
+            else
+                nv_log_verbose_only("Unknown register write 0x%08x to 0x%08x\n", addr, val);
         }
-        else
-            nv_log_verbose_only("Unknown register write 0x%08x to 0x%08x\n", addr, val);
     }
     //#endif 
 }
