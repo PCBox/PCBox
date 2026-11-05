@@ -187,6 +187,12 @@ void nv3_mmio_arbitrate_write(uint32_t addr, uint32_t val)
     if (!(addr >= NV3_USER_DAC_PALETTE_START && addr <= NV3_USER_DAC_PALETTE_END))
         addr &= 0xFFFFFC;
 
+    /* The word being stored directly is not this one, and only NV_USER writes leave PGRAPH and
+       PFIFO's state alone (those that do not, nv3_pgraph_submit finds) */
+    nv3_image_fast.key  = NV3_IMAGE_FAST_OFF;
+    nv3_image_fast.drew = false;
+    if (addr < NV3_USER_START)
+        nv3_image_fast.known = false;
 
     // gigantic set of if statements to send the write to the right subsystem
     if (addr <= NV3_PMC_END) /* PMC starts at 0 */

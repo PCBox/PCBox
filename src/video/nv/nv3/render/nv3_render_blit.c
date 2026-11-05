@@ -58,6 +58,175 @@ nv3_render_ifc_start(void)
     nv3->pgraph.image_pixel_count = 0;
 }
 
+/* Programs that compose whole frames in system memory send them here a word at a time: Ultim@te
+   Race Pro's exit credits are two 640x480 16-bit images per vertical blank, some 18 million writes
+   a second. A word then costs the guest about 50 ns of emulated time, and the way through the MMIO
+   arbiter, CACHE1, PGRAPH, the class and a setup and pixel pipeline per word took twice that.
+
+   So the first word of a plain copy image takes that way and has the pipeline confirm the pixels
+   are just stored (nv3_render_image_plain). The words after it are stored directly, leaving what
+   that way leaves in the guest's view: CACHE1's entry and pointers, the trapped address and data,
+   and the pixel count. Everything the first word relied on can only change through another MMIO
+   write or method, and all of those end this: nv3_mmio_arbitrate_write and nv3_pgraph_submit. */
+nv3_image_fast_t nv3_image_fast = { .key = NV3_IMAGE_FAST_OFF };
+
+void
+nv3_render_image_fast_reset(void)
+{
+    nv3_image_fast.key   = NV3_IMAGE_FAST_OFF;
+    nv3_image_fast.drew  = false;
+    nv3_image_fast.known = false;
+}
+
+/* Can this image's words be stored directly? Fills in what it takes. */
+static bool
+nv3_render_image_fast_prepare(const nv3_render_setup_t *st, nv3_grobj_t grobj, uint32_t bits, uint32_t count)
+{
+    nv3_image_fast_t  *f   = &nv3_image_fast;
+    const nv3_image_t *img = &nv3->pgraph.image;
+    int64_t            px  = (int16_t) img->point.x;
+    int64_t            py  = (int16_t) img->point.y;
+    int64_t            rx0, rx1, ry0, ry1;
+    uint32_t           j = 0;
+
+    /* one destination, whose every pixel is on its own bytes */
+    if (!st->bufs || (st->bufs & (st->bufs - 1)))
+        return false;
+    while (!((st->bufs >> j) & 1))
+        j++;
+    if ((nv3->pgraph.boffset[j] | nv3->pgraph.bpitch[j]) & (st->cpp - 1))
+        return false;
+    /* RGB555 uploads can retain keyed pixels without running the full ROP pipeline. */
+    nv3_render_setup_t copy = *st;
+    f->chroma = false;
+    if (st->chroma && ((nv3->pgraph.chroma_key >> 30) & 1)
+        && ((grobj.grobj_0 & 7) == nv3_pgraph_pixel_format_r5g5b5)
+        && !((grobj.grobj_0 >> NV3_PGRAPH_CTX_SWITCH_ALPHA) & 1)
+        && ((st->fmt & 3) == bpixel_fmt_16bit)) {
+        uint32_t key = nv3->pgraph.chroma_key;
+        copy.chroma = false;
+        f->chroma = true;
+        f->chroma_key = (((key >> 25) & 31) << 10) | (((key >> 15) & 31) << 5) | ((key >> 5) & 31);
+    }
+    if (!nv3_render_image_plain(&copy, grobj, bits, &f->vmask, &f->vor))
+        return false;
+
+    rx0 = MAX((int64_t) 0, (int64_t) st->cx0 - px);
+    ry0 = MAX((int64_t) 0, (int64_t) st->cy0 - py);
+    rx1 = MIN(MIN((int64_t) img->size.x, (int64_t) img->size_in.x), (int64_t) st->cx1 - px);
+    ry1 = MIN(MIN((int64_t) img->size.y, (int64_t) img->size_in.y), (int64_t) st->cy1 - py);
+
+    f->base = (int64_t) nv3->pgraph.boffset[j] + py * nv3->pgraph.bpitch[j] + px * st->cpp;
+    /* nothing that is drawn may wrap around the end of VRAM */
+    if (rx0 >= rx1 || ry0 >= ry1)
+        rx0 = rx1 = ry0 = ry1 = 0;
+    else if ((f->base + (ry1 - 1) * nv3->pgraph.bpitch[j] + rx1 * st->cpp) > ((int64_t) nv3->nvbase.svga.vram_mask + 1))
+        return false;
+
+    f->count = count;
+    f->bits  = bits;
+    f->pmask = (bits == 32) ? 0xFFFFFFFF : ((1u << bits) - 1);
+    f->cpp   = st->cpp;
+    f->pitch = nv3->pgraph.bpitch[j];
+    f->total = (uint32_t) img->size_in.x * img->size_in.y;
+    f->w     = img->size_in.x;
+    f->rx0   = rx0;
+    f->rx1   = rx1;
+    f->ry0   = ry0;
+    f->ry1   = ry1;
+    return true;
+}
+
+/* A word was drawn by MMIO write addr: can the next ones skip the way there? */
+void
+nv3_render_image_fast_arm(uint32_t addr)
+{
+    nv3_image_fast_t         *f  = &nv3_image_fast;
+    const nv3_pfifo_cache_t  *c1 = &nv3->pfifo.cache1_settings;
+    uint32_t                  n  = nv3->pgraph.image_pixel_count;
+
+    f->drew = false;
+    if ((addr < NV3_USER_START) || (addr & 3) || ((addr & 0x1F80) != NV3_IMAGE_COLOR_START) || (c1->put_address != c1->get_address))
+        return;
+
+    f->rx   = n % f->w;
+    f->ry   = n / f->w;
+    f->row  = f->base + (int64_t) f->ry * f->pitch;
+    f->ptr  = c1->put_address;
+    f->trap = nv3->pgraph.trapped_address & ~0x1FFCu;
+    nv3_pfifo_cache1_decode(f->ptr, &f->bin, &f->ptr_mask, &f->slot_mask);
+    f->key = addr & NV3_IMAGE_FAST_ADDR_MASK;
+}
+
+/* The next word of the image, sent to NV_USER address addr. False: it has to go the long way. */
+bool
+nv3_render_image_word(uint32_t addr, uint32_t val)
+{
+    nv3_image_fast_t  *f      = &nv3_image_fast;
+    nv3_pfifo_cache_t *c1     = &nv3->pfifo.cache1_settings;
+    uint8_t           *vram   = nv3->nvbase.svga.vram;
+    uint32_t           method = addr & 0x1FFC;
+    uint32_t           n      = nv3->pgraph.image_pixel_count;
+    uint32_t           rx     = f->rx;
+    uint32_t           slot   = f->bin & f->slot_mask;
+
+    if ((c1->put_address != f->ptr) || (c1->get_address != f->ptr) || (nv3->pfifo.runout_get != nv3->pfifo.runout_put))
+        return false;
+
+    /* nv3_pfifo_cache1_push and _pull: in and out of an empty CACHE1 */
+    slot ^= slot >> 1;
+    nv3->pfifo.cache1_entries[slot].subchannel = (addr >> NV3_OBJECT_SUBMIT_SUBCHANNEL) & (NV3_DMA_SUBCHANNELS_PER_CHANNEL - 1);
+    nv3->pfifo.cache1_entries[slot].method     = method;
+    nv3->pfifo.cache1_entries[slot].data       = val;
+    f->bin = (f->bin + 1) & f->ptr_mask;
+    f->ptr = (f->bin ^ (f->bin >> 1)) << 2;
+    c1->put_address = c1->get_address = f->ptr;
+
+    /* nv3_pgraph_submit */
+    nv3->pgraph.trapped_address = f->trap | method;
+    nv3->pgraph.trapped_data    = val;
+
+    /* nv3_render_blit_image */
+    for (uint32_t i = 0; i < f->count; i++) {
+        if (n >= f->total)
+            break;
+        n++;
+
+        if ((rx >= f->rx0) && (rx < f->rx1) && (f->ry >= f->ry0) && (f->ry < f->ry1)
+            && (!f->chroma || (((val >> (i * f->bits)) & 0x7FFF) != f->chroma_key))) {
+            uint32_t a = (uint32_t) (f->row + (int64_t) rx * f->cpp);
+            uint32_t v = (((val >> (i * f->bits)) & f->pmask) & f->vmask) | f->vor;
+            bool     changed;
+
+            switch (f->cpp) {
+                case 1:
+                    changed = vram[a] != (uint8_t) v;
+                    vram[a] = v;
+                    break;
+                case 2:
+                    changed = *(uint16_t *) &vram[a] != (uint16_t) v;
+                    *(uint16_t *) &vram[a] = v;
+                    break;
+                default:
+                    changed = *(uint32_t *) &vram[a] != v;
+                    *(uint32_t *) &vram[a] = v;
+                    break;
+            }
+            if (changed)
+                nv3->nvbase.svga.changedvram[a >> 12] = changeframecount;
+        }
+
+        if (++rx == f->w) {
+            rx = 0;
+            f->ry++;
+            f->row += f->pitch;
+        }
+    }
+    f->rx = rx;
+    nv3->pgraph.image_pixel_count = n;
+    return true;
+}
+
 void
 nv3_render_blit_image(uint32_t color, nv3_grobj_t grobj)
 {
@@ -66,6 +235,9 @@ nv3_render_blit_image(uint32_t color, nv3_grobj_t grobj)
     uint32_t     count = nv3_render_pixels_per_word(grobj, &bits);
     uint32_t     total = (uint32_t) img->size_in.x * img->size_in.y;
     nv3_render_setup_t st;
+
+    /* this word may not have come from the MMIO write (the DMA pusher): the pixel count moves on */
+    nv3_image_fast.key = NV3_IMAGE_FAST_OFF;
 
     if (!img->size_in.x)
         return;
@@ -86,6 +258,12 @@ nv3_render_blit_image(uint32_t color, nv3_grobj_t grobj)
         nv3_render_pixel_st(&st, (int16_t) img->point.x + (int32_t) rx, (int16_t) img->point.y + (int32_t) ry,
                             nv3_render_expand_color(pixel, grobj));
     }
+
+    if (!nv3_image_fast.known) {
+        nv3_image_fast.known = true;
+        nv3_image_fast.plain = nv3_render_image_fast_prepare(&st, grobj, bits, count);
+    }
+    nv3_image_fast.drew = nv3_image_fast.plain;
 }
 
 /* Bitmap from CPU (class 0x12): 32 monochrome pixels per method, COLOR0 for
@@ -133,6 +311,59 @@ nv3_render_bitmap(uint32_t data, nv3_grobj_t grobj)
     }
 }
 
+/* Can this blit be a nv3_render_copy_t: a plain copy to surfaces that share no bytes with its
+   source or (unless laid out alike) each other, all of it inside VRAM? */
+static bool
+nv3_render_blit_plan(const nv3_render_setup_t *st, uint32_t src_buffer, int32_t px0, int32_t py0, int32_t x0, int32_t y0, int32_t cw, int32_t ch,
+                     nv3_render_copy_t *c)
+{
+    uint32_t cpp  = st->cpp;
+    int64_t  size = (int64_t) nv3->nvbase.svga.vram_mask + 1;
+    int64_t  slo, shi;
+    int64_t  lo[NV3_PGRAPH_MAX_BUFFERS], hi[NV3_PGRAPH_MAX_BUFFERS];
+
+    if ((px0 < 0) || (py0 < 0) || (x0 < 0) || (y0 < 0) || !st->bufs)
+        return false;
+    if ((nv3->pgraph.boffset[src_buffer] | nv3->pgraph.bpitch[src_buffer]) & (cpp - 1))
+        return false;
+    slo = (int64_t) nv3->pgraph.boffset[src_buffer] + (int64_t) py0 * nv3->pgraph.bpitch[src_buffer] + (int64_t) px0 * cpp;
+    shi = slo + (int64_t) (ch - 1) * nv3->pgraph.bpitch[src_buffer] + (int64_t) cw * cpp;
+    if (shi > size)
+        return false;
+
+    c->src       = (uint32_t) slo;
+    c->src_pitch = nv3->pgraph.bpitch[src_buffer];
+    c->ndst      = 0;
+    c->row_bytes = (uint32_t) cw * cpp;
+    c->rows      = (uint32_t) ch;
+    c->cpp       = cpp;
+    for (uint32_t j = 0; j < NV3_PGRAPH_MAX_BUFFERS; j++) {
+        if (!((st->bufs >> j) & 1))
+            continue;
+        if ((nv3->pgraph.boffset[j] | nv3->pgraph.bpitch[j]) & (cpp - 1))
+            return false;
+        lo[j] = (int64_t) nv3->pgraph.boffset[j] + (int64_t) y0 * nv3->pgraph.bpitch[j] + (int64_t) x0 * cpp;
+        hi[j] = lo[j] + (int64_t) (ch - 1) * nv3->pgraph.bpitch[j] + (int64_t) cw * cpp;
+        if ((hi[j] > size) || ((lo[j] < shi) && (slo < hi[j])))
+            return false;
+        for (uint32_t k = 0; k < j; k++) {
+            if (!((st->bufs >> k) & 1))
+                continue;
+            if ((nv3->pgraph.boffset[j] == nv3->pgraph.boffset[k]) && (nv3->pgraph.bpitch[j] == nv3->pgraph.bpitch[k]))
+                continue;
+            if ((lo[j] < hi[k]) && (lo[k] < hi[j]))
+                return false;
+        }
+        c->dst[c->ndst]       = (uint32_t) lo[j];
+        c->dst_pitch[c->ndst] = nv3->pgraph.bpitch[j];
+        c->ndst++;
+    }
+    if (!nv3_render_copy_ok(st))
+        return false;
+    nv3_render_copy_bits(st, &c->vmask, &c->vor);
+    return true;
+}
+
 /* Screen to screen blit (class 0x10): from the object's source surface to
    its destination surfaces. The source rectangle is read first, so
    overlapping copies come out as if done in the right direction. */
@@ -166,6 +397,15 @@ nv3_render_blit_screen2screen(nv3_grobj_t grobj)
 
     if (cw <= 0 || ch <= 0)
         return;
+
+    nv3_render_copy_t plan;
+
+    if (nv3_render_blit_plan(&st, src_buffer, sx + (x0 - dx), sy + (y0 - dy), x0, y0, cw, ch, &plan)) {
+        nv3_d3d_copy(&plan, NV3_SYNC_CLASS + nv3_pgraph_class10_blit);
+        return;
+    }
+    nv3_d3d_sync(NV3_SYNC_CLASS + nv3_pgraph_class10_blit);
+
     if (((size_t) cw * ch) > src_size) {
         uint32_t *n = realloc(src, (size_t) cw * ch * sizeof(uint32_t));
 

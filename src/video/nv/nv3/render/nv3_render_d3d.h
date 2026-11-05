@@ -151,6 +151,8 @@ extern int               nv3_gpu_seal(struct nv3_gpu_s *g, nv3_d3d_batch_t *b);
    do they touch bytes lo..hi? */
 extern void              nv3_gpu_wait(struct nv3_gpu_s *g);
 extern int               nv3_gpu_pending_overlaps(struct nv3_gpu_s *g, uint32_t lo, uint32_t hi);
+/* Do this copy when the batches in flight are done, or return 0 */
+extern int               nv3_gpu_copy_later(struct nv3_gpu_s *g, const nv3_render_copy_t *c);
 extern int               nv3_gpu_inflight; /* GPU batches in flight: VRAM accesses test it inline */
 extern void              nv3_gpu_counts(struct nv3_gpu_s *g, uint64_t *batches, uint64_t *fallbacks);
 

@@ -53,6 +53,18 @@ typedef struct nv3_render_setup_s {
     uint32_t cliprects;
 } nv3_render_setup_t;
 
+/* A rectangle of VRAM copied to surfaces that share no bytes with it, every row in VRAM and in
+   one piece (nv3_render_copy_run) */
+typedef struct nv3_render_copy_t {
+    uint32_t src, src_pitch;
+    uint32_t dst[4], dst_pitch[4];
+    uint32_t ndst;
+    uint32_t row_bytes, rows, cpp;
+    uint32_t vmask, vor;
+} nv3_render_copy_t;
+
+void     nv3_render_copy_run(const nv3_render_copy_t *c);
+
 void     nv3_render_setup(nv3_render_setup_t *st, nv3_grobj_t grobj, bool own_clip);
 void     nv3_render_pixel_st(const nv3_render_setup_t *st, int32_t x, int32_t y, nv3_color_expanded_t s);
 void     nv3_render_span_st(const nv3_render_setup_t *st, int32_t y, int32_t x0, int32_t x1, nv3_color_expanded_t s);
@@ -60,6 +72,9 @@ bool     nv3_render_fill_value_st(const nv3_render_setup_t *st, nv3_color_expand
 bool     nv3_render_rows_direct(const nv3_render_setup_t *st, uint32_t j, int32_t x0, int32_t x1, int32_t y, uint32_t *addr);
 void     nv3_render_store_row(uint32_t addr, int32_t n, uint32_t cpp, uint32_t val);
 bool     nv3_render_copy_ok(const nv3_render_setup_t *st);
+/* What a plain copy stores for a pixel p: (p & *vmask) | *vor, cut to the pixel's width */
+void     nv3_render_copy_bits(const nv3_render_setup_t *st, uint32_t *vmask, uint32_t *vor);
+bool     nv3_render_image_plain(const nv3_render_setup_t *st, nv3_grobj_t grobj, uint32_t bits, uint32_t *vmask, uint32_t *vor);
 void     nv3_render_copy_row(const nv3_render_setup_t *st, uint32_t addr, const uint32_t *src, int32_t n);
 
 /* Primitives */
@@ -73,6 +88,40 @@ void nv3_render_triangle(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t
 /* Images */
 void nv3_render_ifc_start(void);
 void nv3_render_blit_image(uint32_t color, nv3_grobj_t grobj);
+
+/* A plain copy image from CPU (class 0x11): once its first word has been drawn, the words that
+   follow with nothing in between are stored directly from the MMIO write (nv3_render_blit.c).
+   key: the NV_USER address of the image's colour methods, under NV3_IMAGE_FAST_ADDR_MASK. */
+#define NV3_IMAGE_FAST_ADDR_MASK 0xFFFF83
+#define NV3_IMAGE_FAST_OFF       0xFFFFFFFF
+
+typedef struct nv3_image_fast_s {
+    uint32_t key;
+    bool     drew;  // a word went through nv3_render_blit_image in this MMIO write
+    bool     known; // plain is up to date: nothing but the image's words came since it was worked out
+    bool     plain;
+
+    uint32_t count, bits, pmask; // pixels per word, their width and mask
+    uint32_t vmask, vor;         // a pixel p is stored as (p & vmask) | vor
+    bool chroma;
+    uint32_t chroma_key;
+    uint32_t cpp, pitch;
+    uint32_t total, w;           // pixels sent in all and per row
+    uint32_t rx0, rx1, ry0, ry1; // the part of the image that is drawn
+    int64_t  base;               // VRAM address of the image's first pixel, drawn or not
+
+    uint32_t rx, ry; // position of the next pixel
+    int64_t  row;    // VRAM address of the start of its row
+
+    uint32_t ptr, bin, ptr_mask, slot_mask; // CACHE1's PUT and GET, and the pointer decoded
+    uint32_t trap;                          // the trapped address but for the method
+} nv3_image_fast_t;
+
+extern nv3_image_fast_t nv3_image_fast;
+
+void nv3_render_image_fast_reset(void);
+void nv3_render_image_fast_arm(uint32_t addr);
+bool nv3_render_image_word(uint32_t addr, uint32_t val);
 void nv3_render_bitmap(uint32_t data, nv3_grobj_t grobj);
 void nv3_render_blit_screen2screen(nv3_grobj_t grobj);
 void nv3_render_sifc_start(void);

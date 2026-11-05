@@ -1621,6 +1621,7 @@ void        nv3_pramdac_set_core_clock_register(uint32_t value);
 void        nv3_pfifo_runout(uint32_t address, uint32_t value, bool read, nv3_ramin_ramro_reason reason);
 uint32_t    nv3_user_read(uint32_t address);
 void        nv3_user_write(uint32_t address, uint32_t value);
+void        nv3_pfifo_cache1_decode(uint32_t ptr, uint32_t *bin, uint32_t *ptr_mask, uint32_t *slot_mask);
 
 // GPU subsystems
 
@@ -1675,6 +1676,8 @@ enum {
    wait for the GPU's pixels, for anything that reads or writes VRAM itself; cause: NV3_SYNC_* */
 void        nv3_d3d_init(int threads, int gpu);
 void        nv3_d3d_close(void);
+struct nv3_render_copy_t;
+void        nv3_d3d_copy(const struct nv3_render_copy_t *c, int cause);
 void        nv3_d3d_reset(void);
 void        nv3_d3d_flush(void);
 void        nv3_d3d_notify(void); /* a notify: draw, or with the GPU lane read the textures */

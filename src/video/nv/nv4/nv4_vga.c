@@ -555,7 +555,7 @@ nv4_vga_out(uint16_t addr, uint8_t val, void *priv)
                 }
                 old             = svga->crtc[idx];
                 svga->crtc[idx] = val;
-                nv4_pcrtc_crtc_start_write(nv4, idx, val);
+                nv4_pcrtc_crtc_start_write(nv4, idx);
                 switch (idx) {
                     case NV4_CR_ENH:
                     case NV4_CR_PAGE0:
@@ -580,7 +580,7 @@ nv4_vga_out(uint16_t addr, uint8_t val, void *priv)
                 val = (svga->crtc[7] & ~0x10) | (val & 0x10);
             old             = svga->crtc[idx];
             svga->crtc[idx] = val;
-            nv4_pcrtc_crtc_start_write(nv4, idx, val);
+            nv4_pcrtc_crtc_start_write(nv4, idx);
             if (old != val) {
                 if ((idx < 0xe) || (idx > 0x10)) {
                     svga->fullchange = svga->monitor->mon_changeframecount;

@@ -158,6 +158,17 @@ nv3_d3d_wren(int func, bool zeta_test, bool alpha_test)
     }
 }
 
+/* Does this CONTROL0 leave the zeta buffer alone? The test always passes (nv3_d3d_cmp's default)
+   and no write condition holds (nv3_d3d_wren's default), so a pixel draws as with zeta off. */
+static bool
+nv3_d3d_zeta_unused(uint32_t config)
+{
+    uint32_t func  = NV3_D3D_CONFIG_ZFUNC(config);
+    uint32_t write = NV3_D3D_CONFIG_ZWRITE(config);
+
+    return (func >= 8) && ((write == 0) || (write > 4));
+}
+
 /* Depth as the zeta buffer keeps it: 16 bits, 0 = near (D3D's sz scaled). envytools' convert_z
    holds the 24-bit vertex z inverted, but with the compare functions as NV3DD32.DLL passes them
    (D3DCMP values: LESSEQUAL = 4, a <= b with a the new value) the inverted form lets the farther
@@ -1026,17 +1037,12 @@ nv3_d3d_notify(void)
     nv3_d3d_flush();
 }
 
-/* The CPU is about to read or write VRAM bytes lo..hi (a 2D draw): draw the batch first if it
-   reaches them (its rows, or textures it samples), and wait for the GPU's batches in flight if
-   their rows do. Other bytes need neither. */
-void
-nv3_d3d_touch(uint32_t lo, uint32_t hi, int cause)
+/* Draw the batch if it reaches VRAM bytes lo..hi: its rows, or textures it samples */
+static void
+nv3_d3d_flush_if_meets(nv3_d3d_batch_t *b, uint32_t lo, uint32_t hi)
 {
-    nv3_d3d_batch_t *b   = nv3 ? nv3->batch3d : NULL;
-    int              hit = 0;
+    int hit = 0;
 
-    if (!b)
-        return;
     if (b->nstates) {
         if (!b->parallel || b->serial)
             hit = 1; /* rows are not (all) tracked */
@@ -1047,8 +1053,51 @@ nv3_d3d_touch(uint32_t lo, uint32_t hi, int cause)
         if (hit)
             nv3_d3d_flush();
     }
+}
+
+/* The CPU is about to read or write VRAM bytes lo..hi (a 2D draw): draw the batch first if it
+   reaches them, and wait for the GPU's batches in flight if their rows do. Other bytes need
+   neither. */
+void
+nv3_d3d_touch(uint32_t lo, uint32_t hi, int cause)
+{
+    nv3_d3d_batch_t *b = nv3 ? nv3->batch3d : NULL;
+
+    if (!b)
+        return;
+    nv3_d3d_flush_if_meets(b, lo, hi);
     if (b->gpu)
         nv3_d3d_gpu_wait(b, lo, hi, cause);
+}
+
+/* A plain copy. When it needs rows the GPU is still drawing it follows them, not waiting: a game
+   swapping as fast as it can gets its frame's pixels back in the time it takes to start the next
+   frame, and the wait took a third of the host's time. */
+void
+nv3_d3d_copy(const nv3_render_copy_t *c, int cause)
+{
+    nv3_d3d_batch_t *b = nv3 ? nv3->batch3d : NULL;
+
+    if (b) {
+        uint32_t slo = c->src;
+        uint32_t shi = c->src + (c->rows - 1) * c->src_pitch + c->row_bytes - 1;
+        int      hit = 0;
+
+        nv3_d3d_flush_if_meets(b, slo, shi);
+        for (uint32_t j = 0; j < c->ndst; j++)
+            nv3_d3d_flush_if_meets(b, c->dst[j], c->dst[j] + (c->rows - 1) * c->dst_pitch[j] + c->row_bytes - 1);
+        if (b->gpu) {
+            hit = nv3_gpu_pending_overlaps(b->gpu, slo, shi);
+            for (uint32_t j = 0; !hit && (j < c->ndst); j++)
+                hit = nv3_gpu_pending_overlaps(b->gpu, c->dst[j], c->dst[j] + (c->rows - 1) * c->dst_pitch[j] + c->row_bytes - 1);
+        }
+        if (hit) {
+            if (!b->verify && nv3_gpu_copy_later(b->gpu, c))
+                return;
+            nv3_d3d_gpu_wait(b, 0, 0xFFFFFFFF, cause);
+        }
+    }
+    nv3_render_copy_run(c);
 }
 
 /* The same for a 2D draw into rows y0..y1 (inclusive), pixels below x1, of the colour buffers
@@ -1162,6 +1211,12 @@ nv3_d3d_make_state(nv3_d3d_dstate_t *s, nv3_grobj_t grobj, bool textures)
         if ((ctx >> (NV3_PGRAPH_CTX_SWITCH_DST_BUFFER0_ENABLED + j)) & 1)
             s->buf_on |= 1 << j;
     s->z_on = (ctx >> NV3_PGRAPH_CTX_SWITCH_Z_WRITE) & 1;
+    /* Without a zeta buffer the driver leaves this on, with a placeholder surface (offset 0, pitch
+       10h) and the test always passing, nothing written (Nightmare Creatures). Such a pixel
+       neither reads nor writes zeta: that surface's rows, which alias, must not send the
+       batch to one thread. */
+    if (s->z_on && nv3_d3d_zeta_unused(s->config))
+        s->z_on = 0;
     for (int j = 0; j < 4; j++) {
         s->boff[j]   = nv3->pgraph.boffset[j];
         s->bpitch[j] = nv3->pgraph.bpitch[j];
