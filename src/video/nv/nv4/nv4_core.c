@@ -41,6 +41,7 @@
 #include <86box/vid_ddc.h>
 #include <86box/plat_unused.h>
 #include <86box/nv/vid_nv4.h>
+#include "cpu.h"
 
 /* CPU access to the framebuffer sees the 3D engine's pixels: the work
    that reaches the <n> bytes at VRAM offset <a> is drawn and waited for */
@@ -179,8 +180,13 @@ static uint8_t
 nv4_mmio_read8_bytewide(nv4_t *nv4, uint32_t addr)
 {
     if (addr >= NV4_PRMVGA_START && addr <= NV4_PRMVGA_END) {
+        int     c = cycles; /* the BAR access is charged already; svga_read charges again */
+        uint8_t ret;
+
         nv4_vga_mem_access(nv4, addr - NV4_PRMVGA_START + 0xa0000, 1, 0);
-        return svga_read(addr - NV4_PRMVGA_START + 0xa0000, &nv4->svga);
+        ret    = svga_read(addr - NV4_PRMVGA_START + 0xa0000, &nv4->svga);
+        cycles = c;
+        return ret;
     }
     if (addr >= NV4_PRMVIO_START && addr <= NV4_PRMVIO_END)
         return nv4_vga_in((addr & 0xffff) & 0x3ff, nv4);
@@ -197,8 +203,11 @@ static void
 nv4_mmio_write8_bytewide(nv4_t *nv4, uint32_t addr, uint8_t val)
 {
     if (addr >= NV4_PRMVGA_START && addr <= NV4_PRMVGA_END) {
+        int c = cycles; /* as for the read */
+
         nv4_vga_mem_access(nv4, addr - NV4_PRMVGA_START + 0xa0000, 1, 1);
         svga_write(addr - NV4_PRMVGA_START + 0xa0000, val, &nv4->svga);
+        cycles = c;
     } else if (addr >= NV4_PRMVIO_START && addr <= NV4_PRMVIO_END)
         nv4_vga_out((addr & 0xffff) & 0x3ff, val, nv4);
     else if (addr >= NV4_PRMCIO_START && addr <= NV4_PRMCIO_END)
@@ -368,10 +377,19 @@ nv4_mmio_write(nv4_t *nv4, uint32_t addr, uint32_t val, int len)
     nv4_reg_write32(nv4, addr & ~3, val);
 }
 
+/* The guest's accesses through the BARs cost it the bus time the card's
+   timings give, as svga_read/svga_write charge them for the VGA window.
+   Without it a register or framebuffer read took about one instruction:
+   a loop polling PGRAPH_STATUS, the free count or a notifier went round
+   many more times per guest microsecond than on the chip, each time
+   through the whole dispatch. These handlers are the mappings' only. */
+#define NV4_BUS_CHARGE(nv4, kind) (cycles -= (nv4)->svga.monitor->mon_video_timing_##kind)
+
 static uint8_t
 nv4_mmio_readb(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    NV4_BUS_CHARGE(nv4, read_b);
     return nv4_mmio_read(nv4, addr - nv4->mmio_base, 1);
 }
 
@@ -379,6 +397,7 @@ static uint16_t
 nv4_mmio_readw(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    NV4_BUS_CHARGE(nv4, read_w);
     return nv4_mmio_read(nv4, addr - nv4->mmio_base, 2);
 }
 
@@ -386,6 +405,7 @@ static uint32_t
 nv4_mmio_readl(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    NV4_BUS_CHARGE(nv4, read_l);
     return nv4_mmio_read(nv4, addr - nv4->mmio_base, 4);
 }
 
@@ -393,6 +413,7 @@ static void
 nv4_mmio_writeb(uint32_t addr, uint8_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    NV4_BUS_CHARGE(nv4, write_b);
     nv4_mmio_write(nv4, addr - nv4->mmio_base, val, 1);
 }
 
@@ -400,6 +421,7 @@ static void
 nv4_mmio_writew(uint32_t addr, uint16_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    NV4_BUS_CHARGE(nv4, write_w);
     nv4_mmio_write(nv4, addr - nv4->mmio_base, val, 2);
 }
 
@@ -407,6 +429,7 @@ static void
 nv4_mmio_writel(uint32_t addr, uint32_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    NV4_BUS_CHARGE(nv4, write_l);
     nv4_mmio_write(nv4, addr - nv4->mmio_base, val, 4);
 }
 
@@ -419,6 +442,7 @@ static uint8_t
 nv4_lfb_readb(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    NV4_BUS_CHARGE(nv4, read_b);
     addr       = (addr - nv4->lfb_base) & nv4->vram_mask;
     NV4_3D_ACCESS(nv4, addr, 1);
     return nv4->svga.vram[addr];
@@ -428,6 +452,7 @@ static uint16_t
 nv4_lfb_readw(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    NV4_BUS_CHARGE(nv4, read_w);
     addr       = (addr - nv4->lfb_base) & nv4->vram_mask & ~1;
     NV4_3D_ACCESS(nv4, addr, 2);
     return *(uint16_t *) &nv4->svga.vram[addr];
@@ -437,6 +462,7 @@ static uint32_t
 nv4_lfb_readl(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    NV4_BUS_CHARGE(nv4, read_l);
     addr       = (addr - nv4->lfb_base) & nv4->vram_mask & ~3;
     NV4_3D_ACCESS(nv4, addr, 4);
     return *(uint32_t *) &nv4->svga.vram[addr];
@@ -446,6 +472,7 @@ static void
 nv4_lfb_writeb(uint32_t addr, uint8_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    NV4_BUS_CHARGE(nv4, write_b);
     addr       = (addr - nv4->lfb_base) & nv4->vram_mask;
     NV4_3D_ACCESS(nv4, addr, 1);
     nv4->svga.vram[addr]                                    = val;
@@ -456,6 +483,7 @@ static void
 nv4_lfb_writew(uint32_t addr, uint16_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    NV4_BUS_CHARGE(nv4, write_w);
     addr       = (addr - nv4->lfb_base) & nv4->vram_mask & ~1;
     NV4_3D_ACCESS(nv4, addr, 2);
     *(uint16_t *) &nv4->svga.vram[addr] = val;
@@ -466,6 +494,7 @@ static void
 nv4_lfb_writel(uint32_t addr, uint32_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    NV4_BUS_CHARGE(nv4, write_l);
     addr       = (addr - nv4->lfb_base) & nv4->vram_mask & ~3;
     NV4_3D_ACCESS(nv4, addr, 4);
     *(uint32_t *) &nv4->svga.vram[addr] = val;
