@@ -434,11 +434,7 @@ SettingsOtherRemovable::SettingsOtherRemovable(QWidget *parent)
     model->insertRows(0, RDISK_NUM);
     for (int i = 0; i < RDISK_NUM; i++) {
         auto idx = model->index(i, 0);
-<<<<<<< HEAD
-        setRDiskBus(model, idx, Harddrives::configuredBus(rdisk_drives[i], RDISK_BUS_ATAPI), rdisk_drives[i].type, Harddrives::configuredChannel(rdisk_drives[i], rdisk_drives[i].res));
-=======
         setRDiskBus(model, idx, rdisk_drives[i].bus_type, rdisk_drives[i].type, rdiskListChannel(&rdisk_drives[i]));
->>>>>>> a7b2b84729a5700a8f7f0ddf2dc19d9298b8aae1
         setRDiskType(model, idx.siblingAtColumn(1), rdisk_drives[i].bus_type, rdisk_drives[i].type);
         Harddrives::busTrackClass->device_track(1, DEV_RDISK, rdisk_drives[i].bus_type,
                                                 ((rdisk_drives[i].bus_type == RDISK_BUS_ATAPI) || (rdisk_drives[i].bus_type == RDISK_BUS_IDE)) ?
@@ -515,13 +511,8 @@ SettingsOtherRemovable::changed()
 
     model = ui->treeViewRDisk->model();
     for (uint8_t i = 0; i < RDISK_NUM; i++) {
-<<<<<<< HEAD
-        has_changed |= (Harddrives::configuredBus(rdisk_drives[i], RDISK_BUS_ATAPI) != model->index(i, 0).data(Qt::UserRole).toUInt());
-        has_changed |= (Harddrives::configuredChannel(rdisk_drives[i], rdisk_drives[i].res) != model->index(i, 0).data(Qt::UserRole + 1).toUInt());
-=======
         has_changed |= (rdisk_drives[i].bus_type != model->index(i, 0).data(Qt::UserRole).toUInt());
         has_changed |= (rdiskListChannel(&rdisk_drives[i]) != model->index(i, 0).data(Qt::UserRole + 1).toUInt());
->>>>>>> a7b2b84729a5700a8f7f0ddf2dc19d9298b8aae1
         has_changed |= (rdisk_drives[i].type     != model->index(i, 1).data(Qt::UserRole).toUInt());
     }
 
@@ -666,14 +657,9 @@ SettingsOtherRemovable::reloadBusChannels_RDisk()
 {
     auto selected = ui->comboBoxRDiskChannel->currentData().toInt();
     Harddrives::populateBusChannels(ui->comboBoxRDiskChannel->model(),
-<<<<<<< HEAD
-                                    ui->comboBoxRDiskBus->currentData().toInt(), Harddrives::busTrackClass);
-    ui->comboBoxRDiskChannel->setCurrentIndex(ui->comboBoxRDiskChannel->findData(selected));
-=======
                                     ui->comboBoxRDiskBus->currentData().toInt(), Harddrives::busTrackClass,
                                     Harddrives::LptBridgesHdd);
     ui->comboBoxRDiskChannel->setCurrentIndex(selected);
->>>>>>> a7b2b84729a5700a8f7f0ddf2dc19d9298b8aae1
     enableCurrentlySelectedChannel_RDisk();
     restrictRDiskBridges(ui->comboBoxRDiskChannel, ui->comboBoxRDiskBus->currentData().toInt(),
                          ui->comboBoxRDiskType->currentData().toUInt());

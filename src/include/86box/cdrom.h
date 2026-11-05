@@ -498,6 +498,7 @@ typedef struct cdrom {
     };
 
     uint8_t            bus_type;     /* 0 = ATAPI, 1 = SCSI */
+    uint8_t            disconnected_bus; /* The interface it keeps while disconnected. */
     uint8_t            lpt_bridge;   /* bus LPT: the bridge, HDD_LPT_* */
     uint8_t            bus_mode;     /* Bit 0 = PIO suported;
                                         Bit 1 = DMA supportd. */

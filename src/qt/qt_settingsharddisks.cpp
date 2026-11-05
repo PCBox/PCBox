@@ -546,12 +546,8 @@ SettingsHarddisks::onTableRowChanged(const QModelIndex &current)
     uint32_t speed      = current.siblingAtColumn(ColumnSpeed).data(Qt::UserRole).toUInt();
     uint32_t audio      = hidden ? -1 : ia[current.row()];
     ui->pushButtonConfigure->setHidden(hidden ||
-<<<<<<< HEAD
-                                       (bus != HDD_BUS_IDE && bus != HDD_BUS_ATAPI && bus != HDD_BUS_SCSI && bus != HDD_BUS_DISCONNECTED));
-=======
                                        (bus != HDD_BUS_IDE && bus != HDD_BUS_ATAPI && bus != HDD_BUS_SCSI &&
                                         bus != HDD_BUS_LPT));
->>>>>>> a7b2b84729a5700a8f7f0ddf2dc19d9298b8aae1
 
     Harddrives::populateBusChannels(ui->comboBoxChannel->model(), bus, Harddrives::busTrackClass);
     Harddrives::populateSpeeds(ui->comboBoxSpeed->model(), scSpeed, bus);
