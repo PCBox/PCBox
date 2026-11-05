@@ -519,6 +519,7 @@ typedef struct nv4_s {
     uint32_t pcrtc_intr;
     uint32_t pcrtc_intr_en;
     uint32_t pcrtc_start;
+    int      pcrtc_start_vga; /* the VGA registers set the start, not PCRTC_START */
     uint32_t pcrtc_config;
     /* 15/16 bpp scan-out through the palette as a gamma ramp: a table
        per format, built for the palette in gamma_clut */
@@ -685,7 +686,7 @@ extern void     nv4_pcrtc_write(nv4_t *nv4, uint32_t addr, uint32_t val);
 extern void     nv4_recalctimings(svga_t *svga);
 extern void     nv4_hwcursor_draw(svga_t *svga, int displine);
 extern void     nv4_vblank_start(svga_t *svga);
-extern void     nv4_pcrtc_crtc_start_write(nv4_t *nv4, uint8_t idx, uint8_t val);
+extern void     nv4_pcrtc_crtc_start_write(nv4_t *nv4, uint8_t idx);
 
 /* subsystems/nv4_pramin.c */
 extern uint8_t  nv4_ramin_read8(nv4_t *nv4, uint32_t off);

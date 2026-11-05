@@ -50,10 +50,11 @@
 void
 nv4_pcrtc_reset(nv4_t *nv4)
 {
-    nv4->pcrtc_intr    = 0;
-    nv4->pcrtc_intr_en = 0;
-    nv4->pcrtc_start   = 0;
-    nv4->pcrtc_config  = 0;
+    nv4->pcrtc_intr      = 0;
+    nv4->pcrtc_intr_en   = 0;
+    nv4->pcrtc_start     = 0;
+    nv4->pcrtc_start_vga = 1;
+    nv4->pcrtc_config    = 0;
 }
 
 uint32_t
@@ -96,7 +97,8 @@ nv4_pcrtc_write(nv4_t *nv4, uint32_t addr, uint32_t val)
                frame must be redrawn whole, not just its changed rows */
             if ((val & 0x01fffffc) != nv4->pcrtc_start)
                 nv4->svga.fullchange = nv4->svga.monitor->mon_changeframecount;
-            nv4->pcrtc_start = val & 0x01fffffc;
+            nv4->pcrtc_start     = val & 0x01fffffc;
+            nv4->pcrtc_start_vga = 0;
             svga_recalctimings(&nv4->svga);
             break;
         case NV4_PCRTC_CONFIG:
@@ -116,28 +118,36 @@ nv4_pcrtc_write(nv4_t *nv4, uint32_t addr, uint32_t val)
    Windows goes back to text mode (a DOS box, the blue screen) by
    writing the VGA registers only: a game that had flipped to a back
    buffer through PCRTC_START must not leave text mode scanning it.
-   Scan-out always takes this latch (nv4_recalctimings). */
+   Scan-out always takes this latch (nv4_recalctimings).
+
+   CR19 and CR2D hold other fields too, and the driver rewrites them
+   around a flip without regard to their start bits (CR2D = 0x50 right
+   after PCRTC_START = 0x1f32000 in Screamer 4x4): they count only once
+   CR0C or CR0D have handed the start back to the VGA registers. A back
+   buffer can sit above what those reach, so the hand-over takes all the
+   bits from them. */
 void
-nv4_pcrtc_crtc_start_write(nv4_t *nv4, uint8_t idx, uint8_t val)
+nv4_pcrtc_crtc_start_write(nv4_t *nv4, uint8_t idx)
 {
-    uint32_t s = nv4->pcrtc_start;
+    const uint8_t *crtc = nv4->svga.crtc;
+    uint32_t       s;
 
     switch (idx) {
         case 0x0c:
-            s = (s & ~(0xffu << 10)) | ((uint32_t) val << 10);
-            break;
         case 0x0d:
-            s = (s & ~(0xffu << 2)) | ((uint32_t) val << 2);
+            nv4->pcrtc_start_vga = 1;
             break;
         case NV4_CR_RPC0:
-            s = (s & ~(0x1fu << 18)) | ((uint32_t) (val & 0x1f) << 18);
-            break;
         case NV4_CR_HEB:
-            s = (s & ~(1u << 23)) | ((uint32_t) ((val >> 5) & 1) << 23);
+            if (!nv4->pcrtc_start_vga)
+                return;
             break;
         default:
             return;
     }
+    s = ((uint32_t) crtc[0x0c] << 10) | ((uint32_t) crtc[0x0d] << 2)
+      | ((uint32_t) (crtc[NV4_CR_RPC0] & 0x1f) << 18)
+      | ((uint32_t) ((crtc[NV4_CR_HEB] >> 5) & 1) << 23);
     if (s != nv4->pcrtc_start) {
         nv4->pcrtc_start     = s;
         nv4->svga.fullchange = nv4->svga.monitor->mon_changeframecount;
