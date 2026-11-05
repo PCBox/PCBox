@@ -29,6 +29,12 @@ MPEG decoder. PME semantics follow the RIVA 128 PRM Alpha 9 sections 6.2/6.3;
 GDI methods follow the class description on pages 280-287. RAMRO encoding is
 also documented in envytools `rnndb/fifo/nv1_pfifo.xml`.
 
+## RIVA TNT 2D synchronization
+
+`NV4.Sync2D` checks rectangle dependency ranges, conservative synchronization
+for VRAM wrapping, and M2MF bulk input against byte reads with pitches,
+strides and truncated DMA limits. Run with `ctest --test-dir build -R NV4.Sync2D`.
+
 ## Summary of current tests
 
 # CPU external interrupt polling
