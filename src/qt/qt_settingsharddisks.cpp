@@ -60,7 +60,7 @@ QIcon hard_disk_icon;
 static bool
 genericHDD(uint32_t bus, uint32_t speed)
 {
-    return (bus == HDD_BUS_IDE || bus == HDD_BUS_ATAPI || bus == HDD_BUS_SCSI || bus == HDD_BUS_DISCONNECTED) &&
+    return (bus == HDD_BUS_IDE || bus == HDD_BUS_ATAPI || bus == HDD_BUS_SCSI || bus == HDD_BUS_LPT) &&
            hdd_preset_is_generic(speed);
 }
 
@@ -91,9 +91,28 @@ normalize_hd_list()
 #endif
 
 static QString
+busChannelName(uint8_t bus, uint8_t channel)
+{
+    if ((bus == HDD_BUS_LPT) && (channel != CHANNEL_NONE))
+        return QString("LPT%1 (%2)").arg((channel & 3) + 1).arg(Harddrives::lptBridgeName(channel >> 2));
+
+    return Harddrives::BusChannelName(bus, channel);
+}
+
+static QString
 busChannelName(const QModelIndex &idx)
 {
-    return Harddrives::BusChannelName(idx.data(DataBus).toUInt(), idx.data(DataBusChannel).toUInt());
+    return busChannelName(idx.data(DataBus).toUInt(), idx.data(DataBusChannel).toUInt());
+}
+
+/* The channel of the list: on bus LPT the port and, above it, the bridge. */
+static uint8_t
+listChannel(const hard_disk_t *hd)
+{
+    if (hd->bus_type == HDD_BUS_LPT)
+        return hd->channel | (hd->lpt_bridge << 2);
+
+    return hd->channel;
 }
 
 void
@@ -105,16 +124,14 @@ SettingsHarddisks::addRow(QAbstractItemModel *model, void *priv)
 
     model->insertRow(row);
 
-    auto       busIndex = model->index(row, ColumnBus);
-    const auto bus      = Harddrives::configuredBus(*hd, HDD_BUS_IDE);
-    const auto channel  = Harddrives::configuredChannel(*hd, hd->channel);
-    QString    busName  = Harddrives::BusChannelName(bus, channel);
+    auto    busIndex = model->index(row, ColumnBus);
+    QString busName  = busChannelName(hd->bus_type, listChannel(hd));
     model->setData(busIndex, busName);
     model->setData(busIndex, hard_disk_icon, Qt::DecorationRole);
-    model->setData(busIndex, bus, DataBus);
-    model->setData(busIndex, bus, DataBusPrevious);
-    model->setData(busIndex, channel, DataBusChannel);
-    model->setData(busIndex, channel, DataBusChannelPrevious);
+    model->setData(busIndex, hd->bus_type, DataBus);
+    model->setData(busIndex, hd->bus_type, DataBusPrevious);
+    model->setData(busIndex, listChannel(hd), DataBusChannel);
+    model->setData(busIndex, listChannel(hd), DataBusChannelPrevious);
     Harddrives::busTrackClass->device_track(1, DEV_HDD, hd->bus_type, hd->channel);
     auto    filenameIndex = model->index(row, ColumnFilename);
     QString fileName      = hd->fn;
@@ -204,8 +221,8 @@ SettingsHarddisks::changed()
 
     for (int i = 0; i < rows; ++i) {
         auto idx             = model->index(i, ColumnBus);
-        has_changed |= (Harddrives::configuredBus(hdd[i], HDD_BUS_IDE) != idx.data(DataBus).toUInt());
-        has_changed |= (Harddrives::configuredChannel(hdd[i], hdd[i].channel) != idx.data(DataBusChannel).toUInt());
+        has_changed |= (hdd[i].bus_type      != idx.data(DataBus).toUInt());
+        has_changed |= (listChannel(&hdd[i]) != idx.data(DataBusChannel).toUInt());
         has_changed |= (hdd[i].tracks        != ic[i]);
         has_changed |= (hdd[i].hpc           != ih[i]);
         has_changed |= (hdd[i].spt           != is[i]);
@@ -242,6 +259,10 @@ SettingsHarddisks::save(int soft)
         auto idx             = model->index(i, ColumnBus);
         Harddrives::storeConnection(hdd[i], idx.data(DataBus).toUInt(), idx.data(DataBusChannel).toUInt());
         hdd[i].channel       = idx.data(DataBusChannel).toUInt();
+        if (hdd[i].bus_type == HDD_BUS_LPT) {
+            hdd[i].lpt_bridge = hdd[i].channel >> 2;
+            hdd[i].channel &= 3;
+        }
         hdd[i].tracks        = ic[i];
         hdd[i].hpc           = ih[i];
         hdd[i].spt           = is[i];
@@ -266,14 +287,13 @@ SettingsHarddisks::save(int soft)
 void
 SettingsHarddisks::showEvent(QShowEvent *event)
 {
-    refreshChannelNames();
-    QWidget::showEvent(event);
-}
+    /* As Harddrives::refreshBusNames(), with the bridge of a disk on LPT. */
+    auto *model = ui->treeView->model();
+    for (int row = 0; row < model->rowCount(); row++) {
+        const auto idx = model->index(row, ColumnBus);
 
-void
-SettingsHarddisks::refreshChannelNames()
-{
-    Harddrives::refreshBusNames(ui->treeView->model());
+        model->setData(idx, busChannelName(idx));
+    }
     reloadBusChannels();
 }
 
@@ -284,9 +304,9 @@ SettingsHarddisks::reloadBusChannels()
        through the first row, which would move the drive there and back and
        clear that channel's use by another drive. */
     const QSignalBlocker blocker(ui->comboBoxChannel);
-    const auto           selected = ui->comboBoxChannel->currentData().toInt();
-    Harddrives::populateBusChannels(ui->comboBoxChannel->model(), ui->comboBoxBus->currentData().toInt(), Harddrives::busTrackClass);
-    ui->comboBoxChannel->setCurrentIndex(ui->comboBoxChannel->findData(selected));
+    const auto           selected = ui->comboBoxChannel->currentIndex();
+    Harddrives::populateBusChannels(ui->comboBoxChannel->model(), ui->comboBoxBus->currentData().toInt(), Harddrives::busTrackClass, Harddrives::LptBridgesHdd);
+    ui->comboBoxChannel->setCurrentIndex(selected);
     enableCurrentlySelectedChannel();
 }
 
@@ -317,7 +337,7 @@ SettingsHarddisks::on_comboBoxBus_currentIndexChanged(int index)
            selected, so that picking the channel below always reaches
            on_comboBoxChannel_currentIndexChanged(). */
         const QSignalBlocker blocker(ui->comboBoxChannel);
-        Harddrives::populateBusChannels(ui->comboBoxChannel->model(), ui->comboBoxBus->currentData().toInt(), Harddrives::busTrackClass);
+        Harddrives::populateBusChannels(ui->comboBoxChannel->model(), ui->comboBoxBus->currentData().toInt(), Harddrives::busTrackClass, Harddrives::LptBridgesHdd);
         ui->comboBoxChannel->setCurrentIndex(-1);
     }
     Harddrives::populateSpeeds(ui->comboBoxSpeed->model(), scSpeed, ui->comboBoxBus->currentData().toInt());
@@ -339,6 +359,12 @@ SettingsHarddisks::on_comboBoxBus_currentIndexChanged(int index)
             break;
         case HDD_BUS_SCSI:
             chanIdx = (Harddrives::busTrackClass->next_free_scsi_id());
+            break;
+        case HDD_BUS_LPT:
+            /* The port's first entry: the OnSpec 90c26. */
+            chanIdx = (Harddrives::busTrackClass->next_free_lpt_port());
+            if (chanIdx != CHANNEL_NONE)
+                chanIdx *= HDD_LPT_BRIDGES;
             break;
     }
 
@@ -388,6 +414,17 @@ SettingsHarddisks::enableCurrentlySelectedChannel()
     auto       *item       = item_model->item(index);
     if (item)
         item->setEnabled(true);
+
+    /* On bus LPT the drive may change its bridge and keep its port. */
+    if ((index >= 0) && (ui->comboBoxBus->currentData().toInt() == HDD_BUS_LPT)) {
+        const int first = index - (index % HDD_LPT_BRIDGES);
+
+        for (int i = first; i < (first + HDD_LPT_BRIDGES); i++) {
+            auto *other = item_model->item(i);
+            if (other && Harddrives::lptPortEnabled(first / HDD_LPT_BRIDGES))
+                other->setEnabled(true);
+        }
+    }
 }
 
 void
@@ -509,7 +546,12 @@ SettingsHarddisks::onTableRowChanged(const QModelIndex &current)
     uint32_t speed      = current.siblingAtColumn(ColumnSpeed).data(Qt::UserRole).toUInt();
     uint32_t audio      = hidden ? -1 : ia[current.row()];
     ui->pushButtonConfigure->setHidden(hidden ||
+<<<<<<< HEAD
                                        (bus != HDD_BUS_IDE && bus != HDD_BUS_ATAPI && bus != HDD_BUS_SCSI && bus != HDD_BUS_DISCONNECTED));
+=======
+                                       (bus != HDD_BUS_IDE && bus != HDD_BUS_ATAPI && bus != HDD_BUS_SCSI &&
+                                        bus != HDD_BUS_LPT));
+>>>>>>> a7b2b84729a5700a8f7f0ddf2dc19d9298b8aae1
 
     Harddrives::populateBusChannels(ui->comboBoxChannel->model(), bus, Harddrives::busTrackClass);
     Harddrives::populateSpeeds(ui->comboBoxSpeed->model(), scSpeed, bus);
@@ -550,6 +592,10 @@ SettingsHarddisks::addDriveFromDialog(Ui::SettingsHarddisks *ui, const HarddiskD
 
     hd.bus_type = dlg.bus();
     hd.channel  = dlg.channel();
+    if (hd.bus_type == HDD_BUS_LPT) {
+        hd.lpt_bridge = hd.channel >> 2;
+        hd.channel &= 3;
+    }
     hd.tracks   = dlg.cylinders();
     hd.hpc      = dlg.heads();
     hd.spt      = dlg.sectors();
