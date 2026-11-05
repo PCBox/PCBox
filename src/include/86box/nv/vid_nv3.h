@@ -1621,6 +1621,7 @@ void        nv3_pramdac_set_core_clock_register(uint32_t value);
 void        nv3_pfifo_runout(uint32_t address, uint32_t value, bool read, nv3_ramin_ramro_reason reason);
 uint32_t    nv3_user_read(uint32_t address);
 void        nv3_user_write(uint32_t address, uint32_t value);
+void        nv3_pfifo_cache1_decode(uint32_t ptr, uint32_t *bin, uint32_t *ptr_mask, uint32_t *slot_mask);
 
 // GPU subsystems
 

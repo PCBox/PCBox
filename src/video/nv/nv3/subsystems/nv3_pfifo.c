@@ -739,6 +739,15 @@ uint32_t nv3_pfifo_cache1_slot(uint32_t ptr)
     return binary ^ (binary >> 1);
 }
 
+/* A PUT/GET register value as a binary index, with the masks to step it and find its entry */
+void nv3_pfifo_cache1_decode(uint32_t ptr, uint32_t *bin, uint32_t *ptr_mask, uint32_t *slot_mask)
+{
+    *ptr_mask  = nv3_pfifo_cache1_ptr_mask();
+    *bin       = nv3_pfifo_gray_to_binary((ptr >> 2) & *ptr_mask);
+    *slot_mask = (nv3->nvbase.gpu_revision >= NV3_PCI_CFG_REVISION_C00) ? (NV3_PFIFO_CACHE1_SIZE_REV_C - 1)
+                                                                        : (NV3_PFIFO_CACHE1_SIZE_REV_AB - 1);
+}
+
 /* The PUT/GET register value after this one */
 uint32_t nv3_pfifo_cache1_next(uint32_t ptr)
 {

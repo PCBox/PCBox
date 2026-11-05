@@ -900,6 +900,50 @@ nv3_render_copy_ok(const nv3_render_setup_t *st)
     return true;
 }
 
+/* Does an image in the object's colour format reach the surface unchanged, but for what
+   nv3_render_copy_value does to a pixel? On top of nv3_render_copy_ok this takes the pixel width
+   to match the surface's and pixel_format to carry the pixel over; the pixel pipeline confirms it
+   gives (p & *vmask) | *vor (no alpha test, no dither, which only pixels wider than the surface
+   get). */
+bool
+nv3_render_image_plain(const nv3_render_setup_t *st, nv3_grobj_t grobj, uint32_t bits, uint32_t *vmask, uint32_t *vor)
+{
+    static const uint32_t samples[] = { 0x00000000, 0xFFFFFFFF, 0x12345678, 0x87654321, 0x7FFF8000, 0x55AA33CC, 0xC0000003, 0x3FFFFFFF, 0x00FF7FFF, 0xFF00FFFF };
+    uint32_t              mask      = (st->cpp == 1) ? 0xFF : ((st->cpp == 2) ? 0xFFFF : 0xFFFFFFFF);
+    uint32_t              bd        = (st->ctx >> 9) & 1;
+
+    if ((bits != (st->cpp * 8)) || !nv3_render_copy_ok(st))
+        return false;
+    switch (st->cpp) {
+        case 1:
+            *vmask = 0xFF;
+            *vor   = 0;
+            break;
+        case 2:
+            *vmask = 0x7FFF;
+            *vor   = bd << 15;
+            if (((grobj.grobj_0 & 0x07) == nv3_pgraph_pixel_format_y16) && ((st->fmt & 3) == bpixel_fmt_y16)) {
+                *vmask = 0xFFFF;
+                *vor   = 0;
+            }
+            break;
+        default:
+            *vmask = 0x00FFFFFF;
+            *vor   = bd << 31;
+            break;
+    }
+    for (uint32_t i = 0; i < sizeof(samples) / sizeof(samples[0]); i++) {
+        uint32_t             p = samples[i] & mask;
+        nv3_color_expanded_t s = nv3_render_expand_color(p, grobj);
+        uint32_t             v = (p & *vmask) | *vor;
+
+        if ((nv3_render_rop_pixel(st, 0, 0, 0, s) != v) || (nv3_render_rop_pixel(st, 5, 3, mask, s) != v)
+            || (nv3_render_rop_pixel(st, 2, 7, p ^ mask, s) != v))
+            return false;
+    }
+    return true;
+}
+
 /* Store the copies of n source pixels from addr (nv3_render_rows_direct said the run fits) */
 void
 nv3_render_copy_row(const nv3_render_setup_t *st, uint32_t addr, const uint32_t *src, int32_t n)

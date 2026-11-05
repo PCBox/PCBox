@@ -581,6 +581,11 @@ void nv3_pgraph_submit(uint32_t param, uint16_t method, uint8_t channel, uint8_t
     }
     grobj.grobj_0 = nv3->pgraph.context_switch;
 
+    /* Any method but one more pixel of the same image may change how pixels are drawn */
+    if ((class_id != nv3_pgraph_class11_image) || (method < NV3_IMAGE_COLOR_START) || (method > NV3_IMAGE_COLOR_END)
+        || (old_subchannel != (subchannel & 7)))
+        nv3_render_image_fast_reset();
+
     /* The DMA pointers (CTX_SWITCH_B/C, NOTIFY's instance) are PGRAPH registers. With DEBUG_1
        bit 16 set they are reloaded from the grobj (words 1 and 2) when a DMA-using object
        (M2MF, scaled image from memory, image to memory, D3D) or a NOTIFY method arrives for

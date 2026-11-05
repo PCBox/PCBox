@@ -248,6 +248,9 @@ void nv3_mmio_write32(uint32_t addr, uint32_t val, UNUSED(void* priv))
 {
     addr &= 0xFFFFFF;
 
+    if (((addr & NV3_IMAGE_FAST_ADDR_MASK) == nv3_image_fast.key) && nv3_render_image_word(addr, val))
+        return;
+
     // This is weitek vga stuff
     if (nv3_is_svga_redirect_address(addr))
     {
@@ -264,6 +267,9 @@ void nv3_mmio_write32(uint32_t addr, uint32_t val, UNUSED(void* priv))
     }
 
     nv3_mmio_arbitrate_write(addr, val);
+
+    if (nv3_image_fast.drew)
+        nv3_render_image_fast_arm(addr);
 }
 
 // AGP read function
@@ -1419,6 +1425,8 @@ void nv3_update_mappings(void)
 //
 void* nv3_init(UNUSED(const device_t *info))
 {
+    nv3_render_image_fast_reset();
+
     // set the vram amount and gpu revision
     
     /* We don't bother looking these up if they are nonzero. On Riva 128 ZX, they are already set by the init function (always 8 MB VRAM + Revision C0) */
