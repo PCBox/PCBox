@@ -434,6 +434,22 @@ test_serial(void)
     check_gpu(1, "swizzled target");
 }
 
+/* Screamer 4x4 draws with adjacent depth/color surfaces. These batches
+   must use the parallel kernel. */
+static void
+test_adjacent_depth(void)
+{
+    fill_vram();
+    surfaces(0, 0, 0, 256, 1);
+    NV4_GR(nv4, NV4_PGRAPH_BBASE + 3 * 4) = COL_BASE - 32 * 256;
+    dx5_state(1, 1);
+    tri(0, 0, 64, 4, 20, 32, 0.3f, 0x80102030, 0x80405060, 0x80708090);
+    CHECK(!nv4->batch3d->serial);
+    CHECK(nv4->batch3d->nregions == 2);
+    nv4_3d_flush(nv4);
+    check_gpu(1, "adjacent depth");
+}
+
 int
 main(void)
 {
@@ -448,6 +464,7 @@ main(void)
     test_variants();
     test_ropfill();
     test_serial();
+    test_adjacent_depth();
     card_free();
     if (failures)
         fprintf(stderr, "%d failure(s)\n", failures);
