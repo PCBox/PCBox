@@ -854,20 +854,78 @@ nv3_render_store_row(uint32_t addr, int32_t n, uint32_t cpp, uint32_t val)
 /* What a plain copy stores for a pixel p read from a surface of the destination's format:
    pixel_format and the ROP's output conversion keep the pixel but for the top bit, which comes
    from the context (bit 9); 32-bit pixels also lose bit 30 */
-static uint32_t
-nv3_render_copy_value(const nv3_render_setup_t *st, uint32_t p)
+void
+nv3_render_copy_bits(const nv3_render_setup_t *st, uint32_t *vmask, uint32_t *vor)
 {
     uint32_t bd = (st->ctx >> 9) & 1;
 
     switch (st->fmt & 3) {
         case bpixel_fmt_8bit:
-            return p & 0xFF;
+            *vmask = 0xFF;
+            *vor   = 0;
+            break;
         case bpixel_fmt_y16:
-            return p & 0xFFFF;
+            *vmask = 0xFFFF;
+            *vor   = 0;
+            break;
         case bpixel_fmt_16bit:
-            return (bd << 15) | (p & 0x7FFF);
+            *vmask = 0x7FFF;
+            *vor   = bd << 15;
+            break;
         default:
-            return (bd << 31) | (p & 0x3FFFFFFF);
+            *vmask = 0x3FFFFFFF;
+            *vor   = bd << 31;
+            break;
+    }
+}
+
+static uint32_t
+nv3_render_copy_value(const nv3_render_setup_t *st, uint32_t p)
+{
+    uint32_t vmask, vor;
+
+    nv3_render_copy_bits(st, &vmask, &vor);
+    return (p & vmask) | vor;
+}
+
+/* Do a copy nv3_d3d_copy decided on. Source and destinations share no bytes, so the rows go
+   straight across. */
+void
+nv3_render_copy_run(const nv3_render_copy_t *c)
+{
+    uint8_t *vram = nv3->nvbase.svga.vram;
+    int      same = !c->vor && (((c->cpp >= 4) ? 0xFFFFFFFFu : ((1u << (c->cpp * 8)) - 1)) & ~c->vmask) == 0;
+    uint32_t n    = c->row_bytes / c->cpp;
+
+    for (uint32_t j = 0; j < c->ndst; j++) {
+        for (uint32_t y = 0; y < c->rows; y++) {
+            const uint8_t *s    = vram + c->src + y * c->src_pitch;
+            uint32_t       addr = c->dst[j] + y * c->dst_pitch[j];
+            uint8_t       *d    = vram + addr;
+
+            if (same)
+                memcpy(d, s, c->row_bytes);
+            else if (c->cpp == 2) {
+                const uint16_t *restrict sp = (const uint16_t *) s;
+                uint16_t *restrict       dp = (uint16_t *) d;
+                uint16_t                 m  = (uint16_t) c->vmask;
+                uint16_t                 o  = (uint16_t) c->vor;
+
+                for (uint32_t i = 0; i < n; i++)
+                    dp[i] = (sp[i] & m) | o;
+            } else if (c->cpp == 4) {
+                const uint32_t *restrict sp = (const uint32_t *) s;
+                uint32_t *restrict       dp = (uint32_t *) d;
+
+                for (uint32_t i = 0; i < n; i++)
+                    dp[i] = (sp[i] & c->vmask) | c->vor;
+            } else {
+                for (uint32_t i = 0; i < n; i++)
+                    d[i] = (uint8_t) ((s[i] & c->vmask) | c->vor);
+            }
+            for (uint32_t a = addr & ~0xFFFu; a < addr + c->row_bytes; a += 0x1000)
+                nv3->nvbase.svga.changedvram[a >> 12] = changeframecount;
+        }
     }
 }
 

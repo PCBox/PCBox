@@ -53,6 +53,18 @@ typedef struct nv3_render_setup_s {
     uint32_t cliprects;
 } nv3_render_setup_t;
 
+/* A rectangle of VRAM copied to surfaces that share no bytes with it, every row in VRAM and in
+   one piece (nv3_render_copy_run) */
+typedef struct nv3_render_copy_t {
+    uint32_t src, src_pitch;
+    uint32_t dst[4], dst_pitch[4];
+    uint32_t ndst;
+    uint32_t row_bytes, rows, cpp;
+    uint32_t vmask, vor;
+} nv3_render_copy_t;
+
+void     nv3_render_copy_run(const nv3_render_copy_t *c);
+
 void     nv3_render_setup(nv3_render_setup_t *st, nv3_grobj_t grobj, bool own_clip);
 void     nv3_render_pixel_st(const nv3_render_setup_t *st, int32_t x, int32_t y, nv3_color_expanded_t s);
 void     nv3_render_span_st(const nv3_render_setup_t *st, int32_t y, int32_t x0, int32_t x1, nv3_color_expanded_t s);
@@ -60,6 +72,8 @@ bool     nv3_render_fill_value_st(const nv3_render_setup_t *st, nv3_color_expand
 bool     nv3_render_rows_direct(const nv3_render_setup_t *st, uint32_t j, int32_t x0, int32_t x1, int32_t y, uint32_t *addr);
 void     nv3_render_store_row(uint32_t addr, int32_t n, uint32_t cpp, uint32_t val);
 bool     nv3_render_copy_ok(const nv3_render_setup_t *st);
+/* What a plain copy stores for a pixel p: (p & *vmask) | *vor, cut to the pixel's width */
+void     nv3_render_copy_bits(const nv3_render_setup_t *st, uint32_t *vmask, uint32_t *vor);
 bool     nv3_render_image_plain(const nv3_render_setup_t *st, nv3_grobj_t grobj, uint32_t bits, uint32_t *vmask, uint32_t *vor);
 void     nv3_render_copy_row(const nv3_render_setup_t *st, uint32_t addr, const uint32_t *src, int32_t n);
 
