@@ -779,11 +779,6 @@ void nv3_recalc_timings(svga_t* svga)
         }
     }
 
-    /* The CRTC scans VRAM out linearly from the start address with the CRTC pitch,
-       so the SVGA core draws the screen; PGRAPH and the linear framebuffer only mark
-       what they change in changedvram. */
-    svga->override = 0;
-
     /* The extended modes scan VRAM out linearly, so CPU accesses through the banked A0000 window
        in chain-4 must be linear too; only VGA mode 13h keeps the planar chain-4 layout its
        doubleword scan-out reads. (Packed modes drawn through the window by DOS VESA programs came
