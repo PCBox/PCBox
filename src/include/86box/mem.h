@@ -533,6 +533,7 @@ mem_chain_code(uint8_t why)
    above; 0 when not present. */
 extern uint64_t mmu_link_translate(uint32_t addr);
 extern void     mem_link_large_forget(void);
+extern void flushmmucache_ring3(void);
 
 extern void mem_debug_check_addr(uint32_t addr, int write);
 
