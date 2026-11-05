@@ -96,7 +96,19 @@ nv3_render_image_fast_prepare(const nv3_render_setup_t *st, nv3_grobj_t grobj, u
         j++;
     if ((nv3->pgraph.boffset[j] | nv3->pgraph.bpitch[j]) & (st->cpp - 1))
         return false;
-    if (!nv3_render_image_plain(st, grobj, bits, &f->vmask, &f->vor))
+    /* RGB555 uploads can retain keyed pixels without running the full ROP pipeline. */
+    nv3_render_setup_t copy = *st;
+    f->chroma = false;
+    if (st->chroma && ((nv3->pgraph.chroma_key >> 30) & 1)
+        && ((grobj.grobj_0 & 7) == nv3_pgraph_pixel_format_r5g5b5)
+        && !((grobj.grobj_0 >> NV3_PGRAPH_CTX_SWITCH_ALPHA) & 1)
+        && ((st->fmt & 3) == bpixel_fmt_16bit)) {
+        uint32_t key = nv3->pgraph.chroma_key;
+        copy.chroma = false;
+        f->chroma = true;
+        f->chroma_key = (((key >> 25) & 31) << 10) | (((key >> 15) & 31) << 5) | ((key >> 5) & 31);
+    }
+    if (!nv3_render_image_plain(&copy, grobj, bits, &f->vmask, &f->vor))
         return false;
 
     rx0 = MAX((int64_t) 0, (int64_t) st->cx0 - px);
@@ -180,7 +192,8 @@ nv3_render_image_word(uint32_t addr, uint32_t val)
             break;
         n++;
 
-        if ((rx >= f->rx0) && (rx < f->rx1) && (f->ry >= f->ry0) && (f->ry < f->ry1)) {
+        if ((rx >= f->rx0) && (rx < f->rx1) && (f->ry >= f->ry0) && (f->ry < f->ry1)
+            && (!f->chroma || (((val >> (i * f->bits)) & 0x7FFF) != f->chroma_key))) {
             uint32_t a = (uint32_t) (f->row + (int64_t) rx * f->cpp);
             uint32_t v = (((val >> (i * f->bits)) & f->pmask) & f->vmask) | f->vor;
             bool     changed;
