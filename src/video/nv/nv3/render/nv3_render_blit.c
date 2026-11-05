@@ -298,6 +298,59 @@ nv3_render_bitmap(uint32_t data, nv3_grobj_t grobj)
     }
 }
 
+/* Can this blit be a nv3_render_copy_t: a plain copy to surfaces that share no bytes with its
+   source or (unless laid out alike) each other, all of it inside VRAM? */
+static bool
+nv3_render_blit_plan(const nv3_render_setup_t *st, uint32_t src_buffer, int32_t px0, int32_t py0, int32_t x0, int32_t y0, int32_t cw, int32_t ch,
+                     nv3_render_copy_t *c)
+{
+    uint32_t cpp  = st->cpp;
+    int64_t  size = (int64_t) nv3->nvbase.svga.vram_mask + 1;
+    int64_t  slo, shi;
+    int64_t  lo[NV3_PGRAPH_MAX_BUFFERS], hi[NV3_PGRAPH_MAX_BUFFERS];
+
+    if ((px0 < 0) || (py0 < 0) || (x0 < 0) || (y0 < 0) || !st->bufs)
+        return false;
+    if ((nv3->pgraph.boffset[src_buffer] | nv3->pgraph.bpitch[src_buffer]) & (cpp - 1))
+        return false;
+    slo = (int64_t) nv3->pgraph.boffset[src_buffer] + (int64_t) py0 * nv3->pgraph.bpitch[src_buffer] + (int64_t) px0 * cpp;
+    shi = slo + (int64_t) (ch - 1) * nv3->pgraph.bpitch[src_buffer] + (int64_t) cw * cpp;
+    if (shi > size)
+        return false;
+
+    c->src       = (uint32_t) slo;
+    c->src_pitch = nv3->pgraph.bpitch[src_buffer];
+    c->ndst      = 0;
+    c->row_bytes = (uint32_t) cw * cpp;
+    c->rows      = (uint32_t) ch;
+    c->cpp       = cpp;
+    for (uint32_t j = 0; j < NV3_PGRAPH_MAX_BUFFERS; j++) {
+        if (!((st->bufs >> j) & 1))
+            continue;
+        if ((nv3->pgraph.boffset[j] | nv3->pgraph.bpitch[j]) & (cpp - 1))
+            return false;
+        lo[j] = (int64_t) nv3->pgraph.boffset[j] + (int64_t) y0 * nv3->pgraph.bpitch[j] + (int64_t) x0 * cpp;
+        hi[j] = lo[j] + (int64_t) (ch - 1) * nv3->pgraph.bpitch[j] + (int64_t) cw * cpp;
+        if ((hi[j] > size) || ((lo[j] < shi) && (slo < hi[j])))
+            return false;
+        for (uint32_t k = 0; k < j; k++) {
+            if (!((st->bufs >> k) & 1))
+                continue;
+            if ((nv3->pgraph.boffset[j] == nv3->pgraph.boffset[k]) && (nv3->pgraph.bpitch[j] == nv3->pgraph.bpitch[k]))
+                continue;
+            if ((lo[j] < hi[k]) && (lo[k] < hi[j]))
+                return false;
+        }
+        c->dst[c->ndst]       = (uint32_t) lo[j];
+        c->dst_pitch[c->ndst] = nv3->pgraph.bpitch[j];
+        c->ndst++;
+    }
+    if (!nv3_render_copy_ok(st))
+        return false;
+    nv3_render_copy_bits(st, &c->vmask, &c->vor);
+    return true;
+}
+
 /* Screen to screen blit (class 0x10): from the object's source surface to
    its destination surfaces. The source rectangle is read first, so
    overlapping copies come out as if done in the right direction. */
@@ -331,6 +384,15 @@ nv3_render_blit_screen2screen(nv3_grobj_t grobj)
 
     if (cw <= 0 || ch <= 0)
         return;
+
+    nv3_render_copy_t plan;
+
+    if (nv3_render_blit_plan(&st, src_buffer, sx + (x0 - dx), sy + (y0 - dy), x0, y0, cw, ch, &plan)) {
+        nv3_d3d_copy(&plan, NV3_SYNC_CLASS + nv3_pgraph_class10_blit);
+        return;
+    }
+    nv3_d3d_sync(NV3_SYNC_CLASS + nv3_pgraph_class10_blit);
+
     if (((size_t) cw * ch) > src_size) {
         uint32_t *n = realloc(src, (size_t) cw * ch * sizeof(uint32_t));
 

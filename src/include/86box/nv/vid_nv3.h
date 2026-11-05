@@ -1676,6 +1676,8 @@ enum {
    wait for the GPU's pixels, for anything that reads or writes VRAM itself; cause: NV3_SYNC_* */
 void        nv3_d3d_init(int threads, int gpu);
 void        nv3_d3d_close(void);
+struct nv3_render_copy_t;
+void        nv3_d3d_copy(const struct nv3_render_copy_t *c, int cause);
 void        nv3_d3d_reset(void);
 void        nv3_d3d_flush(void);
 void        nv3_d3d_notify(void); /* a notify: draw, or with the GPU lane read the textures */

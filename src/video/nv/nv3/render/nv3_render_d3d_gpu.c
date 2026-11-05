@@ -93,6 +93,12 @@ nv3_gpu_pending_overlaps(UNUSED(struct nv3_gpu_s *g), UNUSED(uint32_t lo), UNUSE
     return 0;
 }
 
+int
+nv3_gpu_copy_later(UNUSED(struct nv3_gpu_s *g), UNUSED(const nv3_render_copy_t *c))
+{
+    return 0;
+}
+
 void
 nv3_gpu_counts(UNUSED(struct nv3_gpu_s *g), uint64_t *batches, uint64_t *fallbacks)
 {
@@ -193,6 +199,11 @@ typedef struct nv3_gpu_s {
     uint32_t     row_first[GPU_ROWS];
     uint64_t     batches, fallbacks;
     uint64_t     us_gather, us_copy, us_wait, tex_bytes, hash_bytes, row_bytes; /* where the time goes */
+    /* A copy reading or writing rows the batch in flight draws. It counts as in flight, so whatever
+       waits for those rows has it done too, and no batch is submitted before it: the rows it reads
+       are then the ones the older batches left. */
+    int               later_on;
+    nv3_render_copy_t later;
 } nv3_gpu_t;
 
 struct nv3_gpu_s *
@@ -573,8 +584,14 @@ gpu_complete_upto(nv3_gpu_t *g, uint64_t seq)
         for (int i = 0; i < g->vk.nslots; i++)
             if (g->slot[i].pending && (g->slot[i].seq <= seq) && (!old || (g->slot[i].seq < old->seq)))
                 old = &g->slot[i];
-        if (!old)
+        if (!old) {
+            if (g->later_on && (nv3_gpu_inflight == 1)) {
+                g->later_on = 0;
+                nv3_gpu_inflight--;
+                nv3_render_copy_run(&g->later);
+            }
             return;
+        }
         gpu_complete(g, old);
     }
 }
@@ -597,7 +614,27 @@ nv3_gpu_pending_overlaps(struct nv3_gpu_s *g, uint32_t lo, uint32_t hi)
             if ((sl->pdown[i].srcOffset <= hi) && (lo < sl->pdown[i].srcOffset + sl->pdown[i].size))
                 return 1;
     }
+    if (g->later_on) {
+        const nv3_render_copy_t *c = &g->later;
+
+        if ((c->src <= hi) && (lo < c->src + (c->rows - 1) * c->src_pitch + c->row_bytes))
+            return 1;
+        for (uint32_t j = 0; j < c->ndst; j++)
+            if ((c->dst[j] <= hi) && (lo < c->dst[j] + (c->rows - 1) * c->dst_pitch[j] + c->row_bytes))
+                return 1;
+    }
     return 0;
+}
+
+int
+nv3_gpu_copy_later(struct nv3_gpu_s *g, const nv3_render_copy_t *c)
+{
+    if (g->later_on || !nv3_gpu_inflight)
+        return 0;
+    g->later    = *c;
+    g->later_on = 1;
+    nv3_gpu_inflight++;
+    return 1;
 }
 
 /* Upload the bytes lo..hi of VRAM to the GPU's mirror, except those a batch in flight owns (the
@@ -650,6 +687,9 @@ nv3_gpu_shade(struct nv3_gpu_s *g, const nv3_d3d_batch_t *b)
     uint64_t         t0, t1, t2;
     int              why = NV_GPU_FB_NOREGION;
 
+    /* a copy waiting for the batches in flight reads rows this batch would change */
+    if (g->later_on)
+        gpu_complete_upto(g, UINT64_MAX);
     /* this slot's last batch (and any older one) first */
     if (sl->pending)
         gpu_complete_upto(g, sl->seq);
