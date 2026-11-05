@@ -872,7 +872,8 @@ nv3_render_copy_value(const nv3_render_setup_t *st, uint32_t p)
 }
 
 /* Is a blit through st a plain copy: source only through the ROP, no blend, chroma key, write
-   mask or pattern alpha, and no clip rectangles? The pixel pipeline confirms it gives
+   mask or pattern alpha, and no clip rectangles? A chroma key whose alpha bit is clear matches
+   nothing, whatever the object's enable says. The pixel pipeline confirms it gives
    nv3_render_copy_value for a few pixels, positions and destinations (it has no dither for
    pixels in the destination's own format). */
 bool
@@ -881,7 +882,9 @@ nv3_render_copy_ok(const nv3_render_setup_t *st)
     static const uint32_t samples[] = { 0x00000000, 0xFFFFFFFF, 0x12345678, 0x87654321, 0x7FFF8000, 0x55AA33CC, 0xC0000003, 0x3FFFFFFF };
     uint32_t              mask      = (st->cpp == 1) ? 0xFF : ((st->cpp == 2) ? 0xFFFF : 0xFFFFFFFF);
 
-    if (st->blend || st->rop_noop || (st->rop != 0xCC) || st->chroma || st->cliprects)
+    if (st->blend || st->rop_noop || (st->rop != 0xCC) || st->cliprects)
+        return false;
+    if (st->chroma && ((nv3->pgraph.chroma_key >> 30) & 1))
         return false;
     if ((st->op >= 9) && (st->op < 0x16) && !(nv3->pgraph.pattern_mono_a[0] && nv3->pgraph.pattern_mono_a[1]))
         return false;
