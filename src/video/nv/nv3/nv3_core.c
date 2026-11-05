@@ -1245,21 +1245,21 @@ void nv3_init_mappings_mmio(void)
     
     // initialize the mmio mapping
     mem_mapping_add(&nv3->nvbase.ramin_mapping, 0, 0, 
-        nv3_ramin_bus_read8,
-        nv3_ramin_bus_read16,
-        nv3_ramin_bus_read32,
-        nv3_ramin_bus_write8,
-        nv3_ramin_bus_write16,
-        nv3_ramin_bus_write32,
+        nv3_ramin_read8,
+        nv3_ramin_read16,
+        nv3_ramin_read32,
+        nv3_ramin_write8,
+        nv3_ramin_write16,
+        nv3_ramin_write32,
         NULL, MEM_MAPPING_EXTERNAL, nv3);
 
     mem_mapping_add(&nv3->nvbase.ramin_mapping_mirror, 0, 0,
-        nv3_ramin_bus_read8,
-        nv3_ramin_bus_read16,
-        nv3_ramin_bus_read32,
-        nv3_ramin_bus_write8,
-        nv3_ramin_bus_write16,
-        nv3_ramin_bus_write32,
+        nv3_ramin_read8,
+        nv3_ramin_read16,
+        nv3_ramin_read32,
+        nv3_ramin_write8,
+        nv3_ramin_write16,
+        nv3_ramin_write32,
         NULL, MEM_MAPPING_EXTERNAL, nv3);
 
 }
@@ -1310,22 +1310,22 @@ void nv3_init_mappings_svga(void)
     nv_log("Initialising SVGA core memory mapping\n");
     // setup the svga mappings
     mem_mapping_add(&nv3->nvbase.framebuffer_mapping, 0, 0,
-        nv3_dfb_bus_read8,
-        nv3_dfb_bus_read16,
-        nv3_dfb_bus_read32,
-        nv3_dfb_bus_write8,
-        nv3_dfb_bus_write16,
-        nv3_dfb_bus_write32,
+        nv3_vga_readb,
+        nv3_vga_readw,
+        nv3_vga_readl,
+        nv3_vga_writeb,
+        nv3_vga_writew,
+        nv3_vga_writel,
         nv3->nvbase.svga.vram, 0, &nv3->nvbase.svga);
 
     // the SVGA/LFB mapping is also mirrored
     mem_mapping_add(&nv3->nvbase.framebuffer_mapping_mirror, 0, 0, 
-        nv3_dfb_bus_read8,
-        nv3_dfb_bus_read16,
-        nv3_dfb_bus_read32,
-        nv3_dfb_bus_write8,
-        nv3_dfb_bus_write16,
-        nv3_dfb_bus_write32,
+        nv3_vga_readb,
+        nv3_vga_readw,
+        nv3_vga_readl,
+        nv3_vga_writeb,
+        nv3_vga_writew,
+        nv3_vga_writel,
         nv3->nvbase.svga.vram, 0, &nv3->nvbase.svga);
 
     io_sethandler(0x03c0, 0x0020, 
