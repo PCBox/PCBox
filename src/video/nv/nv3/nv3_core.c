@@ -1189,6 +1189,47 @@ void nv3_prom_write(uint32_t address, uint32_t value)
     nv_log("What's going on here? Tried to write to the Video BIOS ROM? (Address=0x%05x, value=0x%02x)", real_addr, value);
 }
 
+/* The CPU's side of a register access: what the bus takes, charged to the guest. Drivers spin on
+   these registers (the DirectDraw GetScanLine of the 16-bit driver reads CR1A/CR34/CR35 through far
+   pointers, for as long as the game waits for its frame); with free accesses all that time goes
+   to running the loop itself, and more of it than the host can run. Only the CPU's way in pays:
+   PBUS RMA and the partial writes call the handlers themselves. */
+static uint8_t nv3_bus_read8(uint32_t addr, void* priv)
+{
+    cycles -= nv3->nvbase.svga.monitor->mon_video_timing_read_b;
+    return nv3_mmio_read8(addr, priv);
+}
+
+static uint16_t nv3_bus_read16(uint32_t addr, void* priv)
+{
+    cycles -= nv3->nvbase.svga.monitor->mon_video_timing_read_w;
+    return nv3_mmio_read16(addr, priv);
+}
+
+static uint32_t nv3_bus_read32(uint32_t addr, void* priv)
+{
+    cycles -= nv3->nvbase.svga.monitor->mon_video_timing_read_l;
+    return nv3_mmio_read32(addr, priv);
+}
+
+static void nv3_bus_write8(uint32_t addr, uint8_t val, void* priv)
+{
+    cycles -= nv3->nvbase.svga.monitor->mon_video_timing_write_b;
+    nv3_mmio_write8(addr, val, priv);
+}
+
+static void nv3_bus_write16(uint32_t addr, uint16_t val, void* priv)
+{
+    cycles -= nv3->nvbase.svga.monitor->mon_video_timing_write_w;
+    nv3_mmio_write16(addr, val, priv);
+}
+
+static void nv3_bus_write32(uint32_t addr, uint32_t val, void* priv)
+{
+    cycles -= nv3->nvbase.svga.monitor->mon_video_timing_write_l;
+    nv3_mmio_write32(addr, val, priv);
+}
+
 // Initialise the MMIO mappings
 void nv3_init_mappings_mmio(void)
 {
@@ -1199,12 +1240,12 @@ void nv3_init_mappings_mmio(void)
 
     // initialize the mmio mapping
     mem_mapping_add(&nv3->nvbase.mmio_mapping, 0, 0, 
-        nv3_mmio_read8,
-        nv3_mmio_read16,
-        nv3_mmio_read32,
-        nv3_mmio_write8,
-        nv3_mmio_write16,
-        nv3_mmio_write32,
+        nv3_bus_read8,
+        nv3_bus_read16,
+        nv3_bus_read32,
+        nv3_bus_write8,
+        nv3_bus_write16,
+        nv3_bus_write32,
         NULL, MEM_MAPPING_EXTERNAL, nv3);
     
     // initialize the mmio mapping
