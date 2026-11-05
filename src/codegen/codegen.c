@@ -291,7 +291,7 @@ codegen_generate_ea_16_long(ir_data_t *ir, x86seg *op_ea_seg, uint32_t fetchdat,
     uint32_t old_pc = (*op_pc) + 1;
     if (!cpu_mod && cpu_rm == 6) {
         if (block->flags & CODEBLOCK_NO_IMMEDIATES) {
-            LOAD_IMMEDIATE_FROM_RAM_16(block, ir, IREG_eaaddr, cs + (*op_pc));
+            LOAD_IMMEDIATE_FROM_RAM_16(block, ir, IREG_eaaddr, cs + (*op_pc) + 1);
         }
         else {
             uop_MOV_IMM(ir, IREG_eaaddr, fastreadw(cs + old_pc));
