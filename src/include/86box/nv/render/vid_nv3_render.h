@@ -103,6 +103,8 @@ typedef struct nv3_image_fast_s {
 
     uint32_t count, bits, pmask; // pixels per word, their width and mask
     uint32_t vmask, vor;         // a pixel p is stored as (p & vmask) | vor
+    bool chroma;
+    uint32_t chroma_key;
     uint32_t cpp, pitch;
     uint32_t total, w;           // pixels sent in all and per row
     uint32_t rx0, rx1, ry0, ry1; // the part of the image that is drawn
