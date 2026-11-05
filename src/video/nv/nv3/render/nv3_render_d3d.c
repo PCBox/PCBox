@@ -158,6 +158,17 @@ nv3_d3d_wren(int func, bool zeta_test, bool alpha_test)
     }
 }
 
+/* Does this CONTROL0 leave the zeta buffer alone? The test always passes (nv3_d3d_cmp's default)
+   and no write condition holds (nv3_d3d_wren's default), so a pixel draws as with zeta off. */
+static bool
+nv3_d3d_zeta_unused(uint32_t config)
+{
+    uint32_t func  = NV3_D3D_CONFIG_ZFUNC(config);
+    uint32_t write = NV3_D3D_CONFIG_ZWRITE(config);
+
+    return (func >= 8) && ((write == 0) || (write > 4));
+}
+
 /* Depth as the zeta buffer keeps it: 16 bits, 0 = near (D3D's sz scaled). envytools' convert_z
    holds the 24-bit vertex z inverted, but with the compare functions as NV3DD32.DLL passes them
    (D3DCMP values: LESSEQUAL = 4, a <= b with a the new value) the inverted form lets the farther
@@ -1162,6 +1173,12 @@ nv3_d3d_make_state(nv3_d3d_dstate_t *s, nv3_grobj_t grobj, bool textures)
         if ((ctx >> (NV3_PGRAPH_CTX_SWITCH_DST_BUFFER0_ENABLED + j)) & 1)
             s->buf_on |= 1 << j;
     s->z_on = (ctx >> NV3_PGRAPH_CTX_SWITCH_Z_WRITE) & 1;
+    /* Without a zeta buffer the driver leaves this on, with a placeholder surface (offset 0, pitch
+       10h) and the test always passing, nothing written (Nightmare Creatures). Such a pixel
+       neither reads nor writes zeta: that surface's rows, which alias, must not send the
+       batch to one thread. */
+    if (s->z_on && nv3_d3d_zeta_unused(s->config))
+        s->z_on = 0;
     for (int j = 0; j < 4; j++) {
         s->boff[j]   = nv3->pgraph.boffset[j];
         s->bpitch[j] = nv3->pgraph.bpitch[j];
