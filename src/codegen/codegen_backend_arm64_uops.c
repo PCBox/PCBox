@@ -1920,7 +1920,7 @@ codegen_mem_inline_ex(codeblock_t *block, int size, int store, int ea_rule, void
     uint32_t *slow[3] = { NULL, NULL, NULL };
     uint32_t *done;
 
-    codegen_alloc(block, 136);
+    codegen_alloc(block, 144);
     host_arm64_MOV_REG_LSR(block, ent, REG_W0, 12);
     host_arm64_LDR_IMM_X(block, tbl, REG_CPUSTATE, (int) ((uintptr_t) (store ? &cpu_state.lookup2_w : &cpu_state.lookup2_r) - (uintptr_t) &cpu_state));
     host_arm64_LDRX_REG_LSL3(block, ent, tbl, ent);
@@ -1949,6 +1949,7 @@ codegen_mem_inline_ex(codeblock_t *block, int size, int store, int ea_rule, void
         else
             host_arm64_LDR_REG(block, to, ent, REG_W0);
     }
+    host_arm64_MOVZ_IMM(block, REG_W1, 0);
     done = mem_inline_branch(block, MEM_INLINE_B);
     for (int i = 0; i < 3; i++) {
         if (slow[i])
@@ -4453,6 +4454,9 @@ const uOpFn uop_handlers[UOP_MAX] = {
         UOP_MASK]
     = codegen_CALL_INSTRUCTION_FUNC,
     [UOP_CALL_INSTRUCTION_FUNC_ORDERED &
+        UOP_MASK]
+    = codegen_CALL_INSTRUCTION_FUNC,
+    [UOP_CALL_REP_STRING &
         UOP_MASK]
     = codegen_CALL_INSTRUCTION_FUNC,
     [UOP_SMI_EXIT_IMM &
