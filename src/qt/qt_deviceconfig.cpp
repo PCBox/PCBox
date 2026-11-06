@@ -458,18 +458,24 @@ DeviceConfigPanel::processConfig(void *dc, const void *c, const bool is_dep)
                             const int row = Models::AddEntry(model, tr(bios->name), q);
                             if (!strcmp(selected.toUtf8().constData(), bios->internal_name))
                                 currentIndex = row;
+                            else if (currentIndex == -1)
+                                currentIndex = row;
 
                             rows++;
                         }
                         q++;
                     }
 
-                    biosRows = rows;
-                    if (rows > 1)
-                        form->addRow(tr(config->description).append(colon), cbox);
-
+                    bios_rows = rows;
                     bios = currentIndex;
                     cbox->setCurrentIndex(currentIndex);
+                    if (rows > 0) {
+                        this->ui->formLayout->addRow(tr(config->description).append(colon), cbox);
+                        cbox->setEnabled(rows > 1);
+                    } else {
+                        delete cbox;
+                        cbox = nullptr;
+                    }
 
                     cboxBios = cbox;
                     cfgBios  = config;
@@ -846,8 +852,174 @@ DeviceConfig::ConfigureDevice(const _device_ *device, int instance, Settings *se
     if (dc.exec() != QDialog::Accepted)
         return 0;
 
-    const int has_changed = panel->apply();
-    DeviceConfigPanel::reloadOthers(panel);
+        config = device->config;
+        while (config->type != CONFIG_END) {
+            const int config_type       = config->type & CONFIG_TYPE_MASK;
+            const int config_major_type = (config_type >> CONFIG_SHIFT) << CONFIG_SHIFT;
+
+            int  value    = 0;
+            auto selected = blank;
+
+            switch (config_major_type) {
+                default:
+                    break;
+                case CONFIG_TYPE_INT:
+                    value = config_get_int(device_context.name, const_cast<char *>(config->name),
+                                           config->default_int);
+                    break;
+                case CONFIG_TYPE_HEX16:
+                    value = config_get_hex16(device_context.name, const_cast<char *>(config->name),
+                                             config->default_int);
+                    break;
+                case CONFIG_TYPE_HEX20:
+                    value = config_get_hex20(device_context.name, const_cast<char *>(config->name),
+                                             config->default_int);
+                    break;
+                case CONFIG_TYPE_STRING:
+                    selected = config_get_string(device_context.name, const_cast<char *>(config->name),
+                                                 const_cast<char *>(config->default_string));
+                    break;
+                case CONFIG_TYPE_STRHEX:
+                    selected = config_get_string(device_context.name, const_cast<char *>(config->name),
+                                                 const_cast<char *>(config->default_string));
+                    break;
+            }
+
+            switch (config->type) {
+                default:
+                    break;
+                case CONFIG_BINARY:
+                    {
+                        const auto *cbox = dc.findChild<QCheckBox *>(config->name);
+                        if (value != (cbox->isChecked() ? 1 : 0)) {
+                            config_set_int(device_context.name, const_cast<char *>(config->name), cbox->isChecked() ? 1 : 0);
+                            has_changed |= 1;
+                        }
+                        break;
+                    }
+                case CONFIG_MIDI_OUT:
+                case CONFIG_MIDI_IN:
+                case CONFIG_INT:
+                case CONFIG_SELECTION:
+                    {
+                        auto *cbox = dc.findChild<QComboBox *>(config->name);
+                        value = config_get_int(device_context.name, const_cast<char *>(config->name),
+                                               config->default_int);
+                        if (value != cbox->currentData().toInt()) {
+                            config_set_int(device_context.name, const_cast<char *>(config->name), cbox->currentData().toInt());
+                            has_changed |= 1;
+                        }
+                        break;
+                    }
+                case CONFIG_BIOS:
+                    {
+                        if (bios_rows > 0) {
+                            auto *cbox = dc.findChild<QComboBox *>(config->name);
+                            if (cbox->currentIndex() >= 0) {
+                                int idx = cbox->currentData().toInt();
+                                if (strcmp(selected.toUtf8(), const_cast<char *>(config->bios[idx].internal_name))) {
+                                    config_set_string(device_context.name, const_cast<char *>(config->name), const_cast<char *>(config->bios[idx].internal_name));
+                                    has_changed |= 1;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                case CONFIG_SERPORT:
+                    {
+                        auto *cbox = dc.findChild<QComboBox *>(config->name);
+                        auto  path = cbox->currentData().toString().toUtf8();
+                        if (strcmp(selected.toUtf8(), path)) {
+                            config_set_string(device_context.name, const_cast<char *>(config->name), path);
+                            has_changed |= 1;
+                        }
+                        break;
+                    }
+                case CONFIG_STRING:
+                    {
+                        auto *lineEdit = dc.findChild<QLineEdit *>(config->name);
+                        if (strcmp(selected.toUtf8(), lineEdit->text().toUtf8())) {
+                            config_set_string(device_context.name, const_cast<char *>(config->name), lineEdit->text().toUtf8());
+                            has_changed |= 1;
+                        }
+                        break;
+                    }
+                case CONFIG_HEX16:
+                    {
+                        auto *cbox = dc.findChild<QComboBox *>(config->name);
+                        if (value != cbox->currentData().toInt()) {
+                            config_set_hex16(device_context.name, const_cast<char *>(config->name), cbox->currentData().toInt());
+                            has_changed |= 1;
+                        }
+                        break;
+                    }
+                case CONFIG_HEX20:
+                    {
+                        auto *cbox = dc.findChild<QComboBox *>(config->name);
+                        if (value != cbox->currentData().toInt()) {
+                            config_set_hex20(device_context.name, const_cast<char *>(config->name), cbox->currentData().toInt());
+                            has_changed |= 1;
+                        }
+                        break;
+                    }
+                case CONFIG_FNAME:
+                    {
+                        auto *fbox     = dc.findChild<FileField *>(config->name);
+                        auto  fileName = fbox->fileName().toUtf8();
+                        if (strcmp(selected.toUtf8().data(), fileName.data())) {
+                            config_set_string(device_context.name, const_cast<char *>(config->name), fileName.data());
+                            has_changed |= 1;
+                        }
+                        break;
+                    }
+                case CONFIG_SPINNER:
+                    {
+                        auto *spinBox = dc.findChild<QSpinBox *>(config->name);
+                        if (value != spinBox->value()) {
+                            config_set_int(device_context.name, const_cast<char *>(config->name), spinBox->value());
+                            has_changed |= 1;
+                        }
+                        break;
+                    }
+                case CONFIG_STRHEX:
+                    {
+                        const auto *lineEdit = dc.findChild<QLineEdit *>(config->name);
+                        // Store the hex value in uppercase; displayText() skips the mask's
+                        // unfilled placeholders, so a partly typed value is not padded out.
+                        auto hexText     = lineEdit->displayText().toUpper();
+                        int  hex_changed = 0;
+                        hex_changed |= strcasecmp(config_get_string(device_context.name, config->name,
+                                                                    const_cast<char *>(config->default_string)),
+                                                  hexText.toUtf8().constData());
+                        if (hex_changed) {
+                            config_set_string(device_context.name, config->name, hexText.toUtf8().constData());
+                            has_changed |= 1;
+                        }
+                        break;
+                    }
+                case CONFIG_MAC:
+                    {
+                        const auto *lineEdit = dc.findChild<QLineEdit *>(config->name);
+                        // Store the mac address as lowercase
+                        auto macText     = lineEdit->displayText().toLower();
+                        int  mac_changed = 0;
+                        if (config_get_mac(device_context.name, config->name,
+                                           config->default_int) & 0xFF000000)
+                            mac_changed |= 1;
+                        else
+                            mac_changed |= strcasecmp(config_get_string(device_context.name, config->name,
+                                                                        const_cast<char *>(config->default_string)),
+                                                                        macText.toUtf8().constData());
+                        if (mac_changed) {
+                            config_set_string(device_context.name, config->name, macText.toUtf8().constData());
+                            has_changed |= 1;
+                        }
+                        break;
+                    }
+            }
+            config++;
+        }
+    }
 
     return has_changed;
 }
@@ -887,14 +1059,18 @@ DeviceConfig::DeviceName(const _device_ *device, const char *internalName, const
 
 
 void
-DeviceConfigPanel::onBiosChanged(int index)
+DeviceConfig::on_comboIndexChanged(int)
 {
-    if ((cboxMemory != nullptr) && (cboxBios != nullptr) &&
-        (cfgMemory != nullptr)  && (cfgBios != nullptr)) {
-        int      idx        = index; /* cboxBios->currentData().toInt(); */
-        int      mem        = cboxMemory->currentData().toInt();
-        char *   bios_name  = const_cast<char *>(cfgBios->bios[idx].internal_name);
-        uint64_t bios_flags = device_get_bios_flags(dev, bios_name);
+    if ((cbox_bios == nullptr) || (cfg_bios == nullptr) || (cbox_bios->currentIndex() < 0))
+        return;
+
+    const int bios_idx = cbox_bios->currentData().toInt();
+
+    if ((cbox_memory != nullptr) && (cbox_bios != nullptr) &&
+        (cfg_memory != nullptr)  && (cfg_bios != nullptr)) {
+        int      mem        = cbox_memory->currentData().toInt();
+        char *   bios_name  = const_cast<char *>(cfg_bios->bios[bios_idx].internal_name);
+        uint64_t bios_flags = device_get_bios_flags(cfg_dev, bios_name);
         uint16_t min_mem    = 0;
         uint16_t max_mem    = 65535;
         int      rows       = 0;
@@ -939,12 +1115,11 @@ DeviceConfigPanel::onBiosChanged(int index)
             cboxMemory->setEnabled(false);
     }
 
-    if ((cboxMemory2 != nullptr) && (cboxBios != nullptr) &&
-        (cfgMemory2 != nullptr)  && (cfgBios != nullptr)) {
-        int      idx        = index; /* cboxBios->currentData().toInt(); */
-        int      mem        = cboxMemory2->currentData().toInt();
-        char *   bios_name  = const_cast<char *>(cfgBios->bios[idx].internal_name);
-        uint64_t bios_flags = device_get_bios_flags(dev, bios_name);
+    if ((cbox_memory_2 != nullptr) && (cbox_bios != nullptr) &&
+        (cfg_memory_2 != nullptr)  && (cfg_bios != nullptr)) {
+        int      mem        = cbox_memory_2->currentData().toInt();
+        char *   bios_name  = const_cast<char *>(cfg_bios->bios[bios_idx].internal_name);
+        uint64_t bios_flags = device_get_bios_flags(cfg_dev, bios_name);
         uint16_t min_mem    = 0;
         uint16_t max_mem    = 65535;
         int      rows       = 0;
