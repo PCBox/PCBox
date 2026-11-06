@@ -193,3 +193,17 @@ nv4_pmc_update_irq(nv4_t *nv4)
 {
     abort();
 }
+
+int
+nv4_dma_translate(nv4_t *card, uint32_t inst, uint32_t offset, int write, uint32_t *addr, int *target)
+{
+    *addr = offset + 3; /* adjusted pages and wrapped VRAM */
+    *target = 0;
+    return offset <= dma_test_limit ? NV4_DMA_OK : NV4_DMA_FAULT;
+}
+
+uint32_t
+nv4_dma_page_left(nv4_t *card, uint32_t inst, uint32_t offset)
+{
+    return 4096 - ((offset + 3) & 4095);
+}

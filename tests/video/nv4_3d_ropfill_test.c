@@ -41,6 +41,7 @@
     } while (0)
 
 static int failures;
+static int pending_gpu;
 
 /* What the 3D code reaches outside itself: nothing here textures,
    threads or uses the GPU lane. */
@@ -162,9 +163,7 @@ int
 nv4_gpu_pending_overlaps(struct nv4_gpu_s *g, uint32_t lo, uint32_t hi)
 {
     (void) g;
-    (void) lo;
-    (void) hi;
-    return 0;
+    return pending_gpu && lo <= COL_BASE + 3 && hi >= COL_BASE;
 }
 
 void
@@ -379,10 +378,35 @@ test_ropfill(void)
         }
 }
 
+static void
+test_upload_ordering(void)
+{
+    card_new();
+    nv4_3d_batch_t *b = nv4->batch3d;
+    /* A small upload can join a frame already submitted to the GPU. */
+    b->gpu = (struct nv4_gpu_s *) b;
+    pending_gpu = 1;
+    CHECK(nv4_3d_joins(nv4, COL_BASE, 256, COL_BASE, COL_BASE + 3));
+    CHECK(!nv4_3d_joins(nv4, Z_BASE, 256, Z_BASE, Z_BASE + 3));
+    CHECK(nv4_3d_fill(nv4, COL_BASE, 256, COL_BASE + 0xffff, 4, 0, 0, 1, 1, 0x12345678));
+    CHECK(b->nspans == 1);
+    /* An upload overwriting a sampled texture must flush earlier work,
+       even when it could otherwise join the same destination layout. */
+    pending_gpu = 0;
+    b->gpu = NULL;
+    b->tex_lo = COL_BASE;
+    b->tex_hi = COL_BASE + 3;
+    CHECK(!nv4_3d_fill(nv4, COL_BASE, 256, COL_BASE + 0xffff, 4, 0, 0, 1, 1, 0xabcdef01));
+    CHECK(b->nspans == 0);
+    CHECK(rd(COL_BASE, 4) == 0x12345678);
+    card_free();
+}
+
 int
 main(void)
 {
     test_ropfill();
+    test_upload_ordering();
     if (failures)
         fprintf(stderr, "%d failure(s)\n", failures);
     else

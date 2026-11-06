@@ -2109,7 +2109,10 @@ nv4_3d_joins(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lo, uint32_t hi
 {
     nv4_3d_batch_t *b = nv4->batch3d;
 
-    return b && (b->nspans > 0) && (!b->parallel || (nv4_3d_region_find(b, base, pitch, lo, hi) >= 0));
+    if (!b)
+        return 0;
+    return ((b->nspans > 0) && (!b->parallel || (nv4_3d_region_find(b, base, pitch, lo, hi) >= 0)))
+        || (b->gpu && nv4_gpu_pending_overlaps(b->gpu, lo, hi));
 }
 
 /* The CPU is about to read or write VRAM bytes lo..hi (a 2D draw):
@@ -2186,8 +2189,14 @@ nv4_3d_fill_words(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lim, int b
     st.cy1       = y1;
     nv4_3d_reach(&st, base, pitch, &lo, &hi);
 
+    /* Stores must follow earlier texture reads before joining their batch. */
+    if ((b->tex_lo <= b->tex_hi) && nv4_3d_meets(lo, hi, b->tex_lo, b->tex_hi))
+        nv4_3d_flush(nv4);
+
     big   = b->had3d && ((nv4->vblank_count - b->last3d) <= 2) && ((int64_t) (x1 - x0) * (y1 - y0) >= 65536);
     joins = (b->nspans > 0) && (!b->parallel || (nv4_3d_region_find(b, base, pitch, lo, hi) >= 0));
+    if (!joins && b->gpu)
+        joins = nv4_gpu_pending_overlaps(b->gpu, lo, hi);
     if (!big && !joins)
         return 0;
     if ((b->ntris >= B3D_TRIS) || (b->nspans + (y1 - y0) > B3D_SPANS))

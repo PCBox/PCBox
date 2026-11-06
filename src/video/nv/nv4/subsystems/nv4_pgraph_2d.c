@@ -1582,8 +1582,39 @@ nv4_yuv_to_argb(int y, int u, int v)
     return 0xff000000 | (r << 16) | (g << 8) | b;
 }
 
+/* Translation cache lasts one draw; pixels remain live (source and destination
+   may alias). Split-page words and bus memory retain the DMA helper's behavior. */
+typedef struct {
+    uint32_t first, count, addr, limit;
+} nv4_sifm_reader_t;
+
+static void
+nv4_sifm_read32(nv4_t *nv4, nv4_sifm_reader_t *r, uint32_t dma, uint32_t off, uint32_t *val)
+{
+    if ((uint64_t) off + 3 <= r->limit) {
+        if (off < r->first || (uint64_t) off + 4 > (uint64_t) r->first + r->count) {
+            uint32_t addr;
+            int target;
+            r->count = 0;
+            if (nv4_dma_translate(nv4, dma, off, 0, &addr, &target) == NV4_DMA_OK && target == 0) {
+                r->first = off;
+                r->addr = addr;
+                r->count = nv4_dma_page_left(nv4, dma, off);
+            }
+        }
+        if (off >= r->first && (uint64_t) off + 4 <= (uint64_t) r->first + r->count) {
+            uint32_t addr = r->addr + (off - r->first);
+            *val = 0;
+            for (int i = 0; i < 4; i++)
+                *val |= (uint32_t) nv4->svga.vram[(addr + i) & nv4->vram_mask] << (i * 8);
+            return;
+        }
+    }
+    nv4_dma_read32(nv4, dma, off, val);
+}
+
 static nv4_px_t
-nv4_sifm_fetch(nv4_t *nv4, nv4_gr_chan_t *ch, int cfmt, uint32_t dma, int32_t u, int32_t v)
+nv4_sifm_fetch(nv4_t *nv4, nv4_sifm_reader_t *reader, nv4_gr_chan_t *ch, int cfmt, uint32_t dma, int32_t u, int32_t v)
 {
     uint32_t w     = ch->sifm_in_size & 0xffff;
     uint32_t h     = ch->sifm_in_size >> 16;
@@ -1603,19 +1634,19 @@ nv4_sifm_fetch(nv4_t *nv4, nv4_gr_chan_t *ch, int cfmt, uint32_t dma, int32_t u,
     off = ch->sifm_in_off + (uint32_t) v * pitch;
     switch (cfmt) {
         case CF_Y8:
-            nv4_dma_read32(nv4, dma, (off + u) & ~3u, &val);
+            nv4_sifm_read32(nv4, reader, dma, (off + u) & ~3u, &val);
             return nv4_color((val >> (((off + u) & 3) * 8)) & 0xff, cfmt);
         case CF_A1R5G5B5:
         case CF_X1R5G5B5:
         case CF_R5G6B5:
-            nv4_dma_read32(nv4, dma, (off + u * 2) & ~3u, &val);
+            nv4_sifm_read32(nv4, reader, dma, (off + u * 2) & ~3u, &val);
             return nv4_color((val >> (((off + u * 2) & 2) * 8)) & 0xffff, cfmt);
         case CF_YUYV:
         case CF_UYVY:
             {
                 int y0, y1, cu, cv;
 
-                nv4_dma_read32(nv4, dma, off + (u & ~1) * 2, &val);
+                nv4_sifm_read32(nv4, reader, dma, off + (u & ~1) * 2, &val);
                 if (cfmt == CF_YUYV) {
                     y0 = val & 0xff;
                     cu = (val >> 8) & 0xff;
@@ -1632,7 +1663,7 @@ nv4_sifm_fetch(nv4_t *nv4, nv4_gr_chan_t *ch, int cfmt, uint32_t dma, int32_t u,
                 return p;
             }
         default:
-            nv4_dma_read32(nv4, dma, off + u * 4, &val);
+            nv4_sifm_read32(nv4, reader, dma, off + u * 4, &val);
             return nv4_color(val, cfmt);
     }
 }
@@ -1670,6 +1701,8 @@ nv4_sifm_draw(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t point)
 
     if (!dma || !nv4_draw_begin(nv4, &d, 1, 1))
         return;
+    nv4_sifm_reader_t reader = {0};
+    reader.limit = nv4_dma_limit(nv4, dma);
     if (center) {
         u0 += ch->sifm_dudx / 2;
         v0 += ch->sifm_dvdy / 2;
@@ -1694,11 +1727,11 @@ nv4_sifm_draw(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t point)
 
             if ((ch->sifm_x + (int32_t) ox < d.cx0) || (ch->sifm_x + (int32_t) ox >= d.cx1))
                 continue;
-            p = nv4_sifm_fetch(nv4, ch, cfmt, dma, iu, iv);
+            p = nv4_sifm_fetch(nv4, &reader, ch, cfmt, dma, iu, iv);
             if (foh && (fu || fv)) {
-                uint32_t t0 = nv4_lerp8888(p.argb, nv4_sifm_fetch(nv4, ch, cfmt, dma, iu + 1, iv).argb, fu);
-                uint32_t t1 = nv4_lerp8888(nv4_sifm_fetch(nv4, ch, cfmt, dma, iu, iv + 1).argb,
-                                           nv4_sifm_fetch(nv4, ch, cfmt, dma, iu + 1, iv + 1).argb, fu);
+                uint32_t t0 = nv4_lerp8888(p.argb, nv4_sifm_fetch(nv4, &reader, ch, cfmt, dma, iu + 1, iv).argb, fu);
+                uint32_t t1 = nv4_lerp8888(nv4_sifm_fetch(nv4, &reader, ch, cfmt, dma, iu, iv + 1).argb,
+                                           nv4_sifm_fetch(nv4, &reader, ch, cfmt, dma, iu + 1, iv + 1).argb, fu);
 
                 p.argb = nv4_lerp8888(t0, t1, fv);
                 p.raw  = ((cfmt == CF_Y8) || (cfmt == CF_X24Y8)) ? (p.argb & 0xff) : p.argb;

@@ -3,7 +3,8 @@
 
 static uint32_t touch_lo, touch_hi, touch_count;
 static uint8_t dma_source[16384], dma_dest[16384];
-static uint32_t dma_test_limit, dma_reads;
+static uint32_t dma_test_limit, dma_reads, dma_translations;
+static int dma_target;
 
 uint32_t
 nv4_dma_limit(nv4_t *nv4, uint32_t inst)
@@ -160,6 +161,42 @@ main(void)
                 abort();
         }
     }
+    /* Cache translations, not pixels: adjusted page boundaries, VRAM wrap,
+       live aliases and DMA limits must match uncached reads. */
+    {
+        nv4_sifm_reader_t r = {0};
+        r.limit = dma_test_limit = 8191;
+        for (unsigned i = 0; i < sizeof(vram); i++)
+            vram[i] = i * 37 + (i >> 8);
+        for (unsigned off = 0; off < 8200; off++) {
+            uint32_t got = 0, want = 0;
+            if (off + 3 > r.limit)
+                continue;
+            nv4_sifm_read32(card, &r, 1, off, &got);
+            for (int j = 0; j < 4; j++)
+                want |= (uint32_t) vram[(off + 3 + j) & 4095] << (8 * j);
+            if (got != want)
+                abort();
+            vram[(off + 3) & 4095] ^= 0xff;
+            nv4_sifm_read32(card, &r, 1, off, &got);
+            if (got != (want ^ 0xff))
+                abort();
+        }
+        if (dma_translations > 20)
+            abort();
+        /* Bus sources and faulting words keep the generic read behavior. */
+        dma_target = 2;
+        r.count = 0;
+        uint32_t got = 0, want = 0;
+        nv4_sifm_read32(card, &r, 1, 19, &got);
+        nv4_dma_read32(card, 1, 19, &want);
+        if (got != want || r.count)
+            abort();
+        got = 0x12345678;
+        nv4_sifm_read32(card, &r, 1, 8190, &got);
+        if (got != 0x12345678)
+            abort();
+    }
     free(card);
     if (accepted < 1000)
         return 1;
@@ -213,7 +250,13 @@ nv4_3d_copy(nv4_t *nv4, uint32_t src, uint32_t dst, uint32_t spitch, uint32_t dp
 int
 nv4_dma_read32(nv4_t *nv4, uint32_t inst, uint32_t offset, uint32_t *val)
 {
-    abort();
+    dma_reads++;
+    if ((uint64_t) offset + 3 > dma_test_limit)
+        return NV4_DMA_FAULT;
+    *val = 0;
+    for (int i = 0; i < 4; i++)
+        *val |= (uint32_t) nv4->svga.vram[(offset + 3 + i) & nv4->vram_mask] << (i * 8);
+    return NV4_DMA_OK;
 }
 
 int
@@ -246,4 +289,19 @@ void
 nv4_pmc_update_irq(nv4_t *nv4)
 {
     abort();
+}
+
+int
+nv4_dma_translate(nv4_t *card, uint32_t inst, uint32_t offset, int write, uint32_t *addr, int *target)
+{
+    *addr = offset + 3; /* adjusted pages and wrapped VRAM */
+    *target = dma_target;
+    dma_translations++;
+    return offset <= dma_test_limit ? NV4_DMA_OK : NV4_DMA_FAULT;
+}
+
+uint32_t
+nv4_dma_page_left(nv4_t *card, uint32_t inst, uint32_t offset)
+{
+    return 4096 - ((offset + 3) & 4095);
 }
