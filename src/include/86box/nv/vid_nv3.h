@@ -1695,6 +1695,7 @@ void        nv3_notify_if_needed(uint32_t name, uint32_t method_id, nv3_ramin_co
 void        nv3_write_notifier(nv3_grobj_t grobj, uint32_t index, uint16_t status, uint32_t info32, uint16_t info16);
 void        nv3_write_notifier_to(uint32_t inst, uint32_t index, uint16_t status, uint32_t info32, uint16_t info16);
 uint32_t    nv3_dma_read8(uint32_t inst, uint32_t offset);                              // a byte at offset in a DMA object
+uint32_t    nv3_dma_map_pages(uint32_t inst, uint32_t offset, uint32_t *addr, uint32_t pages, uint32_t *lin);
 void        nv3_dma_write8(uint32_t inst, uint32_t offset, uint8_t val);
 
 // NV3 PFIFO

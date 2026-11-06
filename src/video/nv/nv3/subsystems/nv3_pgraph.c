@@ -610,9 +610,11 @@ void nv3_pgraph_submit(uint32_t param, uint16_t method, uint8_t channel, uint8_t
        need it, nor image in memory (0x1C: surface offset, pitch and format). The zeta point (0x18)
        waits itself, and so do the rectangle (0x07) and GDI (0x0C) classes: most of their methods
        only set state, their rectangles join the batch or wait only for 3D work on their rows
-       (nv3_render_fill), the GDI bitmaps wait. So does the blit (0x10), when it draws. */
+       (nv3_render_fill), the GDI bitmaps wait. The blit (0x10) and image upload (0x11)
+       likewise wait for the affected surfaces when they draw. */
     if ((method > NV3_SET_NOTIFY) && (class_id > nv3_pgraph_class06_pattern) && (class_id != nv3_pgraph_class07_rectangle)
-        && (class_id != nv3_pgraph_class0c_w95txt) && (class_id != nv3_pgraph_class10_blit) && (class_id != nv3_pgraph_class1c_image_in_memory)
+        && (class_id != nv3_pgraph_class0c_w95txt) && (class_id != nv3_pgraph_class10_blit) && (class_id != nv3_pgraph_class11_image)
+        && (class_id != nv3_pgraph_class1c_image_in_memory)
         && (class_id != nv3_pgraph_class17_d3d5tri_zeta_buffer) && (class_id != nv3_pgraph_class18_point_zeta_buffer))
         nv3_d3d_sync(NV3_SYNC_CLASS + (class_id & 0x1F));
 

@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <86box/86box.h>
 #include <86box/device.h>
+#include <86box/dma.h>
 #include <86box/mem.h>
 #include <86box/pci.h>
 #include <86box/rom.h>
@@ -46,22 +47,44 @@ nv3_sifm_clamp(int32_t v)
     return (v < 0) ? 0 : ((v > 255) ? 255 : v);
 }
 
+/* Cache the current DMA page for this draw only: RAMIN may change between methods.
+   Keep accesses byte-sized so pixels straddling pages and VRAM wrap retain their semantics. */
+typedef struct {
+    uint32_t inst, adjust, page, addr, target;
+} nv3_sifm_reader_t;
+
+static uint32_t
+nv3_sifm_read(nv3_sifm_reader_t *r, uint32_t offset)
+{
+    uint32_t linear = r->adjust + offset;
+    if ((linear >> 12) != r->page) {
+        uint32_t lin;
+        r->target = nv3_dma_map_pages(r->inst, offset, &r->addr, 1, &lin);
+        r->page = lin >> 12;
+    }
+    uint32_t addr = r->addr | (linear & 0xFFF);
+    if (r->target == NV3_DMA_TARGET_NODE_VRAM)
+        return nv3->nvbase.svga.vram[addr & nv3->nvbase.svga.vram_mask];
+    uint8_t val = 0;
+    dma_bm_read(addr, &val, 1, 1);
+    return val;
+}
+
 /* A source pixel as a colour in the object's format; YUV becomes R8G8B8 */
 static nv3_color_expanded_t
-nv3_sifm_fetch(nv3_grobj_t grobj, uint32_t u, uint32_t v)
+nv3_sifm_fetch(nv3_sifm_reader_t *reader, nv3_grobj_t grobj, uint32_t u, uint32_t v)
 {
-    uint32_t inst   = nv3->pgraph.dma_settings & 0xFFFF;
     uint32_t format = grobj.grobj_0 & 0x07;
     uint32_t row    = nv3_sifm.offset + v * nv3_sifm.pitch;
     uint32_t raw;
 
     switch (format) {
         case nv3_pgraph_pixel_format_y8:
-            raw = nv3_dma_read8(inst, row + u);
+            raw = nv3_sifm_read(reader, row + u);
             break;
         case nv3_pgraph_pixel_format_r5g5b5:
         case nv3_pgraph_pixel_format_y16:
-            raw = nv3_dma_read8(inst, row + u * 2) | (nv3_dma_read8(inst, row + u * 2 + 1) << 8);
+            raw = nv3_sifm_read(reader, row + u * 2) | (nv3_sifm_read(reader, row + u * 2 + 1) << 8);
             break;
         case nv3_pgraph_pixel_format_v8y8u8y18:
         case nv3_pgraph_pixel_format_y18v8y8u8:
@@ -70,7 +93,7 @@ nv3_sifm_fetch(nv3_grobj_t grobj, uint32_t u, uint32_t v)
             uint32_t pair = row + (u & ~1) * 2;
             uint8_t  b[4];
             for (int i = 0; i < 4; i++)
-                b[i] = nv3_dma_read8(inst, pair + i);
+                b[i] = nv3_sifm_read(reader, pair + i);
 
             int32_t y, cb, cr;
             if (format == nv3_pgraph_pixel_format_v8y8u8y18) {
@@ -96,7 +119,7 @@ nv3_sifm_fetch(nv3_grobj_t grobj, uint32_t u, uint32_t v)
         default:
             raw = 0;
             for (int i = 0; i < 4; i++)
-                raw |= nv3_dma_read8(inst, row + u * 4 + i) << (i * 8);
+                raw |= nv3_sifm_read(reader, row + u * 4 + i) << (i * 8);
             break;
     }
     return nv3_render_expand_color(raw, grobj);
@@ -143,11 +166,17 @@ void nv3_class_00e_method(uint32_t param, uint32_t method_id, nv3_ramin_context_
             break;
         case 0x040C:
         {
+            nv3_render_setup_t st;
+            nv3_sifm_reader_t reader = {0};
             int64_t u0 = (int64_t) (int16_t) (param & 0xFFFF) << 16;
             int64_t v0 = (int64_t) (int16_t) (param >> 16) << 16;
 
             if (!nv3_sifm.src_w || !nv3_sifm.src_h)
                 break;
+            reader.inst = nv3->pgraph.dma_settings & 0xFFFF;
+            reader.target = nv3_dma_map_pages(reader.inst, 0, &reader.addr, 1, &reader.adjust);
+            reader.page = reader.adjust >> 12;
+            nv3_render_setup(&st, grobj, true);
             for (uint32_t dy = 0; dy < nv3_sifm.h; dy++) {
                 int32_t y = nv3_sifm.y + (int32_t) dy;
                 if (y < nv3_sifm.clip_y || y >= nv3_sifm.clip_y + (int32_t) nv3_sifm.clip_h)
@@ -162,7 +191,7 @@ void nv3_class_00e_method(uint32_t param, uint32_t method_id, nv3_ramin_context_
 
                     int64_t u = (u0 + (int64_t) dx * nv3_sifm.dudx) >> 20;
                     u         = (u < 0) ? 0 : ((u >= nv3_sifm.src_w) ? nv3_sifm.src_w - 1 : u);
-                    nv3_render_pixel_ex(x, y, nv3_sifm_fetch(grobj, (uint32_t) u, (uint32_t) v), grobj, true);
+                    nv3_render_pixel_st(&st, x, y, nv3_sifm_fetch(&reader, grobj, (uint32_t) u, (uint32_t) v));
                 }
             }
             break;

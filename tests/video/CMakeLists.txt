@@ -96,6 +96,7 @@ if(BUILD_TESTING)
 
     add_executable(nv3_control_tests
         nv3_control_test.c
+        ../../src/video/nv/nv3/classes/nv3_class_00e_scaled_image_from_mem.c
         ../../src/video/nv/nv3/subsystems/nv3_pmc.c
         ../../src/video/nv/nv3/subsystems/nv3_pme.c
         ../../src/video/nv/nv3/subsystems/nv3_pfifo.c
@@ -111,6 +112,18 @@ if(BUILD_TESTING)
         ${PROJECT_BINARY_DIR}/src/include
     )
     add_test(NAME NV3.Control COMMAND nv3_control_tests)
+
+    add_executable(nv3_image_tests
+        nv3_image_test.c
+        ../../src/video/nv/nv3/render/nv3_render_core.c
+        ../../src/video/nv/nv3/render/nv3_render_blit.c
+    )
+    target_include_directories(nv3_image_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/include
+        ${PROJECT_SOURCE_DIR}/src/cpu
+        ${PROJECT_BINARY_DIR}/src/include
+    )
+    add_test(NAME NV3.Image COMMAND nv3_image_tests)
 
     add_executable(nv4_2d_upload_tests nv4_2d_upload_test.c)
     target_include_directories(nv4_2d_upload_tests PRIVATE

@@ -81,8 +81,6 @@
 #include <86box/nv/vid_nv3.h>
 #include "nv3_render_d3d.h"
 
-uint32_t nv3_dma_map_pages(uint32_t inst, uint32_t offset, uint32_t *addr, uint32_t pages, uint32_t *lin);
-
 /* D3D CONTROL0 (method 0x314) fields of class 0x17, the D3D triangle with zeta buffer */
 #define NV3_D3D_CONFIG_INTERP(c)      ((c) & 3)          /* 0 ZOH, 1 ZOH_MS, 2 FOH */
 #define NV3_D3D_CONFIG_WRAP_U(c)      (((c) >> 4) & 3)   /* 0 cylindrical, 1 wrap, 2 mirror, 3 clamp */
@@ -1326,11 +1324,24 @@ nv3_d3d_fill(int32_t x0, int32_t y0, int32_t x1, int32_t y1, nv3_color_expanded_
     st.cy1 = y1;
     n      = nv3_d3d_layouts(&st, idx);
 
+    /* A CPU upload can replace texels used by earlier triangles. Preserve their reads
+       before appending the stores, just as the immediate CPU path's touch does. */
+    for (int i = 0; (b->tex_lo <= b->tex_hi) && (i < n); i++) {
+        nv3_d3d_reach(&st, st.boff[idx[i]], st.bpitch[idx[i]], &lo, &hi);
+        if (nv3_d3d_meets(lo, hi, b->tex_lo, b->tex_hi))
+            nv3_d3d_flush();
+    }
     joins = b->nstates > 0;
     for (int i = 0; joins && b->parallel && (i < n); i++) {
         nv3_d3d_reach(&st, st.boff[idx[i]], st.bpitch[idx[i]], &lo, &hi);
         joins = nv3_d3d_region_find(b, st.boff[idx[i]], st.bpitch[idx[i]], lo, hi) >= 0;
     }
+    /* Small CPU image uploads over a submitted 3D frame can follow it on the GPU too. */
+    if (!joins && b->gpu)
+        for (int i = 0; !joins && (i < n); i++) {
+            nv3_d3d_reach(&st, st.boff[idx[i]], st.bpitch[idx[i]], &lo, &hi);
+            joins = nv3_gpu_pending_overlaps(b->gpu, lo, hi);
+        }
     big = b->had3d && ((b->vblanks - b->last3d) <= 2) && ((int64_t) (x1 - x0) * (y1 - y0) >= 65536);
     if (!joins && !big)
         return false;
