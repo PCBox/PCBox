@@ -112,6 +112,13 @@ if(BUILD_TESTING)
     )
     add_test(NAME NV3.Control COMMAND nv3_control_tests)
 
+    add_executable(nv4_2d_upload_tests nv4_2d_upload_test.c)
+    target_include_directories(nv4_2d_upload_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/include
+        ${PROJECT_BINARY_DIR}/src/include
+    )
+    add_test(NAME NV4.Upload2D COMMAND nv4_2d_upload_tests)
+
     add_executable(nv4_2d_sync_tests nv4_2d_sync_test.c)
     target_include_directories(nv4_2d_sync_tests PRIVATE
         ${PROJECT_SOURCE_DIR}/src/include

@@ -95,8 +95,10 @@ nv4_pcrtc_write(nv4_t *nv4, uint32_t addr, uint32_t val)
         case NV4_PCRTC_START_ADDR:
             /* a flip: the buffer now shown was drawn frames ago, so the
                frame must be redrawn whole, not just its changed rows */
-            if ((val & 0x01fffffc) != nv4->pcrtc_start)
+            if ((val & 0x01fffffc) != nv4->pcrtc_start) {
+                nv4_3d_flush(nv4);
                 nv4->svga.fullchange = nv4->svga.monitor->mon_changeframecount;
+            }
             nv4->pcrtc_start     = val & 0x01fffffc;
             nv4->pcrtc_start_vga = 0;
             svga_recalctimings(&nv4->svga);
@@ -149,6 +151,7 @@ nv4_pcrtc_crtc_start_write(nv4_t *nv4, uint8_t idx)
       | ((uint32_t) (crtc[NV4_CR_RPC0] & 0x1f) << 18)
       | ((uint32_t) ((crtc[NV4_CR_HEB] >> 5) & 1) << 23);
     if (s != nv4->pcrtc_start) {
+        nv4_3d_flush(nv4);
         nv4->pcrtc_start     = s;
         nv4->svga.fullchange = nv4->svga.monitor->mon_changeframecount;
         svga_recalctimings(&nv4->svga);
@@ -217,17 +220,53 @@ nv4_gamma_check(svga_t *svga, int which)
 }
 
 static void
+nv4_render_gamma_line(svga_t *svga, int which, void (*generic)(svga_t *svga))
+{
+    const uint32_t *tab = ((nv4_t *) svga->priv)->gamma_table[which];
+    uint32_t        changed_addr;
+    uint32_t       *p;
+    int             x;
+
+    if (svga->force_old_addr || svga->remap_required) {
+        generic(svga);
+        return;
+    }
+    if (((svga->displine + svga->y_add) < 0) || (svga->monitor->target_buffer == NULL)
+        || (svga->monitor->target_buffer->line[svga->displine + svga->y_add] == NULL))
+        return;
+
+    changed_addr = svga->remap_func(svga, svga->memaddr);
+    if (!(svga->changedvram[changed_addr >> 12] || svga->changedvram[(changed_addr >> 12) + 1] || svga->fullchange))
+        return;
+    p = &svga->monitor->target_buffer->line[svga->displine + svga->y_add][svga->x_add];
+    if (svga->firstline_draw == 2000)
+        svga->firstline_draw = svga->displine;
+    svga->lastline_draw = svga->displine;
+
+    for (x = 0; x <= (svga->hdisp + svga->scrollcache); x += 8) {
+        for (int i = 0; i < 16; i += 4) {
+            uint32_t dat = *(uint32_t *) (&svga->vram[(svga->memaddr + (x << 1) + i) & svga->vram_display_mask]);
+
+            *p++ = tab[dat & 0xffff];
+            *p++ = tab[dat >> 16];
+        }
+    }
+    svga->memaddr += x << 1;
+    svga->memaddr &= svga->vram_display_mask;
+}
+
+static void
 nv4_render_15bpp_gamma(svga_t *svga)
 {
     nv4_gamma_check(svga, 0);
-    svga_render_15bpp_highres(svga);
+    nv4_render_gamma_line(svga, 0, svga_render_15bpp_highres);
 }
 
 static void
 nv4_render_16bpp_gamma(svga_t *svga)
 {
     nv4_gamma_check(svga, 1);
-    svga_render_16bpp_highres(svga);
+    nv4_render_gamma_line(svga, 1, svga_render_16bpp_highres);
 }
 
 void

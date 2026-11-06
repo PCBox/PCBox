@@ -532,6 +532,136 @@ test_adjacent_depth(void)
     card_free();
 }
 
+static void
+test_notify_batch(void)
+{
+    card_new();
+    surfaces(0, 0, 0, 64, 0);
+    dx5_state(0);
+    rect(0, 0, 4, 2, 0.5f, 0xff778899);
+    int spans = nv4->batch3d->nspans;
+    CHECK(spans > 0);
+    nv4_3d_notify(nv4);
+    CHECK(nv4->batch3d->nspans == spans);
+    CHECK(rd32(COL_BASE) == 0);
+    /* System-memory input must be captured before notifying completion. */
+    nv4->batch3d->bus_tex = 1;
+    nv4_3d_notify(nv4);
+    CHECK(nv4->batch3d->nspans == 0);
+    CHECK(rd32(COL_BASE) == 0xff778899);
+    card_free();
+}
+
+/* The driver can leave an aliasing placeholder depth surface enabled. */
+static void
+test_unused_depth(void)
+{
+    card_new();
+    nv4->batch3d->parallel = 1;
+    for (int func = 0; func < 16; func++) {
+        surfaces(0, 0, 0, 64, 1);
+        NV4_GR(nv4, NV4_PGRAPH_BPITCH + 3 * 4) = 16;
+        dx5_state(0);
+        mthd(0x314, (1u << 14) | ((uint32_t) func << 16));
+        rect(0, 0, 4, 2, 0.5f, 0xff778899);
+        int unused = func == 0 || func >= 8;
+        CHECK(nv4->batch3d->states[0].z_on == !unused);
+        CHECK(nv4->batch3d->serial == !unused);
+    }
+    card_free();
+}
+
+static void
+test_deferred_copy(void)
+{
+    card_new();
+    nv4_3d_batch_t *b = nv4->batch3d;
+    for (int trigger = 0; trigger < 5; trigger++) {
+        memset(nv4->svga.vram + COL_BASE, 0x35 + trigger, 128);
+        memset(nv4->svga.vram + Z_BASE, 0, 128);
+        b->fly.busy    = 1;
+        b->fly.nranges = 1;
+        b->fly.lo[0]   = COL_BASE;
+        b->fly.hi[0]   = COL_BASE + 127;
+        CHECK(nv4_3d_copy(nv4, COL_BASE, Z_BASE, 64, 64, 16, 2));
+        CHECK(b->copy.pending);
+        CHECK(nv4->svga.vram[Z_BASE] == 0);
+        nv4_3d_touch(nv4, 0, 15, 0);
+        CHECK(b->copy.pending);
+        if (trigger == 0)
+            nv4_3d_touch(nv4, COL_BASE, COL_BASE, 0);
+        else if (trigger == 1)
+            nv4_3d_touch(nv4, Z_BASE, Z_BASE, 0);
+        else if (trigger == 2)
+            nv4_3d_vblank(nv4, Z_BASE, Z_BASE + 127);
+        else if (trigger == 3)
+            nv4_3d_sync(nv4, 0);
+        else
+            nv4_3d_reset(nv4);
+        CHECK(!b->copy.pending);
+        CHECK(!b->fly.busy);
+        for (int y = 0; y < 2; y++)
+            for (int x = 0; x < 64; x++)
+                CHECK(nv4->svga.vram[Z_BASE + y * 64 + x] == (x < 16 ? 0x35 + trigger : 0));
+        CHECK(nv4->svga.changedvram[Z_BASE >> 12] == mon.mon_changeframecount);
+    }
+    card_free();
+}
+
+/* Compare the generated spans with the original per-pixel integer
+   top-left test, including subpixels, both windings and clipping. */
+static void
+test_triangle_edges(void)
+{
+    uint32_t rng = 0x986723;
+    card_new();
+    surfaces(0, 0, 0, 128, 0);
+    for (int n = 0; n < 3000; n++) {
+        int32_t       X[3], Y[3];
+        unsigned char got[32][32] = { 0 };
+        nv4_3d_flush(nv4);
+        dx5_state(0);
+        mthd(0x314, (n & 1) ? (1u << 13) : 0);
+        for (int i = 0; i < 3; i++) {
+            rng  = rng * 1664525u + 1013904223u;
+            X[i] = (int32_t) (rng % 768) - 128;
+            rng  = rng * 1664525u + 1013904223u;
+            Y[i] = (int32_t) (rng % 768) - 128;
+            vertex(i, X[i] / 16.0f, Y[i] / 16.0f, 0.5f, 0xff112233);
+        }
+        nv4_3d_triangle(nv4, 0, 0x54, 0, 1, 2);
+        nv4_3d_batch_t *b = nv4->batch3d;
+        for (int i = 0; i < b->nspans; i++) {
+            nv4_3d_span_t *sp = &b->spans[i];
+            for (int x = sp->x0; x < sp->x1 && x < 32; x++)
+                if (sp->y >= 0 && sp->y < 32 && x >= 0)
+                    got[sp->y][x] = 1;
+        }
+        int64_t area = (int64_t) (X[1] - X[0]) * (Y[2] - Y[0]) - (int64_t) (X[2] - X[0]) * (Y[1] - Y[0]);
+        for (int y = 0; y < 32; y++)
+            for (int x = 0; x < 32; x++) {
+                int inside = area != 0;
+                for (int e = 0; e < 3; e++) {
+                    int     c  = (e + 1) % 3;
+                    int64_t ex = X[c] - X[e], ey = Y[c] - Y[e];
+                    if (area > 0) {
+                        ex = -ex;
+                        ey = -ey;
+                    }
+                    int     off = (n & 1) ? 8 : 0;
+                    int64_t v   = ey * (x * 16 + off - X[e]) - ex * (y * 16 + off - Y[e]);
+                    int     tl  = ey > 0 || (ey == 0 && ex < 0);
+                    inside &= tl ? v >= 0 : v > 0;
+                }
+                if (got[y][x] != inside) {
+                    fprintf(stderr, "triangle %d pixel %d,%d: got %d expected %d\n", n, x, y, got[y][x], inside);
+                    exit(1);
+                }
+            }
+    }
+    card_free();
+}
+
 int
 main(void)
 {
@@ -541,6 +671,10 @@ main(void)
     test_pitch();
     test_batch_split();
     test_adjacent_depth();
+    test_notify_batch();
+    test_unused_depth();
+    test_deferred_copy();
+    test_triangle_edges();
     if (failures)
         fprintf(stderr, "%d failure(s)\n", failures);
     else

@@ -29,6 +29,20 @@ MPEG decoder. PME semantics follow the RIVA 128 PRM Alpha 9 sections 6.2/6.3;
 GDI methods follow the class description on pages 280-287. RAMRO encoding is
 also documented in envytools `rnndb/fifo/nv1_pfifo.xml`.
 
+## RIVA TNT rendering
+
+With `BUILD_TESTING=ON`, run `ctest --test-dir build -R '^NV4\.' --output-on-failure`.
+`NV4.Upload2D` compares plain image words with the pixel pipeline, including
+formats, clipping, image position, dirty pages and engine byte accounting.
+It also checks rectangle dependency ranges (including VRAM wrapping) and
+M2MF bulk input against byte reads with pitches, strides and truncated DMA limits.
+`NV4.Swizzle3D` also checks unused depth surfaces, notify batch retention,
+deferred row copies and 3,000 randomized triangles against the original
+integer top-left coverage test. Deferred copies are checked on source and
+destination access, scan-out, synchronization and reset. `NV4.Gpu3D` compares
+GPU output with CPU output, including reused and changed texture bytes; it
+skips itself when no Vulkan device is available.
+
 ## RIVA TNT 2D synchronization
 
 `NV4.Sync2D` checks rectangle dependency ranges, conservative synchronization

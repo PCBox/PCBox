@@ -41,6 +41,7 @@
 #include <86box/vid_ddc.h>
 #include <86box/plat_unused.h>
 #include <86box/nv/vid_nv4.h>
+#include "cpu.h"
 
 /* CPU access to the framebuffer sees the 3D engine's pixels: the work
    that reaches the <n> bytes at VRAM offset <a> is drawn and waited for */
@@ -368,10 +369,13 @@ nv4_mmio_write(nv4_t *nv4, uint32_t addr, uint32_t val, int len)
     nv4_reg_write32(nv4, addr & ~3, val);
 }
 
+/* Charge only CPU mapping accesses; PBUS RMA and internal dispatch use
+   nv4_mmio_read/write directly and must not pay a second bus transaction. */
 static uint8_t
 nv4_mmio_readb(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    cycles -= nv4->svga.monitor->mon_video_timing_read_b;
     return nv4_mmio_read(nv4, addr - nv4->mmio_base, 1);
 }
 
@@ -379,6 +383,7 @@ static uint16_t
 nv4_mmio_readw(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    cycles -= nv4->svga.monitor->mon_video_timing_read_w;
     return nv4_mmio_read(nv4, addr - nv4->mmio_base, 2);
 }
 
@@ -386,6 +391,7 @@ static uint32_t
 nv4_mmio_readl(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    cycles -= nv4->svga.monitor->mon_video_timing_read_l;
     return nv4_mmio_read(nv4, addr - nv4->mmio_base, 4);
 }
 
@@ -393,6 +399,7 @@ static void
 nv4_mmio_writeb(uint32_t addr, uint8_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    cycles -= nv4->svga.monitor->mon_video_timing_write_b;
     nv4_mmio_write(nv4, addr - nv4->mmio_base, val, 1);
 }
 
@@ -400,6 +407,7 @@ static void
 nv4_mmio_writew(uint32_t addr, uint16_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    cycles -= nv4->svga.monitor->mon_video_timing_write_w;
     nv4_mmio_write(nv4, addr - nv4->mmio_base, val, 2);
 }
 
@@ -407,6 +415,7 @@ static void
 nv4_mmio_writel(uint32_t addr, uint32_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
+    cycles -= nv4->svga.monitor->mon_video_timing_write_l;
     nv4_mmio_write(nv4, addr - nv4->mmio_base, val, 4);
 }
 

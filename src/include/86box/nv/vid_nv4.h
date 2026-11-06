@@ -779,4 +779,7 @@ extern uint32_t nv4_pme_read(nv4_t *nv4, uint32_t addr);
 extern void     nv4_pme_write(nv4_t *nv4, uint32_t addr, uint32_t val);
 extern uint32_t nv4_pme_pending(nv4_t *nv4);
 
+extern void nv4_3d_notify(nv4_t *nv4);
+extern int  nv4_3d_copy(nv4_t *nv4, uint32_t src, uint32_t dst, uint32_t spitch, uint32_t dpitch, uint32_t len, uint32_t rows);
+
 #endif /* VIDEO_NV4_H */

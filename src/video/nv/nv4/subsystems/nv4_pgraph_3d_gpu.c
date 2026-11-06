@@ -214,7 +214,7 @@ typedef struct nv4_gpu_s {
     uint64_t              seq;
 
     uint32_t      vram_size;
-    /* The texture arena keeps textures across batches: each batch hashes
+    /* The texture arena keeps textures across batches: each batch compares or hashes
        its textures' bytes where they are, and copies only the ones that
        are new or changed. */
     gpu_texent_t  cache[GPU_TEX_CACHE];
@@ -401,7 +401,8 @@ static uint64_t
 gpu_tex_hash(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t)
 {
     uint8_t  tmp[0x1000];
-    uint64_t h = 0x9e3779b97f4a7c15ull ^ t->size;
+    uint64_t h[4] = { 0x9e3779b97f4a7c15ull ^ t->size, 0xc2b2ae3d27d4eb4full,
+                      0x165667b19e3779f9ull, 0x27d4eb2f165667c5ull };
 
     gpu_tex_settle(g, nv4, t);
 
@@ -414,19 +415,53 @@ gpu_tex_hash(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t)
         if (chunk > t->size - done)
             chunk = t->size - done;
         p = gpu_tex_bytes(nv4, t, off, chunk, tmp);
+        for (; i + 32 <= chunk; i += 32) {
+            uint64_t w[4];
+            memcpy(w, p + i, sizeof(w));
+            for (int lane = 0; lane < 4; lane++) {
+                h[lane] = (h[lane] ^ w[lane]) * 0x100000001b3ull;
+                h[lane] ^= h[lane] >> 29;
+            }
+        }
         for (; i + 8 <= chunk; i += 8) {
             uint64_t w;
 
             memcpy(&w, p + i, 8);
-            h = (h ^ w) * 0x100000001b3ull;
-            h ^= h >> 29;
+            h[0] = (h[0] ^ w) * 0x100000001b3ull;
+            h[0] ^= h[0] >> 29;
         }
         for (; i < chunk; i++)
-            h = (h ^ p[i]) * 0x100000001b3ull;
+            h[0] = (h[0] ^ p[i]) * 0x100000001b3ull;
         done += chunk;
     }
     g->hash_bytes += t->size;
-    return h;
+    for (int i = 1; i < 4; i++) {
+        h[0] = (h[0] ^ h[i]) * 0x100000001b3ull;
+        h[0] ^= h[0] >> 29;
+    }
+    return h[0];
+}
+
+/* Cached staging is readable: comparing its exact bytes avoids hashing
+   unchanged textures, and avoids using a hash as proof of equality. */
+static int
+gpu_tex_same(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t base)
+{
+    uint8_t        tmp[0x1000];
+    const uint8_t *stage = (const uint8_t *) g->vk.b[NV_GPU_B_TSTAGE].map + base;
+    gpu_tex_settle(g, nv4, t);
+    for (uint32_t done = 0; done < t->size;) {
+        uint32_t off   = t->offset + done;
+        uint32_t chunk = nv4_dma_page_left(nv4, t->dma, off);
+        if (chunk > t->size - done)
+            chunk = t->size - done;
+        const uint8_t *p = gpu_tex_bytes(nv4, t, off, chunk, tmp);
+        if (memcmp(p, stage + done, chunk))
+            return 0;
+        done += chunk;
+    }
+    g->hash_bytes += t->size;
+    return 1;
 }
 
 /* Copy a texture's bytes into the arena's staging at <base>, to upload.
@@ -478,7 +513,8 @@ gpu_tex_copy(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t base)
 static uint32_t
 gpu_gather_tex(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t)
 {
-    uint64_t      h;
+    uint64_t      h    = 0;
+    int           same = 0;
     gpu_texent_t *e = NULL;
 
     for (int i = 0; i < g->nflush_tex; i++) {
@@ -489,12 +525,15 @@ gpu_gather_tex(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t)
     }
     if (!t->size)
         return UINT32_MAX;
-    h = gpu_tex_hash(g, nv4, t);
+    if (!g->vk.b[NV_GPU_B_TSTAGE].cached)
+        h = gpu_tex_hash(g, nv4, t);
     for (int i = 0; i < g->ncache; i++)
         if ((g->cache[i].dma == t->dma) && (g->cache[i].offset == t->offset) && (g->cache[i].size == t->size)) {
             e = &g->cache[i];
             break;
         }
+    if (e)
+        same = g->vk.b[NV_GPU_B_TSTAGE].cached ? gpu_tex_same(g, nv4, t, e->base) : e->hash == h;
     if (!e) {
         if ((g->ncache >= GPU_TEX_CACHE) || (t->size > GPU_TEX_ARENA - g->tex_used))
             return UINT32_MAX;
@@ -506,7 +545,8 @@ gpu_gather_tex(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t)
         e->hash   = ~h; /* not there yet */
         g->tex_used = (e->base + t->size + 3) & ~3u;
     }
-    if (e->hash != h) {
+    if (!same) {
+        gpu_tex_settle(g, nv4, t);
         gpu_tex_copy(g, nv4, t, e->base);
         e->hash = h;
     }

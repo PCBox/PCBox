@@ -530,7 +530,21 @@ nv4_dma_push(nv4_t *nv4)
             uint32_t subc = (p->c1_dma_state >> 13) & 7;
 
             p->c1_dma_data_shadow = word;
+            /* An empty cache can hand this entry straight to the puller.
+               Keep the cache words and pointers observable as on the slow
+               path, and preserve engine charging, holds and error handling. */
+            int direct = !nv4_cache1_count(p) && (p->c1_pull0 & PULL0_ACCESS)
+                && !(p->intr & INTR_CACHE_ERROR) && nv4_eng_ready(nv4);
             nv4_cache1_push(p, mthd | (subc << 13), word);
+            if (direct) {
+                int done = nv4_pull_one(nv4, CHID(p), &p->c1_engine, &p->c1_pull0,
+                                        &p->c1_pull1, &p->c1_hash, mthd | (subc << 13), word);
+                nv4_eng_charge(nv4);
+                if (done)
+                    p->c1_get = (p->c1_get + 1) & (NV4_CACHE1_SIZE - 1);
+                else if (p->c1_pull0 & (PULL0_HASH_FAILED | PULL0_DEVICE_SW))
+                    nv4_pfifo_intr(nv4, INTR_CACHE_ERROR);
+            }
             mthd                  = (mthd + 4) & 0x1ffc;
             count--;
             p->c1_dma_state = (p->c1_dma_state & ~0x1ffcfffcu) | mthd | (subc << 13) | (count << 18);
