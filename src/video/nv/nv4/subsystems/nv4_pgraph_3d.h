@@ -18,6 +18,8 @@
 #ifndef NV4_PGRAPH_3D_H
 #define NV4_PGRAPH_3D_H
 
+#include <stddef.h>
+
 struct nv4_gpu_s;
 
 #define B3D_STATES 64
