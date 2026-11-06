@@ -42,6 +42,8 @@
 
 static int failures;
 static int pending_gpu;
+static int dma_fixture, dma_target, dma_fault;
+static unsigned dma_translations;
 
 /* What the 3D code reaches outside itself: nothing here textures,
    threads or uses the GPU lane. */
@@ -88,22 +90,19 @@ mem_readl_phys(uint32_t addr)
 int
 nv4_dma_translate(nv4_t *nv4, uint32_t inst, uint32_t offset, int write, uint32_t *addr, int *target)
 {
-    (void) nv4;
-    (void) inst;
-    (void) offset;
-    (void) write;
-    (void) addr;
-    (void) target;
-    return !NV4_DMA_OK;
+    if (!dma_fixture || dma_fault)
+        return NV4_DMA_FAULT;
+    uint32_t linear = offset + 7;
+    *addr = ((linear >> 12) ? 0x70000 : 0x30000) + (linear & 4095);
+    *target = dma_target;
+    dma_translations++;
+    return NV4_DMA_OK;
 }
 
 uint32_t
 nv4_dma_page_left(nv4_t *nv4, uint32_t inst, uint32_t offset)
 {
-    (void) nv4;
-    (void) inst;
-    (void) offset;
-    return 0x1000;
+    return dma_fixture ? 4096 - ((offset + 7) & 4095) : 4096;
 }
 
 void
@@ -379,6 +378,89 @@ test_ropfill(void)
 }
 
 static void
+test_state_reuse_and_mapping(void)
+{
+    card_new();
+    nv4_3d_batch_t *b = nv4->batch3d;
+    nv4_3d_state_t s = {0};
+    nv4_d3d_t d = {0};
+    NV4_GR(nv4, NV4_PGRAPH_BPIXEL) = 7 << 8;
+    NV4_GR(nv4, NV4_PGRAPH_BOFFSET + 2 * 4) = COL_BASE;
+    NV4_GR(nv4, NV4_PGRAPH_BPITCH + 2 * 4) = 256;
+    NV4_GR(nv4, NV4_PGRAPH_BLIMIT + 2 * 4) = COL_BASE + 0xffff;
+    NV4_GR(nv4, NV4_PGRAPH_BLIMIT + 3 * 4) = 0x80000000;
+    NV4_GR(nv4, NV4_PGRAPH_UCLIP_MAX) = 64;
+    NV4_GR(nv4, NV4_PGRAPH_UCLIP_MAX + 4) = 32;
+    for (int i = 0; i < 256; i++) {
+        d.fog_color = i & 1;
+        CHECK(nv4_3d_make_state(nv4, b, 0x54, &d) == (i & 1));
+    }
+    CHECK(b->nstates == 2); /* repeated A/B changes do not fill the table */
+    b->bus_tex = 1;
+    nv4_3d_notify(nv4);
+    CHECK(b->nstates == 0); /* system textures keep the notify lifetime */
+    b->states[0] = s;
+    b->states[1] = s;
+    b->states[1].fog_color = 1;
+    b->nstates = 2;
+    s.rc = s.rz = 42; /* derived region indices are not draw state */
+    CHECK(nv4_3d_find_state(nv4, b, &s) == 0);
+    s.fog_color = 1;
+    CHECK(nv4_3d_find_state(nv4, b, &s) == 1);
+    s.fog_color = 2;
+    CHECK(nv4_3d_find_state(nv4, b, &s) == -1);
+
+    dma_fixture = 1;
+    nv4_3d_tex_t t = {0};
+    t.on = t.dma = 1;
+    t.offset = 4088;
+    t.size = 8; /* adjusted page crossing without an offset-page crossing */
+    uint32_t lo = ~0u, hi = 0;
+    int bus = 0;
+    dma_translations = 0;
+    nv4_3d_tex_range(nv4, &t, &lo, &hi, &bus);
+    CHECK(lo == 0x30fff && hi == 0x70006 && !bus && dma_translations == 2);
+    b->nregions = 1;
+    b->regions[0].wlo = 0x70000;
+    b->regions[0].whi = 0x70006;
+    CHECK(nv4_3d_tex_hazard(nv4, b, &t));
+    b->regions[0].wlo = 0x30000;
+    b->regions[0].whi = 0x30010;
+    CHECK(!nv4_3d_tex_hazard(nv4, b, &t));
+
+    s.fog_color = 0;
+    s.tex[1] = t; /* DX6's second texture must retain its dependency too */
+    b->states[0] = s;
+    b->parallel = 1;
+    CHECK(nv4_3d_find_state(nv4, b, &s) == 0);
+    b->regions[0].wlo = 0x70000;
+    b->regions[0].whi = 0x70006;
+    CHECK(nv4_3d_find_state(nv4, b, &s) == -1);
+
+    t.offset = 16;
+    t.size = 32;
+    lo = ~0u; hi = 0; bus = 0; dma_translations = 0;
+    nv4_3d_tex_range(nv4, &t, &lo, &hi, &bus);
+    CHECK(lo == 0x30017 && hi == 0x30036 && dma_translations == 1);
+    t.size = 0;
+    dma_translations = 0;
+    nv4_3d_tex_range(nv4, &t, &lo, &hi, &bus);
+    CHECK(!dma_translations && !nv4_3d_tex_hazard(nv4, b, &t));
+    t.size = 32;
+    dma_target = 2;
+    lo = ~0u; hi = 0;
+    nv4_3d_tex_range(nv4, &t, &lo, &hi, &bus);
+    CHECK(bus && lo == ~0u && hi == 0);
+    dma_target = 0;
+    dma_fault = 1; bus = 0;
+    nv4_3d_tex_range(nv4, &t, &lo, &hi, &bus);
+    CHECK(bus);
+    dma_fault = dma_fixture = 0;
+    b->nstates = b->nregions = 0;
+    card_free();
+}
+
+static void
 test_upload_ordering(void)
 {
     card_new();
@@ -407,6 +489,7 @@ main(void)
 {
     test_ropfill();
     test_upload_ordering();
+    test_state_reuse_and_mapping();
     if (failures)
         fprintf(stderr, "%d failure(s)\n", failures);
     else

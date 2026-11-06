@@ -213,65 +213,71 @@ nv4_3d_meets(uint32_t lo0, uint32_t hi0, uint32_t lo1, uint32_t hi1)
 static int
 nv4_3d_tex_hazard(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_tex_t *t)
 {
-    uint32_t first, last;
-
-    if (!t->on || !b->nregions)
+    if (!t->on || !t->size || !b->nregions)
         return 0;
-    first = t->offset & ~0xfffu;
-    last  = (t->offset + t->size - 1) & ~0xfffu;
-    if (((last - first) >> 12) >= 1024)
-        return 1; /* too many pages to look at: assume it does */
-    for (uint32_t o = first;; o += 0x1000) {
+    if (t->size > 0x400000 || (uint64_t) t->offset + t->size > 0x100000000ull)
+        return 1;
+    /* Walk only the texture's bytes, split at the DMA window's adjusted
+       page boundaries. Offset-aligned pages can miss a noncontiguous PTE. */
+    for (uint32_t done = 0; done < t->size;) {
+        uint32_t off = t->offset + done;
+        uint32_t chunk = nv4_dma_page_left(nv4, t->dma, off);
         uint32_t a;
-        int      target;
+        int target;
 
-        if ((nv4_dma_translate(nv4, t->dma, o, 0, &a, &target) == NV4_DMA_OK) && !target) {
-            a &= ~0xfffu;
+        if (chunk > t->size - done)
+            chunk = t->size - done;
+        if ((nv4_dma_translate(nv4, t->dma, off, 0, &a, &target) == NV4_DMA_OK) && !target) {
+            a &= nv4->vram_mask;
+            if ((uint64_t) a + chunk > (uint64_t) nv4->vram_mask + 1)
+                return 1;
             for (int r = 0; r < b->nregions; r++)
                 if ((b->regions[r].wlo <= b->regions[r].whi)
-                    && nv4_3d_meets(a, a + 0xfff, b->regions[r].wlo, b->regions[r].whi))
+                    && nv4_3d_meets(a, a + chunk - 1, b->regions[r].wlo, b->regions[r].whi))
                     return 1;
         }
-        if (o == last)
-            break;
+        done += chunk;
     }
     return 0;
 }
 
-/* Widen lo..hi to the VRAM pages texture <t> reads; set *bus when it
-   reads (or may read) system memory. */
+/* Widen lo..hi to the VRAM bytes texture <t> reads; set *bus when it
+   reads (or may read) system memory. Keep mapping bounded to its mip chain. */
 static void
 nv4_3d_tex_range(nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t *lo, uint32_t *hi, int *bus)
 {
-    uint32_t first, last;
-
-    if (!t->on)
+    if (!t->on || !t->size)
         return;
-    first = t->offset & ~0xfffu;
-    last  = (t->offset + t->size - 1) & ~0xfffu;
-    if (((last - first) >> 12) >= 1024) {
-        *lo  = 0;
-        *hi  = 0xffffffff;
+    if (t->size > 0x400000 || (uint64_t) t->offset + t->size > 0x100000000ull) {
+        *lo = 0;
+        *hi = 0xffffffff;
         *bus = 1;
         return;
     }
-    for (uint32_t o = first;; o += 0x1000) {
+    for (uint32_t done = 0; done < t->size;) {
+        uint32_t off = t->offset + done;
+        uint32_t chunk = nv4_dma_page_left(nv4, t->dma, off);
         uint32_t a;
-        int      target;
+        int target;
 
-        if (nv4_dma_translate(nv4, t->dma, o, 0, &a, &target) == NV4_DMA_OK) {
-            if (target)
-                *bus = 1;
-            else {
-                a &= ~0xfffu;
-                if (a < *lo)
-                    *lo = a;
-                if (a + 0xfff > *hi)
-                    *hi = a + 0xfff;
+        if (chunk > t->size - done)
+            chunk = t->size - done;
+        if (nv4_dma_translate(nv4, t->dma, off, 0, &a, &target) != NV4_DMA_OK || target)
+            *bus = 1;
+        else {
+            uint32_t end;
+            a &= nv4->vram_mask;
+            end = a + chunk - 1;
+            if ((uint64_t) a + chunk > (uint64_t) nv4->vram_mask + 1) {
+                a = 0;
+                end = nv4->vram_mask;
             }
+            if (a < *lo)
+                *lo = a;
+            if (end > *hi)
+                *hi = end;
         }
-        if (o == last)
-            break;
+        done += chunk;
     }
 }
 
@@ -440,6 +446,25 @@ nv4_3d_written(nv4_3d_batch_t *b, const nv4_3d_state_t *s, int32_t y0, int32_t y
     }
 }
 
+/* Alternating textures and blend modes need not consume a new state each
+   time. Notifications flush bus textures before the driver can replace them,
+   so matching states in this batch still refer to the same texture lifetime. */
+static int
+nv4_3d_find_state(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_state_t *s)
+{
+    for (int i = b->nstates - 1; i >= 0; i--) {
+        if (memcmp(s, &b->states[i], offsetof(nv4_3d_state_t, rc)))
+            continue;
+        /* An intervening draw may have rendered into a texture this state
+           reads. Placement must flush that dependency before reusing it. */
+        if ((i != b->nstates - 1) && b->parallel
+            && (nv4_3d_tex_hazard(nv4, b, &s->tex[0]) || nv4_3d_tex_hazard(nv4, b, &s->tex[1])))
+            return -1;
+        return i;
+    }
+    return -1;
+}
+
 static int
 nv4_3d_make_state(nv4_t *nv4, nv4_3d_batch_t *b, int cls, const nv4_d3d_t *d)
 {
@@ -561,7 +586,8 @@ nv4_3d_make_state(nv4_t *nv4, nv4_3d_batch_t *b, int cls, const nv4_d3d_t *d)
         s->z_on = 0;
         s->zen  = 0;
     }
-    return nv4_3d_place_state(nv4, b, s);
+    int si = nv4_3d_find_state(nv4, b, s);
+    return si >= 0 ? si : nv4_3d_place_state(nv4, b, s);
 }
 
 /* ------------------------------------------------------------------ */
