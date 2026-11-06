@@ -9,7 +9,7 @@
 	<key>CFBundleGetInfoString</key>
 	<string>An emulator of old computers</string>
 	<key>CFBundleIconFile</key>
-	<string>PCBox.icns</string>
+	<string>86Box.icns</string>
 	<key>CFBundleIdentifier</key>
 	<string>xyz.pcbox-emu.PCBox</string>
 	<key>CFBundleInfoDictionaryVersion</key>
