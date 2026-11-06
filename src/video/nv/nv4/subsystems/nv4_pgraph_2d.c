@@ -1226,9 +1226,10 @@ nv4_blit_rows(nv4_t *nv4, nv4_gr_chan_t *ch, nv4_draw_t *d, const nv4_surf_t *sr
     int32_t  dx0 = ch->blit_dx, dy0 = ch->blit_dy;
     int32_t  dx1 = dx0 + (int32_t) w, dy1 = dy0 + (int32_t) h;
     int32_t  sx, sy, n, rows, step;
-    uint32_t sa, da, len, s_end, d_end;
+    uint32_t sa, da, len;
+    uint64_t s_end, d_end;
 
-    if (!d->plain || d->defer || src->swz || (src->fmt != d->dst.fmt) || (src->bpp != bpp))
+    if (!d->plain || src->swz || (src->fmt != d->dst.fmt) || (src->bpp != bpp))
         return 0;
     if (dx0 < d->cx0)
         dx0 = d->cx0;
@@ -1248,16 +1249,25 @@ nv4_blit_rows(nv4_t *nv4, nv4_gr_chan_t *ch, nv4_draw_t *d, const nv4_surf_t *sr
         return 0;
     len = (uint32_t) n * bpp;
     /* every byte inside both surfaces' limits and the VRAM */
-    s_end = src->off + (uint32_t) (sy + rows - 1) * src->pitch + (uint32_t) sx * bpp + len - 1;
-    d_end = d->dst.off + (uint32_t) (dy0 + rows - 1) * d->dst.pitch + (uint32_t) dx0 * bpp + len - 1;
+    s_end = src->off + (uint64_t) (sy + rows - 1) * src->pitch + (uint64_t) sx * bpp + len - 1;
+    d_end = d->dst.off + (uint64_t) (dy0 + rows - 1) * d->dst.pitch + (uint64_t) dx0 * bpp + len - 1;
     if ((s_end > src->limit) || (d_end > d->dst.limit) || (src->base + s_end > nv4->vram_mask)
         || (d->dst.base + d_end > nv4->vram_mask))
         return 0;
     sa = src->base + src->off + (uint32_t) sy * src->pitch + (uint32_t) sx * bpp;
     da = d->dst.base + d->dst.off + (uint32_t) dy0 * d->dst.pitch + (uint32_t) dx0 * bpp;
-    if ((src->pitch != d->dst.pitch) && (sa <= src->base + s_end) && (da <= d->dst.base + d_end)
+    if (((src->pitch != d->dst.pitch) || (src->pitch < len)) && (sa <= src->base + s_end) && (da <= d->dst.base + d_end)
         && (da <= src->base + s_end) && (sa <= d->dst.base + d_end))
         return 0; /* overlapping with different pitches */
+    if ((src->base + s_end < da || d->dst.base + d_end < sa)
+        && nv4_3d_copy(nv4, sa, da, src->pitch, d->dst.pitch, len, rows)) {
+        nv4->eng_bytes += (uint64_t) n * rows * bpp * 2;
+        return 1;
+    }
+    nv4_3d_touch(nv4, sa, src->base + s_end, GR(NV4_PGRAPH_CTX_SWITCH1) & 0xff);
+    /* A copy cannot join as a fill: it reads a source as well. */
+    d->touch = 1;
+    d->defer = 0;
     if (d->touch) {
         nv4_3d_touch(nv4, d->lo, d->hi, GR(NV4_PGRAPH_CTX_SWITCH1) & 0xff);
         d->touch = 0;
@@ -1292,6 +1302,11 @@ nv4_blit(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t size)
         return;
     if (nv4_blit_rows(nv4, ch, &d, &src, w, h))
         return;
+    /* The general path may read wrapped source addresses; synchronize
+       conservatively before taking its snapshot. */
+    nv4_3d_sync(nv4, GR(NV4_PGRAPH_CTX_SWITCH1) & 0xff);
+    d.defer = 0;
+    d.touch = 0;
     /* read it all first: the rectangles may overlap */
     buf = malloc(w * h * sizeof(uint32_t));
     if (!buf)
@@ -1379,6 +1394,55 @@ nv4_img_pixel(nv4_draw_t *d, nv4_gr_chan_t *ch, nv4_px_t sp, int draw)
         nv4_put_color(d, ch->img_x + x, ch->img_y + y, sp);
 }
 
+/* Plain IFC words can store their packed pixels directly. Keep the
+   FIFO/engine path (NV4 charges every method), clipping, image position
+   and dirty pages identical to the general pixel pipeline. */
+static int
+nv4_img_plain_data(nv4_t *nv4, nv4_draw_t *d, nv4_gr_chan_t *ch, int cfmt, uint32_t data)
+{
+    uint32_t n, bits, mask;
+    if (!d->plain || d->defer || ch->img_kind != IMG_IFC)
+        return 0;
+    switch (cfmt) {
+        case CF_Y8:
+        case CF_X24Y8:
+            n    = 4;
+            bits = 8;
+            mask = 0xff;
+            break;
+        case CF_A1R5G5B5:
+        case CF_X1R5G5B5:
+        case CF_R5G6B5:
+            n    = 2;
+            bits = 16;
+            mask = 0xffff;
+            break;
+        default:
+            n    = 1;
+            bits = 32;
+            mask = 0xffffffff;
+            break;
+    }
+    uint32_t x = ch->pos % ch->in_w, y = ch->pos / ch->in_w;
+    int32_t  dx = ch->img_x + (int32_t) x, dy = ch->img_y + (int32_t) y;
+    if (n > ch->in_w - x || y >= ch->out_h || x + n > ch->out_w
+        || dx < d->cx0 || dy < d->cy0 || dx + (int32_t) n > d->cx1 || dy >= d->cy1)
+        return 0;
+    uint64_t rel = (uint64_t) d->dst.off + (uint32_t) dy * (uint64_t) d->dst.pitch + (uint32_t) dx * (uint64_t) d->dst.bpp;
+    uint64_t end = rel + n * d->dst.bpp - 1;
+    if (end > d->dst.limit || (uint64_t) d->dst.base + end > nv4->vram_mask)
+        return 0;
+    uint32_t addr = d->dst.base + (uint32_t) rel;
+    nv4_3d_touch(nv4, addr, addr + n * d->dst.bpp - 1, GR(NV4_PGRAPH_CTX_SWITCH1) & 0xff);
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t pixel = nv4_pack(nv4_color((data >> (i * bits)) & mask, cfmt), d->dst.fmt);
+        nv4_vram_wr(nv4, addr + i * d->dst.bpp, d->dst.bpp, pixel);
+    }
+    nv4->eng_bytes += n * d->dst.bpp;
+    ch->pos += n;
+    return 1;
+}
+
 /* A data word of color pixels in the object's format. */
 static void
 nv4_img_color_data(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t data, int oclip)
@@ -1396,6 +1460,8 @@ nv4_img_color_data(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t data, int oclip)
     if ((nv4_surf_fmt(nv4, dst) == 1) && ((cfmt == CF_A8R8G8B8) || (cfmt == CF_X8R8G8B8)))
         cfmt = CF_Y8;
     ok = nv4_draw_begin(nv4, &d, oclip, 1);
+    if (ok && nv4_img_plain_data(nv4, &d, ch, cfmt, data))
+        return;
     switch (cfmt) {
         case CF_Y8:
         case CF_X24Y8:
@@ -1516,8 +1582,39 @@ nv4_yuv_to_argb(int y, int u, int v)
     return 0xff000000 | (r << 16) | (g << 8) | b;
 }
 
+/* Translation cache lasts one draw; pixels remain live (source and destination
+   may alias). Split-page words and bus memory retain the DMA helper's behavior. */
+typedef struct {
+    uint32_t first, count, addr, limit;
+} nv4_sifm_reader_t;
+
+static void
+nv4_sifm_read32(nv4_t *nv4, nv4_sifm_reader_t *r, uint32_t dma, uint32_t off, uint32_t *val)
+{
+    if ((uint64_t) off + 3 <= r->limit) {
+        if (off < r->first || (uint64_t) off + 4 > (uint64_t) r->first + r->count) {
+            uint32_t addr;
+            int target;
+            r->count = 0;
+            if (nv4_dma_translate(nv4, dma, off, 0, &addr, &target) == NV4_DMA_OK && target == 0) {
+                r->first = off;
+                r->addr = addr;
+                r->count = nv4_dma_page_left(nv4, dma, off);
+            }
+        }
+        if (off >= r->first && (uint64_t) off + 4 <= (uint64_t) r->first + r->count) {
+            uint32_t addr = r->addr + (off - r->first);
+            *val = 0;
+            for (int i = 0; i < 4; i++)
+                *val |= (uint32_t) nv4->svga.vram[(addr + i) & nv4->vram_mask] << (i * 8);
+            return;
+        }
+    }
+    nv4_dma_read32(nv4, dma, off, val);
+}
+
 static nv4_px_t
-nv4_sifm_fetch(nv4_t *nv4, nv4_gr_chan_t *ch, int cfmt, uint32_t dma, int32_t u, int32_t v)
+nv4_sifm_fetch(nv4_t *nv4, nv4_sifm_reader_t *reader, nv4_gr_chan_t *ch, int cfmt, uint32_t dma, int32_t u, int32_t v)
 {
     uint32_t w     = ch->sifm_in_size & 0xffff;
     uint32_t h     = ch->sifm_in_size >> 16;
@@ -1537,19 +1634,19 @@ nv4_sifm_fetch(nv4_t *nv4, nv4_gr_chan_t *ch, int cfmt, uint32_t dma, int32_t u,
     off = ch->sifm_in_off + (uint32_t) v * pitch;
     switch (cfmt) {
         case CF_Y8:
-            nv4_dma_read32(nv4, dma, (off + u) & ~3u, &val);
+            nv4_sifm_read32(nv4, reader, dma, (off + u) & ~3u, &val);
             return nv4_color((val >> (((off + u) & 3) * 8)) & 0xff, cfmt);
         case CF_A1R5G5B5:
         case CF_X1R5G5B5:
         case CF_R5G6B5:
-            nv4_dma_read32(nv4, dma, (off + u * 2) & ~3u, &val);
+            nv4_sifm_read32(nv4, reader, dma, (off + u * 2) & ~3u, &val);
             return nv4_color((val >> (((off + u * 2) & 2) * 8)) & 0xffff, cfmt);
         case CF_YUYV:
         case CF_UYVY:
             {
                 int y0, y1, cu, cv;
 
-                nv4_dma_read32(nv4, dma, off + (u & ~1) * 2, &val);
+                nv4_sifm_read32(nv4, reader, dma, off + (u & ~1) * 2, &val);
                 if (cfmt == CF_YUYV) {
                     y0 = val & 0xff;
                     cu = (val >> 8) & 0xff;
@@ -1566,7 +1663,7 @@ nv4_sifm_fetch(nv4_t *nv4, nv4_gr_chan_t *ch, int cfmt, uint32_t dma, int32_t u,
                 return p;
             }
         default:
-            nv4_dma_read32(nv4, dma, off + u * 4, &val);
+            nv4_sifm_read32(nv4, reader, dma, off + u * 4, &val);
             return nv4_color(val, cfmt);
     }
 }
@@ -1604,6 +1701,8 @@ nv4_sifm_draw(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t point)
 
     if (!dma || !nv4_draw_begin(nv4, &d, 1, 1))
         return;
+    nv4_sifm_reader_t reader = {0};
+    reader.limit = nv4_dma_limit(nv4, dma);
     if (center) {
         u0 += ch->sifm_dudx / 2;
         v0 += ch->sifm_dvdy / 2;
@@ -1628,11 +1727,11 @@ nv4_sifm_draw(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t point)
 
             if ((ch->sifm_x + (int32_t) ox < d.cx0) || (ch->sifm_x + (int32_t) ox >= d.cx1))
                 continue;
-            p = nv4_sifm_fetch(nv4, ch, cfmt, dma, iu, iv);
+            p = nv4_sifm_fetch(nv4, &reader, ch, cfmt, dma, iu, iv);
             if (foh && (fu || fv)) {
-                uint32_t t0 = nv4_lerp8888(p.argb, nv4_sifm_fetch(nv4, ch, cfmt, dma, iu + 1, iv).argb, fu);
-                uint32_t t1 = nv4_lerp8888(nv4_sifm_fetch(nv4, ch, cfmt, dma, iu, iv + 1).argb,
-                                           nv4_sifm_fetch(nv4, ch, cfmt, dma, iu + 1, iv + 1).argb, fu);
+                uint32_t t0 = nv4_lerp8888(p.argb, nv4_sifm_fetch(nv4, &reader, ch, cfmt, dma, iu + 1, iv).argb, fu);
+                uint32_t t1 = nv4_lerp8888(nv4_sifm_fetch(nv4, &reader, ch, cfmt, dma, iu, iv + 1).argb,
+                                           nv4_sifm_fetch(nv4, &reader, ch, cfmt, dma, iu + 1, iv + 1).argb, fu);
 
                 p.argb = nv4_lerp8888(t0, t1, fv);
                 p.raw  = ((cfmt == CF_Y8) || (cfmt == CF_X24Y8)) ? (p.argb & 0xff) : p.argb;

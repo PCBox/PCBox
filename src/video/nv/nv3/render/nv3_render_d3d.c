@@ -81,8 +81,6 @@
 #include <86box/nv/vid_nv3.h>
 #include "nv3_render_d3d.h"
 
-uint32_t nv3_dma_map_pages(uint32_t inst, uint32_t offset, uint32_t *addr, uint32_t pages, uint32_t *lin);
-
 /* D3D CONTROL0 (method 0x314) fields of class 0x17, the D3D triangle with zeta buffer */
 #define NV3_D3D_CONFIG_INTERP(c)      ((c) & 3)          /* 0 ZOH, 1 ZOH_MS, 2 FOH */
 #define NV3_D3D_CONFIG_WRAP_U(c)      (((c) >> 4) & 3)   /* 0 cylindrical, 1 wrap, 2 mirror, 3 clamp */
@@ -1147,15 +1145,23 @@ nv3_d3d_vblank(uint32_t lo, uint32_t hi)
 /* The texture's pages, mapped once per texture (offset/format) change as before; system memory
    pages are resolved through the AGP aperture to the RAM behind them */
 static void
-nv3_d3d_map_texture(void)
+nv3_d3d_map_texture(uint32_t size)
 {
     nv3_d3d_state_t *d = &nv3->pgraph.prim.d3d;
 
     if (d->tex_mapped)
         return;
-    d->tex_target = nv3_dma_map_pages(nv3->pgraph.dma_settings & 0xFFFF, d->tex_offset, d->tex_pages, D3_TEX_PAGES, &d->tex_lin);
+    /* Small textures need only a page or two. Mapping all 64 pages on every
+       texture change needlessly walks RAMIN and the chipset GART (Incoming's
+       menu switches among many small system-memory textures). */
+    memset(d->tex_pages, 0, sizeof(d->tex_pages));
+    memset(d->tex_rpages, 0, sizeof(d->tex_rpages));
+    d->tex_target = nv3_dma_map_pages(nv3->pgraph.dma_settings & 0xFFFF, d->tex_offset, d->tex_pages, 1, &d->tex_lin);
+    uint32_t pages = MIN(D3_TEX_PAGES, ((d->tex_lin & 0xFFF) + size + 0xFFF) >> 12);
+    if (pages > 1)
+        nv3_dma_map_pages(nv3->pgraph.dma_settings & 0xFFFF, d->tex_offset, d->tex_pages, pages, &d->tex_lin);
     d->tex_mapped = true;
-    for (int i = 0; i < D3_TEX_PAGES; i++) {
+    for (uint32_t i = 0; i < pages; i++) {
         uint32_t ra;
 
         d->tex_rpages[i] = d->tex_pages[i];
@@ -1249,7 +1255,7 @@ nv3_d3d_make_state(nv3_d3d_dstate_t *s, nv3_grobj_t grobj, bool textures)
         nv3_d3d_tex_logs(d->tex_format, &max_log, &min_log);
         for (int l = 0; l <= max_log - min_log; l++)
             total += (1u << (max_log - l)) * (1u << (max_log - l)) * 2;
-        nv3_d3d_map_texture();
+        nv3_d3d_map_texture(total);
         s->tex_vram = d->tex_target == NV3_DMA_TARGET_NODE_VRAM;
         s->tex_l0   = d->tex_lin & 0xFFF;
         s->tex_size = (total < D3_TEX_PAGES * 0x1000 - s->tex_l0) ? total : (D3_TEX_PAGES * 0x1000 - s->tex_l0);
@@ -1259,15 +1265,34 @@ nv3_d3d_make_state(nv3_d3d_dstate_t *s, nv3_grobj_t grobj, bool textures)
 
 /* The batch's draw state for what is drawn now: the last one when nothing changed */
 static int
+nv3_d3d_find_state(nv3_d3d_batch_t *b, const nv3_d3d_dstate_t *s)
+{
+    /* Games alternate textures and blend modes within a frame. Reuse any
+       matching state, not just the last, before consuming another table entry.
+       A notify snapshots system-memory textures: a sealed state is reusable
+       only when its staged texels still match the guest's current bytes. */
+    for (int i = b->nstates - 1; i >= 0; i--) {
+        const nv3_d3d_dstate_t *o = &b->states[i];
+
+        if (memcmp(s, o, offsetof(nv3_d3d_dstate_t, rg)))
+            continue;
+        /* An intervening state may have rendered into this texture. Let
+           placement flush that dependency before reusing the old layout. */
+        if ((i != b->nstates - 1) && b->parallel && nv3_d3d_tex_hazard(b, s))
+            return -1;
+        if ((i < b->nsealed) && o->textured && !o->tex_vram
+            && (!b->gpu || !nv3_gpu_state_reusable(b->gpu, b, i)))
+            continue;
+        return i;
+    }
+    return -1;
+}
+
+static int
 nv3_d3d_state(nv3_d3d_batch_t *b, nv3_d3d_dstate_t *s)
 {
-    if ((b->nstates > b->nsealed) || (b->nstates && !(b->states[b->nstates - 1].textured && !b->states[b->nstates - 1].tex_vram))) {
-        const nv3_d3d_dstate_t *o = &b->states[b->nstates - 1];
-
-        if (!memcmp(s, o, offsetof(nv3_d3d_dstate_t, rg)))
-            return b->nstates - 1;
-    }
-    return nv3_d3d_place_state(b, s);
+    int i = nv3_d3d_find_state(b, s);
+    return i >= 0 ? i : nv3_d3d_place_state(b, s);
 }
 
 /* ---- 2D fills joining the batch ---- */
@@ -1326,11 +1351,24 @@ nv3_d3d_fill(int32_t x0, int32_t y0, int32_t x1, int32_t y1, nv3_color_expanded_
     st.cy1 = y1;
     n      = nv3_d3d_layouts(&st, idx);
 
+    /* A CPU upload can replace texels used by earlier triangles. Preserve their reads
+       before appending the stores, just as the immediate CPU path's touch does. */
+    for (int i = 0; (b->tex_lo <= b->tex_hi) && (i < n); i++) {
+        nv3_d3d_reach(&st, st.boff[idx[i]], st.bpitch[idx[i]], &lo, &hi);
+        if (nv3_d3d_meets(lo, hi, b->tex_lo, b->tex_hi))
+            nv3_d3d_flush();
+    }
     joins = b->nstates > 0;
     for (int i = 0; joins && b->parallel && (i < n); i++) {
         nv3_d3d_reach(&st, st.boff[idx[i]], st.bpitch[idx[i]], &lo, &hi);
         joins = nv3_d3d_region_find(b, st.boff[idx[i]], st.bpitch[idx[i]], lo, hi) >= 0;
     }
+    /* Small CPU image uploads over a submitted 3D frame can follow it on the GPU too. */
+    if (!joins && b->gpu)
+        for (int i = 0; !joins && (i < n); i++) {
+            nv3_d3d_reach(&st, st.boff[idx[i]], st.bpitch[idx[i]], &lo, &hi);
+            joins = nv3_gpu_pending_overlaps(b->gpu, lo, hi);
+        }
     big = b->had3d && ((b->vblanks - b->last3d) <= 2) && ((int64_t) (x1 - x0) * (y1 - y0) >= 65536);
     if (!joins && !big)
         return false;

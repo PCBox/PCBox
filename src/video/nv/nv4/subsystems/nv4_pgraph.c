@@ -159,7 +159,9 @@ nv4_pgraph_do_notify(nv4_t *nv4)
 {
     uint32_t notify = GR(NV4_PGRAPH_NOTIFY);
 
-    nv4_3d_flush(nv4);
+    nv4_3d_notify(nv4);
+    /* The notifier DMA write orders any overlapping VRAM; framebuffer
+       accesses order the rendered pixels when the guest observes them. */
     /* WRITE_THEN_AWAKEN is the resman's to do: the request stays pending
        with its style, which the interrupt handler reads to know it must
        wake the waiter (it writes the notifier and clears the request).
@@ -266,6 +268,8 @@ static int
 nv4_pgraph_draws_only(int cls)
 {
     switch (cls) {
+        case 0x1f: /* blits synchronize their source and destination */
+        case 0x5f:
         case 0x1c:
         case 0x5c:
         case 0x1d:
@@ -360,7 +364,7 @@ nv4_pgraph_method(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
        pattern, clip) do not, and draw states are snapshots. The classes
        that only write their destination decide when they draw
        (nv4_draw_begin): join the batch or wait for what reaches it. */
-    if (!nv4_pgraph_state_only(cls) && !nv4_pgraph_draws_only(cls))
+    if (mthd >= 0x180 && !nv4_pgraph_state_only(cls) && !nv4_pgraph_draws_only(cls))
         nv4_3d_sync(nv4, cls);
     r = nv4_pgraph_common_method(nv4, mthd, data);
     if (r < 0) {

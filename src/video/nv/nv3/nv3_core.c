@@ -1310,22 +1310,22 @@ void nv3_init_mappings_svga(void)
     nv_log("Initialising SVGA core memory mapping\n");
     // setup the svga mappings
     mem_mapping_add(&nv3->nvbase.framebuffer_mapping, 0, 0,
-        nv3_vga_read,
-        nv3_vga_readw,
-        nv3_vga_readl,
-        nv3_vga_write,
-        nv3_vga_writew,
-        nv3_vga_writel,
+        nv3_dfb_read8,
+        nv3_dfb_read16,
+        nv3_dfb_read32,
+        nv3_dfb_write8,
+        nv3_dfb_write16,
+        nv3_dfb_write32,
         nv3->nvbase.svga.vram, 0, &nv3->nvbase.svga);
 
     // the SVGA/LFB mapping is also mirrored
     mem_mapping_add(&nv3->nvbase.framebuffer_mapping_mirror, 0, 0, 
-        nv3_vga_read,
-        nv3_vga_readw,
-        nv3_vga_readl,
-        nv3_vga_write,
-        nv3_vga_writew,
-        nv3_vga_writel,
+        nv3_dfb_read8,
+        nv3_dfb_read16,
+        nv3_dfb_read32,
+        nv3_dfb_write8,
+        nv3_dfb_write16,
+        nv3_dfb_write32,
         nv3->nvbase.svga.vram, 0, &nv3->nvbase.svga);
 
     io_sethandler(0x03c0, 0x0020, 

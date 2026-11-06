@@ -213,65 +213,71 @@ nv4_3d_meets(uint32_t lo0, uint32_t hi0, uint32_t lo1, uint32_t hi1)
 static int
 nv4_3d_tex_hazard(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_tex_t *t)
 {
-    uint32_t first, last;
-
-    if (!t->on || !b->nregions)
+    if (!t->on || !t->size || !b->nregions)
         return 0;
-    first = t->offset & ~0xfffu;
-    last  = (t->offset + t->size - 1) & ~0xfffu;
-    if (((last - first) >> 12) >= 1024)
-        return 1; /* too many pages to look at: assume it does */
-    for (uint32_t o = first;; o += 0x1000) {
+    if (t->size > 0x400000 || (uint64_t) t->offset + t->size > 0x100000000ull)
+        return 1;
+    /* Walk only the texture's bytes, split at the DMA window's adjusted
+       page boundaries. Offset-aligned pages can miss a noncontiguous PTE. */
+    for (uint32_t done = 0; done < t->size;) {
+        uint32_t off = t->offset + done;
+        uint32_t chunk = nv4_dma_page_left(nv4, t->dma, off);
         uint32_t a;
-        int      target;
+        int target;
 
-        if ((nv4_dma_translate(nv4, t->dma, o, 0, &a, &target) == NV4_DMA_OK) && !target) {
-            a &= ~0xfffu;
+        if (chunk > t->size - done)
+            chunk = t->size - done;
+        if ((nv4_dma_translate(nv4, t->dma, off, 0, &a, &target) == NV4_DMA_OK) && !target) {
+            a &= nv4->vram_mask;
+            if ((uint64_t) a + chunk > (uint64_t) nv4->vram_mask + 1)
+                return 1;
             for (int r = 0; r < b->nregions; r++)
                 if ((b->regions[r].wlo <= b->regions[r].whi)
-                    && nv4_3d_meets(a, a + 0xfff, b->regions[r].wlo, b->regions[r].whi))
+                    && nv4_3d_meets(a, a + chunk - 1, b->regions[r].wlo, b->regions[r].whi))
                     return 1;
         }
-        if (o == last)
-            break;
+        done += chunk;
     }
     return 0;
 }
 
-/* Widen lo..hi to the VRAM pages texture <t> reads; set *bus when it
-   reads (or may read) system memory. */
+/* Widen lo..hi to the VRAM bytes texture <t> reads; set *bus when it
+   reads (or may read) system memory. Keep mapping bounded to its mip chain. */
 static void
 nv4_3d_tex_range(nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t *lo, uint32_t *hi, int *bus)
 {
-    uint32_t first, last;
-
-    if (!t->on)
+    if (!t->on || !t->size)
         return;
-    first = t->offset & ~0xfffu;
-    last  = (t->offset + t->size - 1) & ~0xfffu;
-    if (((last - first) >> 12) >= 1024) {
-        *lo  = 0;
-        *hi  = 0xffffffff;
+    if (t->size > 0x400000 || (uint64_t) t->offset + t->size > 0x100000000ull) {
+        *lo = 0;
+        *hi = 0xffffffff;
         *bus = 1;
         return;
     }
-    for (uint32_t o = first;; o += 0x1000) {
+    for (uint32_t done = 0; done < t->size;) {
+        uint32_t off = t->offset + done;
+        uint32_t chunk = nv4_dma_page_left(nv4, t->dma, off);
         uint32_t a;
-        int      target;
+        int target;
 
-        if (nv4_dma_translate(nv4, t->dma, o, 0, &a, &target) == NV4_DMA_OK) {
-            if (target)
-                *bus = 1;
-            else {
-                a &= ~0xfffu;
-                if (a < *lo)
-                    *lo = a;
-                if (a + 0xfff > *hi)
-                    *hi = a + 0xfff;
+        if (chunk > t->size - done)
+            chunk = t->size - done;
+        if (nv4_dma_translate(nv4, t->dma, off, 0, &a, &target) != NV4_DMA_OK || target)
+            *bus = 1;
+        else {
+            uint32_t end;
+            a &= nv4->vram_mask;
+            end = a + chunk - 1;
+            if ((uint64_t) a + chunk > (uint64_t) nv4->vram_mask + 1) {
+                a = 0;
+                end = nv4->vram_mask;
             }
+            if (a < *lo)
+                *lo = a;
+            if (end > *hi)
+                *hi = end;
         }
-        if (o == last)
-            break;
+        done += chunk;
     }
 }
 
@@ -440,6 +446,25 @@ nv4_3d_written(nv4_3d_batch_t *b, const nv4_3d_state_t *s, int32_t y0, int32_t y
     }
 }
 
+/* Alternating textures and blend modes need not consume a new state each
+   time. Notifications flush bus textures before the driver can replace them,
+   so matching states in this batch still refer to the same texture lifetime. */
+static int
+nv4_3d_find_state(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_state_t *s)
+{
+    for (int i = b->nstates - 1; i >= 0; i--) {
+        if (memcmp(s, &b->states[i], offsetof(nv4_3d_state_t, rc)))
+            continue;
+        /* An intervening draw may have rendered into a texture this state
+           reads. Placement must flush that dependency before reusing it. */
+        if ((i != b->nstates - 1) && b->parallel
+            && (nv4_3d_tex_hazard(nv4, b, &s->tex[0]) || nv4_3d_tex_hazard(nv4, b, &s->tex[1])))
+            return -1;
+        return i;
+    }
+    return -1;
+}
+
 static int
 nv4_3d_make_state(nv4_t *nv4, nv4_3d_batch_t *b, int cls, const nv4_d3d_t *d)
 {
@@ -554,7 +579,15 @@ nv4_3d_make_state(nv4_t *nv4, nv4_3d_batch_t *b, int cls, const nv4_d3d_t *d)
         s->zwrite = ((ctl >> 24) & 0x3f) && s->z_on;
         s->wr_a = s->wr_r = s->wr_g = s->wr_b = 1;
     }
-    return nv4_3d_place_state(nv4, b, s);
+    /* A placeholder depth surface must not serialize otherwise independent
+       color rows when neither the depth nor stencil pipeline uses it.
+       Compare encodings outside 1..7 are ALWAYS, as in nv4_cmp. */
+    if (!s->zwrite && !s->sten && (!s->zen || s->zfunc == 0 || s->zfunc >= 8)) {
+        s->z_on = 0;
+        s->zen  = 0;
+    }
+    int si = nv4_3d_find_state(nv4, b, s);
+    return si >= 0 ? si : nv4_3d_place_state(nv4, b, s);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1720,6 +1753,62 @@ nv4_3d_stats(nv4_t *nv4)
     b->st_flushes = b->st_spans = b->st_us = b->st_nosurf = b->st_serial = b->st_serial_spans = 0;
 }
 
+/* Finish a queued blit after the batches it reads, before any later
+   batch can change its source or sample its destination. */
+static void
+nv4_3d_copy_wait(nv4_t *nv4)
+{
+    nv4_3d_batch_t *b = nv4->batch3d;
+    if (!b || !b->copy.pending)
+        return;
+    nv4_3d_fly_wait(b, -1);
+    if (b->gpu)
+        nv4_gpu_wait(b->gpu, nv4);
+    for (uint32_t y = 0; y < b->copy.rows; y++) {
+        uint32_t dst = b->copy.dst + y * b->copy.dpitch;
+        memcpy(nv4->svga.vram + dst, nv4->svga.vram + b->copy.src + y * b->copy.spitch, b->copy.len);
+        for (uint32_t pg = dst >> 12; pg <= ((dst + b->copy.len - 1) >> 12); pg++)
+            nv4->svga.changedvram[pg] = nv4->svga.monitor->mon_changeframecount;
+    }
+    b->copy.pending = 0;
+}
+
+static void
+nv4_3d_copy_touch(nv4_t *nv4, uint32_t lo, uint32_t hi)
+{
+    nv4_3d_batch_t *b = nv4->batch3d;
+    if (b && b->copy.pending
+        && (nv4_3d_meets(lo, hi, b->copy.src, b->copy.shi)
+            || nv4_3d_meets(lo, hi, b->copy.dst, b->copy.dhi)))
+        nv4_3d_copy_wait(nv4);
+}
+
+/* The caller has checked surface bounds and disjoint byte ranges. */
+int
+nv4_3d_copy(nv4_t *nv4, uint32_t src, uint32_t dst, uint32_t spitch, uint32_t dpitch, uint32_t len, uint32_t rows)
+{
+    nv4_3d_batch_t *b   = nv4->batch3d;
+    uint32_t        shi = src + (rows - 1) * spitch + len - 1;
+    uint32_t        dhi = dst + (rows - 1) * dpitch + len - 1;
+    if (!b)
+        return 0;
+    nv4_3d_copy_wait(nv4);
+    nv4_3d_flush(nv4);
+    if (!nv4_3d_fly_overlaps(b, src, shi) && !nv4_3d_fly_overlaps(b, dst, dhi)
+        && !(b->gpu && (nv4_gpu_pending_overlaps(b->gpu, src, shi) || nv4_gpu_pending_overlaps(b->gpu, dst, dhi))))
+        return 0;
+    b->copy.src     = src;
+    b->copy.dst     = dst;
+    b->copy.spitch  = spitch;
+    b->copy.dpitch  = dpitch;
+    b->copy.len     = len;
+    b->copy.rows    = rows;
+    b->copy.shi     = shi;
+    b->copy.dhi     = dhi;
+    b->copy.pending = 1;
+    return 1;
+}
+
 void
 nv4_3d_flush(nv4_t *nv4)
 {
@@ -1730,6 +1819,7 @@ nv4_3d_flush(nv4_t *nv4)
     nv4_pgraph_2d_flush_run(nv4);
     if (!b || (!b->nspans && !b->ntris && !b->nstates))
         return;
+    nv4_3d_copy_wait(nv4);
     t0 = nv4_3d_now_us();
     if (b->rec_max)
         nv4_3d_record(nv4, b);
@@ -1783,10 +1873,21 @@ nv4_3d_gpu_wait(nv4_t *nv4, int cause)
     b->st_sync_n[cause]++;
 }
 
+/* System-memory textures can be changed after a notify without a VRAM
+   access to order them. Submit those now to capture their bytes; VRAM
+   textures stay protected by the batch's tracked ranges. */
+void
+nv4_3d_notify(nv4_t *nv4)
+{
+    if (nv4->batch3d && nv4->batch3d->bus_tex)
+        nv4_3d_flush(nv4);
+}
+
 void
 nv4_3d_sync(nv4_t *nv4, int cause)
 {
     nv4_3d_flush(nv4);
+    nv4_3d_copy_wait(nv4);
     if (nv4->batch3d)
         nv4_3d_fly_wait(nv4->batch3d, cause);
     if (nv4->batch3d && nv4->batch3d->gpu)
@@ -1800,6 +1901,7 @@ void
 nv4_3d_vblank(nv4_t *nv4, uint32_t lo, uint32_t hi)
 {
     nv4_3d_flush(nv4);
+    nv4_3d_copy_touch(nv4, lo, hi);
     if (nv4->batch3d && nv4_3d_fly_overlaps(nv4->batch3d, lo, hi))
         nv4_3d_fly_wait(nv4->batch3d, NV4_SYNC_VBLANK);
     if (nv4->batch3d && nv4->batch3d->gpu && nv4_gpu_pending_overlaps(nv4->batch3d->gpu, lo, hi))
@@ -1842,6 +1944,10 @@ nv4_3d_triangle(nv4_t *nv4, int chid, int cls, int i0, int i1, int i2)
     int32_t              ymin, ymax;
     int                  off16;
     uint64_t             px = 0;
+    struct {
+        int64_t k, c, dc, q, rem, dq, dr, den;
+        int     lower;
+    } edge[3];
 
     if (!b)
         return;
@@ -1941,49 +2047,56 @@ nv4_3d_triangle(nv4_t *nv4, int chid, int cls, int i0, int i1, int i2)
     if (ymax > s->cy1 - 1)
         ymax = s->cy1 - 1;
 
+    /* Solve each integer edge once, then advance its floor quotient
+       and remainder per row. This is exactly the top-left test below,
+       including negative coordinates, without divisions on every row. */
+    for (int e = 0; e < 3; e++) {
+        int     a = e, c = (e + 1) % 3;
+        int64_t ex = X[c] - X[a], ey = Y[c] - Y[a];
+        if (area > 0) {
+            ex = -ex;
+            ey = -ey;
+        }
+        int tl        = (ey > 0) || ((ey == 0) && (ex < 0));
+        edge[e].k     = ey * 16;
+        edge[e].c     = ey * (off16 - X[a]) - ex * ((int64_t) ymin * 16 + off16 - Y[a]);
+        edge[e].dc    = -ex * 16;
+        edge[e].lower = ey > 0;
+        if (ey) {
+            int64_t den   = ey > 0 ? ey * 16 : -ey * 16;
+            int64_t num   = ey > 0 ? -edge[e].c + den - 1 : edge[e].c - !tl;
+            int64_t delta = ey > 0 ? -edge[e].dc : edge[e].dc;
+            edge[e].den   = den;
+            edge[e].q     = floordiv(num, den);
+            edge[e].rem   = num - edge[e].q * den;
+            edge[e].dq    = floordiv(delta, den);
+            edge[e].dr    = delta - edge[e].dq * den;
+        }
+    }
     for (int32_t y = ymin; y <= ymax; y++) {
-        int64_t sy = (int64_t) y * 16 + off16;
-        int64_t lo = INT64_MIN / 4;
-        int64_t hi = INT64_MAX / 4;
-
+        int64_t lo = s->cx0;
+        int64_t hi = s->cx1 - 1;
         for (int e = 0; e < 3; e++) {
-            int     a  = e;
-            int     c  = (e + 1) % 3;
-            int64_t ex = X[c] - X[a];
-            int64_t ey = Y[c] - Y[a];
-            int64_t A, B;
-            int     tl;
-
-            /* orient so that inside is positive for both windings */
-            if (area > 0) {
-                ex = -ex;
-                ey = -ey;
-            }
-            /* E(sx) = ey*(sx - Xa) - ex*(sy - Ya), inside when > 0; a
-               left edge has ey > 0, a top edge ey == 0 and ex < 0 */
-            A  = ey;
-            B  = -ey * X[a] - ex * (sy - Y[a]);
-            tl = (ey > 0) || ((ey == 0) && (ex < 0));
-            /* E at sample x*16+off16: A*16*x + (A*off16 + B) */
-            {
-                int64_t k  = A * 16;
-                int64_t c0 = A * off16 + B;
-
-                if (k > 0) {
-                    /* k*x + c0 > 0, or >= 0 on a top or left edge */
-                    int64_t xm = tl ? floordiv(-c0 + k - 1, k) : floordiv(-c0, k) + 1;
-
-                    if (xm > lo)
-                        lo = xm;
-                } else if (k < 0) {
-                    int64_t xm = tl ? floordiv(c0, -k) : floordiv(c0 - 1, -k);
-
-                    if (xm < hi)
-                        hi = xm;
-                } else if (tl ? (c0 < 0) : (c0 <= 0)) {
+            if (edge[e].k) {
+                if (edge[e].lower) {
+                    if (edge[e].q > lo)
+                        lo = edge[e].q;
+                } else if (edge[e].q < hi)
+                    hi = edge[e].q;
+                edge[e].q += edge[e].dq;
+                edge[e].rem += edge[e].dr;
+                if (edge[e].rem >= edge[e].den) {
+                    edge[e].rem -= edge[e].den;
+                    edge[e].q++;
+                }
+            } else {
+                /* A horizontal edge is top-left exactly when ex < 0,
+                   equivalently its row delta is positive. */
+                if (edge[e].dc > 0 ? edge[e].c < 0 : edge[e].c <= 0) {
                     lo = 1;
                     hi = 0;
                 }
+                edge[e].c += edge[e].dc;
             }
         }
         if (lo < s->cx0)
@@ -2022,7 +2135,10 @@ nv4_3d_joins(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lo, uint32_t hi
 {
     nv4_3d_batch_t *b = nv4->batch3d;
 
-    return b && (b->nspans > 0) && (!b->parallel || (nv4_3d_region_find(b, base, pitch, lo, hi) >= 0));
+    if (!b)
+        return 0;
+    return ((b->nspans > 0) && (!b->parallel || (nv4_3d_region_find(b, base, pitch, lo, hi) >= 0)))
+        || (b->gpu && nv4_gpu_pending_overlaps(b->gpu, lo, hi));
 }
 
 /* The CPU is about to read or write VRAM bytes lo..hi (a 2D draw):
@@ -2037,6 +2153,7 @@ nv4_3d_touch(nv4_t *nv4, uint32_t lo, uint32_t hi, int cause)
 
     if (!b)
         return;
+    nv4_3d_copy_touch(nv4, lo, hi);
     if (b->nspans || b->ntris) {
         if (!b->parallel || b->serial)
             hit = 1; /* rows are not (all) tracked */
@@ -2098,8 +2215,14 @@ nv4_3d_fill_words(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lim, int b
     st.cy1       = y1;
     nv4_3d_reach(&st, base, pitch, &lo, &hi);
 
+    /* Stores must follow earlier texture reads before joining their batch. */
+    if ((b->tex_lo <= b->tex_hi) && nv4_3d_meets(lo, hi, b->tex_lo, b->tex_hi))
+        nv4_3d_flush(nv4);
+
     big   = b->had3d && ((nv4->vblank_count - b->last3d) <= 2) && ((int64_t) (x1 - x0) * (y1 - y0) >= 65536);
     joins = (b->nspans > 0) && (!b->parallel || (nv4_3d_region_find(b, base, pitch, lo, hi) >= 0));
+    if (!joins && b->gpu)
+        joins = nv4_gpu_pending_overlaps(b->gpu, lo, hi);
     if (!big && !joins)
         return 0;
     if ((b->ntris >= B3D_TRIS) || (b->nspans + (y1 - y0) > B3D_SPANS))
@@ -2342,6 +2465,7 @@ void
 nv4_3d_reset(nv4_t *nv4)
 {
     if (nv4->batch3d) {
+        nv4_3d_copy_wait(nv4);
         nv4_3d_fly_wait(nv4->batch3d, -1);
         if (nv4->batch3d->gpu)
             nv4_gpu_wait(nv4->batch3d->gpu, nv4);
@@ -2436,6 +2560,7 @@ nv4_3d_close(nv4_t *nv4)
 
     if (!b)
         return;
+    nv4_3d_copy_wait(nv4);
     nv4_3d_fly_wait(b, -1);
     if (b->nthreads > 1) {
         b->run = 0;

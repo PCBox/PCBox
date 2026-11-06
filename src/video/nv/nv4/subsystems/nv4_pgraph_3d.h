@@ -164,6 +164,12 @@ typedef struct nv4_3d_batch_s {
 
     /* The worker threads shade a batch while emulation goes on (no GPU,
        no verify or recording); the batch they are given */
+    /* A disjoint row copy following submitted 3D work. Its source and
+       destination remain owned until it runs, before another submission. */
+    struct {
+        uint32_t src, dst, spitch, dpitch, len, rows, shi, dhi;
+        int      pending;
+    } copy;
     int          async;
     nv4_3d_fly_t fly;
 

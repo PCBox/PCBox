@@ -70,110 +70,7 @@ if(BUILD_TESTING)
         ${PROJECT_BINARY_DIR}/src/include
     )
     add_test(NAME Mach64.3D COMMAND mach64_3d_tests)
-    add_test(NAME Mach64.Palette COMMAND mach64_3d_tests --palette)
-    add_test(NAME Mach64.VQ COMMAND mach64_3d_tests --vq)
-    add_test(NAME Mach64.Mip COMMAND mach64_3d_tests --mip)
-    add_test(NAME Mach64.Dither COMMAND mach64_3d_tests --dither)
-    add_test(NAME Mach64.Composite COMMAND mach64_3d_tests --composite)
-    add_test(NAME Mach64.Bilinear COMMAND mach64_3d_tests --bilinear)
-    add_test(NAME Mach64.Modulate COMMAND mach64_3d_tests --modulate)
 
-    add_executable(mach64_busmaster_tests vid_ati_mach64_busmaster_test.c)
-    target_include_directories(mach64_busmaster_tests PRIVATE
-        ${PROJECT_SOURCE_DIR}/src/include
-        ${PROJECT_SOURCE_DIR}/src/cpu
-        ${PROJECT_BINARY_DIR}/src/include
-    )
-    add_test(NAME Mach64.BusMaster COMMAND mach64_busmaster_tests)
-
-    add_executable(mach64_idct_tests vid_ati_mach64_idct_test.c)
-    target_include_directories(mach64_idct_tests PRIVATE
-        ${PROJECT_SOURCE_DIR}/src/include
-        ${PROJECT_SOURCE_DIR}/src/cpu
-        ${PROJECT_BINARY_DIR}/src/include
-    )
-    add_test(NAME Mach64.IDCT COMMAND mach64_idct_tests)
-    if(UNIX)
-        target_link_libraries(mach64_idct_tests PRIVATE m)
-    endif()
-
-    foreach(target mach64_accel_tests mach64_3d_tests mach64_busmaster_tests)
-        target_sources(${target} PRIVATE ../../src/video/vid_ati_mach64_idct.c)
-    endforeach()
-
-    add_executable(mach64_display_tests vid_ati_mach64_display_test.c)
-    target_include_directories(mach64_display_tests PRIVATE
-        ${PROJECT_SOURCE_DIR}/src/include
-        ${PROJECT_SOURCE_DIR}/src/cpu
-        ${PROJECT_BINARY_DIR}/src/include
-    )
-    add_test(NAME Mach64.Display COMMAND mach64_display_tests)
-
-
-    add_executable(nv3_control_tests
-        nv3_control_test.c
-        ../../src/video/nv/nv3/subsystems/nv3_pmc.c
-        ../../src/video/nv/nv3/subsystems/nv3_pme.c
-        ../../src/video/nv/nv3/subsystems/nv3_pfifo.c
-        ../../src/video/nv/nv3/subsystems/nv3_pramin.c
-        ../../src/video/nv/nv3/subsystems/nv3_user.c
-        ../../src/video/nv/nv3/subsystems/nv3_pgraph.c
-        ../../src/video/nv/nv3/classes/nv3_class_00c_win95_gdi_text.c
-        ../../src/video/nv/nv3/render/nv3_render_primitives.c
-    )
-    target_include_directories(nv3_control_tests PRIVATE
-        ${PROJECT_SOURCE_DIR}/src/include
-        ${PROJECT_SOURCE_DIR}/src/cpu
-        ${PROJECT_BINARY_DIR}/src/include
-    )
-    add_test(NAME NV3.Control COMMAND nv3_control_tests)
-
-    # The RIVA TNT 3D test includes the source it tests.
-    add_executable(nv4_3d_swizzle_tests nv4_3d_swizzle_test.c)
-    target_include_directories(nv4_3d_swizzle_tests PRIVATE
-        ${PROJECT_SOURCE_DIR}/src/include
-        ${PROJECT_BINARY_DIR}/src/include
-    )
-    target_link_libraries(nv4_3d_swizzle_tests PRIVATE m)
-    add_test(NAME NV4.Swizzle3D COMMAND nv4_3d_swizzle_tests)
-
-    add_executable(nv4_3d_ropfill_tests nv4_3d_ropfill_test.c)
-    target_include_directories(nv4_3d_ropfill_tests PRIVATE
-        ${PROJECT_SOURCE_DIR}/src/include
-        ${PROJECT_BINARY_DIR}/src/include
-    )
-    target_link_libraries(nv4_3d_ropfill_tests PRIVATE m)
-    add_test(NAME NV4.RopFill3D COMMAND nv4_3d_ropfill_tests)
-
-    # The GPU lane against the CPU (skips itself without a Vulkan device)
-    get_filename_component(NV4_TEST_CC_DIR ${CMAKE_C_COMPILER} DIRECTORY)
-    find_path(NV4_TEST_VK_INCLUDE_DIR vulkan/vulkan.h HINTS ${NV4_TEST_CC_DIR}/../include NO_DEFAULT_PATH)
-    if(NV4_TEST_VK_INCLUDE_DIR)
-        add_executable(nv4_3d_gpu_tests nv4_3d_gpu_test.c
-            ${PROJECT_SOURCE_DIR}/src/video/nv/nv4/subsystems/nv4_pgraph_3d_gpu.c
-            ${PROJECT_SOURCE_DIR}/src/video/nv/nv_gpu_vk.c)
-        target_compile_definitions(nv4_3d_gpu_tests PRIVATE NV4_GPU_HAVE_VULKAN)
-        target_include_directories(nv4_3d_gpu_tests PRIVATE
-            ${PROJECT_SOURCE_DIR}/src/include
-            ${PROJECT_BINARY_DIR}/src/include
-            ${NV4_TEST_VK_INCLUDE_DIR}
-        )
-        target_link_libraries(nv4_3d_gpu_tests PRIVATE m)
-        add_test(NAME NV4.Gpu3D COMMAND nv4_3d_gpu_tests)
-
-        # Recorded batches (NV4_3D_REPLAY_DIR) through the CPU and the lane
-        add_executable(nv4_3d_replay_tests nv4_3d_replay_test.c
-            ${PROJECT_SOURCE_DIR}/src/video/nv/nv4/subsystems/nv4_pgraph_3d_gpu.c
-            ${PROJECT_SOURCE_DIR}/src/video/nv/nv_gpu_vk.c)
-        target_compile_definitions(nv4_3d_replay_tests PRIVATE NV4_GPU_HAVE_VULKAN)
-        target_include_directories(nv4_3d_replay_tests PRIVATE
-            ${PROJECT_SOURCE_DIR}/src/include
-            ${PROJECT_BINARY_DIR}/src/include
-            ${NV4_TEST_VK_INCLUDE_DIR}
-        )
-        target_link_libraries(nv4_3d_replay_tests PRIVATE m)
-        add_test(NAME NV4.Replay3D COMMAND nv4_3d_replay_tests)
-    endif()
     add_executable(ogc_deb_tests vid_ogc_deb_test.c)
     target_include_directories(ogc_deb_tests PRIVATE
         ${PROJECT_SOURCE_DIR}/src/include
@@ -199,6 +96,7 @@ if(BUILD_TESTING)
 
     add_executable(nv3_control_tests
         nv3_control_test.c
+        ../../src/video/nv/nv3/classes/nv3_class_00e_scaled_image_from_mem.c
         ../../src/video/nv/nv3/subsystems/nv3_pmc.c
         ../../src/video/nv/nv3/subsystems/nv3_pme.c
         ../../src/video/nv/nv3/subsystems/nv3_pfifo.c
@@ -214,6 +112,36 @@ if(BUILD_TESTING)
         ${PROJECT_BINARY_DIR}/src/include
     )
     add_test(NAME NV3.Control COMMAND nv3_control_tests)
+
+    add_executable(nv3_3d_state_tests nv3_3d_state_test.c)
+    target_include_directories(nv3_3d_state_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/include
+        ${PROJECT_SOURCE_DIR}/src/cpu
+        ${PROJECT_BINARY_DIR}/src/include
+    )
+    if(NOT MSVC)
+        target_link_libraries(nv3_3d_state_tests PRIVATE m)
+    endif()
+    add_test(NAME NV3.State3D COMMAND nv3_3d_state_tests)
+
+    add_executable(nv3_image_tests
+        nv3_image_test.c
+        ../../src/video/nv/nv3/render/nv3_render_core.c
+        ../../src/video/nv/nv3/render/nv3_render_blit.c
+    )
+    target_include_directories(nv3_image_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/include
+        ${PROJECT_SOURCE_DIR}/src/cpu
+        ${PROJECT_BINARY_DIR}/src/include
+    )
+    add_test(NAME NV3.Image COMMAND nv3_image_tests)
+
+    add_executable(nv4_2d_upload_tests nv4_2d_upload_test.c)
+    target_include_directories(nv4_2d_upload_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/include
+        ${PROJECT_BINARY_DIR}/src/include
+    )
+    add_test(NAME NV4.Upload2D COMMAND nv4_2d_upload_tests)
 
     add_executable(nv4_2d_sync_tests nv4_2d_sync_test.c)
     target_include_directories(nv4_2d_sync_tests PRIVATE
@@ -243,6 +171,17 @@ if(BUILD_TESTING)
     get_filename_component(NV4_TEST_CC_DIR ${CMAKE_C_COMPILER} DIRECTORY)
     find_path(NV4_TEST_VK_INCLUDE_DIR vulkan/vulkan.h HINTS ${NV4_TEST_CC_DIR}/../include NO_DEFAULT_PATH)
     if(NV4_TEST_VK_INCLUDE_DIR)
+        add_executable(nv3_3d_snapshot_tests nv3_3d_snapshot_test.c
+            ${PROJECT_SOURCE_DIR}/src/video/nv/nv_gpu_vk.c)
+        target_compile_definitions(nv3_3d_snapshot_tests PRIVATE NV3_GPU_HAVE_VULKAN)
+        target_include_directories(nv3_3d_snapshot_tests PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/include
+            ${PROJECT_BINARY_DIR}/src/include
+            ${NV4_TEST_VK_INCLUDE_DIR}
+        )
+        target_link_libraries(nv3_3d_snapshot_tests PRIVATE m)
+        add_test(NAME NV3.SealedTextures COMMAND nv3_3d_snapshot_tests)
+
         add_executable(nv4_3d_gpu_tests nv4_3d_gpu_test.c
             ${PROJECT_SOURCE_DIR}/src/video/nv/nv4/subsystems/nv4_pgraph_3d_gpu.c
             ${PROJECT_SOURCE_DIR}/src/video/nv/nv_gpu_vk.c)

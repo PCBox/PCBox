@@ -120,13 +120,12 @@ mem_readl_phys(uint32_t addr)
 int
 nv4_dma_translate(nv4_t *nv4, uint32_t inst, uint32_t offset, int write, uint32_t *addr, int *target)
 {
-    (void) nv4;
-    (void) inst;
-    (void) offset;
     (void) write;
-    (void) addr;
-    (void) target;
-    return !NV4_DMA_OK;
+    if (inst != 1 || offset > nv4->vram_mask)
+        return !NV4_DMA_OK;
+    *addr   = offset;
+    *target = 0; /* VRAM */
+    return NV4_DMA_OK;
 }
 
 uint32_t
@@ -135,7 +134,7 @@ nv4_dma_page_left(nv4_t *nv4, uint32_t inst, uint32_t offset)
     (void) nv4;
     (void) inst;
     (void) offset;
-    return 0x1000;
+    return 0x1000 - (offset & 0xfff);
 }
 
 void
@@ -450,6 +449,46 @@ test_adjacent_depth(void)
     check_gpu(1, "adjacent depth");
 }
 
+static void
+test_deferred_gpu_copy(void)
+{
+    fill_vram();
+    surfaces(0, 0, 0, 256, 0);
+    dx5_state(0, 0);
+    nv4->batch3d->verify = 0; /* leave the submission in flight */
+    tri(0, 0, 64, 0, 0, 32, 0.5f, 0xff112233, 0xff445566, 0xff778899);
+    memset(nv4->svga.vram + 0x40000, 0, 8192);
+    CHECK(nv4_3d_copy(nv4, COL_BASE, 0x40000, 256, 256, 256, 32));
+    CHECK(nv4->batch3d->copy.pending);
+    nv4_3d_vblank(nv4, 0x40000, 0x41fff);
+    CHECK(!nv4->batch3d->copy.pending);
+    CHECK(!memcmp(nv4->svga.vram + COL_BASE, nv4->svga.vram + 0x40000, 8192));
+    check_gpu(1, "deferred copy");
+    nv4->batch3d->verify = 1;
+}
+
+/* Reuse staged texture bytes, then change them between batches. The
+   verifier compares every textured batch with the CPU renderer. */
+static void
+test_texture_cache(void)
+{
+    fill_vram();
+    surfaces(0, 0, 0, 256, 0);
+    NV4_GR(nv4, NV4_PGRAPH_CTX_SWITCH3) = 1;
+    for (int pass = 0; pass < 4; pass++) {
+        if (pass == 0 || pass == 2)
+            memset(nv4->svga.vram + 0x30000, pass ? 0x69 : 0x35, 4096);
+        dx5_state(0, 0);
+        mthd(0x304, 0x30000);
+        mthd(0x308, (7u << 8) | (1u << 12) | (5u << 16) | (5u << 20));
+        mthd(0x310, 7);
+        tri(0, 0, 64, 0, 0, 32, 0.5f, 0xffffffff, 0xffffffff, 0xffffffff);
+        nv4_3d_flush(nv4);
+        check_gpu(1, "texture cache");
+    }
+    NV4_GR(nv4, NV4_PGRAPH_CTX_SWITCH3) = 0;
+}
+
 int
 main(void)
 {
@@ -465,6 +504,8 @@ main(void)
     test_ropfill();
     test_serial();
     test_adjacent_depth();
+    test_texture_cache();
+    test_deferred_gpu_copy();
     card_free();
     if (failures)
         fprintf(stderr, "%d failure(s)\n", failures);

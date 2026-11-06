@@ -82,6 +82,12 @@ nv3_gpu_wait(UNUSED(struct nv3_gpu_s *g))
 }
 
 int
+nv3_gpu_state_reusable(UNUSED(struct nv3_gpu_s *g), UNUSED(const nv3_d3d_batch_t *b), UNUSED(int state))
+{
+    return 0;
+}
+
+int
 nv3_gpu_seal(UNUSED(struct nv3_gpu_s *g), UNUSED(nv3_d3d_batch_t *b))
 {
     return 0;
@@ -349,6 +355,25 @@ gpu_tex_equal(nv3_gpu_t *g, const nv3_d3d_dstate_t *s, uint32_t base)
     });
     g->hash_bytes += s->tex_size;
     return same;
+}
+
+/* Sealed states keep their texture arena entries alive for this batch. Reuse
+   the state only if its snapshot still describes the system-memory texture;
+   the guest can replace those bytes without any MMIO write to invalidate it. */
+int
+nv3_gpu_state_reusable(struct nv3_gpu_s *g, const nv3_d3d_batch_t *b, int state)
+{
+    const nv3_d3d_dstate_t *s = &b->states[state];
+    uint32_t base = g->sbase[state];
+
+    if (!s->tex_size)
+        return 1;
+    if (g->vk.b[NV_GPU_B_TSTAGE].cached)
+        return gpu_tex_equal(g, s, base);
+    for (int i = 0; i < g->ncache; i++)
+        if (g->cache[i].base == base)
+            return g->cache[i].hash == gpu_tex_hash(g, s);
+    return 0;
 }
 
 /* Where a texture's pages are, as one number */

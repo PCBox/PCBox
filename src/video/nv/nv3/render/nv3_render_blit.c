@@ -235,6 +235,7 @@ nv3_render_blit_image(uint32_t color, nv3_grobj_t grobj)
     uint32_t     count = nv3_render_pixels_per_word(grobj, &bits);
     uint32_t     total = (uint32_t) img->size_in.x * img->size_in.y;
     nv3_render_setup_t st;
+    bool direct = true;
 
     /* this word may not have come from the MMIO write (the DMA pusher): the pixel count moves on */
     nv3_image_fast.key = NV3_IMAGE_FAST_OFF;
@@ -242,6 +243,10 @@ nv3_render_blit_image(uint32_t color, nv3_grobj_t grobj)
     if (!img->size_in.x)
         return;
     nv3_render_setup(&st, grobj, false);
+    if (!nv3_image_fast.known) {
+        nv3_image_fast.known = true;
+        nv3_image_fast.plain = nv3_render_image_fast_prepare(&st, grobj, bits, count);
+    }
 
     for (uint32_t i = 0; i < count; i++) {
         uint32_t n = nv3->pgraph.image_pixel_count;
@@ -255,15 +260,28 @@ nv3_render_blit_image(uint32_t color, nv3_grobj_t grobj)
             continue;
 
         uint32_t pixel = (bits == 32) ? color : ((color >> (i * bits)) & ((1u << bits) - 1));
-        nv3_render_pixel_st(&st, (int16_t) img->point.x + (int32_t) rx, (int16_t) img->point.y + (int32_t) ry,
-                            nv3_render_expand_color(pixel, grobj));
+        if (nv3_image_fast.plain && nv3_image_fast.chroma && ((pixel & 0x7FFF) == nv3_image_fast.chroma_key)) {
+            direct = false; /* no store, and do not arm a direct write over earlier queued pixels */
+            continue;
+        }
+        int32_t x = (int16_t) img->point.x + (int32_t) rx;
+        int32_t y = (int16_t) img->point.y + (int32_t) ry;
+        nv3_color_expanded_t c = nv3_render_expand_color(pixel, grobj);
+        if ((x >= 0) && (y >= 0) && nv3_d3d_fill(x, y, x + 1, y + 1, c, grobj, false))
+            direct = false;
+        else {
+            nv3_d3d_touch_rect(grobj, y, y, x + 1, NV3_SYNC_CLASS + nv3_pgraph_class11_image);
+            nv3_render_pixel_st(&st, x, y, c);
+        }
     }
 
-    if (!nv3_image_fast.known) {
-        nv3_image_fast.known = true;
-        nv3_image_fast.plain = nv3_render_image_fast_prepare(&st, grobj, bits, count);
-    }
-    nv3_image_fast.drew = nv3_image_fast.plain;
+    /* Arming direct writes covers the entire remaining upload, including later rows. */
+    if (nv3_image_fast.plain && direct)
+        nv3_d3d_touch_rect(grobj, (int16_t) img->point.y,
+                           (int16_t) img->point.y + (int32_t) MIN(img->size.y, img->size_in.y) - 1,
+                           (int16_t) img->point.x + (int32_t) MIN(img->size.x, img->size_in.x),
+                           NV3_SYNC_CLASS + nv3_pgraph_class11_image);
+    nv3_image_fast.drew = nv3_image_fast.plain && direct;
 }
 
 /* Bitmap from CPU (class 0x12): 32 monochrome pixels per method, COLOR0 for

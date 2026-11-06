@@ -155,6 +155,14 @@ nv4_dma_write(nv4_t *nv4, uint32_t inst, uint32_t offset, const uint8_t *buf, ui
         if (nv4_dma_translate(nv4, inst, offset, 1, &addr, &target) != NV4_DMA_OK)
             return NV4_DMA_FAULT;
         if (target == NV4_DMA_TARGET_VRAM) {
+            /* Notifiers need not cut unrelated 3D batches, but their
+               VRAM writes must still respect batches and deferred blits. */
+            uint32_t lo = addr & nv4->vram_mask;
+            if ((uint64_t) lo + chunk > nv4->vram_size)
+                nv4_3d_access(nv4, 0, nv4->vram_mask, NV4_SYNC_LFB);
+            else
+                nv4_3d_access(nv4, lo, lo + chunk - 1, NV4_SYNC_LFB);
+
             for (uint32_t i = 0; i < chunk; i++)
                 nv4->svga.vram[(addr + i) & nv4->vram_mask] = buf[i];
             for (uint32_t a = addr & ~0xfffu; a < addr + chunk; a += 0x1000)

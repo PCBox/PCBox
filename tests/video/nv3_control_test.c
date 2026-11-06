@@ -56,6 +56,10 @@ nv3_d3d_sync(int cause)
 {
 }
 void
+nv3_render_image_fast_reset(void)
+{
+}
+void
 nv3_d3d_touch_rect(nv3_grobj_t obj, int32_t y0, int32_t y1, int32_t x1, int cause)
 {
 }
@@ -137,7 +141,6 @@ OTHER_METHOD(nv3_class_009_method)
 OTHER_METHOD(nv3_class_00a_method)
 OTHER_METHOD(nv3_class_00b_method)
 OTHER_METHOD(nv3_class_00d_method)
-OTHER_METHOD(nv3_class_00e_method)
 OTHER_METHOD(nv3_class_010_method)
 OTHER_METHOD(nv3_class_011_method)
 OTHER_METHOD(nv3_class_012_method)
@@ -147,10 +150,21 @@ OTHER_METHOD(nv3_class_017_method)
 OTHER_METHOD(nv3_class_018_method)
 OTHER_METHOD(nv3_class_01c_method)
 
+static uint32_t sifm_target, sifm_maps, sifm_frame;
+uint32_t
+nv3_dma_map_pages(uint32_t inst, uint32_t offset, uint32_t *addr, uint32_t pages, uint32_t *lin)
+{
+    CHECK(inst == 7 && pages == 1);
+    *lin = offset + 1; /* deliberately unaligned DMA object */
+    *addr = (((*lin >> 12) ^ 3) << 12) + sifm_frame;
+    sifm_maps++;
+    return sifm_target;
+}
 void
 dma_bm_read(uint32_t addr, uint8_t *data, uint32_t size, int transfer)
 {
-    CHECK(0);
+    CHECK(size == 1 && transfer == 1);
+    *data = vram[addr & (sizeof(vram) - 1)];
 }
 void
 nv3_d3d_vblank(uint32_t lo, uint32_t hi)
@@ -338,12 +352,52 @@ text(void)
     CHECK(card.pgraph.win95_gdi_text_bit_count == 70);
     CHECK(pixels[2][36] == 7 && pixels[2][37] == 0);
 }
+static void
+sifm_method(uint32_t method, uint32_t param)
+{
+    nv3_class_00e_method(param, method, (nv3_ramin_context_t) {0},
+                         (nv3_grobj_t) {.grobj_0 = nv3_pgraph_pixel_format_r5g5b5});
+}
+static void
+scaled_image(void)
+{
+    reset();
+    card.nvbase.svga.vram = vram;
+    card.nvbase.svga.vram_mask = sizeof(vram) - 1;
+    card.pgraph.dma_settings = 7;
+    for (unsigned i = 0; i < sizeof(vram); i++)
+        vram[i] = (uint8_t) (i * 13 + (i >> 12));
+    sifm_method(0x308, 0);
+    sifm_method(0x30c, (2 << 16) | 8);
+    sifm_method(0x310, 0);
+    sifm_method(0x314, (2 << 16) | 8);
+    sifm_method(0x318, 1 << 19); /* two destination pixels per source pixel */
+    sifm_method(0x31c, 1 << 20);
+    sifm_method(0x400, (2 << 16) | 4);
+    sifm_method(0x404, 8);
+    sifm_method(0x408, 4094); /* first source pixel straddles noncontiguous pages */
+    for (unsigned pass = 0; pass < 4; pass++) {
+        sifm_target = (pass & 1) ? NV3_DMA_TARGET_NODE_PCI : NV3_DMA_TARGET_NODE_VRAM;
+        sifm_frame = (pass >> 1) * 0x10000; /* mappings change between draws */
+        sifm_maps = 0;
+        sifm_method(0x40c, 0);
+        for (unsigned y = 0; y < 2; y++)
+            for (unsigned x = 0; x < 8; x++) {
+                unsigned off = 4095 + y * 8 + (x / 2) * 2;
+                unsigned a = (((off >> 12) ^ 3) << 12) + sifm_frame + (off & 4095);
+                unsigned b = ((((off + 1) >> 12) ^ 3) << 12) + sifm_frame + ((off + 1) & 4095);
+                CHECK(pixels[y][x] == (vram[a] | (vram[b] << 8)));
+            }
+        CHECK(sifm_maps < 8); /* page translation is no longer per source byte */
+    }
+}
 int
 main(void)
 {
     interrupts();
     runout();
     text();
+    scaled_image();
     puts("NV3 control and GDI tests passed");
     return 0;
 }
