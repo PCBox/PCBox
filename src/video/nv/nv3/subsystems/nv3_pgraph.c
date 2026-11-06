@@ -581,6 +581,11 @@ void nv3_pgraph_submit(uint32_t param, uint16_t method, uint8_t channel, uint8_t
     }
     grobj.grobj_0 = nv3->pgraph.context_switch;
 
+    /* Any method but one more pixel of the same image may change how pixels are drawn */
+    if ((class_id != nv3_pgraph_class11_image) || (method < NV3_IMAGE_COLOR_START) || (method > NV3_IMAGE_COLOR_END)
+        || (old_subchannel != (subchannel & 7)))
+        nv3_render_image_fast_reset();
+
     /* The DMA pointers (CTX_SWITCH_B/C, NOTIFY's instance) are PGRAPH registers. With DEBUG_1
        bit 16 set they are reloaded from the grobj (words 1 and 2) when a DMA-using object
        (M2MF, scaled image from memory, image to memory, D3D) or a NOTIFY method arrives for
@@ -605,9 +610,9 @@ void nv3_pgraph_submit(uint32_t param, uint16_t method, uint8_t channel, uint8_t
        need it, nor image in memory (0x1C: surface offset, pitch and format). The zeta point (0x18)
        waits itself, and so do the rectangle (0x07) and GDI (0x0C) classes: most of their methods
        only set state, their rectangles join the batch or wait only for 3D work on their rows
-       (nv3_render_fill), the GDI bitmaps wait. */
+       (nv3_render_fill), the GDI bitmaps wait. So does the blit (0x10), when it draws. */
     if ((method > NV3_SET_NOTIFY) && (class_id > nv3_pgraph_class06_pattern) && (class_id != nv3_pgraph_class07_rectangle)
-        && (class_id != nv3_pgraph_class0c_w95txt) && (class_id != nv3_pgraph_class1c_image_in_memory)
+        && (class_id != nv3_pgraph_class0c_w95txt) && (class_id != nv3_pgraph_class10_blit) && (class_id != nv3_pgraph_class1c_image_in_memory)
         && (class_id != nv3_pgraph_class17_d3d5tri_zeta_buffer) && (class_id != nv3_pgraph_class18_point_zeta_buffer))
         nv3_d3d_sync(NV3_SYNC_CLASS + (class_id & 0x1F));
 

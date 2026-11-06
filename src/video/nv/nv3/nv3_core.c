@@ -248,6 +248,9 @@ void nv3_mmio_write32(uint32_t addr, uint32_t val, UNUSED(void* priv))
 {
     addr &= 0xFFFFFF;
 
+    if (((addr & NV3_IMAGE_FAST_ADDR_MASK) == nv3_image_fast.key) && nv3_render_image_word(addr, val))
+        return;
+
     // This is weitek vga stuff
     if (nv3_is_svga_redirect_address(addr))
     {
@@ -264,6 +267,9 @@ void nv3_mmio_write32(uint32_t addr, uint32_t val, UNUSED(void* priv))
     }
 
     nv3_mmio_arbitrate_write(addr, val);
+
+    if (nv3_image_fast.drew)
+        nv3_render_image_fast_arm(addr);
 }
 
 // AGP read function
@@ -773,11 +779,6 @@ void nv3_recalc_timings(svga_t* svga)
         }
     }
 
-    /* The CRTC scans VRAM out linearly from the start address with the CRTC pitch,
-       so the SVGA core draws the screen; PGRAPH and the linear framebuffer only mark
-       what they change in changedvram. */
-    svga->override = 0;
-
     /* The extended modes scan VRAM out linearly, so CPU accesses through the banked A0000 window
        in chain-4 must be linear too; only VGA mode 13h keeps the planar chain-4 layout its
        doubleword scan-out reads. (Packed modes drawn through the window by DOS VESA programs came
@@ -1183,48 +1184,46 @@ void nv3_prom_write(uint32_t address, uint32_t value)
     nv_log("What's going on here? Tried to write to the Video BIOS ROM? (Address=0x%05x, value=0x%02x)", real_addr, value);
 }
 
-/* The guest's accesses through the BARs cost it the bus time the card's timings give (as
-   svga_read/svga_write charge them for the VGA window). Without it a register or frame buffer read
-   took about one instruction, so a loop polling a status register went round many more times per
-   guest microsecond than on the chip, each time through the whole dispatch. Only the mappings
-   charge: the arbiter and the subsystems call the handlers below directly, free. */
-#define NV3_BUS_CHARGE(kind) (cycles -= nv3->nvbase.svga.monitor->mon_video_timing_##kind)
+/* The CPU's side of a register access: what the bus takes, charged to the guest. Drivers spin on
+   these registers (the DirectDraw GetScanLine of the 16-bit driver reads CR1A/CR34/CR35 through far
+   pointers, for as long as the game waits for its frame); with free accesses all that time goes
+   to running the loop itself, and more of it than the host can run. Only the CPU's way in pays:
+   PBUS RMA and the partial writes call the handlers themselves. */
+static uint8_t nv3_bus_read8(uint32_t addr, void* priv)
+{
+    cycles -= nv3->nvbase.svga.monitor->mon_video_timing_read_b;
+    return nv3_mmio_read8(addr, priv);
+}
 
-#define NV3_BUS_WRAPPERS(name)                                                                    \
-    static uint8_t name##_bus_read8(uint32_t addr, void *priv)                                    \
-    {                                                                                             \
-        NV3_BUS_CHARGE(read_b);                                                                   \
-        return name##_read8(addr, priv);                                                          \
-    }                                                                                             \
-    static uint16_t name##_bus_read16(uint32_t addr, void *priv)                                  \
-    {                                                                                             \
-        NV3_BUS_CHARGE(read_w);                                                                   \
-        return name##_read16(addr, priv);                                                         \
-    }                                                                                             \
-    static uint32_t name##_bus_read32(uint32_t addr, void *priv)                                  \
-    {                                                                                             \
-        NV3_BUS_CHARGE(read_l);                                                                   \
-        return name##_read32(addr, priv);                                                         \
-    }                                                                                             \
-    static void name##_bus_write8(uint32_t addr, uint8_t val, void *priv)                         \
-    {                                                                                             \
-        NV3_BUS_CHARGE(write_b);                                                                  \
-        name##_write8(addr, val, priv);                                                           \
-    }                                                                                             \
-    static void name##_bus_write16(uint32_t addr, uint16_t val, void *priv)                       \
-    {                                                                                             \
-        NV3_BUS_CHARGE(write_w);                                                                  \
-        name##_write16(addr, val, priv);                                                          \
-    }                                                                                             \
-    static void name##_bus_write32(uint32_t addr, uint32_t val, void *priv)                       \
-    {                                                                                             \
-        NV3_BUS_CHARGE(write_l);                                                                  \
-        name##_write32(addr, val, priv);                                                          \
-    }
+static uint16_t nv3_bus_read16(uint32_t addr, void* priv)
+{
+    cycles -= nv3->nvbase.svga.monitor->mon_video_timing_read_w;
+    return nv3_mmio_read16(addr, priv);
+}
 
-NV3_BUS_WRAPPERS(nv3_mmio)
-NV3_BUS_WRAPPERS(nv3_ramin)
-NV3_BUS_WRAPPERS(nv3_dfb)
+static uint32_t nv3_bus_read32(uint32_t addr, void* priv)
+{
+    cycles -= nv3->nvbase.svga.monitor->mon_video_timing_read_l;
+    return nv3_mmio_read32(addr, priv);
+}
+
+static void nv3_bus_write8(uint32_t addr, uint8_t val, void* priv)
+{
+    cycles -= nv3->nvbase.svga.monitor->mon_video_timing_write_b;
+    nv3_mmio_write8(addr, val, priv);
+}
+
+static void nv3_bus_write16(uint32_t addr, uint16_t val, void* priv)
+{
+    cycles -= nv3->nvbase.svga.monitor->mon_video_timing_write_w;
+    nv3_mmio_write16(addr, val, priv);
+}
+
+static void nv3_bus_write32(uint32_t addr, uint32_t val, void* priv)
+{
+    cycles -= nv3->nvbase.svga.monitor->mon_video_timing_write_l;
+    nv3_mmio_write32(addr, val, priv);
+}
 
 // Initialise the MMIO mappings
 void nv3_init_mappings_mmio(void)
@@ -1236,31 +1235,31 @@ void nv3_init_mappings_mmio(void)
 
     // initialize the mmio mapping
     mem_mapping_add(&nv3->nvbase.mmio_mapping, 0, 0, 
-        nv3_mmio_bus_read8,
-        nv3_mmio_bus_read16,
-        nv3_mmio_bus_read32,
-        nv3_mmio_bus_write8,
-        nv3_mmio_bus_write16,
-        nv3_mmio_bus_write32,
+        nv3_bus_read8,
+        nv3_bus_read16,
+        nv3_bus_read32,
+        nv3_bus_write8,
+        nv3_bus_write16,
+        nv3_bus_write32,
         NULL, MEM_MAPPING_EXTERNAL, nv3);
     
     // initialize the mmio mapping
     mem_mapping_add(&nv3->nvbase.ramin_mapping, 0, 0, 
-        nv3_ramin_bus_read8,
-        nv3_ramin_bus_read16,
-        nv3_ramin_bus_read32,
-        nv3_ramin_bus_write8,
-        nv3_ramin_bus_write16,
-        nv3_ramin_bus_write32,
+        nv3_ramin_read8,
+        nv3_ramin_read16,
+        nv3_ramin_read32,
+        nv3_ramin_write8,
+        nv3_ramin_write16,
+        nv3_ramin_write32,
         NULL, MEM_MAPPING_EXTERNAL, nv3);
 
     mem_mapping_add(&nv3->nvbase.ramin_mapping_mirror, 0, 0,
-        nv3_ramin_bus_read8,
-        nv3_ramin_bus_read16,
-        nv3_ramin_bus_read32,
-        nv3_ramin_bus_write8,
-        nv3_ramin_bus_write16,
-        nv3_ramin_bus_write32,
+        nv3_ramin_read8,
+        nv3_ramin_read16,
+        nv3_ramin_read32,
+        nv3_ramin_write8,
+        nv3_ramin_write16,
+        nv3_ramin_write32,
         NULL, MEM_MAPPING_EXTERNAL, nv3);
 
 }
@@ -1311,22 +1310,22 @@ void nv3_init_mappings_svga(void)
     nv_log("Initialising SVGA core memory mapping\n");
     // setup the svga mappings
     mem_mapping_add(&nv3->nvbase.framebuffer_mapping, 0, 0,
-        nv3_dfb_bus_read8,
-        nv3_dfb_bus_read16,
-        nv3_dfb_bus_read32,
-        nv3_dfb_bus_write8,
-        nv3_dfb_bus_write16,
-        nv3_dfb_bus_write32,
+        nv3_vga_read,
+        nv3_vga_readw,
+        nv3_vga_readl,
+        nv3_vga_write,
+        nv3_vga_writew,
+        nv3_vga_writel,
         nv3->nvbase.svga.vram, 0, &nv3->nvbase.svga);
 
     // the SVGA/LFB mapping is also mirrored
     mem_mapping_add(&nv3->nvbase.framebuffer_mapping_mirror, 0, 0, 
-        nv3_dfb_bus_read8,
-        nv3_dfb_bus_read16,
-        nv3_dfb_bus_read32,
-        nv3_dfb_bus_write8,
-        nv3_dfb_bus_write16,
-        nv3_dfb_bus_write32,
+        nv3_vga_read,
+        nv3_vga_readw,
+        nv3_vga_readl,
+        nv3_vga_write,
+        nv3_vga_writew,
+        nv3_vga_writel,
         nv3->nvbase.svga.vram, 0, &nv3->nvbase.svga);
 
     io_sethandler(0x03c0, 0x0020, 
@@ -1462,6 +1461,8 @@ void nv3_update_mappings(void)
 //
 void* nv3_init(UNUSED(const device_t *info))
 {
+    nv3_render_image_fast_reset();
+
     // set the vram amount and gpu revision
     
     /* We don't bother looking these up if they are nonzero. On Riva 128 ZX, they are already set by the init function (always 8 MB VRAM + Revision C0) */

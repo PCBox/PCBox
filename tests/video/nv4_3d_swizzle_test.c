@@ -504,6 +504,34 @@ test_batch_split(void)
     card_free();
 }
 
+/* Surface bounds are inclusive: adjacent color/depth buffers can use
+   separate rows, but even a one-byte overlap must remain serial. */
+static void
+test_adjacent_depth(void)
+{
+    nv4_3d_batch_t *b;
+
+    card_new();
+    b = nv4->batch3d;
+    b->parallel = 1;
+    for (int reverse = 0; reverse < 2; reverse++)
+        for (int overlap = 0; overlap < 2; overlap++) {
+            nv4_3d_state_t s = { 0 };
+            s.bpp = 4;
+            s.cx1 = 16;
+            s.cy1 = 8;
+            s.col_pitch = s.z_pitch = 64;
+            s.col_base = COL_BASE + (reverse ? 512 - overlap : 0);
+            s.z_base = COL_BASE + (reverse ? 0 : 512 - overlap);
+            s.z_on = 1;
+            nv4_3d_place_state(nv4, b, &s);
+            CHECK(b->serial == overlap);
+            CHECK(b->nregions == (overlap ? 1 : 2));
+            nv4_3d_flush(nv4);
+        }
+    card_free();
+}
+
 int
 main(void)
 {
@@ -512,6 +540,7 @@ main(void)
     test_depth();
     test_pitch();
     test_batch_split();
+    test_adjacent_depth();
     if (failures)
         fprintf(stderr, "%d failure(s)\n", failures);
     else

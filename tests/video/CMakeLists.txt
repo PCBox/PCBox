@@ -19,6 +19,29 @@ if(BUILD_TESTING)
     )
     add_test(NAME S3.Display COMMAND s3_display_tests)
 
+    add_executable(s3_accel_tests
+        vid_s3_accel_test.c
+        ../../src/video/vid_svga_render.c
+        ../../src/video/clockgen/vid_clockgen_ics2494.c
+        ../../src/video/clockgen/vid_clockgen_icd2061.c
+        ../../src/video/clockgen/vid_clockgen_av9194.c
+    )
+    target_include_directories(s3_accel_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/include
+        ${PROJECT_BINARY_DIR}/src/include
+    )
+    target_compile_options(s3_accel_tests PRIVATE
+        $<$<C_COMPILER_ID:GNU,Clang,AppleClang>:-ffunction-sections;-fdata-sections>
+    )
+    target_link_options(s3_accel_tests PRIVATE
+        $<$<PLATFORM_ID:Darwin>:-Wl,-dead_strip>
+        $<$<AND:$<NOT:$<PLATFORM_ID:Darwin>>,$<C_COMPILER_ID:GNU,Clang>>:-Wl,--gc-sections>
+    )
+    if(NOT MSVC)
+        target_link_libraries(s3_accel_tests PRIVATE m)
+    endif()
+    add_test(NAME S3.Accel COMMAND s3_accel_tests)
+
     add_executable(wd90c31_tests
         wd90c31_test.cpp
         ../../src/video/vid_wd90c31.c
@@ -152,6 +175,13 @@ if(BUILD_TESTING)
         ${PROJECT_BINARY_DIR}/src/include
     )
     add_test(NAME NV3.Control COMMAND nv3_control_tests)
+
+    add_executable(nv4_2d_sync_tests nv4_2d_sync_test.c)
+    target_include_directories(nv4_2d_sync_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/include
+        ${PROJECT_BINARY_DIR}/src/include
+    )
+    add_test(NAME NV4.Sync2D COMMAND nv4_2d_sync_tests)
 
     # The RIVA TNT 3D test includes the source it tests.
     add_executable(nv4_3d_swizzle_tests nv4_3d_swizzle_test.c)

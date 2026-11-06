@@ -395,8 +395,10 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
         if (s->z_on) {
             if (!s->z_pitch || (s->z_pitch < w))
                 b->serial = 1;
-            else if (nv4_3d_meets(s->col_base, s->col_base + (uint32_t) s->cy1 * s->col_pitch,
-                                  s->z_base, s->z_base + (uint32_t) s->cy1 * s->z_pitch))
+            /* reach() returns inclusive bounds. Using base + height *
+               pitch here includes the next surface's first byte when
+               color and depth are adjacent (Screamer 4x4). */
+            else if (nv4_3d_meets(clo, chi, zlo, zhi))
                 b->serial = 1;
         }
     }

@@ -894,6 +894,21 @@ nv4_fill(nv4_draw_t *d, int32_t x0, int32_t y0, int32_t x1, int32_t y1, nv4_px_t
         x1 = d->cx1;
     if (y1 > d->cy1)
         y1 = d->cy1;
+    /* A rectangle reaches only these pixels, not every byte in the
+       surface's clip/limit. Driver progress markers are often 1x1 stores
+       in a DMA window that also contains all the 3D render targets. */
+    if (d->touch && !d->dst.swz && (x0 >= 0) && (y0 >= 0) && (x0 < x1) && (y0 < y1)) {
+        uint64_t lo = (uint64_t) d->dst.off + (uint64_t) y0 * d->dst.pitch + (uint64_t) x0 * d->dst.bpp;
+        uint64_t hi = (uint64_t) d->dst.off + (uint64_t) (y1 - 1) * d->dst.pitch + (uint64_t) x1 * d->dst.bpp - 1;
+        int      wraps = hi > UINT32_MAX;
+
+        if (hi > d->dst.limit)
+            hi = d->dst.limit;
+        if (!wraps && (lo <= hi) && ((uint64_t) d->dst.base + hi <= nv4->vram_mask)) {
+            d->lo = d->dst.base + (uint32_t) lo;
+            d->hi = d->dst.base + (uint32_t) hi;
+        }
+    }
     /* a plain store (SRCCOPY, no chroma key) into a linear surface can
        join the 3D batch; anything else is drawn here, after it */
     if (!d->dst.swz && !d->chroma && (((d->op != 1) && (d->op != 2) && (d->op != 4) && (d->op != 5)) || ((d->op == 1) && (d->rop == 0xcc)))
@@ -1649,11 +1664,26 @@ nv4_m2mf(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t data)
             uint32_t src = ch->m2mf_in + l * ch->m2mf_pitch_in;
             uint32_t dst = ch->m2mf_out + l * ch->m2mf_pitch_out;
 
-            for (uint32_t i = 0; i < ch->m2mf_len; i++) {
-                uint8_t b = 0;
+            if ((inc_in == 1) && ((uint64_t) src + ch->m2mf_len <= (1ull << 32))) {
+                uint32_t limit = nv4_dma_limit(nv4, in);
+                uint32_t len = ch->m2mf_len;
 
-                nv4_dma_read(nv4, in, src + i * inc_in, &b, 1);
-                line[i] = b;
+                /* Read contiguous input a page at a time in the DMA layer.
+                   Failed byte reads used to supply zero; keep that behavior
+                   beyond the object's limit and for an invalid object. */
+                memset(line, 0, len);
+                if (src > limit)
+                    len = 0;
+                else if ((uint64_t) len > (uint64_t) limit - src + 1)
+                    len = limit - src + 1;
+                nv4_dma_read(nv4, in, src, line, len);
+            } else {
+                for (uint32_t i = 0; i < ch->m2mf_len; i++) {
+                    uint8_t b = 0;
+
+                    nv4_dma_read(nv4, in, src + i * inc_in, &b, 1);
+                    line[i] = b;
+                }
             }
             if (inc_out == 1)
                 nv4_dma_write(nv4, out, dst, line, ch->m2mf_len);

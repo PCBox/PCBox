@@ -854,25 +854,84 @@ nv3_render_store_row(uint32_t addr, int32_t n, uint32_t cpp, uint32_t val)
 /* What a plain copy stores for a pixel p read from a surface of the destination's format:
    pixel_format and the ROP's output conversion keep the pixel but for the top bit, which comes
    from the context (bit 9); 32-bit pixels also lose bit 30 */
-static uint32_t
-nv3_render_copy_value(const nv3_render_setup_t *st, uint32_t p)
+void
+nv3_render_copy_bits(const nv3_render_setup_t *st, uint32_t *vmask, uint32_t *vor)
 {
     uint32_t bd = (st->ctx >> 9) & 1;
 
     switch (st->fmt & 3) {
         case bpixel_fmt_8bit:
-            return p & 0xFF;
+            *vmask = 0xFF;
+            *vor   = 0;
+            break;
         case bpixel_fmt_y16:
-            return p & 0xFFFF;
+            *vmask = 0xFFFF;
+            *vor   = 0;
+            break;
         case bpixel_fmt_16bit:
-            return (bd << 15) | (p & 0x7FFF);
+            *vmask = 0x7FFF;
+            *vor   = bd << 15;
+            break;
         default:
-            return (bd << 31) | (p & 0x3FFFFFFF);
+            *vmask = 0x3FFFFFFF;
+            *vor   = bd << 31;
+            break;
+    }
+}
+
+static uint32_t
+nv3_render_copy_value(const nv3_render_setup_t *st, uint32_t p)
+{
+    uint32_t vmask, vor;
+
+    nv3_render_copy_bits(st, &vmask, &vor);
+    return (p & vmask) | vor;
+}
+
+/* Do a copy nv3_d3d_copy decided on. Source and destinations share no bytes, so the rows go
+   straight across. */
+void
+nv3_render_copy_run(const nv3_render_copy_t *c)
+{
+    uint8_t *vram = nv3->nvbase.svga.vram;
+    int      same = !c->vor && (((c->cpp >= 4) ? 0xFFFFFFFFu : ((1u << (c->cpp * 8)) - 1)) & ~c->vmask) == 0;
+    uint32_t n    = c->row_bytes / c->cpp;
+
+    for (uint32_t j = 0; j < c->ndst; j++) {
+        for (uint32_t y = 0; y < c->rows; y++) {
+            const uint8_t *s    = vram + c->src + y * c->src_pitch;
+            uint32_t       addr = c->dst[j] + y * c->dst_pitch[j];
+            uint8_t       *d    = vram + addr;
+
+            if (same)
+                memcpy(d, s, c->row_bytes);
+            else if (c->cpp == 2) {
+                const uint16_t *restrict sp = (const uint16_t *) s;
+                uint16_t *restrict       dp = (uint16_t *) d;
+                uint16_t                 m  = (uint16_t) c->vmask;
+                uint16_t                 o  = (uint16_t) c->vor;
+
+                for (uint32_t i = 0; i < n; i++)
+                    dp[i] = (sp[i] & m) | o;
+            } else if (c->cpp == 4) {
+                const uint32_t *restrict sp = (const uint32_t *) s;
+                uint32_t *restrict       dp = (uint32_t *) d;
+
+                for (uint32_t i = 0; i < n; i++)
+                    dp[i] = (sp[i] & c->vmask) | c->vor;
+            } else {
+                for (uint32_t i = 0; i < n; i++)
+                    d[i] = (uint8_t) ((s[i] & c->vmask) | c->vor);
+            }
+            for (uint32_t a = addr & ~0xFFFu; a < addr + c->row_bytes; a += 0x1000)
+                nv3->nvbase.svga.changedvram[a >> 12] = changeframecount;
+        }
     }
 }
 
 /* Is a blit through st a plain copy: source only through the ROP, no blend, chroma key, write
-   mask or pattern alpha, and no clip rectangles? The pixel pipeline confirms it gives
+   mask or pattern alpha, and no clip rectangles? A chroma key whose alpha bit is clear matches
+   nothing, whatever the object's enable says. The pixel pipeline confirms it gives
    nv3_render_copy_value for a few pixels, positions and destinations (it has no dither for
    pixels in the destination's own format). */
 bool
@@ -881,7 +940,9 @@ nv3_render_copy_ok(const nv3_render_setup_t *st)
     static const uint32_t samples[] = { 0x00000000, 0xFFFFFFFF, 0x12345678, 0x87654321, 0x7FFF8000, 0x55AA33CC, 0xC0000003, 0x3FFFFFFF };
     uint32_t              mask      = (st->cpp == 1) ? 0xFF : ((st->cpp == 2) ? 0xFFFF : 0xFFFFFFFF);
 
-    if (st->blend || st->rop_noop || (st->rop != 0xCC) || st->chroma || st->cliprects)
+    if (st->blend || st->rop_noop || (st->rop != 0xCC) || st->cliprects)
+        return false;
+    if (st->chroma && ((nv3->pgraph.chroma_key >> 30) & 1))
         return false;
     if ((st->op >= 9) && (st->op < 0x16) && !(nv3->pgraph.pattern_mono_a[0] && nv3->pgraph.pattern_mono_a[1]))
         return false;
@@ -889,6 +950,50 @@ nv3_render_copy_ok(const nv3_render_setup_t *st)
         uint32_t             p = samples[i] & mask;
         nv3_color_expanded_t s = nv3_render_expand_surface(st->fmt, p);
         uint32_t             v = nv3_render_copy_value(st, p);
+
+        if ((nv3_render_rop_pixel(st, 0, 0, 0, s) != v) || (nv3_render_rop_pixel(st, 5, 3, mask, s) != v)
+            || (nv3_render_rop_pixel(st, 2, 7, p ^ mask, s) != v))
+            return false;
+    }
+    return true;
+}
+
+/* Does an image in the object's colour format reach the surface unchanged, but for what
+   nv3_render_copy_value does to a pixel? On top of nv3_render_copy_ok this takes the pixel width
+   to match the surface's and pixel_format to carry the pixel over; the pixel pipeline confirms it
+   gives (p & *vmask) | *vor (no alpha test, no dither, which only pixels wider than the surface
+   get). */
+bool
+nv3_render_image_plain(const nv3_render_setup_t *st, nv3_grobj_t grobj, uint32_t bits, uint32_t *vmask, uint32_t *vor)
+{
+    static const uint32_t samples[] = { 0x00000000, 0xFFFFFFFF, 0x12345678, 0x87654321, 0x7FFF8000, 0x55AA33CC, 0xC0000003, 0x3FFFFFFF, 0x00FF7FFF, 0xFF00FFFF };
+    uint32_t              mask      = (st->cpp == 1) ? 0xFF : ((st->cpp == 2) ? 0xFFFF : 0xFFFFFFFF);
+    uint32_t              bd        = (st->ctx >> 9) & 1;
+
+    if ((bits != (st->cpp * 8)) || !nv3_render_copy_ok(st))
+        return false;
+    switch (st->cpp) {
+        case 1:
+            *vmask = 0xFF;
+            *vor   = 0;
+            break;
+        case 2:
+            *vmask = 0x7FFF;
+            *vor   = bd << 15;
+            if (((grobj.grobj_0 & 0x07) == nv3_pgraph_pixel_format_y16) && ((st->fmt & 3) == bpixel_fmt_y16)) {
+                *vmask = 0xFFFF;
+                *vor   = 0;
+            }
+            break;
+        default:
+            *vmask = 0x00FFFFFF;
+            *vor   = bd << 31;
+            break;
+    }
+    for (uint32_t i = 0; i < sizeof(samples) / sizeof(samples[0]); i++) {
+        uint32_t             p = samples[i] & mask;
+        nv3_color_expanded_t s = nv3_render_expand_color(p, grobj);
+        uint32_t             v = (p & *vmask) | *vor;
 
         if ((nv3_render_rop_pixel(st, 0, 0, 0, s) != v) || (nv3_render_rop_pixel(st, 5, 3, mask, s) != v)
             || (nv3_render_rop_pixel(st, 2, 7, p ^ mask, s) != v))

@@ -3668,3 +3668,23 @@ msgstr ""
 
 msgid "Authentication is required to prepare PCI devices for passthrough to 86Box."
 msgstr ""
+"Authentifizierung erforderlich, um PCI-Geräte für die Durchleitung an 86Box "
+"vorzubereiten."
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Unlimited capacity"
+msgstr ""
+
+msgid "CD speed:"
+msgstr ""
+
+msgid "DVD speed:"
+msgstr ""
+
+msgid "HD/BD speed:"
+msgstr ""
+
+msgid "Software-initiated poweroff device (IBM 5140)"
+msgstr ""
