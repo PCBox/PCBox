@@ -9,15 +9,15 @@
 	<key>CFBundleGetInfoString</key>
 	<string>An emulator of old computers</string>
 	<key>CFBundleIconFile</key>
-	<string>86Box.icns</string>
+	<string>PCBox.icns</string>
 	<key>CFBundleIdentifier</key>
-	<string>net.86Box.86Box</string>
+	<string>xyz.pcbox-emu.PCBox</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleLongVersionString</key>
 	<string>@LONG_VER_STRING@</string>
 	<key>CFBundleName</key>
-	<string>86Box</string>
+	<string>PCBox</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -29,7 +29,7 @@
 	<key>CSResourcesFileMapped</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>© 2007-@EMU_COPYRIGHT_YEAR@ 86Box contributors</string>
+	<string>© 2007-@EMU_COPYRIGHT_YEAR@ PCBox contributors</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSHighResolutionCapable</key>
