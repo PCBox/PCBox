@@ -1949,6 +1949,7 @@ codegen_mem_inline_ex(codeblock_t *block, int size, int store, int ea_rule, void
         else
             host_arm64_LDR_REG(block, to, ent, REG_W0);
     }
+    host_arm64_MOVZ_IMM(block, REG_W1, 0);
     done = mem_inline_branch(block, MEM_INLINE_B);
     for (int i = 0; i < 3; i++) {
         if (slow[i])
@@ -4457,7 +4458,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
     = codegen_CALL_INSTRUCTION_FUNC,
     [UOP_CALL_REP_STRING &
         UOP_MASK]
-    = codegen_CALL_INSTRUCTION_FUNC
+    = codegen_CALL_INSTRUCTION_FUNC,
     [UOP_SMI_EXIT_IMM &
         UOP_MASK]
     = codegen_SMI_EXIT_IMM,

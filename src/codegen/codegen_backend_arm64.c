@@ -1696,8 +1696,8 @@ codegen_backend_init(void)
 
     codegen_exit_rout = &block_write_data[block_pos];
 #    ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
-    host_arm64_MOVZ_IMM(block, REG_W0, 0)
-    codegen_exit_rout = &block_write_data[block_pos]
+    host_arm64_MOVZ_IMM(block, REG_W0, 0);
+    codegen_link_miss_rout = &block_write_data[block_pos];
 #    endif
     host_arm64_LDP_POSTIDX_X(block, REG_X19, REG_X20, REG_XSP, 80);
     host_arm64_LDP_POSTIDX_X(block, REG_X21, REG_X22, REG_XSP, 16);
