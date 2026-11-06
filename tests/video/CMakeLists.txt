@@ -113,6 +113,17 @@ if(BUILD_TESTING)
     )
     add_test(NAME NV3.Control COMMAND nv3_control_tests)
 
+    add_executable(nv3_3d_state_tests nv3_3d_state_test.c)
+    target_include_directories(nv3_3d_state_tests PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/include
+        ${PROJECT_SOURCE_DIR}/src/cpu
+        ${PROJECT_BINARY_DIR}/src/include
+    )
+    if(NOT MSVC)
+        target_link_libraries(nv3_3d_state_tests PRIVATE m)
+    endif()
+    add_test(NAME NV3.State3D COMMAND nv3_3d_state_tests)
+
     add_executable(nv3_image_tests
         nv3_image_test.c
         ../../src/video/nv/nv3/render/nv3_render_core.c
@@ -160,6 +171,17 @@ if(BUILD_TESTING)
     get_filename_component(NV4_TEST_CC_DIR ${CMAKE_C_COMPILER} DIRECTORY)
     find_path(NV4_TEST_VK_INCLUDE_DIR vulkan/vulkan.h HINTS ${NV4_TEST_CC_DIR}/../include NO_DEFAULT_PATH)
     if(NV4_TEST_VK_INCLUDE_DIR)
+        add_executable(nv3_3d_snapshot_tests nv3_3d_snapshot_test.c
+            ${PROJECT_SOURCE_DIR}/src/video/nv/nv_gpu_vk.c)
+        target_compile_definitions(nv3_3d_snapshot_tests PRIVATE NV3_GPU_HAVE_VULKAN)
+        target_include_directories(nv3_3d_snapshot_tests PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/include
+            ${PROJECT_BINARY_DIR}/src/include
+            ${NV4_TEST_VK_INCLUDE_DIR}
+        )
+        target_link_libraries(nv3_3d_snapshot_tests PRIVATE m)
+        add_test(NAME NV3.SealedTextures COMMAND nv3_3d_snapshot_tests)
+
         add_executable(nv4_3d_gpu_tests nv4_3d_gpu_test.c
             ${PROJECT_SOURCE_DIR}/src/video/nv/nv4/subsystems/nv4_pgraph_3d_gpu.c
             ${PROJECT_SOURCE_DIR}/src/video/nv/nv_gpu_vk.c)

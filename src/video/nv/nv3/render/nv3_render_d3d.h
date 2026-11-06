@@ -105,8 +105,9 @@ typedef struct nv3_d3d_batch_s {
     nv3_d3d_span_t   spans[D3_SPANS];
     int              nstates, ntris, nspans;
     /* States whose textures the GPU lane gathered at a notify (nv3_gpu_seal): later triangles do
-       not share one with a texture in system memory (which the driver may change with no sync
-       point), and the batch must stay one the GPU takes */
+       share a system-memory texture state only after checking its staged snapshot
+       (the driver may change the source without a sync point). The batch must
+       stay one the GPU takes. */
     int              nsealed;
 
     /* The row layouts the batch draws into (threads and GPU only), with
@@ -146,6 +147,7 @@ typedef struct nv3_d3d_batch_s {
 extern struct nv3_gpu_s *nv3_gpu_init(void);
 extern int               nv3_gpu_shade(struct nv3_gpu_s *g, const nv3_d3d_batch_t *b);
 extern void              nv3_gpu_close(struct nv3_gpu_s *g);
+extern int               nv3_gpu_state_reusable(struct nv3_gpu_s *g, const nv3_d3d_batch_t *b, int state);
 extern int               nv3_gpu_seal(struct nv3_gpu_s *g, nv3_d3d_batch_t *b);
 /* The batches in flight: wait for them and copy their rows into VRAM;
    do they touch bytes lo..hi? */
