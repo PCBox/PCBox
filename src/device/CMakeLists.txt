@@ -36,6 +36,8 @@ add_library(dev OBJECT
     i2c.c
     i2c_gpio.c
     ibm_5161.c
+    ibm_pc700_power.c
+    ibm_pc700_readout.c
     inboard386.c
     intel_ich2_gpio.c
     intel_ich2_trap.c
