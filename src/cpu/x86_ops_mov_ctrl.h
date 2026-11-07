@@ -195,15 +195,9 @@ opMOV_CRx_r_a16(uint32_t fetchdat)
                 x86gpf(NULL, 0);
                 return 1;
             }
-<<<<<<< HEAD
-            if ((cpu_state.regs[cpu_rm].l ^ cr0) & 0x00000001)
-                flushmmucache_cpu();
-            else if ((cpu_state.regs[cpu_rm].l ^ cr0) & 0x80000000) {
-=======
             if ((new_cr0 ^ cr0) & 0x00000001)
                 flushmmucache();
             else if ((new_cr0 ^ cr0) & 0x80000000) {
->>>>>>> 159921593abe2db58c477f18d287dbdcfd309388
                 if (is_p6)
                     flushmmucache_cpu();
                 else {
@@ -302,15 +296,9 @@ opMOV_CRx_r_a32(uint32_t fetchdat)
                 x86gpf(NULL, 0);
                 return 1;
             }
-<<<<<<< HEAD
-            if ((cpu_state.regs[cpu_rm].l ^ cr0) & 0x00000001)
-                flushmmucache_cpu();
-            else if ((cpu_state.regs[cpu_rm].l ^ cr0) & 0x80000000) {
-=======
             if ((new_cr0 ^ cr0) & 0x00000001)
                 flushmmucache();
             else if ((new_cr0 ^ cr0) & 0x80000000) {
->>>>>>> 159921593abe2db58c477f18d287dbdcfd309388
                 if (is_p6)
                     flushmmucache_cpu();
                 else {
