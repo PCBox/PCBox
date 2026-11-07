@@ -44,6 +44,7 @@ uint32_t x87_pc_off;
 uint32_t x87_op_off;
 uint16_t x87_pc_seg;
 uint16_t x87_op_seg;
+uint8_t  x87_sf_written;
 
 int fpu_sf_new_exc = 0;
 
@@ -71,7 +72,7 @@ x87_gettag(void)
     uint16_t ret = 0;
 
     for (uint8_t c = 0; c < 8; c++) {
-        if (cpu_state.tag[c] == TAG_EMPTY)
+        if (!(cpu_state.tag[c] & TAG_VALID))
             ret |= X87_TAG_EMPTY << (c * 2);
         else if (cpu_state.tag[c] & TAG_UINT64)
             ret |= 2 << (c * 2);
@@ -90,12 +91,18 @@ x87_settag(uint16_t new_tag)
     for (uint8_t c = 0; c < 8; c++) {
         int tag = (new_tag >> (c * 2)) & 3;
 
-        /* The tag word loads no register: a denormal one stays denormal
-           while it is not tagged empty, whatever class the word gives it */
+        /* The tag word loads no register: a denormal one stays denormal,
+           tagged empty or not, whatever class the word gives it. This is
+           the 80387's rule, FLDENV and FRSTOR reading a tag only as empty
+           or nonempty (80387 PRM 1987, p. C-4). The 8087 and the 80287
+           honor the loaded tag instead (the same page), which is not
+           modeled: x87_gettag() stores a denormal register's tag as zero,
+           and honoring that would lose the denormal on an FSTENV and
+           FLDENV round trip. */
         const uint8_t denormal = cpu_state.tag[c] & TAG_DENORMAL;
 
         if (tag == X87_TAG_EMPTY)
-            cpu_state.tag[c] = TAG_EMPTY;
+            cpu_state.tag[c] = denormal;
         else if (denormal)
             cpu_state.tag[c] = TAG_VALID | TAG_DENORMAL;
         else if (tag == 2)
