@@ -338,7 +338,7 @@ typedef struct _machine_filter_ {
 } machine_filter_t;
 
 typedef struct _machine_cpu_ {
-    uint32_t       package;
+    uint64_t       package;
     const uint8_t *block;
     uint32_t       min_bus;
     uint32_t       max_bus;
@@ -394,7 +394,7 @@ typedef struct machine_slot_t {
 typedef struct _machine_ {
     const char            *name;
     const char            *internal_name;
-    uint32_t               type;
+    uint64_t               type;
     uintptr_t              chipset;
     int                  (*init)(const struct _machine_ *);
     uint8_t              (*p1_handler)(void);

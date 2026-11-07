@@ -90,42 +90,41 @@ enum {
     CPU_GENERICINTEL,
 };
 
-enum {
-    CPU_PKG_8088             = (1 << 0),
-    CPU_PKG_80C88            = (1 << 28),
-    CPU_PKG_8088_EUROPC      = (1 << 1),
-    CPU_PKG_8088_VTECH       = (1 << 2),
-    CPU_PKG_8086             = (1 << 3),
-    CPU_PKG_8086_MAZOVIA     = (1 << 4),
-    CPU_PKG_8086_VTECH       = (1 << 5),
-    CPU_PKG_188              = (1 << 6),
-    CPU_PKG_186              = (1 << 7),
-    CPU_PKG_286              = (1 << 8),
-    CPU_PKG_386SX            = (1 << 9),
-    CPU_PKG_386DX            = (1 << 10),
-    CPU_PKG_386DX_DESKPRO386 = (1 << 11),
-    CPU_PKG_M6117            = (1 << 12),
-    CPU_PKG_386SLC_IBM       = (1 << 13),
-    CPU_PKG_486SLC           = (1 << 14),
-    CPU_PKG_486SLC_IBM       = (1 << 15),
-    CPU_PKG_486BL            = (1 << 16),
-    CPU_PKG_486DLC           = (1 << 17),
-    CPU_PKG_SOCKET1          = (1 << 18),
-    CPU_PKG_SOCKET3          = (1 << 19),
-    CPU_PKG_SOCKET3_PC330    = (1 << 20),
-    CPU_PKG_STPC             = (1 << 21),
-    CPU_PKG_SOCKET4          = (1 << 22),
-    CPU_PKG_SOCKET5_7        = (1 << 23),
-    CPU_PKG_SOCKET8          = (1 << 24),
-    CPU_PKG_SLOT1            = (1 << 25),
-    CPU_PKG_SLOT2            = (1 << 26),
-    CPU_PKG_SOCKET370        = (1 << 27),
-    CPU_PKG_GXM              = (1 << 28),
-    CPU_PKG_386EX            = (1 << 29),
-    CPU_PKG_SLOTA            = (1 << 30),
-    CPU_PKG_SOCKET423        = (1u << 31),
-    CPU_PKG_SOCKET478        = (1ull << 32),
-};
+/* CPU package bitmask (machine_cpu_t.package / cpu_family_t.package): 64-bit. */
+#define CPU_PKG_8088                 (1ULL << 0)
+#define CPU_PKG_80C88                (1ULL << 28)
+#define CPU_PKG_8088_EUROPC          (1ULL << 1)
+#define CPU_PKG_8088_VTECH           (1ULL << 2)
+#define CPU_PKG_8086                 (1ULL << 3)
+#define CPU_PKG_8086_MAZOVIA         (1ULL << 4)
+#define CPU_PKG_8086_VTECH           (1ULL << 5)
+#define CPU_PKG_188                  (1ULL << 6)
+#define CPU_PKG_186                  (1ULL << 7)
+#define CPU_PKG_286                  (1ULL << 8)
+#define CPU_PKG_386SX                (1ULL << 9)
+#define CPU_PKG_386DX                (1ULL << 10)
+#define CPU_PKG_386DX_DESKPRO386     (1ULL << 11)
+#define CPU_PKG_M6117                (1ULL << 12)
+#define CPU_PKG_386SLC_IBM           (1ULL << 13)
+#define CPU_PKG_486SLC               (1ULL << 14)
+#define CPU_PKG_486SLC_IBM           (1ULL << 15)
+#define CPU_PKG_486BL                (1ULL << 16)
+#define CPU_PKG_486DLC               (1ULL << 17)
+#define CPU_PKG_SOCKET1              (1ULL << 18)
+#define CPU_PKG_SOCKET3              (1ULL << 19)
+#define CPU_PKG_SOCKET3_PC330        (1ULL << 20)
+#define CPU_PKG_STPC                 (1ULL << 21)
+#define CPU_PKG_SOCKET4              (1ULL << 22)
+#define CPU_PKG_SOCKET5_7            (1ULL << 23)
+#define CPU_PKG_SOCKET8              (1ULL << 24)
+#define CPU_PKG_SLOT1                (1ULL << 25)
+#define CPU_PKG_SLOT2                (1ULL << 26)
+#define CPU_PKG_SOCKET370            (1ULL << 27)
+#define CPU_PKG_GXM                  (1ULL << 29)
+#define CPU_PKG_386EX                (1ULL << 30)
+#define CPU_PKG_SLOTA                (1ULL << 31)
+#define CPU_PKG_SOCKET423            (1ULL << 32)
+#define CPU_PKG_SOCKET478            (1ULL << 33)
 
 #define CPU_SUPPORTS_DYNAREC 1
 #define CPU_REQUIRES_DYNAREC 2

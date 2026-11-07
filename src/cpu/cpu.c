@@ -558,7 +558,7 @@ cpu_is_eligible(const cpu_family_t *cpu_family, int cpu, int machine)
 {
     const machine_t *machine_s = &machines[machine];
     const CPU       *cpu_s     = &cpu_family->cpus[cpu];
-    uint32_t         packages;
+    uint64_t         packages;
     uint32_t         bus_speed;
     uint8_t          i;
     double           multi;
