@@ -175,6 +175,8 @@ SettingsCompleter::addMachine(int i, int j)
     addRow(name, name, 0, machine_types[machine_get_type(j)].id);
 
     int k = 0;
+    if (machines[j].aliases[k] == NULL)
+        return;
     while (machines[j].aliases[k][0] != 0x00) {
         const QString alias = machines[j].aliases[k];
         /* MatchContains already finds aliases included in the display name. */
