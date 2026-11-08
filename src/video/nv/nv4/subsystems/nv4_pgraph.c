@@ -422,8 +422,8 @@ nv4_pgraph_3d_kind(const nv4_t *nv4, int cls)
     }
 }
 
-nv4_mthd_result_t
-nv4_pgraph_method(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
+static nv4_mthd_result_t
+nv4_pgraph_exec(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
 {
     uint32_t user;
     int      cls;
@@ -529,6 +529,39 @@ nv4_pgraph_method(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
             break;
     }
     return NV4_MTHD_DONE;
+}
+
+/* NV10: FFINTFC_ST2, the second stage of the engine's input, holds the
+   method about to run. The resman's context switch puts one there
+   itself (Celsius SetContextDmaVertex, or a NOP for the NV11 Z16
+   override: grResubmitCelsiusMethod), with FIFOHOLD set, marks the
+   channel valid and turns FIFO access on, then spins until it has run
+   (GLOBALSTATE1, or TRAPPED_ADDR/DATA) before it loads the subchannels.
+   It runs ahead of anything queued in CACHE1, which FIFOHOLD keeps out
+   until the resman clears it at the end of the switch. The method that
+   raised CONTEXT_SWITCH waits in CACHE1 here, not in stage 2, so stage 2
+   only ever holds the resman's. */
+#define NV10_ST2_STATUS   (1u << 26)
+#define NV10_ST2_FIFOHOLD (1u << 29)
+
+static void
+nv10_pgraph_st2_run(nv4_t *nv4)
+{
+    uint32_t st2 = GR(NV4_PGRAPH_FFINTFC_ST2);
+
+    if (!(st2 & NV10_ST2_STATUS) || !(GR(NV4_PGRAPH_FIFO) & 1) || !(GR(NV4_PGRAPH_CTX_CONTROL) & (1u << 16)))
+        return;
+    if (nv4_pgraph_exec(nv4, (st2 >> 20) & 0x1f, (st2 >> 16) & 7, st2 & 0x1ffc, GR(NV4_PGRAPH_FFINTFC_ST2_D))
+        == NV4_MTHD_DONE)
+        GR(NV4_PGRAPH_FFINTFC_ST2) &= ~NV10_ST2_STATUS;
+}
+
+nv4_mthd_result_t
+nv4_pgraph_method(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
+{
+    if (NV4_IS_NV10(nv4) && (GR(NV4_PGRAPH_FFINTFC_ST2) & (NV10_ST2_STATUS | NV10_ST2_FIFOHOLD)))
+        return NV4_MTHD_STALL;
+    return nv4_pgraph_exec(nv4, chid, subc, mthd, data);
 }
 
 void
@@ -646,6 +679,12 @@ nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             GR(addr) = val;
             /* the NV10's tiled regions mirror PFB's: nothing to do with them */
             break;
+    }
+
+    if (NV4_IS_NV10(nv4) && ((addr == NV4_PGRAPH_FIFO) || (addr == NV4_PGRAPH_CTX_CONTROL) || (addr == NV4_PGRAPH_FFINTFC_ST2))) {
+        nv10_pgraph_st2_run(nv4);
+        if (addr == NV4_PGRAPH_FFINTFC_ST2)
+            resume = 1; /* FIFOHOLD may have been let go */
     }
 
     if (resume && (GR(NV4_PGRAPH_FIFO) & 1))
