@@ -446,6 +446,10 @@ nv10_celsius_pipe_write(nv4_t *nv4, uint32_t val)
 /* ------------------------------------------------------------------ */
 /* The draw state.                                                     */
 /* ------------------------------------------------------------------ */
+/* TEX_FORMAT keeps SetTextureFormat's two-valued fields (1 or 2) as one
+   bit each, the upper (envytools: val & 0xffffffd6): bit 1 set is
+   context DMA B, clear DMA A; bit 4 ORIGIN_ZOH and bit 6 ORIGIN_FOH
+   CORNER. */
 static void
 nv10_tex_setup(nv4_t *nv4, nv4_3d_tex_t *t, int n)
 {
@@ -453,15 +457,14 @@ nv10_tex_setup(nv4_t *nv4, nv4_3d_tex_t *t, int n)
     uint32_t c0   = GR(NV10_TEX_CONTROL0(n));
     uint32_t filt = GR(NV10_TEX_FILTER(n));
     int      cf   = (fmt >> 7) & 0x1f;
-    int      sel  = fmt & 3;
     uint32_t lo   = 0;
     int      maxl;
 
     memset(t, 0, sizeof(*t));
-    if (!(c0 & (1u << 30)) || (cf == 0x0d) || (cf > 0x18) || !sel || (sel == 3))
+    if (!(c0 & (1u << 30)) || (cf == 0x0d) || (cf > 0x18))
         return;
     t->cfmt   = cf;
-    t->dma    = (sel == 2) ? (GR(NV4_PGRAPH_CTX_SWITCH3) >> 16) : (GR(NV4_PGRAPH_CTX_SWITCH3) & 0xffff);
+    t->dma    = (fmt & 2) ? (GR(NV4_PGRAPH_CTX_SWITCH3) >> 16) : (GR(NV4_PGRAPH_CTX_SWITCH3) & 0xffff);
     t->offset = GR(NV10_TEX_OFFSET(n));
     t->dxt    = (cf == 0x0c) ? 1 : ((cf == 0x0e) ? 3 : ((cf == 0x0f) ? 5 : 0));
     t->linear = (cf >= 0x10);
@@ -513,7 +516,7 @@ nv10_tex_setup(nv4_t *nv4, nv4_3d_tex_t *t, int n)
     }
     t->wrap_u   = (fmt >> 24) & 7;
     t->wrap_v   = (fmt >> 28) & 7;
-    t->center   = ((fmt >> 5) & 3) != 1;
+    t->center   = (fmt >> 6) & 1;
     t->min      = (filt >> 24) & 7;
     t->mag      = (filt >> 28) & 7;
     /* bias: 5.8 signed; the clamps: 4.8 */
