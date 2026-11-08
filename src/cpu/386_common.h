@@ -1110,59 +1110,7 @@ x86_lock_legal(int is_0f, uint8_t opcode, uint8_t modrm)
 */
 extern int prefetch_bytes;
 
-static __inline void
-prefetch_run(int instr_cycles, int bytes, int modrm, int reads, int reads_l, int writes, int writes_l, int ea32)
-{
-    int mem_cycles = reads * cpu_cycles_read + reads_l * cpu_cycles_read_l + writes * cpu_cycles_write + writes_l * cpu_cycles_write_l;
-
-    if (instr_cycles < mem_cycles)
-        instr_cycles = mem_cycles;
-
-    prefetch_bytes -= prefetch_prefixes;
-    prefetch_bytes -= bytes;
-    if (modrm != -1) {
-        if (ea32) {
-            if ((modrm & 7) == 4) {
-                if ((modrm & 0x700) == 0x500)
-                    prefetch_bytes -= 5;
-                else if ((modrm & 0xc0) == 0x40)
-                    prefetch_bytes -= 2;
-                else if ((modrm & 0xc0) == 0x80)
-                    prefetch_bytes -= 5;
-            } else {
-                if ((modrm & 0xc7) == 0x05)
-                    prefetch_bytes -= 4;
-                else if ((modrm & 0xc0) == 0x40)
-                    prefetch_bytes--;
-                else if ((modrm & 0xc0) == 0x80)
-                    prefetch_bytes -= 4;
-            }
-        } else {
-            if ((modrm & 0xc7) == 0x06)
-                prefetch_bytes -= 2;
-            else if ((modrm & 0xc0) != 0xc0)
-                prefetch_bytes -= ((modrm & 0xc0) >> 6);
-        }
-    }
-
-    /* Fill up prefetch queue */
-    while (prefetch_bytes < 0) {
-        prefetch_bytes += cpu_prefetch_width;
-        cycles -= cpu_prefetch_cycles;
-    }
-
-    /* Subtract cycles used for memory access by instruction */
-    instr_cycles -= mem_cycles;
-
-    while (instr_cycles >= cpu_prefetch_cycles) {
-        prefetch_bytes += cpu_prefetch_width;
-        instr_cycles -= cpu_prefetch_cycles;
-    }
-
-    prefetch_prefixes = 0;
-    if (prefetch_bytes > 16)
-        prefetch_bytes = 16;
-}
+void prefetch_run(int instr_cycles, int bytes, int modrm, int reads, int reads_l, int writes, int writes_l, int ea32);
 
 #endif
 

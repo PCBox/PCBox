@@ -570,7 +570,7 @@ is_lock_legal(uint32_t fetchdat)
   Note that this is only used for 286 / 386 systems. It is disabled when the
   internal cache on 486+ CPUs is enabled.
 */
-static int prefetch_bytes = 0;
+int prefetch_bytes = 0;
 
 void
 prefetch_run(int instr_cycles, int bytes, int modrm, int reads, int reads_l, int writes, int writes_l, int ea32)
