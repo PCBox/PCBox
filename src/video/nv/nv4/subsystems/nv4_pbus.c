@@ -42,6 +42,7 @@ nv4_pbus_reset(nv4_t *nv4)
     nv4->pbus_intr       = 0;
     nv4->pbus_intr_en    = 0;
     nv4->pbus_rom_config = 0x3f;
+    memset(nv4->pbus_ext, 0, sizeof(nv4->pbus_ext));
 }
 
 uint32_t
@@ -60,6 +61,10 @@ nv4_pbus_read(nv4_t *nv4, uint32_t addr)
         case NV4_PBUS_ROM_CONFIG:
             return nv4->pbus_rom_config;
         default:
+            /* NV10: more debug and trim registers (0x1090-0x10fc), kept
+               as written */
+            if (NV4_IS_NV10(nv4) && (addr >= 0x001090) && (addr < 0x001100))
+                return nv4->pbus_ext[(addr - 0x001090) >> 2];
             nv4_log("NV4 PBUS: read %06x\n", addr);
             return 0;
     }
@@ -87,6 +92,10 @@ nv4_pbus_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             nv4->pbus_rom_config = val & 0x3f;
             break;
         default:
+            if (NV4_IS_NV10(nv4) && (addr >= 0x001090) && (addr < 0x001100)) {
+                nv4->pbus_ext[(addr - 0x001090) >> 2] = val;
+                break;
+            }
             nv4_log("NV4 PBUS: write %06x = %08x\n", addr, val);
             break;
     }

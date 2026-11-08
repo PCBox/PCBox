@@ -6,7 +6,7 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          NVIDIA RIVA TNT / TNT2 -- device shell.
+ *          NVIDIA RIVA TNT / TNT2 / GeForce 256 -- device shell.
  *
  *          PCI configuration space, the two BARs (16 MB of registers and
  *          the linear framebuffer), the expansion ROM, the dispatch that
@@ -15,7 +15,9 @@
  *
  *          Public references: the RIVA TNT datasheet (configuration
  *          registers and straps), envytools (register map, rnndb),
- *          Linux rivafb and nouveau, the XFree86 nv driver.
+ *          Linux rivafb and nouveau, the XFree86 nv driver; for the
+ *          GeForce 256, the NV10 resman's nv10_ref.h (PCI configuration,
+ *          BAR sizes, AGP capability).
  *
  * Authors: Marcos Alves, <xeon4d@gmail.com>
  *
@@ -223,6 +225,8 @@ nv4_reg_read32(nv4_t *nv4, uint32_t addr)
         return nv4_pfifo_read(nv4, addr);
     if (addr >= NV4_PRMIO_START && addr <= NV4_PRMIO_END)
         return nv4_prmio_read(nv4, addr);
+    if (NV4_IS_NV10(nv4) && (addr >= NV10_PVIDEO_START) && (addr <= NV10_PVIDEO_END))
+        return nv4_pvideo_read(nv4, addr);
     if (addr >= NV4_PTIMER_START && addr <= NV4_PTIMER_END)
         return nv4_ptimer_read(nv4, addr);
     if (addr >= NV4_PFB_START && addr <= NV4_PFB_END)
@@ -236,7 +240,7 @@ nv4_reg_read32(nv4_t *nv4, uint32_t addr)
     if (addr >= NV4_PCRTC_START && addr <= NV4_PCRTC_END)
         return nv4_pcrtc_read(nv4, addr);
     if (addr >= NV4_PVIDEO_START && addr <= NV4_PVIDEO_END)
-        return nv4_pvideo_read(nv4, addr);
+        return NV4_IS_NV10(nv4) ? nv4_pramdac_read(nv4, addr) : nv4_pvideo_read(nv4, addr);
     if (addr >= NV4_PRAMDAC_START && addr <= NV4_PRAMDAC_END)
         return nv4_pramdac_read(nv4, addr);
     if (addr >= NV4_PRAMIN_START && addr <= NV4_PRAMIN_END)
@@ -259,6 +263,8 @@ nv4_reg_write32(nv4_t *nv4, uint32_t addr, uint32_t val)
         nv4_pfifo_write(nv4, addr, val);
     else if (addr >= NV4_PRMIO_START && addr <= NV4_PRMIO_END)
         nv4_prmio_write(nv4, addr, val);
+    else if (NV4_IS_NV10(nv4) && (addr >= NV10_PVIDEO_START) && (addr <= NV10_PVIDEO_END))
+        nv4_pvideo_write(nv4, addr, val);
     else if (addr >= NV4_PTIMER_START && addr <= NV4_PTIMER_END)
         nv4_ptimer_write(nv4, addr, val);
     else if (addr >= NV4_PFB_START && addr <= NV4_PFB_END)
@@ -271,8 +277,12 @@ nv4_reg_write32(nv4_t *nv4, uint32_t addr, uint32_t val)
         nv4_pgraph_write(nv4, addr, val);
     else if (addr >= NV4_PCRTC_START && addr <= NV4_PCRTC_END)
         nv4_pcrtc_write(nv4, addr, val);
-    else if (addr >= NV4_PVIDEO_START && addr <= NV4_PVIDEO_END)
-        nv4_pvideo_write(nv4, addr, val);
+    else if (addr >= NV4_PVIDEO_START && addr <= NV4_PVIDEO_END) {
+        if (NV4_IS_NV10(nv4))
+            nv4_pramdac_write(nv4, addr, val);
+        else
+            nv4_pvideo_write(nv4, addr, val);
+    }
     else if (addr >= NV4_PRAMDAC_START && addr <= NV4_PRAMDAC_END)
         nv4_pramdac_write(nv4, addr, val);
     else if (addr >= NV4_PRAMIN_START && addr <= NV4_PRAMIN_END)
@@ -526,6 +536,14 @@ nv4_agp_status(const nv4_t *nv4)
        straps' AGP mode decides: bit 9 exposes 4x, bit 10 sideband. */
     uint32_t straps;
 
+    /* The NV10's straps disable (active high) 4x (bit 9), sideband (10)
+       and fast writes (11) */
+    if (NV4_IS_NV10(nv4)) {
+        straps = nv4_straps_now(nv4);
+        return (0x1fu << 24) | ((straps & (1u << 10)) ? 0 : (1u << 9)) | ((straps & (1u << 11)) ? 0 : (1u << 4))
+             | ((straps & (1u << 9)) ? 0x03 : 0x07);
+    }
+
     if (nv4->chip != NV4_CHIP_TNT2)
         return (0x1fu << 24) | (1u << 9) | 0x03;
 
@@ -626,7 +644,7 @@ nv4_pci_cfg_read(nv4_t *nv4, int addr)
         case 0x45:
             return 0x00;
         case 0x46:
-            return nv4->is_agp ? ((nv4->chip == NV4_CHIP_TNT2) ? 0x20 : 0x10) : 0x00;
+            return nv4->is_agp ? (NV4_IS_NV5P(nv4) ? 0x20 : 0x10) : 0x00;
         case 0x47:
             return 0x00;
         case 0x48:
@@ -737,9 +755,9 @@ nv4_pci_cfg_write(nv4_t *nv4, int addr, uint8_t val)
             nv4->subsys_id = (nv4->subsys_id & 0x00ff) | (val << 8);
             break;
         case 0x4c:
-            /* AGP command: DATA_RATE 2:0 */
+            /* AGP command: DATA_RATE 2:0, FW_ENABLE 4 (NV10) */
             if (nv4->is_agp)
-                nv4->pci_regs[0x4c] = val & 0x07;
+                nv4->pci_regs[0x4c] = val & (NV4_IS_NV10(nv4) ? 0x17 : 0x07);
             break;
         case 0x4d:
             /* SBA_ENABLE 9, AGP_ENABLE 8 */
@@ -857,13 +875,19 @@ nv4_init(const device_t *info)
     nv4->is_agp = !!(info->flags & DEVICE_AGP);
 
     mb = device_get_config_int("memory");
-    if ((mb != 4) && (mb != 8) && (mb != 16) && (mb != 32))
+    if ((mb != 4) && (mb != 8) && (mb != 16) && (mb != 32) && (mb != 64))
         mb = 16;
     if ((nv4->chip == NV4_CHIP_TNT) && (mb > 16))
         mb = 16;
+    if ((nv4->chip == NV4_CHIP_TNT2) && (mb > 32))
+        mb = 32;
     nv4->vram_size  = (uint32_t) mb << 20;
     nv4->vram_mask  = nv4->vram_size - 1;
-    nv4->lfb_size   = (nv4->chip == NV4_CHIP_TNT2) ? 0x02000000 : 0x01000000;
+    /* BAR1: 16 MB (TNT), 32 MB (TNT2), 128 MB (NV10, base 31:27) */
+    if (NV4_IS_NV10(nv4))
+        nv4->lfb_size = 0x08000000;
+    else
+        nv4->lfb_size = (nv4->chip == NV4_CHIP_TNT2) ? 0x02000000 : 0x01000000;
     /* PRAMIN offset x is VRAM (x ^ (size - 64)): instance memory sits at
        the top of VRAM in reverse, 64-byte units. The unit is modeled on
        the later chips (the RIVA 128 reverses 16-byte units); software
@@ -883,6 +907,8 @@ nv4_init(const device_t *info)
     nv4->ddc = ddc_init(i2c_gpio_get_bus(nv4->i2c));
     if (nv4->chip == NV4_CHIP_TNT2)
         nv4->i2c1 = i2c_gpio_init("i2c_nv5_sp1");
+    else if (NV4_IS_NV10(nv4))
+        nv4->i2c1 = i2c_gpio_init("i2c_nv10_ddc0"); /* CR36/CR37: DDC0, nothing on it */
 
     mem_mapping_add(&nv4->mmio_mapping, 0, 0,
                     nv4_mmio_readb, nv4_mmio_readw, nv4_mmio_readl,
@@ -914,6 +940,8 @@ nv4_init(const device_t *info)
     if (getenv("NV4_GPU") && *getenv("NV4_GPU"))
         nv4->gpu_raster = atoi(getenv("NV4_GPU"));
     nv4_3d_init(nv4);
+    if (NV4_IS_NV10(nv4))
+        nv10_celsius_init(nv4);
     nv4_reset(nv4);
 
     return nv4;
@@ -932,6 +960,8 @@ nv4_close(void *priv)
     if (nv4->i2c1)
         i2c_gpio_close(nv4->i2c1);
     nv4_3d_close(nv4);
+    if (nv4->celsius)
+        nv10_celsius_close(nv4);
     svga_close(&nv4->svga);
     free(nv4->bios_rom.rom);
     free(nv4);
@@ -982,6 +1012,13 @@ static const nv4_board_t board_nv5_vanta_gainward = { .name = "nv5_vanta_gainwar
 static const nv4_board_t board_nv5_vanta_inno3d = { .name = "nv5_vanta_inno3d", .rom_path = "roms/video/nvidia/nv4/vanta_inno3d_tornado_v3.05.00.10.rom", .device_id = NV4_PCI_DEVICE_VANTA, .chip = NV4_CHIP_TNT2, .revision = 0x15, .crystal_14m = 1, .mem_64bit = 1 };
 static const nv4_board_t board_nv5_vanta_lt_sparkle = { .name = "nv5_vanta_lt_sparkle", .rom_path = "roms/video/nvidia/nv4/vanta_lt_sparkle_sp5200_v2.05.20.02.59.bin", .device_id = NV4_PCI_DEVICE_VANTA, .chip = NV4_CHIP_TNT2, .revision = 0x15, .crystal_14m = 1, .mem_64bit = 1 };
 
+/* The GeForce 256 boards (NV10, PCI revision 0x10: mask B1). Their
+   BIOSes go in roms/video/nvidia/nv10. */
+static const nv4_board_t board_nv10_erazor_x = { .name = "nv10_erazor_x", .rom_path = "roms/video/nvidia/nv10/elsa-68c076dff1361896972312.rom", .device_id = NV10_PCI_DEVICE_SDR, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1 };
+static const nv4_board_t board_nv10_annihilator_pro = { .name = "nv10_annihilator_pro", .rom_path = "roms/video/nvidia/nv10/creative.rom", .device_id = NV10_PCI_DEVICE_DDR, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1, .ddr = 1 };
+static const nv4_board_t board_nv10_erazor_x2 = { .name = "nv10_erazor_x2", .rom_path = "roms/video/nvidia/nv10/elsa_erazor_x2.rom", .device_id = NV10_PCI_DEVICE_DDR, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1, .ddr = 1 };
+static const nv4_board_t board_nv10_gloria2 = { .name = "nv10_gloria2", .rom_path = "roms/video/nvidia/nv10/elsagloriaII.bin", .device_id = NV10_PCI_DEVICE_QUADRO, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1, .ddr = 1 };
+
 static const nv4_board_t *const nv4_boards[] = {
     &board_nv4_erazor2_pci,
     &board_nv4_erazor2_agp_203,
@@ -1004,8 +1041,32 @@ static const nv4_board_t *const nv4_boards[] = {
     &board_nv5_vanta_gainward,
     &board_nv5_vanta_inno3d,
     &board_nv5_vanta_lt_sparkle,
+    &board_nv10_erazor_x,
+    &board_nv10_annihilator_pro,
+    &board_nv10_erazor_x2,
+    &board_nv10_gloria2,
     NULL
 };
+
+/* A GeForce 256 device is offered once one of its BIOSes is there */
+static int
+nv10_sdr_available(void)
+{
+    return rom_present(board_nv10_erazor_x.rom_path);
+}
+
+
+static int
+nv10_ddr_available(void)
+{
+    return rom_present(board_nv10_annihilator_pro.rom_path);
+}
+
+static int
+nv10_quadro_available(void)
+{
+    return rom_present(board_nv10_gloria2.rom_path);
+}
 
 const nv4_board_t *
 nv4_board_find(const char *name)
@@ -1391,6 +1452,201 @@ static const device_config_t nv5_vanta_config[] = {
     { .name = "", .description = "", .type = CONFIG_END }
 };
 
+static const device_config_t nv10_sdr_config[] = {
+    {
+        .name           = "bios",
+        .description    = "Model",
+        .type           = CONFIG_BIOS,
+        .default_string = "nv10_erazor_x",
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            { .name = "ELSA ERAZOR X", .internal_name = "nv10_erazor_x", .bios_type = BIOS_NORMAL,
+              .files_no = 1, .local = 0, .size = 0, .files = { "roms/video/nvidia/nv10/elsa-68c076dff1361896972312.rom", "" } },
+            { .files_no = 0 }
+        }
+    },
+    {
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 32,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "16 MB", .value = 16 },
+            { .description = "32 MB", .value = 32 },
+            { .description = "64 MB", .value = 64 },
+            { .description = "" }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "render_threads",
+        .description    = "Render threads",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1", .value = 1 },
+            { .description = "2", .value = 2 },
+            { .description = "3", .value = 3 },
+            { .description = "4", .value = 4 },
+            { .description = "6", .value = 6 },
+            { .description = "8", .value = 8 },
+            { .description = "" }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "gpu_raster",
+        .description    = "Draw 3D on the host GPU (Vulkan)",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
+static const device_config_t nv10_ddr_config[] = {
+    {
+        .name           = "bios",
+        .description    = "Model",
+        .type           = CONFIG_BIOS,
+        .default_string = "nv10_annihilator_pro",
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            { .name = "Creative 3D Blaster Annihilator Pro", .internal_name = "nv10_annihilator_pro", .bios_type = BIOS_NORMAL,
+              .files_no = 1, .local = 0, .size = 0, .files = { "roms/video/nvidia/nv10/creative.rom", "" } },
+            { .files_no = 0 }
+        }
+    },
+    {
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 32,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "16 MB", .value = 16 },
+            { .description = "32 MB", .value = 32 },
+            { .description = "64 MB", .value = 64 },
+            { .description = "" }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "render_threads",
+        .description    = "Render threads",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1", .value = 1 },
+            { .description = "2", .value = 2 },
+            { .description = "3", .value = 3 },
+            { .description = "4", .value = 4 },
+            { .description = "6", .value = 6 },
+            { .description = "8", .value = 8 },
+            { .description = "" }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "gpu_raster",
+        .description    = "Draw 3D on the host GPU (Vulkan)",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
+static const device_config_t nv10_quadro_config[] = {
+    {
+        .name           = "bios",
+        .description    = "Model",
+        .type           = CONFIG_BIOS,
+        .default_string = "nv10_gloria2",
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            { .name = "ELSA GLoria II", .internal_name = "nv10_gloria2", .bios_type = BIOS_NORMAL,
+              .files_no = 1, .local = 0, .size = 0, .files = { "roms/video/nvidia/nv10/elsagloriaII.bin", "" } },
+            { .files_no = 0 }
+        }
+    },
+    {
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 32,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "16 MB", .value = 16 },
+            { .description = "32 MB", .value = 32 },
+            { .description = "64 MB", .value = 64 },
+            { .description = "" }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "render_threads",
+        .description    = "Render threads",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1", .value = 1 },
+            { .description = "2", .value = 2 },
+            { .description = "3", .value = 3 },
+            { .description = "4", .value = 4 },
+            { .description = "6", .value = 6 },
+            { .description = "8", .value = 8 },
+            { .description = "" }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "gpu_raster",
+        .description    = "Draw 3D on the host GPU (Vulkan)",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
 const device_t nv4_tnt_pci_device = {
     .name          = "nVIDIA RIVA TNT (NV4) PCI",
     .internal_name = "nv4_tnt_pci",
@@ -1501,6 +1757,48 @@ const device_t nv5_vanta_agp_device = {
     .speed_changed = nv4_speed_changed,
     .force_redraw  = nv4_force_redraw,
     .config        = nv5_vanta_config
+};
+
+const device_t nv10_geforce256_agp_device = {
+    .name          = "nVIDIA GeForce 256 (NV10) AGP",
+    .internal_name = "nv10_geforce256_agp",
+    .flags         = DEVICE_AGP,
+    .local         = (uintptr_t) &board_nv10_erazor_x,
+    .init          = nv4_init,
+    .close         = nv4_close,
+    .reset         = nv4_reset,
+    .available     = nv10_sdr_available,
+    .speed_changed = nv4_speed_changed,
+    .force_redraw  = nv4_force_redraw,
+    .config        = nv10_sdr_config
+};
+
+const device_t nv10_geforce256_ddr_agp_device = {
+    .name          = "nVIDIA GeForce 256 DDR (NV10) AGP",
+    .internal_name = "nv10_geforce256_ddr_agp",
+    .flags         = DEVICE_AGP,
+    .local         = (uintptr_t) &board_nv10_annihilator_pro,
+    .init          = nv4_init,
+    .close         = nv4_close,
+    .reset         = nv4_reset,
+    .available     = nv10_ddr_available,
+    .speed_changed = nv4_speed_changed,
+    .force_redraw  = nv4_force_redraw,
+    .config        = nv10_ddr_config
+};
+
+const device_t nv10_quadro_agp_device = {
+    .name          = "nVIDIA Quadro (NV10GL) AGP",
+    .internal_name = "nv10_quadro_agp",
+    .flags         = DEVICE_AGP,
+    .local         = (uintptr_t) &board_nv10_gloria2,
+    .init          = nv4_init,
+    .close         = nv4_close,
+    .reset         = nv4_reset,
+    .available     = nv10_quadro_available,
+    .speed_changed = nv4_speed_changed,
+    .force_redraw  = nv4_force_redraw,
+    .config        = nv10_quadro_config
 };
 
 /* clang-format on */

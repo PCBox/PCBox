@@ -232,6 +232,8 @@ nv4_vga_update_mapping(nv4_t *nv4)
 static uint32_t
 nv4_rma_ptr_mask(const nv4_t *nv4)
 {
+    if (NV4_IS_NV10(nv4))
+        return 0x07fffffc; /* 64 MB boards */
     return (nv4->chip == NV4_CHIP_TNT2) ? 0x03fffffc : 0x01fffffc;
 }
 
@@ -556,6 +558,9 @@ nv4_vga_out(uint16_t addr, uint8_t val, void *priv)
                 old             = svga->crtc[idx];
                 svga->crtc[idx] = val;
                 nv4_pcrtc_crtc_start_write(nv4, idx);
+                /* NV10: the cursor address comes from these again */
+                if ((idx == NV4_CR_HCUR_ADDR0) || (idx == NV4_CR_HCUR_ADDR1) || (idx == NV4_CR_HCUR_ADDR2))
+                    nv4->pcrtc_cursor_reg = 0;
                 switch (idx) {
                     case NV4_CR_ENH:
                     case NV4_CR_PAGE0:

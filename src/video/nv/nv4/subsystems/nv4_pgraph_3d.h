@@ -9,7 +9,12 @@
  *          NVIDIA RIVA TNT / TNT2 -- the Direct3D classes' batch: draw
  *          states, triangles and spans, as the CPU span shader
  *          (nv4_pgraph_3d.c) and the GPU lane (nv4_pgraph_3d_gpu.c)
- *          consume them.
+ *          consume them. The GeForce 256's Celsius class
+ *          (nv10_celsius.c) transforms and lights its vertices itself and
+ *          hands the batch screen-space triangles under states of its
+ *          own (celsius set: register combiners, the NV10 texture
+ *          formats, blend equations); the CPU shades those, the GPU lane
+ *          declines a batch holding any.
  *
  * Authors: Marcos Alves, <xeon4d@gmail.com>
  *
@@ -60,6 +65,19 @@ typedef struct {
     int      center;   /* texel centers at +0.5 */
     int      ckey;
     uint32_t size;     /* bytes of all levels */
+    /* Celsius (NV10) texture units */
+    int      cfmt;     /* the NV10 format, 0-0x18 (fmt is then 0) */
+    int      dxt;      /* 1, 3 or 5: 4x4 blocks, stored block-linear */
+    int      linear;   /* IMAGE formats: rows of <pitch> bytes */
+    uint32_t pitch;
+    int      w, h;     /* IMAGE formats: any size */
+    int      cube;     /* six faces of <face> bytes */
+    uint32_t face;
+    int      pal;      /* paletted: the palette's DMA object and offset */
+    uint32_t pal_dma, pal_off;
+    int      ckey_op;  /* COLOR_KEY_OPERATION: 1 alpha 0, 2 all 0, 3 kill */
+    int      akill;    /* texels of alpha 0 kill the pixel */
+    float    lod_min, lod_max;
 } nv4_3d_tex_t;
 
 typedef struct {
@@ -88,6 +106,20 @@ typedef struct {
     int      cull, dither;
     int      wr_a, wr_r, wr_g, wr_b;
     int      sten, sfunc, sref, smask_r, smask_w, sop_fail, sop_zfail, sop_zpass, swrite;
+    /* Celsius: the register combiners (two general stages and the
+       final one), their constants, the blend equation and constant
+       colour, the texture colour keys, the depth buffer's own depth,
+       w-buffering, the depth clip range, the fog colour and function */
+    int      celsius;
+    uint32_t rc_ia[2], rc_ic[2], rc_oa[2], rc_oc[2], rc_k[2], rc_f0, rc_f1;
+    int      rc_n;
+    int      beq;
+    uint32_t bcolor;
+    uint32_t ckey[2];
+    int      z_bpp;
+    int      wbuf;
+    float    zclip0, zclip1;
+    int      fogmode;
     /* 2D rectangle fills queued with the 3D work: col_* is their
        destination, each fill's triangle record carries its packed pixel
        in the bits of c[0] */
@@ -100,6 +132,23 @@ typedef struct {
     float x0, y0;            /* vertex 0, pixels */
     float c[AT_COUNT], dx[AT_COUNT], dy[AT_COUNT];
 } nv4_3d_tri_t;
+
+/* The Celsius class's interpolants past AT_COUNT, kept apart so that
+   nv4_3d_tri_t stays as the GPU kernel reads it: the r and q texture
+   coordinates of both units (already divided by w where the transform
+   unit does it), and the specular alpha the combiners can read */
+enum {
+    AX_R0,
+    AX_Q0,
+    AX_R1,
+    AX_Q1,
+    AX_SA,
+    AX_COUNT
+};
+
+typedef struct {
+    float c[AX_COUNT], dx[AX_COUNT], dy[AX_COUNT];
+} nv4_3d_tri_ext_t;
 
 typedef struct {
     int16_t  y, x0, x1;      /* x1 exclusive */
@@ -136,9 +185,10 @@ typedef struct {
    is in flight (shaded as emulation goes on), the VRAM bytes it reads or
    writes, which nothing else may touch until it is done */
 typedef struct {
-    const nv4_3d_state_t *states;
-    const nv4_3d_tri_t   *tris;
-    const nv4_3d_span_t  *spans;
+    const nv4_3d_state_t   *states;
+    const nv4_3d_tri_t     *tris;
+    const nv4_3d_tri_ext_t *ext;
+    const nv4_3d_span_t    *spans;
     int                   nspans;
     int                   busy;
     int                   nranges;
@@ -147,13 +197,16 @@ typedef struct {
 
 typedef struct nv4_3d_batch_s {
     /* the arrays being filled: one of the two sets, the other in flight */
-    nv4_3d_state_t *states;
-    nv4_3d_tri_t   *tris;
-    nv4_3d_span_t  *spans;
-    int             nstates, ntris, nspans;
-    nv4_3d_state_t *set_states[2];
-    nv4_3d_tri_t   *set_tris[2];
-    nv4_3d_span_t  *set_spans[2];
+    nv4_3d_state_t   *states;
+    nv4_3d_tri_t     *tris;
+    nv4_3d_tri_ext_t *ext;
+    nv4_3d_span_t    *spans;
+    int               nstates, ntris, nspans;
+    int               ncelsius; /* Celsius states in the batch: the GPU declines it */
+    nv4_3d_state_t   *set_states[2];
+    nv4_3d_tri_t     *set_tris[2];
+    nv4_3d_tri_ext_t *set_ext[2];
+    nv4_3d_span_t    *set_spans[2];
     int             set;
 
     /* The row layouts the batch draws into (threads and GPU only), with
@@ -238,5 +291,16 @@ extern void              nv4_gpu_close(struct nv4_gpu_s *g);
 extern void              nv4_gpu_wait(struct nv4_gpu_s *g, nv4_t *nv4);
 extern int               nv4_gpu_pending_overlaps(struct nv4_gpu_s *g, uint32_t lo, uint32_t hi);
 extern void              nv4_gpu_counts(struct nv4_gpu_s *g, uint64_t *batches, uint64_t *fallbacks);
+
+/* nv4_pgraph_3d.c, for the Celsius class: put a draw state into the
+   batch (its index, or -1 with no surface to draw into), then draw a
+   triangle under it from screen-space vertices (x, y with the pixel
+   grid's origin at 0,0) and their interpolants. The caller culls and
+   picks the flat-shaded colours; a full batch is flushed first, which
+   resets nv4->celsius_si. */
+extern int  nv4_3d_place(nv4_t *nv4, nv4_3d_state_t *s);
+extern int  nv4_3d_room(nv4_t *nv4);
+extern void nv4_3d_raster(nv4_t *nv4, int si, const float xy[3][2], const float a[3][AT_COUNT],
+                          const float ax[3][AX_COUNT]);
 
 #endif

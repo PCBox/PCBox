@@ -92,6 +92,8 @@ nv4_pramdac_reset(nv4_t *nv4)
     nv4->general_control = 0x00000001; /* PIXMIX32_BIT 24 */
     nv4->test_control    = 0;
     memset(nv4->tv_regs, 0, sizeof(nv4->tv_regs));
+    memset(nv4->dac_ext, 0, sizeof(nv4->dac_ext));
+    memset(nv4->dac_misc, 0, sizeof(nv4->dac_misc));
     nv4_pramdac_update_clocks(nv4);
     nv4_pramdac_update_dac(nv4);
 }
@@ -127,6 +129,23 @@ nv4_pramdac_read(nv4_t *nv4, uint32_t addr)
         default:
             if ((addr >= 0x680700) && (addr <= 0x68071c))
                 return nv4->tv_regs[(addr - 0x680700) >> 2];
+            if (NV4_IS_NV10(nv4)) {
+                /* flat panel timings and its RAM, kept as written */
+                if ((addr >= 0x680800) && (addr < 0x680a00))
+                    return nv4->dac_ext[(addr - 0x680800) >> 2];
+                switch (addr) {
+                    case 0x680320: /* CURSOR_CNTRL, CURSOR_DATA */
+                    case 0x680324:
+                    case 0x680328:
+                        return nv4->dac_misc[(addr - 0x680320) >> 2];
+                    case 0x680604: /* PALETTE_RECOVERY */
+                        return nv4->dac_misc[3];
+                    case 0x680610: /* TESTPOINT_DATA */
+                        return nv4->dac_misc[4];
+                    default:
+                        break;
+                }
+            }
             nv4_log("NV4 PRAMDAC: read %06x\n", addr);
             return 0;
     }
@@ -169,7 +188,7 @@ nv4_pramdac_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             nv4->palette_test = val & 0x11000000;
             break;
         case NV4_PRAMDAC_GENERAL_CONTROL:
-            nv4->general_control = val & 0x11131131;
+            nv4->general_control = val & (NV4_IS_NV10(nv4) ? 0x11331131 : 0x11131131);
             nv4_pramdac_update_dac(nv4);
             svga_recalctimings(&nv4->svga);
             break;
@@ -179,6 +198,12 @@ nv4_pramdac_write(nv4_t *nv4, uint32_t addr, uint32_t val)
         default:
             if ((addr >= 0x680700) && (addr <= 0x68071c))
                 nv4->tv_regs[(addr - 0x680700) >> 2] = val;
+            else if (NV4_IS_NV10(nv4) && (addr >= 0x680800) && (addr < 0x680a00))
+                nv4->dac_ext[(addr - 0x680800) >> 2] = val;
+            else if (NV4_IS_NV10(nv4) && (addr >= 0x680320) && (addr <= 0x680328))
+                nv4->dac_misc[(addr - 0x680320) >> 2] = val;
+            else if (NV4_IS_NV10(nv4) && (addr == 0x680604))
+                nv4->dac_misc[3] = val;
             else
                 nv4_log("NV4 PRAMDAC: write %06x = %08x\n", addr, val);
             break;

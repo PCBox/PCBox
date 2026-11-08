@@ -30,8 +30,16 @@
  *          run out or an engine holds them; the engines here are
  *          synchronous.
  *
+ *          The GeForce 256 (NV10) has 32 channels, a reference counter
+ *          per channel (set by method 0x50 once the engines are idle,
+ *          read at USER + 0x48, saved in RAMFC), a non-incrementing
+ *          method command in the pushbuffer (all its data words go to
+ *          the same method), and its own RAMFC layout: DMA_PUT, DMA_GET,
+ *          REF, DMA_INSTANCE, DMA_STATE, DMA_FETCH, ENGINE, PULL1.
+ *
  *          Public references: envytools (fifo/dma-pusher, fifo/puller,
- *          the RAMHT hash), nouveau (nv04 fifo).
+ *          the RAMHT hash), nouveau (nv04/nv10 fifo); the NV10 resman's
+ *          fifonv10.c and nv10_ref.h for the RAMFC layout.
  *
  * Authors: Marcos Alves, <xeon4d@gmail.com>
  *
@@ -98,6 +106,7 @@
 #define PFIFO_CACHE1_DMA_TLB_PTE    0x00323c
 #define PFIFO_CACHE1_DMA_PUT        0x003240
 #define PFIFO_CACHE1_DMA_GET        0x003244
+#define PFIFO_CACHE1_REF            0x003248 /* NV10 */
 #define PFIFO_CACHE1_PULL0          0x003250
 #define PFIFO_CACHE1_PULL1          0x003254
 #define PFIFO_CACHE1_HASH           0x003258
@@ -136,7 +145,10 @@
 #define RO_CACHE_RAN_OUT    2
 #define RO_FREE_OVERRUN     3
 
-#define CHID(p) ((p)->c1_push1 & 0x0f)
+#define CHID(p) ((p)->c1_push1 & (p)->chid_mask)
+
+/* DMA_STATE bit 0: the command is a non-incrementing one (NV10) */
+#define DMA_STATE_NONINC 1u
 
 /* ------------------------------------------------------------------ */
 /* Instance memory structures.                                         */
@@ -156,7 +168,9 @@ nv4_ramht_entries(const nv4_pfifo_t *p)
 static uint32_t
 nv4_ramfc_base(const nv4_pfifo_t *p)
 {
-    return (p->ramfc & 0x1fe) << 8;
+    /* 512-byte units (NV4, bits 8:1) or 1 KB units (NV10, bits 8:2):
+       the same mask either way */
+    return (p->ramfc & ((p->channels > 16) ? 0x1fc : 0x1fe)) << 8;
 }
 
 static uint32_t
@@ -205,7 +219,7 @@ nv4_ramht_lookup(nv4_t *nv4, uint32_t handle, int chid)
         uint32_t h   = nv4_ramin_read32(nv4, base + slot * 8);
         uint32_t ctx = nv4_ramin_read32(nv4, base + slot * 8 + 4);
 
-        if ((h == handle) && (ctx & 0x80000000) && (((ctx >> 24) & 0x0f) == (uint32_t) chid))
+        if ((h == handle) && (ctx & 0x80000000) && (((ctx >> 24) & p->chid_mask) == (uint32_t) chid))
             return ctx;
     }
     return 0;
@@ -225,7 +239,7 @@ nv4_pfifo_ramht_dump(nv4_t *nv4, uint32_t handle)
 
         if (nv4_ramin_read32(nv4, base + slot * 8) == handle)
             pclog("nv4: ramht %08x slot %u ctx %08x: ch %u engine %u inst %04x, word0 %08x%s\n", handle, slot, ctx,
-                  (ctx >> 24) & 0x0f, (ctx >> 16) & 3, ctx & 0xffff, nv4_ramin_read32(nv4, (ctx & 0xffff) << 4),
+                  (ctx >> 24) & p->chid_mask, (ctx >> 16) & 3, ctx & 0xffff, nv4_ramin_read32(nv4, (ctx & 0xffff) << 4),
                   (ctx & 0x80000000) ? "" : " (invalid)");
     }
 }
@@ -265,6 +279,8 @@ nv4_runout(nv4_t *nv4, int chid, uint32_t addr, uint32_t data, int reason)
         nv4_pfifo_intr(nv4, INTR_RUNOUT_OVF);
         return;
     }
+    /* the NV10's RAMRO has a 7-bit channel field: still clear of the
+       byte enables */
     nv4_ramin_write32(nv4, nv4_ramro_base(p) + p->runout_put,
                       (addr & 0xfffc) | ((uint32_t) chid << 16) | (0xfu << 24) | ((uint32_t) reason << 28));
     nv4_ramin_write32(nv4, nv4_ramro_base(p) + p->runout_put + 4, data);
@@ -302,6 +318,17 @@ nv4_ramfc_save(nv4_t *nv4, int chid)
     nv4_pfifo_t *p = &nv4->pfifo;
     uint32_t     a = nv4_ramfc_base(p) + chid * 32;
 
+    if (NV4_IS_NV10(nv4)) {
+        nv4_ramin_write32(nv4, a + 0x00, p->c1_dma_put);
+        nv4_ramin_write32(nv4, a + 0x04, p->c1_dma_get);
+        nv4_ramin_write32(nv4, a + 0x08, p->c1_ref);
+        nv4_ramin_write32(nv4, a + 0x0c, (p->c1_dma_instance & 0xffff) | ((p->c1_dma_dcount >> 2) << 18));
+        nv4_ramin_write32(nv4, a + 0x10, p->c1_dma_state);
+        nv4_ramin_write32(nv4, a + 0x14, p->c1_dma_fetch);
+        nv4_ramin_write32(nv4, a + 0x18, p->c1_engine);
+        nv4_ramin_write32(nv4, a + 0x1c, p->c1_pull1);
+        return;
+    }
     nv4_ramin_write32(nv4, a + 0x00, p->c1_dma_put);
     nv4_ramin_write32(nv4, a + 0x04, p->c1_dma_get);
     nv4_ramin_write32(nv4, a + 0x08, p->c1_dma_instance);
@@ -317,6 +344,20 @@ nv4_ramfc_load(nv4_t *nv4, int chid)
     nv4_pfifo_t *p = &nv4->pfifo;
     uint32_t     a = nv4_ramfc_base(p) + chid * 32;
 
+    if (NV4_IS_NV10(nv4)) {
+        uint32_t w3 = nv4_ramin_read32(nv4, a + 0x0c);
+
+        p->c1_dma_put      = nv4_ramin_read32(nv4, a + 0x00) & 0x1ffffffc;
+        p->c1_dma_get      = nv4_ramin_read32(nv4, a + 0x04) & 0x1ffffffc;
+        p->c1_ref          = nv4_ramin_read32(nv4, a + 0x08);
+        p->c1_dma_instance = w3 & 0xffff;
+        p->c1_dma_dcount   = ((w3 >> 18) & 0x7ff) << 2;
+        p->c1_dma_state    = nv4_ramin_read32(nv4, a + 0x10);
+        p->c1_dma_fetch    = nv4_ramin_read32(nv4, a + 0x14) & 0x001fe0f8;
+        p->c1_engine       = nv4_ramin_read32(nv4, a + 0x18) & 0x33333333;
+        p->c1_pull1        = nv4_ramin_read32(nv4, a + 0x1c) & 3;
+        return;
+    }
     p->c1_dma_put      = nv4_ramin_read32(nv4, a + 0x00) & 0x1ffffffc;
     p->c1_dma_get      = nv4_ramin_read32(nv4, a + 0x04) & 0x1ffffffc;
     p->c1_dma_instance = nv4_ramin_read32(nv4, a + 0x08) & 0xffff;
@@ -380,6 +421,20 @@ nv4_pull_one(nv4_t *nv4, int chid, uint32_t *engines, uint32_t *pull0, uint32_t 
     uint32_t ctx;
 
     *pull0 &= ~(PULL0_HASH_FAILED | PULL0_DEVICE_SW);
+
+    /* NV10: the reference counter, once what went before is done. The
+       engines finish each method as they take it, but the 3D batch is
+       drawn later and reads its textures then: the driver may reuse a
+       texture's memory once it sees the count, so the batch is drawn
+       first, as for a notifier. */
+    if ((mthd == 0x50) && NV4_IS_NV10(nv4)) {
+        nv4_3d_notify(nv4);
+        if (chid == CHID(&nv4->pfifo))
+            nv4->pfifo.c1_ref = data;
+        else
+            nv4_ramin_write32(nv4, nv4_ramfc_base(&nv4->pfifo) + chid * 32 + 8, data);
+        return 1;
+    }
 
     if (mthd == 0) {
         ctx = nv4_ramht_lookup(nv4, data, chid);
@@ -453,7 +508,7 @@ nv4_cache0_pull(nv4_t *nv4)
 
     if (!(p->c0_pull0 & PULL0_ACCESS) || (p->c0_put == p->c0_get))
         return 0;
-    if (!nv4_pull_one(nv4, p->c0_push1 & 0x0f, &p->c0_engine, &p->c0_pull0, &p->c0_pull1, &p->c0_hash,
+    if (!nv4_pull_one(nv4, p->c0_push1 & p->chid_mask, &p->c0_engine, &p->c0_pull0, &p->c0_pull1, &p->c0_hash,
                       p->c0_method, p->c0_data))
         return 0;
     p->c0_get = p->c0_put;
@@ -545,7 +600,8 @@ nv4_dma_push(nv4_t *nv4)
                 else if (p->c1_pull0 & (PULL0_HASH_FAILED | PULL0_DEVICE_SW))
                     nv4_pfifo_intr(nv4, INTR_CACHE_ERROR);
             }
-            mthd                  = (mthd + 4) & 0x1ffc;
+            if (!(p->c1_dma_state & DMA_STATE_NONINC))
+                mthd = (mthd + 4) & 0x1ffc;
             count--;
             p->c1_dma_state = (p->c1_dma_state & ~0x1ffcfffcu) | mthd | (subc << 13) | (count << 18);
             p->c1_dma_dcount += 4;
@@ -563,6 +619,15 @@ nv4_dma_push(nv4_t *nv4)
                     return work;
                 }
                 p->c1_dma_state  = word & 0x1ffcfffc;
+                p->c1_dma_dcount = 0;
+                break;
+            case 2:
+                /* NV10: non-incrementing methods, 010 then as above */
+                if (!NV4_IS_NV10(nv4) || (word & 0x00030003)) {
+                    nv4_dma_error(nv4, DMA_ERR_RESERVED_CMD);
+                    return work;
+                }
+                p->c1_dma_state  = (word & 0x1ffcfffc) | DMA_STATE_NONINC;
                 p->c1_dma_dcount = 0;
                 break;
             case 1:
@@ -719,8 +784,8 @@ nv4_pfifo_run(nv4_t *nv4)
            one is idle. */
         if (nv4_pfifo_can_switch(p) && p->dma
             && (!(p->c1_push1 & PUSH1_MODE_DMA) || (p->c1_dma_get == p->c1_dma_put))) {
-            for (int i = 1; i <= NV4_CHANNELS; i++) {
-                int ch = (CHID(p) + i) % NV4_CHANNELS;
+            for (int i = 1; i <= p->channels; i++) {
+                int ch = (CHID(p) + i) % p->channels;
                 if (p->dma & (1u << ch)) {
                     if (ch == CHID(p))
                         p->dma &= ~(1u << ch);
@@ -747,7 +812,7 @@ uint32_t
 nv4_user_read(nv4_t *nv4, uint32_t addr)
 {
     nv4_pfifo_t *p    = &nv4->pfifo;
-    int          chid = (addr >> 16) & 0x0f;
+    int          chid = (addr >> 16) & p->chid_mask;
     uint32_t     off  = addr & 0x1fff;
 
     nv4->dbg_user[chid].reads++;
@@ -757,6 +822,8 @@ nv4_user_read(nv4_t *nv4, uint32_t addr)
             return (chid == CHID(p)) ? p->c1_dma_put : nv4_ramin_read32(nv4, a);
         if (off == 0x44)
             return (chid == CHID(p)) ? p->c1_dma_get : nv4_ramin_read32(nv4, a + 4);
+        if ((off == 0x48) && NV4_IS_NV10(nv4))
+            return (chid == CHID(p)) ? p->c1_ref : nv4_ramin_read32(nv4, a + 8);
         return 0;
     }
 
@@ -773,7 +840,7 @@ void
 nv4_user_write(nv4_t *nv4, uint32_t addr, uint32_t val)
 {
     nv4_pfifo_t *p    = &nv4->pfifo;
-    int          chid = (addr >> 16) & 0x0f;
+    int          chid = (addr >> 16) & p->chid_mask;
     int          subc = (addr >> 13) & 7;
     uint32_t     off  = addr & 0x1fff;
 
@@ -827,13 +894,15 @@ nv4_pfifo_reset(nv4_t *nv4)
     nv4_pfifo_t *p = &nv4->pfifo;
 
     memset(p, 0, sizeof(*p));
+    p->channels  = NV4_IS_NV10(nv4) ? NV10_CHANNELS : NV4_CHANNELS;
+    p->chid_mask = p->channels - 1;
     timer_disable(&nv4->eng_timer);
     timer_disable(&nv4->kick_timer);
     nv4->eng_tsc   = 0;
     nv4->eng_bytes = 0;
     nv4->eng_px3d  = 0;
     p->ramht        = 0x00000100; /* 0x10000, 4 KB */
-    p->ramfc        = 0x00000110; /* 0x11000 */
+    p->ramfc        = 0x00000110; /* 0x11000 (the NV10's field is 8:2, same address) */
     p->ramro        = 0x00000112; /* 0x11200, 512 bytes */
     p->dma_timeslice = 0x01000000;
     p->pio_timeslice = 0x01000000;
@@ -948,6 +1017,8 @@ nv4_pfifo_read(nv4_t *nv4, uint32_t addr)
             return p->c1_dma_put;
         case PFIFO_CACHE1_DMA_GET:
             return p->c1_dma_get;
+        case PFIFO_CACHE1_REF:
+            return NV4_IS_NV10(nv4) ? p->c1_ref : 0;
         case PFIFO_CACHE1_PULL0:
             return p->c1_pull0;
         case PFIFO_CACHE1_PULL1:
@@ -1014,7 +1085,7 @@ nv4_pfifo_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             p->ramht = val & 0x030301f0;
             break;
         case PFIFO_RAMFC:
-            p->ramfc = val & 0x1fe;
+            p->ramfc = val & (NV4_IS_NV10(nv4) ? 0x00fe01fc : 0x1fe);
             break;
         case PFIFO_RAMRO:
             p->ramro = val & 0x101fe;
@@ -1029,20 +1100,20 @@ nv4_pfifo_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             p->caches = val & 1;
             break;
         case PFIFO_MODE:
-            p->mode = val & 0xffff;
+            p->mode = (p->channels > 16) ? val : (val & 0xffff);
             break;
         case PFIFO_DMA:
-            p->dma = val & 0xffff;
+            p->dma = (p->channels > 16) ? val : (val & 0xffff);
             break;
         case PFIFO_SIZE:
-            p->size = val & 0xffff;
+            p->size = (p->channels > 16) ? val : (val & 0xffff);
             break;
 
         case PFIFO_CACHE0_PUSH0:
             p->c0_push0 = val & 1;
             break;
         case PFIFO_CACHE0_PUSH1:
-            p->c0_push1 = val & 0x0f;
+            p->c0_push1 = val & p->chid_mask;
             break;
         case PFIFO_CACHE0_PUT:
             p->c0_put = val & 4;
@@ -1073,7 +1144,7 @@ nv4_pfifo_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             p->c1_push0 = val & 1;
             break;
         case PFIFO_CACHE1_PUSH1:
-            p->c1_push1 = val & 0x10f;
+            p->c1_push1 = val & (0x100 | p->chid_mask);
             break;
         case PFIFO_CACHE1_PUT:
             p->c1_put = (val >> 2) & (NV4_CACHE1_SIZE - 1);
@@ -1082,10 +1153,14 @@ nv4_pfifo_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             p->c1_dma_push = val & (DMA_PUSH_ACCESS | DMA_PUSH_SUSPENDED);
             break;
         case PFIFO_CACHE1_DMA_FETCH:
-            p->c1_dma_fetch = val & 0x000fe0f8;
+            p->c1_dma_fetch = val & (NV4_IS_NV10(nv4) ? 0x001fe0f8 : 0x000fe0f8);
             break;
         case PFIFO_CACHE1_DMA_STATE:
-            p->c1_dma_state = val & 0xdffcfffc;
+            p->c1_dma_state = val & (NV4_IS_NV10(nv4) ? 0xdffcfffd : 0xdffcfffc);
+            break;
+        case PFIFO_CACHE1_REF:
+            if (NV4_IS_NV10(nv4))
+                p->c1_ref = val;
             break;
         case PFIFO_CACHE1_DMA_INSTANCE:
             p->c1_dma_instance = val & 0xffff;

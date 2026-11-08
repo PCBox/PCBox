@@ -33,6 +33,21 @@
  *          nvhw: MIT licensed, by the envytools contributors), which were
  *          checked against real NV4/NV5 chips.
  *
+ *          The GeForce 256 (NV10) keeps the 2D state at the TNT's
+ *          addresses but moves the context registers: CTX_CONTROL and
+ *          CTX_USER to 0x144/0x148, five CTX_SWITCH words (the fifth the
+ *          object's trap mask) from 0x14c, five CTX_CACHE arrays from
+ *          0x160, the surface type, valid bits and notify one word up
+ *          (0x710-0x718). The register file keeps the TNT's layout; the
+ *          NV10 addresses are translated on the way in and out
+ *          (nv10_pgraph_xlat). Its errors raise INTR_ERROR (bit 20)
+ *          rather than NOTIFY, with NSTATUS in bits 26:23, and it does
+ *          the set-context methods itself. The Celsius class (0x56) keeps
+ *          its state in the bundle registers (0x400e00-0x400f4c) and the
+ *          transform pipe's memory (PIPE_ADDRESS/PIPE_DATA), which the
+ *          resman saves and restores on a channel switch
+ *          (nv10_celsius.c).
+ *
  * Authors: Marcos Alves, <xeon4d@gmail.com>
  *
  *          Copyright 2026 Marcos Alves
@@ -61,11 +76,75 @@
 #define NV4_CTXC_MASK 0x0303f0ffu
 #define NV5_CTXC_MASK 0x7f73f0ffu
 #define NV4_CTX2_MASK 0xffff3f03u
+/* NV10: CTX_SWITCH1 adds single step 23; the caches drop it */
+#define NV10_CTXS_MASK 0x7fb3f0ffu
+#define NV10_CTXC_MASK 0x7f33f0ffu
+
+/* NV10 registers that have no TNT counterpart, kept in words the TNT's
+   register file leaves unused */
+#define NV10_PGRAPH_CTX_SWITCH5    0x40015c /* the object's trap mask */
+#define NV10_PGRAPH_CTX_CACHE5     0x400200 /* 8 */
+#define NV10_PGRAPH_TRAPPED_DATA_H 0x40071c
+#define NV10_PGRAPH_FFINTFC_ST2_DH 0x40076c
+#define NV10_PGRAPH_PIPE_ADDRESS   0x400f50
+#define NV10_PGRAPH_PIPE_DATA      0x400f54
+#define NV10_PGRAPH_INTR_ERROR     (1u << 20)
 
 static uint32_t
 nv4_ctxc_mask(const nv4_t *nv4)
 {
-    return (nv4->chip == NV4_CHIP_TNT2) ? NV5_CTXC_MASK : NV4_CTXC_MASK;
+    if (NV4_IS_NV10(nv4))
+        return NV10_CTXC_MASK;
+    return NV4_IS_NV5P(nv4) ? NV5_CTXC_MASK : NV4_CTXC_MASK;
+}
+
+static uint32_t
+nv4_ctxs_mask(const nv4_t *nv4)
+{
+    return NV4_IS_NV10(nv4) ? NV10_CTXS_MASK : nv4_ctxc_mask(nv4);
+}
+
+/* The channel CTX_USER names: 4 bits on the TNT, 5 on the NV10 */
+static uint32_t
+nv4_user_chid(const nv4_t *nv4, uint32_t user)
+{
+    return (user >> 24) & (NV4_IS_NV10(nv4) ? 0x1f : 0x0f);
+}
+
+/* An NV10 register address to its word in the register file (the TNT's
+   layout); anything else maps to itself */
+static uint32_t
+nv10_pgraph_xlat(uint32_t addr)
+{
+    if ((addr >= 0x400160) && (addr < 0x4001e0))
+        return addr + 0x20; /* CTX_CACHE1-4 */
+    if ((addr >= 0x4001e0) && (addr < 0x400200))
+        return NV10_PGRAPH_CTX_CACHE5 + (addr - 0x4001e0);
+    switch (addr) {
+        case 0x400144:
+            return NV4_PGRAPH_CTX_CONTROL;
+        case 0x400148:
+            return NV4_PGRAPH_CTX_USER;
+        case 0x40014c:
+        case 0x400150:
+        case 0x400154:
+        case 0x400158:
+            return addr + 0x14; /* CTX_SWITCH1-4 */
+        case 0x40070c:
+            return NV10_PGRAPH_TRAPPED_DATA_H;
+        case 0x400710:
+            return NV4_PGRAPH_SURFACE;
+        case 0x400714:
+            return NV4_PGRAPH_STATE;
+        case 0x400718:
+            return NV4_PGRAPH_NOTIFY;
+        case 0x400764:
+            return NV4_PGRAPH_FFINTFC_ST2;
+        case 0x400768:
+            return NV4_PGRAPH_FFINTFC_ST2_D;
+        default:
+            return addr;
+    }
 }
 
 uint32_t
@@ -100,10 +179,14 @@ nv4_pgraph_blowup(nv4_t *nv4, uint32_t nsource)
     if (nsource & 0x004c)
         nstatus |= 0x4000;
     GR(NV4_PGRAPH_NSOURCE) |= nsource;
-    GR(NV4_PGRAPH_NSTATUS) |= nstatus;
+    GR(NV4_PGRAPH_NSTATUS) |= NV4_IS_NV10(nv4) ? (nstatus << 12) : nstatus;
     nv4_log("NV4 PGRAPH: trap, nsource %08x, class %02x, method %04x\n", nsource,
             GR(NV4_PGRAPH_CTX_SWITCH1) & 0xff, GR(NV4_PGRAPH_TRAPPED_ADDR) & 0x1ffc);
-    nv4_pgraph_intr(nv4, NV4_PGRAPH_INTR_NOTIFY);
+    /* the NV10 reports errors apart from notifications */
+    if (NV4_IS_NV10(nv4) && (nsource & ~NV4_NSOURCE_NOTIFICATION))
+        nv4_pgraph_intr(nv4, NV10_PGRAPH_INTR_ERROR);
+    else
+        nv4_pgraph_intr(nv4, NV4_PGRAPH_INTR_NOTIFY);
 }
 
 static int
@@ -183,6 +266,8 @@ nv4_pgraph_load_grobj(nv4_t *nv4, int subc, uint32_t inst)
     GR(NV4_PGRAPH_CTX_CACHE1 + subc * 4) = nv4_ramin_read32(nv4, base) & nv4_ctxc_mask(nv4);
     GR(NV4_PGRAPH_CTX_CACHE2 + subc * 4) = nv4_ramin_read32(nv4, base + 4) & NV4_CTX2_MASK;
     GR(NV4_PGRAPH_CTX_CACHE3 + subc * 4) = nv4_ramin_read32(nv4, base + 8);
+    if (NV4_IS_NV10(nv4))
+        GR(NV10_PGRAPH_CTX_CACHE5 + subc * 4) = nv4_ramin_read32(nv4, base + 12);
 }
 
 /* Something the guest asked for that is not modeled: logged the first
@@ -214,6 +299,11 @@ nv4_pgraph_common_method(nv4_t *nv4, uint32_t mthd, uint32_t data)
     switch (mthd) {
         case 0x100: /* NOP */
             return NV4_GR_OK;
+
+        case 0x108: /* SYNC, on the NV10's classes: nothing to wait for */
+            if (NV4_IS_NV10(nv4))
+                return NV4_GR_OK;
+            return -1;
 
         case 0x104: /* NOTIFY */
             if (GR(NV4_PGRAPH_NOTIFY) & (1u << 16)) {
@@ -254,6 +344,13 @@ nv4_pgraph_state_only(int cls)
         case 0x5b:
         case 0x54: /* the 3D classes: their own batch */
         case 0x55:
+        case 0x62: /* NV10 */
+        case 0x93:
+        case 0x9e:
+        case 0x94:
+        case 0x95:
+        case 0x56:
+        case 0x96:
             return 1;
         default:
             return 0;
@@ -286,7 +383,29 @@ nv4_pgraph_draws_only(int cls)
         case 0x64:
         case 0x65:
         case 0x66:
+        case 0x8a: /* NV10 */
+        case 0x7b:
+        case 0x9f:
             return 1;
+        default:
+            return 0;
+    }
+}
+
+/* The class's 3D engine: 0 none, 1 the TNT's (DX5/DX6), 2 Celsius */
+static int
+nv4_pgraph_3d_kind(const nv4_t *nv4, int cls)
+{
+    switch (cls) {
+        case 0x54:
+        case 0x55:
+            return 1;
+        case 0x94:
+        case 0x95:
+            return NV4_IS_NV10(nv4) ? 1 : 0;
+        case 0x56:
+        case 0x96:
+            return NV4_IS_NV10(nv4) ? 2 : 0;
         default:
             return 0;
     }
@@ -304,11 +423,11 @@ nv4_pgraph_method(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
        driver's handler loads the context and turns access back on, and
        after a PGRAPH reset that is how access comes back at all. */
     user = GR(NV4_PGRAPH_CTX_USER);
-    if ((((user >> 24) & 0x0f) != (uint32_t) chid) || !(GR(NV4_PGRAPH_CTX_CONTROL) & (1u << 16))) {
+    if ((nv4_user_chid(nv4, user) != (uint32_t) chid) || !(GR(NV4_PGRAPH_CTX_CONTROL) & (1u << 16))) {
         if (!(GR(NV4_PGRAPH_INTR) & NV4_PGRAPH_INTR_CONTEXT_SWITCH)) {
             GR(NV4_PGRAPH_TRAPPED_ADDR) = mthd | (subc << 13) | ((uint32_t) chid << 24);
             GR(NV4_PGRAPH_TRAPPED_DATA) = data;
-            nv4_log("NV4 PGRAPH: channel switch %d -> %d\n", (user >> 24) & 0x0f, chid);
+            nv4_log("NV4 PGRAPH: channel switch %d -> %d\n", nv4_user_chid(nv4, user), chid);
             nv4_pgraph_intr(nv4, NV4_PGRAPH_INTR_CONTEXT_SWITCH);
         }
         return NV4_MTHD_STALL;
@@ -321,7 +440,8 @@ nv4_pgraph_method(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
        PFIFO handler) before it has read the trap, and the next method
        would overwrite TRAPPED_ADDR/DATA. The OpenGL ICD's swizzled-surface
        context method for its texture uploads was lost that way. */
-    if (GR(NV4_PGRAPH_INTR) & (NV4_PGRAPH_INTR_NOTIFY | NV4_PGRAPH_INTR_BUFFER_NOTIFY | NV4_PGRAPH_INTR_MISSING_HW))
+    if (GR(NV4_PGRAPH_INTR) & (NV4_PGRAPH_INTR_NOTIFY | NV4_PGRAPH_INTR_BUFFER_NOTIFY | NV4_PGRAPH_INTR_MISSING_HW
+                               | NV10_PGRAPH_INTR_ERROR))
         return NV4_MTHD_STALL;
 
     GR(NV4_PGRAPH_TRAPPED_ADDR) = mthd | (subc << 13) | ((uint32_t) chid << 24);
@@ -345,6 +465,8 @@ nv4_pgraph_method(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
             GR(NV4_PGRAPH_CTX_SWITCH2) = GR(NV4_PGRAPH_CTX_CACHE2 + subc * 4);
             GR(NV4_PGRAPH_CTX_SWITCH3) = GR(NV4_PGRAPH_CTX_CACHE3 + subc * 4);
             GR(NV4_PGRAPH_CTX_SWITCH4) = GR(NV4_PGRAPH_CTX_CACHE4 + subc * 4);
+            if (NV4_IS_NV10(nv4))
+                GR(NV10_PGRAPH_CTX_SWITCH5) = GR(NV10_PGRAPH_CTX_CACHE5 + subc * 4);
         }
     }
     if (mthd == 0)
@@ -368,10 +490,18 @@ nv4_pgraph_method(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
         nv4_3d_sync(nv4, cls);
     r = nv4_pgraph_common_method(nv4, mthd, data);
     if (r < 0) {
-        if ((cls == 0x54) || (cls == 0x55))
-            r = nv4_pgraph_3d_method(nv4, chid, cls, mthd, data);
-        else
-            r = nv4_pgraph_2d_method(nv4, &nv4->gr_chan[chid], cls, mthd, data);
+        switch (nv4_pgraph_3d_kind(nv4, cls)) {
+            case 1:
+                /* the NV10's DX5/DX6 triangles (0x94, 0x95) are the TNT's */
+                r = nv4_pgraph_3d_method(nv4, chid, (cls >= 0x94) ? (cls - 0x40) : cls, mthd, data);
+                break;
+            case 2:
+                r = nv10_celsius_method(nv4, chid, cls, mthd, data);
+                break;
+            default:
+                r = nv4_pgraph_2d_method(nv4, &nv4->gr_chan[chid], cls, mthd, data);
+                break;
+        }
     }
 
     switch (r) {
@@ -396,15 +526,17 @@ nv4_pgraph_reset(nv4_t *nv4)
     if (nv4->dbg_trace)
         pclog("nv4 trace: pgraph reset\n");
     memset(nv4->pgraph_regs, 0, sizeof(nv4->pgraph_regs));
-    for (int i = 0; i < NV4_CHANNELS; i++) {
+    for (int i = 0; i < NV4_MAX_CHANNELS; i++) {
         memset(&nv4->gr_chan[i], 0, sizeof(nv4->gr_chan[i]));
         nv4_pgraph_2d_reset_chan(&nv4->gr_chan[i]);
     }
     nv4_3d_reset(nv4);
+    if (NV4_IS_NV10(nv4))
+        nv10_celsius_reset(nv4);
     /* 2D pixels still waiting to join the batch go with it */
     nv4->run2d.n = 0;
     /* no channel until the driver loads one */
-    GR(NV4_PGRAPH_CTX_USER) = 0x0f000000;
+    GR(NV4_PGRAPH_CTX_USER) = NV4_IS_NV10(nv4) ? 0x1f000000 : 0x0f000000;
     /* Its reset values: FIFO access on, every surface invalid. */
     GR(NV4_PGRAPH_FIFO) = 1;
     for (int i = 0; i < 6; i++)
@@ -415,6 +547,11 @@ uint32_t
 nv4_pgraph_read(nv4_t *nv4, uint32_t addr)
 {
     addr &= ~3u;
+    if (NV4_IS_NV10(nv4)) {
+        if (addr == NV10_PGRAPH_PIPE_DATA)
+            return nv10_celsius_pipe_read(nv4);
+        addr = nv10_pgraph_xlat(addr);
+    }
     switch (addr) {
         case NV4_PGRAPH_STATUS:
             /* STATE: busy until the last method's time is up */
@@ -430,10 +567,23 @@ nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val)
     int resume = 0;
 
     addr &= ~3u;
+    if (NV4_IS_NV10(nv4)) {
+        if (addr == NV10_PGRAPH_PIPE_DATA) {
+            nv10_celsius_pipe_write(nv4, val);
+            return;
+        }
+        if ((addr >= 0x400e00) && (addr < 0x400f50)) {
+            /* the Celsius bundle and transform mode: the resman restores
+               them on a channel switch */
+            nv10_celsius_reg_write(nv4, addr, val);
+            return;
+        }
+        addr = nv10_pgraph_xlat(addr);
+    }
     switch (addr) {
         case NV4_PGRAPH_INTR:
             GR(addr) &= ~val;
-            if (val & NV4_PGRAPH_INTR_NOTIFY) {
+            if (val & (NV4_PGRAPH_INTR_NOTIFY | (NV4_IS_NV10(nv4) ? NV10_PGRAPH_INTR_ERROR : 0))) {
                 GR(NV4_PGRAPH_NSOURCE) = 0;
                 GR(NV4_PGRAPH_NSTATUS) = 0;
             }
@@ -441,7 +591,7 @@ nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             resume = 1;
             break;
         case NV4_PGRAPH_INTR_EN:
-            GR(addr) = val & 0x00011311;
+            GR(addr) = val & (NV4_IS_NV10(nv4) ? 0x01113711 : 0x00011311);
             nv4_pmc_update_irq(nv4);
             break;
         case NV4_PGRAPH_NSOURCE:
@@ -452,7 +602,7 @@ nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             resume   = val & 1;
             break;
         case NV4_PGRAPH_CTX_SWITCH1:
-            GR(addr) = val & nv4_ctxc_mask(nv4);
+            GR(addr) = val & nv4_ctxs_mask(nv4);
             break;
         case NV4_PGRAPH_CTX_SWITCH2:
             GR(addr) = val & NV4_CTX2_MASK;
@@ -464,7 +614,10 @@ nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             GR(addr) = val & 0x11010003;
             break;
         case NV4_PGRAPH_CTX_USER:
-            GR(addr) = val & 0x0f00e000;
+            GR(addr) = val & (NV4_IS_NV10(nv4) ? 0x9f00e000 : 0x0f00e000);
+            break;
+        case NV10_PGRAPH_PIPE_ADDRESS:
+            GR(addr) = val & 0x7ffc;
             break;
         case NV4_PGRAPH_ROP3:
             GR(addr) = val & 0xff;
@@ -480,6 +633,7 @@ nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             else if ((addr >= NV4_PGRAPH_CTX_CACHE4) && (addr < NV4_PGRAPH_CTX_CACHE4 + 0x20))
                 val &= 0xffff;
             GR(addr) = val;
+            /* the NV10's tiled regions mirror PFB's: nothing to do with them */
             break;
     }
 

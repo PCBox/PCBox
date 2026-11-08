@@ -210,7 +210,7 @@ add_library(vid OBJECT
     nv/nv3/subsystems/nv3_pvideo.c
     nv/nv3/subsystems/nv3_user.c
 
-    # NVidia RIVA TNT / TNT2
+    # NVidia RIVA TNT / TNT2 / GeForce 256
     nv/nv4/nv4_core.c
     nv/nv4/nv4_vga.c
     nv/nv4/subsystems/nv4_pmc.c
@@ -228,6 +228,7 @@ add_library(vid OBJECT
     nv/nv4/subsystems/nv4_pgraph_3d_gpu.c
     nv/nv4/subsystems/nv4_pvideo.c
     nv/nv4/subsystems/nv4_pme.c
+    nv/nv4/subsystems/nv10_celsius.c
 
     # NVidia RIVA 128 - Object Classes
     nv/nv3/classes/nv3_class_names.c
@@ -344,6 +345,7 @@ endif()
 if(NOT MSVC)
     set_source_files_properties(
         nv/nv4/subsystems/nv4_pgraph_3d.c
+        nv/nv4/subsystems/nv10_celsius.c
         nv/nv3/render/nv3_render_d3d.c
         PROPERTIES COMPILE_OPTIONS "-ffp-contract=off"
     )

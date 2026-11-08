@@ -62,6 +62,12 @@
 
 #define PV(r) (nv4->pvideo_regs[(r)])
 
+static void     nv10_pvideo_reset(nv4_t *nv4);
+static void     nv10_pvideo_vblank(nv4_t *nv4);
+static uint32_t nv10_pvideo_read(nv4_t *nv4, uint32_t addr);
+static void     nv10_pvideo_write(nv4_t *nv4, uint32_t addr, uint32_t val);
+static void     nv10_pvideo_draw(svga_t *svga, int displine);
+
 /* The lines the svga core runs the overlay on (latched at the next frame) */
 static void
 nv4_pvideo_update(nv4_t *nv4)
@@ -83,6 +89,10 @@ nv4_pvideo_update(nv4_t *nv4)
 void
 nv4_pvideo_reset(nv4_t *nv4)
 {
+    if (NV4_IS_NV10(nv4)) {
+        nv10_pvideo_reset(nv4);
+        return;
+    }
     memset(nv4->pvideo_regs, 0, sizeof(nv4->pvideo_regs));
     nv4->pvideo_intr    = 0;
     nv4->pvideo_intr_en = 0;
@@ -116,6 +126,11 @@ nv4_pvideo_vblank(nv4_t *nv4)
     uint32_t next = cur ^ 1;
     uint32_t bit  = 1u << (16 + 4 * next);
 
+    if (NV4_IS_NV10(nv4)) {
+        nv10_pvideo_vblank(nv4);
+        return;
+    }
+
     if (!(PV(PV_CONTROL) & 1))
         return;
     if ((PV(PV_READY) ^ PV(PV_STATUS)) & bit) {
@@ -134,6 +149,8 @@ nv4_pvideo_vblank(nv4_t *nv4)
 uint32_t
 nv4_pvideo_read(nv4_t *nv4, uint32_t addr)
 {
+    if (NV4_IS_NV10(nv4))
+        return nv10_pvideo_read(nv4, addr);
     switch (addr) {
         case NV4_PVIDEO_INTR:
             return nv4->pvideo_intr;
@@ -149,6 +166,10 @@ nv4_pvideo_read(nv4_t *nv4, uint32_t addr)
 void
 nv4_pvideo_write(nv4_t *nv4, uint32_t addr, uint32_t val)
 {
+    if (NV4_IS_NV10(nv4)) {
+        nv10_pvideo_write(nv4, addr, val);
+        return;
+    }
     switch (addr) {
         case NV4_PVIDEO_INTR:
             nv4->pvideo_intr &= ~val;
@@ -171,6 +192,250 @@ static inline uint32_t
 nv4_pvideo_clamp(int v)
 {
     return (v < 0) ? 0 : ((v > 255) ? 255 : (uint32_t) v);
+}
+
+/* ------------------------------------------------------------------ */
+/* The GeForce 256's overlay (0x8000-0x8fff).                          */
+/* ------------------------------------------------------------------ */
+/* Two buffer descriptors, each with its own base and limit, offset of
+   the first pixel, input size and origin (12.4), scale steps (source
+   pixels per screen pixel, 12.20), screen rectangle, format (pitch
+   12:6, YUY2 at bit 16 else UYVY, colour keyed at bit 20) and colour
+   controls. The driver sets a buffer's USE bit in BUFFER to hand it to
+   the scanout; at the next vertical blank the scanout takes it, shows
+   it from then on, clears the bit and raises that buffer's interrupt
+   (bit 0 or 4), which tells the driver the buffer it showed before is
+   free. STOP (bit 0) turns the overlay off once no buffer is pending,
+   at once when STOP METHOD (bit 4) is clear (nv10_ref.h, the resman's
+   vidnv10.c). */
+#define NV10_PV_INTR        0x100
+#define NV10_PV_INTR_REASON 0x104
+#define NV10_PV_INTR_EN     0x140
+#define NV10_PV_BUFFER      0x700
+#define NV10_PV_STOP        0x704
+#define NV10_PV_BASE        0x900
+#define NV10_PV_LIMIT       0x908
+#define NV10_PV_LUMINANCE   0x910
+#define NV10_PV_CHROMINANCE 0x918
+#define NV10_PV_OFFSET      0x920
+#define NV10_PV_SIZE_IN     0x928
+#define NV10_PV_POINT_IN    0x930
+#define NV10_PV_DS_DX       0x938
+#define NV10_PV_DT_DY       0x940
+#define NV10_PV_POINT_OUT   0x948
+#define NV10_PV_SIZE_OUT    0x950
+#define NV10_PV_FORMAT      0x958
+#define NV10_PV_COLOR_KEY   0xb00
+
+#define PV10(off) (nv4->pvideo10[((off) & 0xfff) >> 2])
+
+static void
+nv10_pvideo_update(nv4_t *nv4)
+{
+    svga_t  *svga = &nv4->svga;
+    int      b    = nv4->pvideo_shown & 1;
+    uint32_t pt   = PV10(NV10_PV_POINT_OUT + b * 4);
+    uint32_t sz   = PV10(NV10_PV_SIZE_OUT + b * 4);
+
+    svga->overlay.ena       = (nv4->pvideo_shown & 2) && (sz & 0xfff) && ((sz >> 16) & 0xfff);
+    svga->overlay.x         = pt & 0xfff;
+    svga->overlay.y         = (pt >> 16) & 0xfff;
+    svga->overlay.cur_xsize = sz & 0xfff;
+    svga->overlay.cur_ysize = (sz >> 16) & 0xfff;
+    svga->overlay.xoff      = 0;
+    svga->overlay.yoff      = 0;
+}
+
+static void
+nv10_pvideo_reset(nv4_t *nv4)
+{
+    memset(nv4->pvideo10, 0, sizeof(nv4->pvideo10));
+    nv4->pvideo_intr    = 0;
+    nv4->pvideo_intr_en = 0;
+    nv4->pvideo_shown   = 0; /* bit 0 the buffer shown, bit 1 one is */
+    for (int b = 0; b < 2; b++) {
+        PV10(NV10_PV_LUMINANCE + b * 4)   = 0x200 << 3;
+        PV10(NV10_PV_CHROMINANCE + b * 4) = 0x400 << 2;
+        PV10(NV10_PV_DS_DX + b * 4)       = 1u << 20;
+        PV10(NV10_PV_DT_DY + b * 4)       = 1u << 20;
+    }
+    nv10_pvideo_update(nv4);
+}
+
+static void
+nv10_pvideo_vblank(nv4_t *nv4)
+{
+    uint32_t pend = PV10(NV10_PV_BUFFER) & 0x11;
+    int      cur  = nv4->pvideo_shown & 1;
+    int      next;
+
+    if (!pend) {
+        /* a stop with nothing pending ends the overlay */
+        if (PV10(NV10_PV_STOP) & 1) {
+            nv4->pvideo_shown &= ~2u;
+            nv10_pvideo_update(nv4);
+        }
+        return;
+    }
+    /* the buffer other than the one shown goes first */
+    next = (pend & (1u << (4 * (cur ^ 1)))) ? (cur ^ 1) : cur;
+    PV10(NV10_PV_BUFFER) &= ~(1u << (4 * next));
+    nv4->pvideo_shown = next | ((PV10(NV10_PV_STOP) & 1) ? 0 : 2);
+    nv4->pvideo_intr |= 1u << (4 * next);
+    PV10(NV10_PV_INTR_REASON) = 1u << (4 * next);
+    nv10_pvideo_update(nv4);
+    nv4_pmc_update_irq(nv4);
+}
+
+static uint32_t
+nv10_pvideo_read(nv4_t *nv4, uint32_t addr)
+{
+    switch (addr & 0xfff) {
+        case NV10_PV_INTR:
+            return nv4->pvideo_intr;
+        case NV10_PV_INTR_EN:
+            return nv4->pvideo_intr_en;
+        default:
+            return PV10(addr);
+    }
+}
+
+static void
+nv10_pvideo_write(nv4_t *nv4, uint32_t addr, uint32_t val)
+{
+    switch (addr & 0xfff) {
+        case NV10_PV_INTR:
+            nv4->pvideo_intr &= ~val;
+            nv4_pmc_update_irq(nv4);
+            return;
+        case NV10_PV_INTR_EN:
+            nv4->pvideo_intr_en = val & 0x11;
+            nv4_pmc_update_irq(nv4);
+            return;
+        case NV10_PV_BUFFER:
+            PV10(addr) = val & 0x11;
+            return;
+        case NV10_PV_STOP:
+            PV10(addr) = val & 0x11;
+            /* STOP, immediately: the overlay goes now, pending buffers too */
+            if ((val & 1) && !(val & 0x10)) {
+                PV10(NV10_PV_BUFFER) = 0;
+                nv4->pvideo_shown &= ~2u;
+            } else if (!(val & 1) && (nv4->pvideo_shown & 2) == 0)
+                ;
+            nv10_pvideo_update(nv4);
+            return;
+        default:
+            PV10(addr) = val;
+            nv10_pvideo_update(nv4);
+            return;
+    }
+}
+
+/* Colour conversion with the buffer's controls: contrast 12:3 (unity
+   0x200), brightness 25:16 (signed), saturation cos 13:2 and sin 29:18
+   (unity 0x400, 0): the hue rotation */
+static inline uint32_t
+nv10_pvideo_rgb(uint32_t lum, uint32_t chr, int Y, int U, int V)
+{
+    int contrast = (lum >> 3) & 0x3ff;
+    int bright   = ((int) ((lum >> 16) & 0x3ff) ^ 0x200) - 0x200;
+    int scos     = ((int) ((chr >> 2) & 0xfff) ^ 0x800) - 0x800;
+    int ssin     = ((int) ((chr >> 18) & 0xfff) ^ 0x800) - 0x800;
+    int u        = U - 128;
+    int v        = V - 128;
+    int uu       = (u * scos - v * ssin) / 1024;
+    int vv       = (v * scos + u * ssin) / 1024;
+    int y        = ((Y - 16) * contrast) / 512 + bright;
+    int ys       = 298 * y;
+    int r        = (ys + 409 * vv + 128) >> 8;
+    int g        = (ys - 100 * uu - 208 * vv + 128) >> 8;
+    int b        = (ys + 516 * uu + 128) >> 8;
+
+    return (nv4_pvideo_clamp(r) << 16) | (nv4_pvideo_clamp(g) << 8) | nv4_pvideo_clamp(b);
+}
+
+static void
+nv10_pvideo_draw(svga_t *svga, int displine)
+{
+    nv4_t   *nv4    = (nv4_t *) svga->priv;
+    int      b      = nv4->pvideo_shown & 1;
+    uint32_t base   = (PV10(NV10_PV_BASE + b * 4) & 0x07ffffc0) + (PV10(NV10_PV_OFFSET + b * 4) & ~0x3fu);
+    uint32_t fmt    = PV10(NV10_PV_FORMAT + b * 4);
+    uint32_t pitch  = fmt & 0x1fc0;
+    uint32_t in     = PV10(NV10_PV_SIZE_IN + b * 4);
+    uint32_t pin    = PV10(NV10_PV_POINT_IN + b * 4);
+    uint32_t dsdx   = PV10(NV10_PV_DS_DX + b * 4) & 0x00fffff8;
+    uint32_t dtdy   = PV10(NV10_PV_DT_DY + b * 4) & 0x00fffff0;
+    uint32_t lum    = PV10(NV10_PV_LUMINANCE + b * 4);
+    uint32_t chr    = PV10(NV10_PV_CHROMINANCE + b * 4);
+    uint32_t key    = PV10(NV10_PV_COLOR_KEY);
+    int      yuy2   = (fmt >> 16) & 1;
+    int      keyed  = (fmt >> 20) & 1;
+    int      in_w   = in & 0x7fe;
+    int      in_h   = (in >> 16) & 0x7ff;
+    int      ox     = svga->overlay_latch.x;
+    int      sy     = displine - svga->y_add;
+    int      line   = sy - svga->overlay_latch.y;
+    int      w      = svga->overlay_latch.cur_xsize;
+    uint32_t mask   = svga->vram_mask;
+    int      bpp    = svga->bpp;
+    int      bytes  = (bpp + 7) >> 3;
+    uint32_t kmask  = (bpp == 8) ? 0xff : ((bpp == 15) ? 0x7fff : ((bpp == 16) ? 0xffff : 0xffffff));
+    uint32_t fb     = (svga->memaddr_latch << 2) + (uint32_t) sy * (svga->rowoffset << 3);
+    uint64_t tfx;
+    int      ty;
+    uint32_t row;
+    uint32_t *p;
+
+    if ((line < 0) || !dsdx || !dtdy)
+        return;
+    if (ox + w > svga->hdisp)
+        w = svga->hdisp - ox;
+    /* source row: the origin (12.4) plus line steps (12.20) */
+    tfx = ((uint64_t) ((pin >> 16) & 0xfffe) << 16) + (uint64_t) line * dtdy;
+    ty  = (int) (tfx >> 20);
+    if (in_h && (ty >= in_h))
+        ty = in_h - 1;
+    row = base + (uint32_t) ty * pitch;
+    p   = &(buffer32->line[displine])[svga->x_add];
+
+    for (int x = (ox < 0) ? -ox : 0; x < w; x++) {
+        int      sx = ox + x;
+        uint64_t sfx;
+        uint32_t q;
+        const uint8_t *m;
+        int      Y, U, V;
+
+        if (keyed) {
+            uint32_t a = fb + (uint32_t) sx * bytes;
+            uint32_t pix;
+
+            if (bytes == 1)
+                pix = svga->vram[a & mask];
+            else if (bytes == 2)
+                pix = *(uint16_t *) &svga->vram[a & mask & ~1];
+            else
+                pix = *(uint32_t *) &svga->vram[a & mask & ~3];
+            if ((pix & kmask) != (key & kmask))
+                continue;
+        }
+        sfx = ((uint64_t) (pin & 0x7fff) << 16) + (uint64_t) x * dsdx;
+        q   = (uint32_t) (sfx >> 20);
+        if (in_w && (q >= (uint32_t) in_w))
+            q = in_w - 1;
+        m = &svga->vram[(row + (q & ~1u) * 2) & mask & ~3];
+        if (yuy2) {
+            Y = m[(q & 1) ? 2 : 0];
+            U = m[1];
+            V = m[3];
+        } else {
+            Y = m[(q & 1) ? 3 : 1];
+            U = m[0];
+            V = m[2];
+        }
+        p[sx] = nv10_pvideo_rgb(lum, chr, Y, U, V);
+    }
 }
 
 /* The colour conversion. The CSC registers hold the constant terms,
@@ -199,6 +464,12 @@ void
 nv4_pvideo_draw(svga_t *svga, int displine)
 {
     nv4_t   *nv4    = (nv4_t *) svga->priv;
+
+    if (NV4_IS_NV10(nv4)) {
+        nv10_pvideo_draw(svga, displine);
+        return;
+    }
+    {
     uint32_t buf    = nv4->pvideo_shown;
     uint32_t start  = PV(buf ? PV_START1 : PV_START0) & 0x1FFFFFC;
     uint32_t pitch  = PV(buf ? PV_PITCH1 : PV_PITCH0) & 0x3FF0;
@@ -283,5 +554,6 @@ nv4_pvideo_draw(svga_t *svga, int displine)
         int V = (c[0][2] * (256 - fy) + c[1][2] * fy) >> 8;
 
         p[sx] = nv4_pvideo_rgb(nv4, Y, U, V);
+    }
     }
 }

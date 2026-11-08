@@ -305,7 +305,14 @@ nv4_rop3(uint8_t rop, uint32_t p, uint32_t s, uint32_t d)
 static uint32_t
 nv4_offset_mask(const nv4_t *nv4)
 {
-    return (nv4->chip == NV4_CHIP_TNT2) ? 0x01ffffff : 0x00ffffff;
+    return NV4_IS_NV10(nv4) ? 0x07ffffff : (NV4_IS_NV5P(nv4) ? 0x01ffffff : 0x00ffffff);
+}
+
+/* Surface pitches: 13 bits on the TNT and TNT2, 16 on the NV10 */
+static uint32_t
+nv4_pitch_mask(const nv4_t *nv4)
+{
+    return NV4_IS_NV10(nv4) ? 0xfff0 : 0x1ff0;
 }
 
 static int
@@ -1035,13 +1042,13 @@ nv4_ctx_method(nv4_t *nv4, int bit, uint32_t inst)
 {
     uint32_t cls;
 
-    if ((nv4->chip != NV4_CHIP_TNT2) || !(GR(NV4_PGRAPH_DEBUG_3) & (1u << 29)))
+    if (!NV4_IS_NV5P(nv4) || (!NV4_IS_NV10(nv4) && !(GR(NV4_PGRAPH_DEBUG_3) & (1u << 29))))
         return NV4_GR_ILLEGAL;
     cls = inst ? (nv4_ramin_read32(nv4, inst << 4) & 0xfff) : 0x30;
     if (bit >= 0)
         nv4_pgraph_set_grobj(nv4, 0, bit, 1, cls != 0x30);
     if (bit == 25)
-        nv4_pgraph_set_grobj(nv4, 0, 14, 1, cls == 0x52);
+        nv4_pgraph_set_grobj(nv4, 0, 14, 1, (cls == 0x52) || (cls == 0x9e));
     return NV4_GR_OK;
 }
 
@@ -1054,7 +1061,7 @@ nv4_ctx_method(nv4_t *nv4, int bit, uint32_t inst)
 static int
 nv4_color_conv_method(nv4_t *nv4, uint32_t data)
 {
-    if ((nv4->chip != NV4_CHIP_TNT2) || (data > 2))
+    if (!NV4_IS_NV5P(nv4) || (data > 2))
         return NV4_GR_ILLEGAL;
     nv4_pgraph_set_grobj(nv4, 0, 20, 2, data + 1);
     return NV4_GR_OK;
@@ -1063,7 +1070,7 @@ nv4_color_conv_method(nv4_t *nv4, uint32_t data)
 static int
 nv4_operation_method(nv4_t *nv4, uint32_t data)
 {
-    if ((nv4->chip != NV4_CHIP_TNT2) || !(GR(NV4_PGRAPH_DEBUG_3) & (1u << 30)))
+    if (!NV4_IS_NV5P(nv4) || (!NV4_IS_NV10(nv4) && !(GR(NV4_PGRAPH_DEBUG_3) & (1u << 30))))
         return NV4_GR_ILLEGAL;
     nv4_pgraph_set_grobj(nv4, 0, 15, 3, data);
     return NV4_GR_OK;
@@ -1940,7 +1947,7 @@ static int
 nv4_class_surf2d(nv4_t *nv4, uint32_t mthd, uint32_t data)
 {
     static const int fmts[12] = { 0, 0x1, 0x2, 0x3, 0x5, 0x6, 0x7, 0xb, 0x9, 0xa, 0xc, 0xd };
-    uint32_t         pmask    = 0x1ff0;
+    uint32_t         pmask    = nv4_pitch_mask(nv4);
 
     switch (mthd) {
         case 0x184:
@@ -2044,7 +2051,7 @@ nv4_class_surf3d(nv4_t *nv4, uint32_t mthd, uint32_t data)
             return NV4_GR_OK;
         case 0x2f8:
         case 0x2fc:
-            if (nv4->chip != NV4_CHIP_TNT2)
+            if (!NV4_IS_NV5P(nv4))
                 return NV4_GR_ILLEGAL;
             nv4_uclip_write(nv4, 0, (mthd - 0x2f8) >> 2, data & 0xffff);
             nv4_uclip_write(nv4, 0, (mthd - 0x2f8) >> 2, (data & 0xffff) + (int16_t) (data >> 16));
@@ -2068,8 +2075,8 @@ nv4_class_surf3d(nv4_t *nv4, uint32_t mthd, uint32_t data)
             nv4_uclip_write(nv4, 0, 1, data >> 16);
             return NV4_GR_OK;
         case 0x308:
-            GR(NV4_PGRAPH_BPITCH + NV4_SURF_COLOR * 4) = data & 0x1ff0;
-            GR(NV4_PGRAPH_BPITCH + NV4_SURF_ZETA * 4)  = (data >> 16) & 0x1ff0;
+            GR(NV4_PGRAPH_BPITCH + NV4_SURF_COLOR * 4) = data & nv4_pitch_mask(nv4);
+            GR(NV4_PGRAPH_BPITCH + NV4_SURF_ZETA * 4)  = (data >> 16) & nv4_pitch_mask(nv4);
             return NV4_GR_OK;
         case 0x30c:
             GR(NV4_PGRAPH_BOFFSET + NV4_SURF_COLOR * 4) = data & nv4_offset_mask(nv4);
@@ -3040,9 +3047,110 @@ nv4_class_dvd(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t mthd, uint32_t data)
     }
 }
 
+/* NV10 texture from CPU (0x7b): image data from the FIFO into a 2D or
+   swizzled surface, copied as is (no ROP, chroma or user clip), clipped
+   to its own rectangle. Methods: the surfaces context 0x184, colour
+   conversion 0x2fc, format 0x300, point 0x304, size 0x308 (in and out),
+   the clip's x and width 0x30c, y and height 0x310, pixels from 0x400. */
+static int
+nv4_class_tfc(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t mthd, uint32_t data)
+{
+    if ((mthd >= 0x400) && (mthd < 0x2000)) {
+        if (ch->img_kind == IMG_IFC) {
+            uint32_t sw1 = GR(NV4_PGRAPH_CTX_SWITCH1);
+
+            /* SRCCOPY, no chroma key, no user clip, for these pixels */
+            GR(NV4_PGRAPH_CTX_SWITCH1) = (sw1 & ~((7u << 15) | (1u << 13) | (1u << 12))) | (3u << 15);
+            nv4_img_color_data(nv4, ch, data, 1);
+            GR(NV4_PGRAPH_CTX_SWITCH1) = sw1;
+        }
+        return NV4_GR_OK;
+    }
+    switch (mthd) {
+        case 0x184:
+            return nv4_ctx_method(nv4, 25, data);
+        case 0x2fc:
+            return nv4_color_conv_method(nv4, data);
+        case 0x300:
+            nv4_set_color_fmt(nv4, nv4_ifc_fmt(data, 1));
+            return NV4_GR_OK;
+        case 0x304:
+            nv4_img_start(ch, IMG_IFC, data);
+            return NV4_GR_OK;
+        case 0x308:
+            ch->out_w = ch->in_w = data & 0xffff;
+            ch->out_h = ch->in_h = data >> 16;
+            ch->pos   = 0;
+            return NV4_GR_OK;
+        case 0x30c:
+        case 0x310:
+            {
+                int xy = (mthd - 0x30c) >> 2;
+
+                nv4_uclip_write(nv4, 1, xy, (int16_t) data);
+                nv4_uclip_write(nv4, 1, xy, (int16_t) data + (int32_t) (data >> 16));
+            }
+            return NV4_GR_OK;
+        case 0x10c:
+        case 0x200:
+            return NV4_GR_MISSING;
+        default:
+            return NV4_GR_ILLEGAL;
+    }
+}
+
+/* For the Celsius class (nv10_celsius.c), whose surface and clip
+   methods load the same registers */
+void
+nv4_pgraph_dma_surf(nv4_t *nv4, int which, uint32_t inst)
+{
+    nv4_dma_surf(nv4, which, inst);
+}
+
+void
+nv4_pgraph_uclip_write(nv4_t *nv4, int which, int xy, int32_t coord)
+{
+    nv4_uclip_write(nv4, which, xy, coord);
+}
+
 int
 nv4_pgraph_2d_method(nv4_t *nv4, nv4_gr_chan_t *ch, int cls, uint32_t mthd, uint32_t data)
 {
+    /* The NV10's classes are the TNT2's with a SYNC method (0x108, which
+       orders nothing here) and wider surfaces */
+    if (NV4_IS_NV10(nv4)) {
+        switch (cls) {
+            case 0x62:
+                cls = 0x42;
+                break;
+            case 0x9e:
+                cls = 0x52;
+                break;
+            case 0x93:
+                cls = 0x53;
+                break;
+            case 0x9f:
+                /* NV15 flip methods: not on the GeForce 256 */
+                if ((mthd >= 0x120) && (mthd < 0x138))
+                    return NV4_GR_OK;
+                cls = 0x5f;
+                break;
+            case 0x8a:
+                cls = 0x65;
+                break;
+            case 0x63:
+            case 0x89:
+                cls = 0x77;
+                break;
+            case 0x88:
+                cls = 0x38;
+                break;
+            case 0x7b:
+                return nv4_class_tfc(nv4, ch, mthd, data);
+            default:
+                break;
+        }
+    }
     switch (cls) {
         case 0x12:
             return nv4_class_beta(nv4, mthd, data);
@@ -3087,31 +3195,31 @@ nv4_pgraph_2d_method(nv4_t *nv4, nv4_gr_chan_t *ch, int cls, uint32_t mthd, uint
            own 56.73) bind the TNT's class numbers and send it there. */
         case 0x21:
         case 0x61:
-            if ((cls == 0x61) && (mthd == 0x2f8) && (nv4->chip == NV4_CHIP_TNT2))
+            if ((cls == 0x61) && (mthd == 0x2f8) && NV4_IS_NV5P(nv4))
                 return nv4_color_conv_method(nv4, data);
             return nv4_class_ifc(nv4, ch, cls, mthd, data);
         case 0x36:
         case 0x76:
-            if ((cls == 0x76) && (mthd == 0x2f8) && (nv4->chip == NV4_CHIP_TNT2))
+            if ((cls == 0x76) && (mthd == 0x2f8) && NV4_IS_NV5P(nv4))
                 return nv4_color_conv_method(nv4, data);
             return nv4_class_sifc(nv4, ch, cls, mthd, data);
         case 0x60:
-            if ((mthd == 0x3e0) && (nv4->chip == NV4_CHIP_TNT2))
+            if ((mthd == 0x3e0) && NV4_IS_NV5P(nv4))
                 return nv4_color_conv_method(nv4, data);
             return nv4_class_iifc(nv4, ch, mthd, data);
         /* The TNT2's own image classes: the TNT's with the colour
            conversion method. On the TNT these numbers are not image
            classes. */
         case 0x64:
-            if (nv4->chip != NV4_CHIP_TNT2)
+            if (!NV4_IS_NV5P(nv4))
                 break;
             return (mthd == 0x3e0) ? nv4_color_conv_method(nv4, data) : nv4_class_iifc(nv4, ch, mthd, data);
         case 0x65:
-            if (nv4->chip != NV4_CHIP_TNT2)
+            if (!NV4_IS_NV5P(nv4))
                 break;
             return (mthd == 0x2f8) ? nv4_color_conv_method(nv4, data) : nv4_class_ifc(nv4, ch, 0x61, mthd, data);
         case 0x66:
-            if (nv4->chip != NV4_CHIP_TNT2)
+            if (!NV4_IS_NV5P(nv4))
                 break;
             return (mthd == 0x2f8) ? nv4_color_conv_method(nv4, data) : nv4_class_sifc(nv4, ch, 0x76, mthd, data);
         case 0x4a:

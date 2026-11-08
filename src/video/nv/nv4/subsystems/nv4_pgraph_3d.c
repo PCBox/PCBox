@@ -287,7 +287,8 @@ static void
 nv4_3d_reach(const nv4_3d_state_t *s, uint32_t base, uint32_t pitch, uint32_t *lo, uint32_t *hi)
 {
     uint32_t rows = (uint32_t) (s->cy1 - s->cy0) * pitch;
-    uint32_t w    = (uint32_t) s->cx1 * s->bpp;
+    /* (a Celsius depth buffer can be wider than its colour buffer) */
+    uint32_t w    = (uint32_t) s->cx1 * ((s->z_bpp > s->bpp) ? s->z_bpp : s->bpp);
 
     *lo = base + (uint32_t) s->cy0 * pitch;
     *hi = *lo + ((rows > w) ? rows : w) - 1;
@@ -368,6 +369,7 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
         b->serial = 1;
         nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi, &b->bus_tex);
         nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi, &b->bus_tex);
+        b->ncelsius += s->celsius;
         b->states[b->nstates] = *s;
         return b->nstates++;
     }
@@ -385,7 +387,7 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
         nv4_3d_flush(nv4);
 
     if (b->parallel) {
-        uint32_t w = (uint32_t) s->cx1 * s->bpp;
+        uint32_t w = (uint32_t) s->cx1 * ((s->z_bpp > s->bpp) ? s->z_bpp : s->bpp);
 
         s->rc = nv4_3d_region_take(b, s->col_base, s->col_pitch, clo, chi);
         if (s->z_on) {
@@ -412,6 +414,7 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
         nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi, &b->bus_tex);
         nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi, &b->bus_tex);
     }
+    b->ncelsius += s->celsius;
     b->states[b->nstates] = *s;
     return b->nstates++;
 }
@@ -430,7 +433,7 @@ nv4_3d_region_touch(nv4_3d_region_t *g, uint32_t lo, uint32_t hi)
 static void
 nv4_3d_written(nv4_3d_batch_t *b, const nv4_3d_state_t *s, int32_t y0, int32_t y1)
 {
-    uint32_t w = (uint32_t) s->cx1 * s->bpp;
+    uint32_t w = (uint32_t) s->cx1 * ((s->z_bpp > s->bpp) ? s->z_bpp : s->bpp);
 
     if (s->rc >= 0) {
         uint32_t lo = s->col_base + (uint32_t) y0 * s->col_pitch;
@@ -524,6 +527,7 @@ nv4_3d_make_state(nv4_t *nv4, nv4_3d_batch_t *b, int cls, const nv4_d3d_t *d)
         s->cy1 = 4096;
 
     s->origin = ((ctl >> 13) & 1) ? 0.5f : 0.0f;
+    s->z_bpp  = s->bpp;
     if (s->dx6) {
         nv4_3d_tex_setup(nv4, &s->tex[0], d->format[0], d->filter[0], d->offset[0], 1);
         nv4_3d_tex_setup(nv4, &s->tex[1], d->format[1], d->filter[1], d->offset[1], 1);
@@ -1136,6 +1140,746 @@ nv4_unpack_color(const nv4_3d_state_t *s, uint32_t v)
     return c;
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Celsius (NV10) pixels.                                              */
+/* ------------------------------------------------------------------ */
+static float nv4_log2_bits(float r);
+
+static uint32_t
+nv10_expand16(uint32_t v, int f)
+{
+    uint32_t r, g, b, a;
+
+    switch (f) {
+        case 0x02: /* A1R5G5B5 */
+        case 0x03: /* X1R5G5B5 */
+        case 0x10:
+            r = (v >> 10) & 0x1f;
+            g = (v >> 5) & 0x1f;
+            b = v & 0x1f;
+            a = ((f == 0x03) || (v & 0x8000)) ? 0xff : 0;
+            return (a << 24) | ((r << 3 | r >> 2) << 16) | ((g << 3 | g >> 2) << 8) | (b << 3 | b >> 2);
+        case 0x04: /* A4R4G4B4 */
+            return ((v >> 12) * 0x11u << 24) | (((v >> 8) & 0xf) * 0x11 << 16) | (((v >> 4) & 0xf) * 0x11 << 8)
+                 | ((v & 0xf) * 0x11);
+        case 0x16: /* R8B8 */
+            return 0xff000000 | ((v >> 8) << 16) | (v & 0xff);
+        case 0x17: /* G8B8 */
+        case 0x18:
+            return 0xff000000 | ((v >> 8) << 8) | (v & 0xff);
+        case 0x15: /* X7SY9 */
+            v = ((v & 0x1ff) >> 1) ^ 0x80;
+            return 0xff000000 | (v * 0x010101);
+        default: /* R5G6B5 */
+            r = (v >> 11) & 0x1f;
+            g = (v >> 5) & 0x3f;
+            b = v & 0x1f;
+            return 0xff000000 | ((r << 3 | r >> 2) << 16) | ((g << 2 | g >> 4) << 8) | (b << 3 | b >> 2);
+    }
+}
+
+/* What a texture unit needs while one span is shaded: its page cache
+   and the palette entries read so far */
+typedef struct {
+    nv4_3d_tcache_t tc;
+    uint32_t        pal[256];
+    uint8_t         pal_ok[256];
+} nv10_tsamp_t;
+
+static uint32_t
+nv10_palette(nv4_t *nv4, const nv4_3d_tex_t *t, nv10_tsamp_t *ts, uint32_t i)
+{
+    if (!ts->pal_ok[i]) {
+        int      wide = (t->cfmt == 0x0b);
+        uint32_t v    = 0;
+        uint8_t  b[4] = { 0, 0, 0, 0 };
+
+        if (nv4_dma_read(nv4, t->pal_dma, t->pal_off + i * (wide ? 4 : 2), b, wide ? 4 : 2) == NV4_DMA_OK)
+            v = b[0] | (b[1] << 8) | (b[2] << 16) | ((uint32_t) b[3] << 24);
+        if (!wide)
+            v = nv10_expand16(v, (t->cfmt == 0x08) ? 0x02 : ((t->cfmt == 0x0a) ? 0x04 : 0x05));
+        ts->pal[i]    = v;
+        ts->pal_ok[i] = 1;
+    }
+    return ts->pal[i];
+}
+
+static uint32_t
+nv10_lerp_rgb565(uint32_t c0, uint32_t c1, int w0, int w1, int d)
+{
+    uint32_t a = nv10_expand16(c0, 5), b = nv10_expand16(c1, 5);
+    uint32_t r = ((((a >> 16) & 0xff) * w0 + ((b >> 16) & 0xff) * w1) / d);
+    uint32_t g = ((((a >> 8) & 0xff) * w0 + ((b >> 8) & 0xff) * w1) / d);
+    uint32_t bl = (((a & 0xff) * w0 + (b & 0xff) * w1) / d);
+
+    return 0xff000000 | (r << 16) | (g << 8) | bl;
+}
+
+/* Texel x,y of the DXT level at <base>, <bw> blocks to a row */
+static uint32_t
+nv10_dxt_texel(nv4_t *nv4, const nv4_3d_tex_t *t, nv10_tsamp_t *ts, uint32_t base, uint32_t bw, uint32_t x, uint32_t y)
+{
+    uint32_t bsize = (t->dxt == 1) ? 8 : 16;
+    uint32_t a     = base + ((y >> 2) * bw + (x >> 2)) * bsize;
+    uint32_t i     = (y & 3) * 4 + (x & 3);
+    uint32_t cblk  = a + ((t->dxt == 1) ? 0 : 8);
+    uint32_t c01   = nv4_3d_tex_read(nv4, t, &ts->tc, cblk, 4);
+    uint32_t idx   = nv4_3d_tex_read(nv4, t, &ts->tc, cblk + 4, 4);
+    uint32_t c0    = c01 & 0xffff, c1 = c01 >> 16;
+    uint32_t sel   = (idx >> (i * 2)) & 3;
+    uint32_t rgb;
+    uint32_t alpha = 0xff;
+
+    if ((t->dxt == 1) && (c0 <= c1)) {
+        switch (sel) {
+            case 0:
+                rgb = nv10_expand16(c0, 5);
+                break;
+            case 1:
+                rgb = nv10_expand16(c1, 5);
+                break;
+            case 2:
+                rgb = nv10_lerp_rgb565(c0, c1, 1, 1, 2);
+                break;
+            default:
+                rgb   = 0;
+                alpha = 0;
+                break;
+        }
+    } else {
+        switch (sel) {
+            case 0:
+                rgb = nv10_expand16(c0, 5);
+                break;
+            case 1:
+                rgb = nv10_expand16(c1, 5);
+                break;
+            case 2:
+                rgb = nv10_lerp_rgb565(c0, c1, 2, 1, 3);
+                break;
+            default:
+                rgb = nv10_lerp_rgb565(c0, c1, 1, 2, 3);
+                break;
+        }
+    }
+    if (t->dxt == 3) {
+        uint32_t w = nv4_3d_tex_read(nv4, t, &ts->tc, a + ((i >= 8) ? 4 : 0), 4);
+
+        alpha = ((w >> ((i & 7) * 4)) & 0xf) * 0x11;
+    } else if (t->dxt == 5) {
+        uint32_t w0 = nv4_3d_tex_read(nv4, t, &ts->tc, a, 4);
+        uint32_t w1 = nv4_3d_tex_read(nv4, t, &ts->tc, a + 4, 4);
+        uint32_t a0 = w0 & 0xff, a1 = (w0 >> 8) & 0xff;
+        uint64_t bits = ((uint64_t) (w0 >> 16)) | ((uint64_t) w1 << 16);
+        uint32_t k    = (uint32_t) (bits >> (i * 3)) & 7;
+
+        if (k == 0)
+            alpha = a0;
+        else if (k == 1)
+            alpha = a1;
+        else if (a0 > a1)
+            alpha = (a0 * (8 - k) + a1 * (k - 1)) / 7;
+        else if (k == 6)
+            alpha = 0;
+        else if (k == 7)
+            alpha = 255;
+        else
+            alpha = (a0 * (6 - k) + a1 * (k - 1)) / 5;
+    }
+    return (alpha << 24) | (rgb & 0xffffff);
+}
+
+/* Texel x,y (already wrapped) of level <l> of a w by h level at <base>;
+   sets *killed for a colour-keyed texel when the key kills */
+static uint32_t
+nv10_texel(nv4_t *nv4, const nv4_3d_tex_t *t, nv10_tsamp_t *ts, uint32_t base, int wl, int hl, uint32_t x, uint32_t y,
+           uint32_t key, int *keyed)
+{
+    uint32_t raw, argb;
+    int      f = t->cfmt;
+
+    if (t->dxt) {
+        uint32_t w = t->linear ? (uint32_t) t->w : (1u << wl);
+
+        argb = nv10_dxt_texel(nv4, t, ts, base, (w + 3) >> 2, x, y);
+        raw  = argb;
+    } else {
+        uint32_t off = t->linear ? (y * t->pitch + x * t->bpp) : (nv4_swizzle(x, y, wl, hl) * t->bpp);
+
+        raw = nv4_3d_tex_read(nv4, t, &ts->tc, base + off, t->bpp);
+        switch (f) {
+            case 0x00:
+            case 0x13:
+                argb = 0xff000000 | (raw * 0x010101);
+                break;
+            case 0x14: /* SY8 */
+                argb = 0xff000000 | ((raw ^ 0x80) * 0x010101);
+                break;
+            case 0x01:
+                argb = raw * 0x01010101;
+                break;
+            case 0x06:
+            case 0x12:
+                argb = raw;
+                break;
+            case 0x07:
+                argb = raw | 0xff000000;
+                break;
+            case 0x08:
+            case 0x09:
+            case 0x0a:
+            case 0x0b:
+                argb = nv10_palette(nv4, t, ts, raw & 0xff);
+                break;
+            default:
+                argb = nv10_expand16(raw, f);
+                break;
+        }
+    }
+    if (t->ckey_op && keyed
+        && (((argb & 0xffffff) == (key & 0xffffff))
+            || (!t->dxt && (t->bpp < 4) && (raw == (key & ((t->bpp == 2) ? 0xffff : 0xff))))))
+        *keyed = 1;
+    return argb;
+}
+
+/* Wrap modes (TEXTUREADDRESS): 1 wrap, 2 mirror, 3 clamp to edge, 4
+   border, 5 clamp */
+static int
+nv10_wrap(int i, int n, int mode, int *border)
+{
+    switch (mode) {
+        case 2:
+            if (n & (n - 1)) {
+                int p = i % (2 * n);
+
+                if (p < 0)
+                    p += 2 * n;
+                return (p >= n) ? (2 * n - 1 - p) : p;
+            }
+            i &= 2 * n - 1;
+            return (i >= n) ? (2 * n - 1 - i) : i;
+        case 3:
+        case 5:
+            return (i < 0) ? 0 : ((i >= n) ? n - 1 : i);
+        case 4:
+            if ((i < 0) || (i >= n))
+                *border = 1;
+            return (i < 0) ? 0 : ((i >= n) ? n - 1 : i);
+        default:
+            if (n & (n - 1)) {
+                i %= n;
+                return (i < 0) ? i + n : i;
+            }
+            return i & (n - 1);
+    }
+}
+
+static uint32_t
+nv10_sample_level(nv4_t *nv4, const nv4_3d_tex_t *t, nv10_tsamp_t *ts, uint32_t face_base, int l, float u, float v,
+                  int linear, uint32_t key, int *keyed)
+{
+    int      wl   = (t->wlog - l > 0) ? t->wlog - l : 0;
+    int      hl   = (t->hlog - l > 0) ? t->hlog - l : 0;
+    int      w    = t->linear ? t->w : (1 << wl);
+    int      h    = t->linear ? t->h : (1 << hl);
+    float    fu   = u * (float) w;
+    float    fv   = v * (float) h;
+    uint32_t base = face_base + t->level_off[l];
+
+    if (!linear) {
+        int bu = 0, bv = 0;
+        int iu = nv10_wrap(nv4_f2i(floorf(fu)), w, t->wrap_u, &bu);
+        int iv = nv10_wrap(nv4_f2i(floorf(fv)), h, t->wrap_v, &bv);
+
+        return (bu | bv) ? 0 : nv10_texel(nv4, t, ts, base, wl, hl, iu, iv, key, keyed);
+    }
+    if (t->center) {
+        fu -= 0.5f;
+        fv -= 0.5f;
+    }
+    {
+        int      iu  = nv4_f2i(floorf(fu));
+        int      iv  = nv4_f2i(floorf(fv));
+        int      au  = nv4_f2i((fu - (float) iu) * 256.0f);
+        int      av  = nv4_f2i((fv - (float) iv) * 256.0f);
+        int      b[4] = { 0, 0, 0, 0 };
+        int      u0  = nv10_wrap(iu, w, t->wrap_u, &b[0]);
+        int      u1  = nv10_wrap(iu + 1, w, t->wrap_u, &b[1]);
+        int      v0  = nv10_wrap(iv, h, t->wrap_v, &b[2]);
+        int      v1  = nv10_wrap(iv + 1, h, t->wrap_v, &b[3]);
+        uint32_t t00 = (b[0] | b[2]) ? 0 : nv10_texel(nv4, t, ts, base, wl, hl, u0, v0, key, keyed);
+        uint32_t t10 = (b[1] | b[2]) ? 0 : nv10_texel(nv4, t, ts, base, wl, hl, u1, v0, key, NULL);
+        uint32_t t01 = (b[0] | b[3]) ? 0 : nv10_texel(nv4, t, ts, base, wl, hl, u0, v1, key, NULL);
+        uint32_t t11 = (b[1] | b[3]) ? 0 : nv10_texel(nv4, t, ts, base, wl, hl, u1, v1, key, NULL);
+
+        return nv4_lerp4(nv4_lerp4(t00, t10, au), nv4_lerp4(t01, t11, au), av);
+    }
+}
+
+/* A cube map's face and its coordinates for direction s, t, r */
+static int
+nv10_cube_face(float s, float t, float r, float *u, float *v)
+{
+    float as = fabsf(s), at = fabsf(t), ar = fabsf(r);
+    float sc, tc, ma;
+    int   face;
+
+    if ((as >= at) && (as >= ar)) {
+        face = (s >= 0.0f) ? 0 : 1;
+        ma   = as;
+        sc   = (s >= 0.0f) ? -r : r;
+        tc   = -t;
+    } else if (at >= ar) {
+        face = (t >= 0.0f) ? 2 : 3;
+        ma   = at;
+        sc   = s;
+        tc   = (t >= 0.0f) ? r : -r;
+    } else {
+        face = (r >= 0.0f) ? 4 : 5;
+        ma   = ar;
+        sc   = (r >= 0.0f) ? s : -s;
+        tc   = -t;
+    }
+    if (ma <= 0.0f)
+        ma = 1.0f;
+    *u = 0.5f * (sc / ma + 1.0f);
+    *v = 0.5f * (tc / ma + 1.0f);
+    return face;
+}
+
+static uint32_t
+nv10_sample(nv4_t *nv4, const nv4_3d_tex_t *t, nv10_tsamp_t *ts, float u, float v, float r, float lod, uint32_t key,
+            int *keyed)
+{
+    uint32_t fb = t->offset;
+    int      filt;
+
+    if (t->cube) {
+        int face = nv10_cube_face(u, v, r, &u, &v);
+
+        fb += (uint32_t) face * t->face;
+    }
+    lod += t->lod_bias;
+    if (lod < t->lod_min)
+        lod = t->lod_min;
+    if (lod > t->lod_max)
+        lod = t->lod_max;
+    if ((lod <= 0.0f) || (t->levels == 1))
+        return nv10_sample_level(nv4, t, ts, fb, 0, u, v, ((lod <= 0.0f) ? t->mag : t->min) == 2 || ((lod > 0.0f) && ((t->min == 5) || (t->min == 6))), key, keyed);
+
+    filt = t->min;
+    switch (filt) {
+        case 3:
+        case 5:
+            {
+                int l = nv4_f2i(lod + 0.5f);
+
+                if (l >= t->levels)
+                    l = t->levels - 1;
+                return nv10_sample_level(nv4, t, ts, fb, l, u, v, filt == 5, key, keyed);
+            }
+        case 4:
+        case 6:
+            {
+                int l = nv4_f2i(lod);
+                int f = nv4_f2i((lod - (float) l) * 256.0f);
+
+                if (l >= t->levels - 1)
+                    return nv10_sample_level(nv4, t, ts, fb, t->levels - 1, u, v, filt == 6, key, keyed);
+                return nv4_lerp4(nv10_sample_level(nv4, t, ts, fb, l, u, v, filt == 6, key, keyed),
+                                 nv10_sample_level(nv4, t, ts, fb, l + 1, u, v, filt == 6, key, NULL), f);
+            }
+        default:
+            return nv10_sample_level(nv4, t, ts, fb, 0, u, v, filt == 2, key, keyed);
+    }
+}
+
+/* The register combiners (NV_register_combiners as the NV10 has them:
+   two general stages, then the final combiner). Values are signed,
+   255 = 1.0. Registers: 0 zero, 1 and 2 the constant colours, 3 fog
+   (colour, factor in alpha), 4 primary, 5 secondary, 8 and 9 the
+   textures, 0xc spare0, 0xd spare1; the final combiner adds 0xe spare0 +
+   secondary and 0xf E x F. */
+typedef struct {
+    int c[16][4]; /* r, g, b, a */
+} nv10_regs_t;
+
+static inline int
+nv10_clamp1(int v)
+{
+    return (v < -255) ? -255 : ((v > 255) ? 255 : v);
+}
+
+static inline int
+nv10_map(int v, int mapping)
+{
+    int p = (v < 0) ? 0 : v;
+
+    switch (mapping) {
+        case 1: /* unsigned invert */
+            return 255 - ((p > 255) ? 255 : p);
+        case 2: /* expand normal */
+            return 2 * p - 255;
+        case 3: /* expand negate */
+            return 255 - 2 * p;
+        case 4: /* half bias normal */
+            return p - 128;
+        case 5: /* half bias negate */
+            return 128 - p;
+        case 6: /* signed identity */
+            return v;
+        case 7: /* signed negate */
+            return -v;
+        default: /* unsigned identity */
+            return p;
+    }
+}
+
+/* One input of a general stage: 8 bits of an input word, the rgb
+   (<alpha_part> 0) or alpha portion */
+static void
+nv10_input(const nv10_regs_t *r, uint32_t sel, int alpha_part, int out[3])
+{
+    int reg  = sel & 0xf;
+    int use  = (sel >> 4) & 1; /* rgb: 1 alpha; alpha: 1 alpha, 0 blue */
+    int map  = (sel >> 5) & 7;
+
+    if (alpha_part) {
+        int v = r->c[reg][use ? 3 : 2];
+
+        out[0] = out[1] = out[2] = nv10_map(v, map);
+    } else if (use) {
+        out[0] = out[1] = out[2] = nv10_map(r->c[reg][3], map);
+    } else {
+        for (int k = 0; k < 3; k++)
+            out[k] = nv10_map(r->c[reg][k], map);
+    }
+}
+
+static inline int
+nv10_mul(int a, int b)
+{
+    return (a * b) / 255;
+}
+
+static int
+nv10_scale(int v, int op)
+{
+    if ((op == 1) || (op == 3))
+        v -= 128;
+    switch (op) {
+        case 2:
+        case 3:
+            v *= 2;
+            break;
+        case 4:
+            v *= 4;
+            break;
+        case 6:
+            v /= 2;
+            break;
+        default:
+            break;
+    }
+    return nv10_clamp1(v);
+}
+
+static void
+nv10_general(nv10_regs_t *r, uint32_t in, uint32_t out, int alpha_part, int mux_msb)
+{
+    int a[3], b[3], c[3], d[3];
+    int ab[3], cd[3], sum[3];
+    int n   = alpha_part ? 1 : 3;
+    int op  = (out >> 15) & 7;
+    int abr = (out >> 4) & 0xf, cdr = out & 0xf, sr = (out >> 8) & 0xf;
+    int ch0 = alpha_part ? 3 : 0;
+
+    nv10_input(r, in >> 24, alpha_part, a);
+    nv10_input(r, in >> 16, alpha_part, b);
+    nv10_input(r, in >> 8, alpha_part, c);
+    nv10_input(r, in, alpha_part, d);
+    if (!alpha_part && (out & (1u << 13))) {
+        int dot = nv10_mul(a[0], b[0]) + nv10_mul(a[1], b[1]) + nv10_mul(a[2], b[2]);
+
+        ab[0] = ab[1] = ab[2] = dot;
+    } else
+        for (int k = 0; k < 3; k++)
+            ab[k] = nv10_mul(a[k], b[k]);
+    if (!alpha_part && (out & (1u << 12))) {
+        int dot = nv10_mul(c[0], d[0]) + nv10_mul(c[1], d[1]) + nv10_mul(c[2], d[2]);
+
+        cd[0] = cd[1] = cd[2] = dot;
+    } else
+        for (int k = 0; k < 3; k++)
+            cd[k] = nv10_mul(c[k], d[k]);
+    if (out & (1u << 14)) {
+        int s0  = r->c[0xc][3];
+        int sel = mux_msb ? (s0 >= 128) : (s0 & 1);
+
+        for (int k = 0; k < 3; k++)
+            sum[k] = sel ? cd[k] : ab[k];
+    } else
+        for (int k = 0; k < 3; k++)
+            sum[k] = ab[k] + cd[k];
+    for (int k = 0; k < n; k++) {
+        ab[k]  = nv10_scale(ab[k], op);
+        cd[k]  = nv10_scale(cd[k], op);
+        sum[k] = nv10_scale(sum[k], op);
+    }
+    /* the products go out before the sum, so a sum to the same register wins */
+    for (int k = 0; k < n; k++) {
+        if (abr)
+            r->c[abr][ch0 + k] = ab[k];
+        if (cdr)
+            r->c[cdr][ch0 + k] = cd[k];
+        if (sr)
+            r->c[sr][ch0 + k] = sum[k];
+    }
+    r->c[0][0] = r->c[0][1] = r->c[0][2] = r->c[0][3] = 0;
+}
+
+/* A final combiner input: 8 bits of the control words, mapped unsigned
+   (bits 7:5 invert) */
+static void
+nv10_final_input(const nv10_regs_t *r, uint32_t sel, int out[4])
+{
+    int reg = sel & 0xf;
+    int inv = (sel >> 5) & 7;
+
+    for (int k = 0; k < 4; k++) {
+        int v = r->c[reg][((sel >> 4) & 1) ? 3 : k];
+
+        v      = (v < 0) ? 0 : ((v > 255) ? 255 : v);
+        out[k] = inv ? (255 - v) : v;
+    }
+}
+
+static rgba_t
+nv10_combine(const nv4_3d_state_t *s, nv10_regs_t *r)
+{
+    int    A[4], B[4], C[4], D[4], G[4], E[4], F[4];
+    rgba_t o;
+    int    mux_msb = !!(s->rc_oc[1] & (1u << 27));
+
+    for (int st = 0; st < s->rc_n; st++) {
+        nv10_regs_t in = *r;
+
+        /* both portions read the registers as the stage found them */
+        nv10_general(r, s->rc_ic[st], s->rc_oc[st], 0, mux_msb);
+        {
+            nv10_regs_t tmp = in;
+
+            nv10_general(&tmp, s->rc_ia[st], s->rc_oa[st], 1, mux_msb);
+            for (int k = 0; k < 16; k++)
+                r->c[k][3] = tmp.c[k][3];
+        }
+    }
+    /* spare0 + secondary, and E x F */
+    for (int k = 0; k < 3; k++) {
+        int v = r->c[0xc][k] + ((r->c[5][k] < 0) ? 0 : r->c[5][k]);
+
+        r->c[0xe][k] = (s->rc_f1 & 0x80) ? ((v > 255) ? 255 : v) : v;
+    }
+    r->c[0xe][3] = r->c[0xc][3];
+    nv10_final_input(r, s->rc_f1 >> 24, E);
+    nv10_final_input(r, s->rc_f1 >> 16, F);
+    for (int k = 0; k < 4; k++)
+        r->c[0xf][k] = nv10_mul(E[k], F[k]);
+    nv10_final_input(r, s->rc_f0 >> 24, A);
+    nv10_final_input(r, s->rc_f0 >> 16, B);
+    nv10_final_input(r, s->rc_f0 >> 8, C);
+    nv10_final_input(r, s->rc_f0, D);
+    nv10_final_input(r, s->rc_f1 >> 8, G);
+    o.r = clamp255(nv10_mul(A[0], B[0]) + nv10_mul(255 - A[0], C[0]) + D[0]);
+    o.g = clamp255(nv10_mul(A[1], B[1]) + nv10_mul(255 - A[1], C[1]) + D[1]);
+    o.b = clamp255(nv10_mul(A[2], B[2]) + nv10_mul(255 - A[2], C[2]) + D[2]);
+    o.a = clamp255(G[3]);
+    return o;
+}
+
+/* Blend factors (the bundle's encoding): 0 zero, 1 one, 2 src colour,
+   3 1-src colour, 4 src alpha, 5 1-src alpha, 6 dst alpha, 7 1-dst
+   alpha, 8 dst colour, 9 1-dst colour, 0xa src alpha saturate, 0xc
+   constant colour, 0xd 1-constant colour, 0xe constant alpha, 0xf
+   1-constant alpha */
+static int
+nv10_blend_factor(int f, int sc, int sa, int dc, int da, int kc, int ka, int is_alpha)
+{
+    switch (f) {
+        case 0x0:
+            return 0;
+        case 0x2:
+            return sc;
+        case 0x3:
+            return 255 - sc;
+        case 0x4:
+            return sa;
+        case 0x5:
+            return 255 - sa;
+        case 0x6:
+            return da;
+        case 0x7:
+            return 255 - da;
+        case 0x8:
+            return dc;
+        case 0x9:
+            return 255 - dc;
+        case 0xa:
+            return is_alpha ? 255 : ((sa < 255 - da) ? sa : 255 - da);
+        case 0xc:
+            return kc;
+        case 0xd:
+            return 255 - kc;
+        case 0xe:
+            return ka;
+        case 0xf:
+            return 255 - ka;
+        default:
+            return 255;
+    }
+}
+
+/* Equations: 0 subtract (s - d), 1 reverse subtract, 2 add, 3 min, 4 max */
+static int
+nv10_blend_eq(int eq, int sv, int dv)
+{
+    switch (eq) {
+        case 0:
+            return clamp255(sv - dv);
+        case 1:
+            return clamp255(dv - sv);
+        case 3:
+            return (sv < dv) ? sv : dv;
+        case 4:
+            return (sv > dv) ? sv : dv;
+        default:
+            return clamp255(sv + dv);
+    }
+}
+
+static rgba_t
+nv10_blend(const nv4_3d_state_t *s, rgba_t src, rgba_t dst)
+{
+    rgba_t k = rgba(s->bcolor);
+    rgba_t o;
+
+    if ((s->beq == 3) || (s->beq == 4)) {
+        o.r = nv10_blend_eq(s->beq, src.r, dst.r);
+        o.g = nv10_blend_eq(s->beq, src.g, dst.g);
+        o.b = nv10_blend_eq(s->beq, src.b, dst.b);
+        o.a = nv10_blend_eq(s->beq, src.a, dst.a);
+        return o;
+    }
+    o.r = nv10_blend_eq(s->beq, mul8(src.r, nv10_blend_factor(s->sblend, src.r, src.a, dst.r, dst.a, k.r, k.a, 0)),
+                        mul8(dst.r, nv10_blend_factor(s->dblend, src.r, src.a, dst.r, dst.a, k.r, k.a, 0)));
+    o.g = nv10_blend_eq(s->beq, mul8(src.g, nv10_blend_factor(s->sblend, src.g, src.a, dst.g, dst.a, k.g, k.a, 0)),
+                        mul8(dst.g, nv10_blend_factor(s->dblend, src.g, src.a, dst.g, dst.a, k.g, k.a, 0)));
+    o.b = nv10_blend_eq(s->beq, mul8(src.b, nv10_blend_factor(s->sblend, src.b, src.a, dst.b, dst.a, k.b, k.a, 0)),
+                        mul8(dst.b, nv10_blend_factor(s->dblend, src.b, src.a, dst.b, dst.a, k.b, k.a, 0)));
+    o.a = nv10_blend_eq(s->beq, mul8(src.a, nv10_blend_factor(s->sblend, src.a, src.a, dst.a, dst.a, k.a, k.a, 1)),
+                        mul8(dst.a, nv10_blend_factor(s->dblend, src.a, src.a, dst.a, dst.a, k.a, k.a, 1)));
+    return o;
+}
+
+/* The fog factor from the interpolated fog value (CONFIG_C FOG_MODE:
+   bit 0 exponential, bit 1 squared). The NV10 D3D driver programs the
+   exponential modes so that f = 1.5 - density * d / (2 * 8 ln 2) (or
+   with the square root for EXP2): the table is 2^(-16 (1.5 - f)) and
+   2^(-32 (1.5 - f)^2). */
+static int
+nv10_fog_factor(int mode, float f)
+{
+    float x;
+
+    if (mode & 1) {
+        float d = 1.5f - f;
+
+        if (d < 0.0f)
+            d = 0.0f;
+        x = (mode & 2) ? exp2f(-32.0f * d * d) : exp2f(-16.0f * d);
+    } else
+        x = f;
+    x = (x < 0.0f) ? 0.0f : ((x > 1.0f) ? 1.0f : x);
+    return (int) (x * 255.0f + 0.5f);
+}
+
+/* lod of a Celsius texture unit from the planes of its coordinates */
+static float
+nv10_lod(const nv4_3d_tri_t *t, const nv4_3d_tri_ext_t *e, int au, int av, int aq, float q, float uq, float vq,
+         int wl, int hl)
+{
+    float iq   = 1.0f / q;
+    float iq2  = iq * iq;
+    float dudx = (t->dx[au] * q - uq * e->dx[aq]) * iq2 * (float) (1 << wl);
+    float dvdx = (t->dx[av] * q - vq * e->dx[aq]) * iq2 * (float) (1 << hl);
+    float dudy = (t->dy[au] * q - uq * e->dy[aq]) * iq2 * (float) (1 << wl);
+    float dvdy = (t->dy[av] * q - vq * e->dy[aq]) * iq2 * (float) (1 << hl);
+    float rx   = dudx * dudx + dvdx * dvdx;
+    float ry   = dudy * dudy + dvdy * dvdy;
+    float r    = (rx > ry) ? rx : ry;
+
+    return (r > 0.0f) ? 0.5f * nv4_log2_bits(r) : -16.0f;
+}
+
+/* A Celsius pixel's colour: its textures through the combiners. Returns
+   0 when a texture's colour key or alpha kill discards it. */
+static int
+nv10_shade(nv4_t *nv4, const nv4_3d_state_t *s, const nv4_3d_tri_t *t, const nv4_3d_tri_ext_t *e, nv10_tsamp_t ts[2],
+           const float *at, float px, float py, rgba_t d, rgba_t spec, int fog, rgba_t *out)
+{
+    nv10_regs_t r;
+    float       ax[AX_COUNT];
+
+    for (int i = 0; i < AX_COUNT; i++)
+        ax[i] = e->c[i] + e->dx[i] * px + e->dy[i] * py;
+    memset(&r, 0, sizeof(r));
+    {
+        rgba_t k0 = rgba(s->rc_k[0]), k1 = rgba(s->rc_k[1]), fc = rgba(s->fog_color);
+
+        r.c[1][0] = k0.r, r.c[1][1] = k0.g, r.c[1][2] = k0.b, r.c[1][3] = k0.a;
+        r.c[2][0] = k1.r, r.c[2][1] = k1.g, r.c[2][2] = k1.b, r.c[2][3] = k1.a;
+        r.c[3][0] = fc.r, r.c[3][1] = fc.g, r.c[3][2] = fc.b, r.c[3][3] = fog;
+        r.c[4][0] = d.r, r.c[4][1] = d.g, r.c[4][2] = d.b, r.c[4][3] = d.a;
+        r.c[5][0] = spec.r, r.c[5][1] = spec.g, r.c[5][2] = spec.b, r.c[5][3] = spec.a;
+    }
+    for (int n = 0; n < 2; n++) {
+        const nv4_3d_tex_t *tx = &s->tex[n];
+        int                 au = n ? AT_U1 : AT_U0, av = n ? AT_V1 : AT_V0, aq = n ? AX_Q1 : AX_Q0;
+        float               q, u, v, rr, lod;
+        uint32_t            c;
+        int                 keyed = 0;
+
+        r.c[8 + n][0] = r.c[8 + n][1] = r.c[8 + n][2] = r.c[8 + n][3] = 0;
+        if (!tx->on)
+            continue;
+        q   = ax[aq];
+        if ((q > -1e-12f) && (q < 1e-12f))
+            q = 1e-12f;
+        u   = at[au] / q;
+        v   = at[av] / q;
+        rr  = ax[n ? AX_R1 : AX_R0] / q;
+        lod = nv10_lod(t, e, au, av, aq, q, at[au], at[av], tx->linear ? 0 : tx->wlog, tx->linear ? 0 : tx->hlog);
+        c   = nv10_sample(nv4, tx, &ts[n], u, v, rr, lod, s->ckey[n], &keyed);
+        if (keyed) {
+            if (tx->ckey_op == 3)
+                return 0;
+            c = (tx->ckey_op == 1) ? (c & 0xffffff) : 0;
+        }
+        if (tx->akill && !(c >> 24))
+            return 0;
+        r.c[8 + n][0] = (c >> 16) & 0xff;
+        r.c[8 + n][1] = (c >> 8) & 0xff;
+        r.c[8 + n][2] = c & 0xff;
+        r.c[8 + n][3] = c >> 24;
+    }
+    /* spare0's alpha starts as texture 0's */
+    r.c[0xc][3] = r.c[8][3];
+    *out = nv10_combine(s, &r);
+    return 1;
+}
+
 /* ------------------------------------------------------------------ */
 /* Shading.                                                            */
 /* ------------------------------------------------------------------ */
@@ -1170,7 +1914,8 @@ nv4_lod(const nv4_3d_tri_t *t, int au, int av, float q, float uq, float vq, int 
 }
 
 static void
-nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, const nv4_3d_span_t *sp)
+nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, const nv4_3d_tri_ext_t *ext,
+            const nv4_3d_span_t *sp)
 {
     const nv4_3d_tri_t   *t = &tris[sp->tri];
     const nv4_3d_state_t *s = &states[t->state];
@@ -1178,6 +1923,18 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, 
     uint8_t              *vram  = nv4->svga.vram;
     uint32_t              vm    = nv4->vram_mask;
     float                 py    = (float) sp->y + s->origin - t->y0;
+    nv10_tsamp_t         *ts    = NULL;
+    nv10_tsamp_t          tsbuf[2];
+    const int             zb    = s->z_bpp;
+
+    if (s->celsius) {
+        ts = tsbuf;
+        for (int n = 0; n < 2; n++) {
+            ts[n].tc = (nv4_3d_tcache_t) NV4_TCACHE_INIT;
+            if (s->tex[n].pal)
+                memset(ts[n].pal_ok, 0, sizeof(ts[n].pal_ok));
+        }
+    }
 
     for (int x = sp->x0; x < sp->x1; x++) {
         float    px = (float) x + s->origin - t->x0;
@@ -1185,7 +1942,8 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, 
         rgba_t   d, spec, out, src[8];
         int      killed = 0;
         uint32_t ca     = s->col_base + nv4_3d_pix(s, s->col_pitch, x, sp->y);
-        uint32_t za     = s->z_base + nv4_3d_pix(s, s->z_pitch, x, sp->y);
+        uint32_t za     = s->z_base + (s->swz ? (nv4_swizzle(x, sp->y, s->swz_wl, s->swz_hl) * zb)
+                                              : ((uint32_t) sp->y * s->z_pitch + (uint32_t) x * zb));
         uint32_t zold   = 0, znew = 0;
         uint32_t depth;
         int      sten   = 0;
@@ -1223,19 +1981,31 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, 
             at[AT_Q] = 1e-6f;
 
         /* depth */
-        if (s->zfloat) {
+        if (s->celsius) {
+            /* window z in the depth buffer's units, clipped to the
+               range the driver set; w-buffering stores 1/rhw */
+            float zmax = (zb == 2) ? 65535.0f : 16777215.0f;
+            float z    = at[AT_Z];
+
+            if ((z < s->zclip0) || (z > s->zclip1))
+                continue;
+            if (s->wbuf)
+                z = 1.0f / at[AT_Q];
+            z     = (z < 0.0f) ? 0.0f : ((z > zmax) ? zmax : z);
+            depth = (uint32_t) z;
+        } else if (s->zfloat) {
             float w = 1.0f - at[AT_Q];
 
             w     = (w < 0.0f) ? 0.0f : ((w > 1.0f) ? 1.0f : w);
-            depth = (uint32_t) (w * ((s->bpp == 2) ? 65535.0f : 16777215.0f));
+            depth = (uint32_t) (w * ((zb == 2) ? 65535.0f : 16777215.0f));
         } else {
             float z = at[AT_Z];
 
             z     = (z < 0.0f) ? 0.0f : ((z > 1.0f) ? 1.0f : z);
-            depth = (uint32_t) (z * ((s->bpp == 2) ? 65535.0f : 16777215.0f));
+            depth = (uint32_t) (z * ((zb == 2) ? 65535.0f : 16777215.0f));
         }
-        if (s->z_on && (za + s->bpp - 1 <= s->z_lim)) {
-            if (s->bpp == 2)
+        if (s->z_on && (za + zb - 1 <= s->z_lim)) {
+            if (zb == 2)
                 zold = vram[za & vm] | (vram[(za + 1) & vm] << 8);
             else
                 zold = vram[za & vm] | (vram[(za + 1) & vm] << 8) | (vram[(za + 2) & vm] << 16)
@@ -1243,7 +2013,7 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, 
         }
         /* the 32-bit depth buffer holds Z in bits 31:8 and stencil in
            7:0 (NVIDIA's driver reports Z mask 0xffffff00, stencil 0xff) */
-        sten = (s->bpp == 4) ? (zold & 0xff) : 0;
+        sten = (zb == 4) ? (zold & 0xff) : 0;
 
         /* colors */
         d.r    = clamp255(nv4_f2i(at[AT_R]));
@@ -1254,6 +2024,14 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, 
         spec.g = clamp255(nv4_f2i(at[AT_SG]));
         spec.b = clamp255(nv4_f2i(at[AT_SB]));
         spec.a = clamp255(nv4_f2i(at[AT_FOG]));
+
+        if (s->celsius) {
+            spec.a = clamp255(nv4_f2i(ext[sp->tri].c[AX_SA] + ext[sp->tri].dx[AX_SA] * px + ext[sp->tri].dy[AX_SA] * py));
+            if (!nv10_shade(nv4, s, t, &ext[sp->tri], ts, at, px, py, d, spec,
+                            nv10_fog_factor(s->fogmode, at[AT_FOG] / 255.0f), &out))
+                continue;
+            goto celsius_tests;
+        }
 
         /* textures */
         for (int n = 0; n < 2; n++) {
@@ -1314,6 +2092,7 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, 
             out.b = mul8(out.b, f) + mul8(fc.b, 255 - f);
         }
 
+celsius_tests:
         if (s->atest && !nv4_cmp(s->afunc, out.a, s->aref))
             continue;
 
@@ -1333,24 +2112,24 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, 
             }
         }
         {
-            uint32_t zcur = (s->bpp == 2) ? zold : (zold >> 8);
+            uint32_t zcur = (zb == 2) ? zold : (zold >> 8);
             int      zpass = !s->zen || nv4_cmp(s->zfunc, depth, zcur);
 
             if (s->sten && s->swrite) {
                 int ns = nv4_stencil_op(zpass ? s->sop_zpass : s->sop_zfail, sten, s->sref);
                 sten   = (sten & ~s->smask_w) | (ns & s->smask_w);
             }
-            znew = (s->bpp == 2) ? depth : ((depth << 8) | (uint32_t) sten);
+            znew = (zb == 2) ? depth : ((depth << 8) | (uint32_t) sten);
             if (!zpass) {
                 if (s->sten && s->swrite)
                     for (int i = 0; i < 4; i++)
                         vram[(za + i) & vm] = ((zold & 0xffffff00) | (uint32_t) sten) >> (i * 8);
                 continue;
             }
-            if (s->z_on && (s->zwrite || (s->sten && s->swrite)) && (za + s->bpp - 1 <= s->z_lim)) {
+            if (s->z_on && (s->zwrite || (s->sten && s->swrite)) && (za + zb - 1 <= s->z_lim)) {
                 if (!s->zwrite)
-                    znew = (s->bpp == 2) ? zold : ((zold & 0xffffff00) | (uint32_t) sten);
-                for (int i = 0; i < s->bpp; i++)
+                    znew = (zb == 2) ? zold : ((zold & 0xffffff00) | (uint32_t) sten);
+                for (int i = 0; i < zb; i++)
                     vram[(za + i) & vm] = znew >> (i * 8);
             }
         }
@@ -1366,7 +2145,9 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, 
                     old |= (uint32_t) vram[(ca + i) & vm] << (i * 8);
                 dst = nv4_unpack_color(s, old);
             }
-            if (s->ablend) {
+            if (s->ablend && s->celsius)
+                out = nv10_blend(s, out, dst);
+            else if (s->ablend) {
                 int sfr = nv4_blend_factor(s->sblend, 0, out.a, dst.a, out.r, dst.r, 0);
                 int sfg = nv4_blend_factor(s->sblend, 0, out.a, dst.a, out.g, dst.g, 0);
                 int sfb = nv4_blend_factor(s->sblend, 0, out.a, dst.a, out.b, dst.b, 0);
@@ -1425,7 +2206,7 @@ nv4_3d_worker(void *priv)
             break;
         for (int i = 0; i < b->fly.nspans; i++)
             if (((unsigned) b->fly.spans[i].y % (unsigned) b->nthreads) == (unsigned) w->id)
-                nv4_3d_span(nv4, b->fly.states, b->fly.tris, &b->fly.spans[i]);
+                nv4_3d_span(nv4, b->fly.states, b->fly.tris, b->fly.ext, &b->fly.spans[i]);
         thread_set_event(w->done);
     }
 }
@@ -1436,6 +2217,7 @@ nv4_3d_fly_start(nv4_3d_batch_t *b)
 {
     b->fly.states = b->states;
     b->fly.tris   = b->tris;
+    b->fly.ext    = b->ext;
     b->fly.spans  = b->spans;
     b->fly.nspans = b->nspans;
     b->fly.busy   = 1;
@@ -1495,6 +2277,7 @@ nv4_3d_shade_async(nv4_3d_batch_t *b)
     b->set ^= 1;
     b->states = b->set_states[b->set];
     b->tris   = b->set_tris[b->set];
+    b->ext    = b->set_ext[b->set];
     b->spans  = b->set_spans[b->set];
 }
 
@@ -1509,7 +2292,7 @@ static void
 nv4_3d_shade_serial(nv4_t *nv4, nv4_3d_batch_t *b)
 {
     for (int i = 0; i < b->nspans; i++)
-        nv4_3d_span(nv4, b->states, b->tris, &b->spans[i]);
+        nv4_3d_span(nv4, b->states, b->tris, b->ext, &b->spans[i]);
 }
 
 /* Shade on the GPU or the worker threads. 0: neither took the batch,
@@ -1517,9 +2300,12 @@ nv4_3d_shade_serial(nv4_t *nv4, nv4_3d_batch_t *b)
 static int
 nv4_3d_shade_parallel(nv4_t *nv4, nv4_3d_batch_t *b)
 {
-    if (b->gpu) {
+    /* the GPU kernel knows the TNT's pixel pipeline only */
+    if (b->gpu && !b->ncelsius) {
         if (nv4_gpu_shade(b->gpu, nv4, b))
             return 1;
+    }
+    if (b->gpu) {
         /* the CPU draws it: the GPU's batches in flight first */
         nv4_gpu_wait(b->gpu, nv4);
     }
@@ -1854,8 +2640,10 @@ nv4_3d_flush(nv4_t *nv4)
     b->tex_lo   = 0xffffffff;
     b->tex_hi   = 0;
     b->bus_tex  = 0;
-    for (int c = 0; c < NV4_CHANNELS; c++)
+    b->ncelsius = 0;
+    for (int c = 0; c < NV4_MAX_CHANNELS; c++)
         nv4->d3d[c].state = -1;
+    nv4->celsius_si = -1;
 }
 
 /* Draw the batch and, when the GPU has one in flight, wait for its
@@ -1930,41 +2718,31 @@ nv4_plane(nv4_3d_tri_t *t, int at, float a0, float a1, float a2, float x10, floa
     t->dy[at] = ((a2 - a0) * x10 - (a1 - a0) * x20) * inv;
 }
 
+/* Draw a triangle under state <si>: the vertices' screen x, y (the
+   pixel grid's origin at 0,0, samples at +origin) and interpolants <a>,
+   with <ax> the Celsius ones (NULL: none). <cull> 2 drops a clockwise
+   triangle, 3 a counterclockwise one. The caller has made room. */
 static void
-nv4_3d_triangle(nv4_t *nv4, int chid, int cls, int i0, int i1, int i2)
+nv4_3d_raster_tri(nv4_t *nv4, nv4_3d_batch_t *b, int si, const float xy[3][2], const float a[3][AT_COUNT],
+                  const float ax[3][AX_COUNT], int cull)
 {
-    nv4_3d_batch_t      *b = nv4->batch3d;
-    nv4_d3d_t           *d = &nv4->d3d[chid];
-    const nv4_3d_state_t *s;
-    const nv4_d3d_vtx_t *v[3];
-    nv4_3d_tri_t        *t;
-    int32_t              X[3], Y[3];
-    int64_t              area;
-    float                inv, x10, y10, x20, y20;
-    int32_t              ymin, ymax;
-    int                  off16;
-    uint64_t             px = 0;
+    const nv4_3d_state_t *s = &b->states[si];
+    nv4_3d_tri_t         *t;
+    int32_t               X[3], Y[3];
+    int64_t               area;
+    float                 inv, x10, y10, x20, y20;
+    int32_t               ymin, ymax;
+    int                   off16;
+    uint64_t              px = 0;
     struct {
         int64_t k, c, dc, q, rem, dq, dr, den;
         int     lower;
     } edge[3];
 
-    if (!b)
-        return;
-    if (d->state < 0) {
-        d->state = nv4_3d_make_state(nv4, b, cls, d);
-        if (d->state < 0)
-            return;
-    }
-    s    = &b->states[d->state];
-    v[0] = &d->vtx[i0];
-    v[1] = &d->vtx[i1];
-    v[2] = &d->vtx[i2];
-
     /* 12.4 fixed point */
     for (int i = 0; i < 3; i++) {
-        float fx = v[i]->sx * 16.0f;
-        float fy = v[i]->sy * 16.0f;
+        float fx = xy[i][0] * 16.0f;
+        float fy = xy[i][1] * 16.0f;
 
         if (!(fx > -65536.0f && fx < 65536.0f) || !(fy > -65536.0f && fy < 65536.0f))
             return;
@@ -1975,22 +2753,13 @@ nv4_3d_triangle(nv4_t *nv4, int chid, int cls, int i0, int i1, int i2)
     if (!area)
         return;
     /* y grows down: a positive area runs clockwise on screen */
-    if ((s->cull == 2) && (area > 0))
+    if ((cull == 2) && (area > 0))
         return;
-    if ((s->cull == 3) && (area < 0))
+    if ((cull == 3) && (area < 0))
         return;
-
-    if ((b->ntris >= B3D_TRIS) || (b->nspans + 4096 > B3D_SPANS)) {
-        /* the state must survive the flush */
-        nv4_3d_flush(nv4);
-        d->state = nv4_3d_make_state(nv4, b, cls, d);
-        if (d->state < 0)
-            return;
-        s = &b->states[d->state];
-    }
 
     t        = &b->tris[b->ntris];
-    t->state = d->state;
+    t->state = si;
     t->x0    = X[0] / 16.0f;
     t->y0    = Y[0] / 16.0f;
     x10      = (X[1] - X[0]) / 16.0f;
@@ -1999,34 +2768,20 @@ nv4_3d_triangle(nv4_t *nv4, int chid, int cls, int i0, int i1, int i2)
     y20      = (Y[2] - Y[0]) / 16.0f;
     inv      = 1.0f / (x10 * y20 - x20 * y10);
 
-    {
-        float a[3][AT_COUNT];
+    for (int k = 0; k < AT_COUNT; k++)
+        nv4_plane(t, k, a[0][k], a[1][k], a[2][k], x10, y10, x20, y20, inv);
+    /* a half pixel more keeps rounding of colors to the nearest */
+    for (int k = AT_R; k <= AT_FOG; k++)
+        t->c[k] += 0.5f;
+    if (ax) {
+        nv4_3d_tri_ext_t *e = &b->ext[b->ntris];
 
-        for (int i = 0; i < 3; i++) {
-            const nv4_d3d_vtx_t *vx  = v[i];
-            const nv4_d3d_vtx_t *col = s->flat ? v[0] : vx;
-            float                q   = s->persp ? vx->rhw : 1.0f;
-
-            a[i][AT_Z]   = vx->sz;
-            a[i][AT_Q]   = q;
-            a[i][AT_U0]  = vx->tu[0] * q;
-            a[i][AT_V0]  = vx->tv[0] * q;
-            a[i][AT_U1]  = vx->tu[1] * q;
-            a[i][AT_V1]  = vx->tv[1] * q;
-            a[i][AT_R]   = (float) ((col->color >> 16) & 0xff);
-            a[i][AT_G]   = (float) ((col->color >> 8) & 0xff);
-            a[i][AT_B]   = (float) (col->color & 0xff);
-            a[i][AT_A]   = (float) (col->color >> 24);
-            a[i][AT_SR]  = (float) ((col->specular >> 16) & 0xff);
-            a[i][AT_SG]  = (float) ((col->specular >> 8) & 0xff);
-            a[i][AT_SB]  = (float) (col->specular & 0xff);
-            a[i][AT_FOG] = (float) (vx->specular >> 24);
+        for (int k = 0; k < AX_COUNT; k++) {
+            e->c[k]  = ax[0][k];
+            e->dx[k] = ((ax[1][k] - ax[0][k]) * y20 - (ax[2][k] - ax[0][k]) * y10) * inv;
+            e->dy[k] = ((ax[2][k] - ax[0][k]) * x10 - (ax[1][k] - ax[0][k]) * x20) * inv;
         }
-        for (int k = 0; k < AT_COUNT; k++)
-            nv4_plane(t, k, a[0][k], a[1][k], a[2][k], x10, y10, x20, y20, inv);
-        /* a half pixel more keeps rounding of colors to the nearest */
-        for (int k = AT_R; k <= AT_FOG; k++)
-            t->c[k] += 0.5f;
+        e->c[AX_SA] += 0.5f;
     }
 
     /* Spans: a pixel is in when its sample point is inside all three
@@ -2051,15 +2806,15 @@ nv4_3d_triangle(nv4_t *nv4, int chid, int cls, int i0, int i1, int i2)
        and remainder per row. This is exactly the top-left test below,
        including negative coordinates, without divisions on every row. */
     for (int e = 0; e < 3; e++) {
-        int     a = e, c = (e + 1) % 3;
-        int64_t ex = X[c] - X[a], ey = Y[c] - Y[a];
+        int     ea = e, ec = (e + 1) % 3;
+        int64_t ex = X[ec] - X[ea], ey = Y[ec] - Y[ea];
         if (area > 0) {
             ex = -ex;
             ey = -ey;
         }
         int tl        = (ey > 0) || ((ey == 0) && (ex < 0));
         edge[e].k     = ey * 16;
-        edge[e].c     = ey * (off16 - X[a]) - ex * ((int64_t) ymin * 16 + off16 - Y[a]);
+        edge[e].c     = ey * (off16 - X[ea]) - ex * ((int64_t) ymin * 16 + off16 - Y[ea]);
         edge[e].dc    = -ex * 16;
         edge[e].lower = ey > 0;
         if (ey) {
@@ -2116,16 +2871,104 @@ nv4_3d_triangle(nv4_t *nv4, int chid, int cls, int i0, int i1, int i2)
     }
     /* engine time: the twin pipelines draw two single-textured pixels
        a clock, or work as one on a pixel with two textures (counted
-       twice); the color write, a depth read and write (the depth
-       buffer has the color's depth), the destination read for blending */
-    nv4->eng_px3d += (s->tex[1].on && nv4_3d_comb_uses(s, 1)) ? 2 * px : px;
-    nv4->eng_bytes += px * (s->bpp + ((s->z_on && s->zen) ? s->bpp : 0) + ((s->z_on && s->zwrite) ? s->bpp : 0)
+       twice); the color write, a depth read and write, the destination
+       read for blending */
+    if (s->celsius)
+        nv4->eng_px3d += (s->tex[0].on && s->tex[1].on) ? 2 * px : px;
+    else
+        nv4->eng_px3d += (s->tex[1].on && nv4_3d_comb_uses(s, 1)) ? 2 * px : px;
+    nv4->eng_bytes += px * (s->bpp + ((s->z_on && s->zen) ? s->z_bpp : 0) + ((s->z_on && s->zwrite) ? s->z_bpp : 0)
                             + (s->ablend ? s->bpp : 0));
     if (b->parallel && (ymin <= ymax))
         nv4_3d_written(b, s, ymin, ymax);
     b->ntris++;
     b->had3d  = 1;
     b->last3d = nv4->vblank_count;
+}
+
+/* Is there room in the batch for another triangle? Else it is drawn
+   (which clears every state index held). */
+int
+nv4_3d_room(nv4_t *nv4)
+{
+    nv4_3d_batch_t *b = nv4->batch3d;
+
+    if (!b)
+        return 0;
+    if ((b->ntris >= B3D_TRIS) || (b->nspans + 4096 > B3D_SPANS))
+        nv4_3d_flush(nv4);
+    return 1;
+}
+
+int
+nv4_3d_place(nv4_t *nv4, nv4_3d_state_t *s)
+{
+    nv4_3d_batch_t *b = nv4->batch3d;
+    int             si;
+
+    if (!b)
+        return -1;
+    si = nv4_3d_find_state(nv4, b, s);
+    return (si >= 0) ? si : nv4_3d_place_state(nv4, b, s);
+}
+
+void
+nv4_3d_raster(nv4_t *nv4, int si, const float xy[3][2], const float a[3][AT_COUNT], const float ax[3][AX_COUNT])
+{
+    nv4_3d_batch_t *b = nv4->batch3d;
+
+    if (!b || (si < 0) || (si >= b->nstates))
+        return;
+    nv4_3d_raster_tri(nv4, b, si, xy, a, ax, 0);
+}
+
+static void
+nv4_3d_triangle(nv4_t *nv4, int chid, int cls, int i0, int i1, int i2)
+{
+    nv4_3d_batch_t      *b = nv4->batch3d;
+    nv4_d3d_t           *d = &nv4->d3d[chid];
+    const nv4_3d_state_t *s;
+    const nv4_d3d_vtx_t *v[3];
+    float                xy[3][2];
+    float                a[3][AT_COUNT];
+
+    if (!b)
+        return;
+    if ((b->ntris >= B3D_TRIS) || (b->nspans + 4096 > B3D_SPANS))
+        nv4_3d_flush(nv4);
+    if (d->state < 0) {
+        d->state = nv4_3d_make_state(nv4, b, cls, d);
+        if (d->state < 0)
+            return;
+    }
+    s    = &b->states[d->state];
+    v[0] = &d->vtx[i0];
+    v[1] = &d->vtx[i1];
+    v[2] = &d->vtx[i2];
+
+    for (int i = 0; i < 3; i++) {
+        const nv4_d3d_vtx_t *vx  = v[i];
+        const nv4_d3d_vtx_t *col = s->flat ? v[0] : vx;
+        float                q   = s->persp ? vx->rhw : 1.0f;
+
+        xy[i][0]     = vx->sx;
+        xy[i][1]     = vx->sy;
+        a[i][AT_Z]   = vx->sz;
+        a[i][AT_Q]   = q;
+        a[i][AT_U0]  = vx->tu[0] * q;
+        a[i][AT_V0]  = vx->tv[0] * q;
+        a[i][AT_U1]  = vx->tu[1] * q;
+        a[i][AT_V1]  = vx->tv[1] * q;
+        a[i][AT_R]   = (float) ((col->color >> 16) & 0xff);
+        a[i][AT_G]   = (float) ((col->color >> 8) & 0xff);
+        a[i][AT_B]   = (float) (col->color & 0xff);
+        a[i][AT_A]   = (float) (col->color >> 24);
+        a[i][AT_SR]  = (float) ((col->specular >> 16) & 0xff);
+        a[i][AT_SG]  = (float) ((col->specular >> 8) & 0xff);
+        a[i][AT_SB]  = (float) (col->specular & 0xff);
+        a[i][AT_FOG] = (float) (vx->specular >> 24);
+    }
+    nv4_3d_raster_tri(nv4, b, d->state, xy, a, NULL, s->cull);
 }
 
 /* Would a 2D draw into the rows lo..hi of layout base/pitch join the
@@ -2477,10 +3320,12 @@ nv4_3d_reset(nv4_t *nv4)
         nv4->batch3d->tex_lo   = 0xffffffff;
         nv4->batch3d->tex_hi   = 0;
         nv4->batch3d->bus_tex  = 0;
+        nv4->batch3d->ncelsius = 0;
     }
     memset(nv4->d3d, 0, sizeof(nv4->d3d));
-    for (int c = 0; c < NV4_CHANNELS; c++)
+    for (int c = 0; c < NV4_MAX_CHANNELS; c++)
         nv4->d3d[c].state = -1;
+    nv4->celsius_si = -1;
 }
 
 void
@@ -2495,10 +3340,12 @@ nv4_3d_init(nv4_t *nv4)
     for (int s = 0; s < 2; s++) {
         b->set_states[s] = calloc(B3D_STATES, sizeof(nv4_3d_state_t));
         b->set_tris[s]   = calloc(B3D_TRIS, sizeof(nv4_3d_tri_t));
+        b->set_ext[s]    = calloc(B3D_TRIS, sizeof(nv4_3d_tri_ext_t));
         b->set_spans[s]  = calloc(B3D_SPANS, sizeof(nv4_3d_span_t));
     }
     b->states    = b->set_states[0];
     b->tris      = b->set_tris[0];
+    b->ext       = b->set_ext[0];
     b->spans     = b->set_spans[0];
     nv4->batch3d = b;
     nv4_3d_reset(nv4);
@@ -2577,6 +3424,7 @@ nv4_3d_close(nv4_t *nv4)
     for (int s = 0; s < 2; s++) {
         free(b->set_states[s]);
         free(b->set_tris[s]);
+        free(b->set_ext[s]);
         free(b->set_spans[s]);
     }
     free(b->vsnap);

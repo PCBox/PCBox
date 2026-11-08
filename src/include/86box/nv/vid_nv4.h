@@ -6,12 +6,16 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          NVIDIA RIVA TNT (NV4) and RIVA TNT2 (NV5) -- shared state.
+ *          NVIDIA RIVA TNT (NV4), RIVA TNT2 (NV5) and GeForce 256 (NV10)
+ *          -- shared state.
  *
  *          One nv4_t per chip; every block takes the chip it acts on, so
  *          two boards can coexist. The blocks live in src/video/nv/nv4/:
  *          the device shell (nv4_core.c), the legacy VGA path (nv4_vga.c)
- *          and one file per chip unit under subsystems/.
+ *          and one file per chip unit under subsystems/. The GeForce 256
+ *          is the same family with a wider FIFO (32 channels), relocated
+ *          PGRAPH context registers, the NV10 overlay and the Celsius 3D
+ *          class (nv10_celsius.c); every unit branches on NV4_IS_NV10.
  *
  * Authors: Marcos Alves, <xeon4d@gmail.com>
  *
@@ -31,11 +35,19 @@
 #define NV4_PCI_DEVICE_TNT2_U    0x0029 /* RIVA TNT2 Ultra (NV5) */
 #define NV4_PCI_DEVICE_VANTA     0x002c /* Vanta (NV5, 64-bit memory) */
 #define NV4_PCI_DEVICE_TNT2_M64  0x002d /* RIVA TNT2 M64 (NV5, 64-bit memory) */
+#define NV10_PCI_DEVICE_SDR      0x0100 /* GeForce 256 (NV10, SDR) */
+#define NV10_PCI_DEVICE_DDR      0x0101 /* GeForce 256 DDR (NV10) */
+#define NV10_PCI_DEVICE_QUADRO   0x0103 /* Quadro (NV10GL) */
 
 typedef enum nv4_chip_e {
     NV4_CHIP_TNT  = 4, /* NV4 */
-    NV4_CHIP_TNT2 = 5  /* NV5 and its 64-bit variants */
+    NV4_CHIP_TNT2 = 5, /* NV5 and its 64-bit variants */
+    NV4_CHIP_NV10 = 10 /* GeForce 256 */
 } nv4_chip_t;
+
+#define NV4_IS_NV10(nv4) ((nv4)->chip == NV4_CHIP_NV10)
+/* what the TNT2 added to the TNT, which the GeForce 256 keeps */
+#define NV4_IS_NV5P(nv4) ((nv4)->chip >= NV4_CHIP_TNT2)
 
 /* ------------------------------------------------------------------ */
 /* BAR0: the 16 MB register space.                                     */
@@ -70,6 +82,8 @@ typedef enum nv4_chip_e {
 #define NV4_PCRTC_END            0x600fff
 #define NV4_PRMCIO_START         0x601000 /* VGA CRTC and attribute ports */
 #define NV4_PRMCIO_END           0x601fff
+#define NV10_PVIDEO_START        0x008000 /* the NV10 overlay */
+#define NV10_PVIDEO_END          0x008fff
 #define NV4_PVIDEO_START         0x680000
 #define NV4_PVIDEO_END           0x6802ff
 #define NV4_PRAMDAC_START        0x680300
@@ -125,6 +139,11 @@ typedef enum nv4_chip_e {
 #define NV4_PFB_CONFIG_1         0x100204
 #define NV4_PFB_RTL              0x100300
 
+/* NV10 PFB */
+#define NV10_PFB_CFG             0x100200
+#define NV10_PFB_CSTATUS         0x10020c /* RAM_AMOUNT 27:20, in MB */
+#define NV10_PFB_TILE            0x100240 /* 8 regions of TILE, TLIMIT, TSIZE, TSTATUS */
+
 /* PFB_BOOT_0 RAM_AMOUNT (bits 1:0) */
 #define NV4_PFB_RAM_32MB         0 /* NV5; the NV4 resman calls this code 2MB */
 #define NV4_PFB_RAM_4MB          1
@@ -140,6 +159,9 @@ typedef enum nv4_chip_e {
 #define NV4_PCRTC_START_ADDR     0x600800
 #define NV4_PCRTC_CONFIG         0x600804
 #define NV4_PCRTC_RASTER         0x600808
+#define NV10_PCRTC_CURSOR        0x60080c /* cursor image address */
+#define NV10_PCRTC_CURSOR_CONFIG 0x600810
+#define NV10_PCRTC_GPIO          0x600818
 
 /* PRAMDAC */
 #define NV4_PRAMDAC_CU_START_POS     0x680300
@@ -200,9 +222,11 @@ typedef enum nv4_chip_e {
 /* ------------------------------------------------------------------ */
 /* PFIFO.                                                              */
 /* ------------------------------------------------------------------ */
-#define NV4_CHANNELS    16
-#define NV4_SUBCHANNELS 8
-#define NV4_CACHE1_SIZE 32 /* entries; PIO channels see 124 bytes free */
+#define NV4_CHANNELS     16
+#define NV10_CHANNELS    32
+#define NV4_MAX_CHANNELS 32 /* the per-channel arrays: either chip */
+#define NV4_SUBCHANNELS  8
+#define NV4_CACHE1_SIZE  32 /* entries; PIO channels see 124 bytes free */
 
 /* RAMHT engines */
 #define NV4_ENGINE_SW       0
@@ -262,6 +286,7 @@ typedef struct nv4_pfifo_s {
     uint32_t c1_dma_limit;
     uint32_t c1_dma_tlb_tag;
     uint32_t c1_dma_tlb_pte;
+    uint32_t c1_ref;       /* NV10: the reference counter */
     uint32_t c1_pull0;     /* ACCESS 0, HASH failed 4, DEVICE software 8 */
     uint32_t c1_pull1;     /* ENGINE 1:0 */
     uint32_t c1_hash;
@@ -272,6 +297,8 @@ typedef struct nv4_pfifo_s {
     uint32_t c1_data[NV4_CACHE1_SIZE];
 
     int busy;              /* the run loop is active (no reentry) */
+    int channels;          /* 16, or 32 on the NV10 */
+    uint32_t chid_mask;    /* channels - 1 */
 } nv4_pfifo_t;
 
 /* ------------------------------------------------------------------ */
@@ -438,6 +465,7 @@ typedef struct nv4_board_s {
     uint8_t     mem_64bit;    /* 64-bit memory bus (M64, Vanta) */
     uint8_t     sgram;        /* SGRAM rather than SDRAM */
     uint8_t     crystal_14m;  /* 14.318 MHz crystal rather than 13.5 MHz */
+    uint8_t     ddr;          /* NV10: DDR memory rather than SDR */
 } nv4_board_t;
 
 /* ------------------------------------------------------------------ */
@@ -481,6 +509,7 @@ typedef struct nv4_s {
     uint32_t pbus_pci_nv20; /* ROM shadow */
     uint32_t pbus_pci_nv22; /* scratch */
     uint32_t pbus_pci_nv23;
+    uint32_t pbus_ext[0x70 / 4]; /* NV10: PBUS 0x1090-0x10fc */
 
     /* PTIMER (counts nanoseconds of guest time) */
     uint32_t   ptimer_intr;
@@ -513,7 +542,8 @@ typedef struct nv4_s {
     uint32_t pfb_config_1;
     uint32_t pfb_rtl;
     uint32_t straps;        /* PEXTDEV_BOOT_0 as strapped */
-    uint32_t straps_ovr;    /* as overwritten by software (bit 11 set) */
+    uint32_t straps_ovr;    /* as overwritten by software (bit 11 set; NV10 bit 31) */
+    uint32_t pfb_regs[0x1000 / 4]; /* NV10: CFG, timings, tiling regions */
 
     /* PCRTC */
     uint32_t pcrtc_intr;
@@ -521,6 +551,10 @@ typedef struct nv4_s {
     uint32_t pcrtc_start;
     int      pcrtc_start_vga; /* the VGA registers set the start, not PCRTC_START */
     uint32_t pcrtc_config;
+    uint32_t pcrtc_cursor;     /* NV10: cursor image address */
+    uint32_t pcrtc_cursor_cfg; /* NV10: size, depth, blend, address space */
+    int      pcrtc_cursor_reg; /* NV10: PCRTC_CURSOR written after the CRs */
+    uint32_t pcrtc_gpio;
     /* 15/16 bpp scan-out through the palette as a gamma ramp: a table
        per format, built for the palette in gamma_clut */
     uint32_t gamma_table[2][65536]; /* [0] X1R5G5B5, [1] R5G6B5 */
@@ -539,6 +573,8 @@ typedef struct nv4_s {
     uint32_t general_control;
     uint32_t test_control;
     uint32_t tv_regs[8];    /* TV_SETUP .. TV_TEST_CONTROL */
+    uint32_t dac_ext[0x200 / 4]; /* NV10: flat panel and cursor registers, 0x680800-0x6809ff */
+    uint32_t dac_misc[8];   /* NV10: CURSOR_CNTRL..., PALETTE_RECOVERY, TESTPOINT */
     double   nvclk_hz;
     double   mclk_hz;
     double   vclk_hz;
@@ -559,8 +595,15 @@ typedef struct nv4_s {
 
     /* PGRAPH: the register file is the engine's state */
     uint32_t      pgraph_regs[0x2000 / 4];
-    nv4_gr_chan_t gr_chan[NV4_CHANNELS];
-    nv4_d3d_t     d3d[NV4_CHANNELS];
+    nv4_gr_chan_t gr_chan[NV4_MAX_CHANNELS];
+    nv4_d3d_t     d3d[NV4_MAX_CHANNELS];
+    /* NV10: the Celsius transform pipe's memory, reached through
+       PGRAPH_PIPE_ADDRESS/DATA (the resman saves and restores it on a
+       channel switch), and what the class keeps per channel between
+       methods (nv10_celsius.c) */
+    uint32_t      pgraph_pipe[0x8000 / 4];
+    struct nv10_celsius_s *celsius;
+    int           celsius_si; /* the Celsius draw state's index in the 3D batch, -1: none */
     struct nv4_3d_batch_s *batch3d; /* triangles set up, not yet drawn */
     int           render_threads;     /* 3D span shading threads, 1 = inline */
     int           gpu_raster;         /* 3D span shading on the host GPU */
@@ -576,7 +619,7 @@ typedef struct nv4_s {
     /* channel control area accesses, for the debug hook */
     struct {
         uint32_t reads, writes, last_off, last_val;
-    } dbg_user[16];
+    } dbg_user[NV4_MAX_CHANNELS];
     uint32_t      dbg_trace;          /* methods left to log */
     int           dbg_trace_ch;       /* only this channel's, or -1 */
     int           dbg_trace_novtx;    /* methods and binds only, no 3D vertices or pushes */
@@ -609,6 +652,7 @@ typedef struct nv4_s {
     uint32_t pvideo_regs[0x300 / 4];
     uint32_t pvideo_intr, pvideo_intr_en;
     uint32_t pvideo_shown;
+    uint32_t pvideo10[0x1000 / 4]; /* NV10: the overlay at 0x8000 */
 
     /* PME (nv4_pme.c), INTR_0 and INTR_EN_0 among them; with the media
        port idle the engine changes none of them */
@@ -669,6 +713,7 @@ extern void     nv4_pextdev_write(nv4_t *nv4, uint32_t addr, uint32_t val);
     ((nv4)->dbg_trace && (((nv4)->dbg_trace_ch < 0) || ((nv4)->dbg_trace_ch == (int) (ch))) && (nv4)->dbg_trace--)
 
 extern uint32_t nv4_straps(const nv4_t *nv4);
+extern uint32_t nv4_straps_now(const nv4_t *nv4);
 extern void     nv4_pfifo_ramht_dump(nv4_t *nv4, uint32_t handle);
 extern const nv4_board_t *nv4_board_find(const char *name);
 extern double   nv4_crystal_hz(const nv4_t *nv4);
@@ -778,6 +823,19 @@ extern void     nv4_pme_reset(nv4_t *nv4);
 extern uint32_t nv4_pme_read(nv4_t *nv4, uint32_t addr);
 extern void     nv4_pme_write(nv4_t *nv4, uint32_t addr, uint32_t val);
 extern uint32_t nv4_pme_pending(nv4_t *nv4);
+
+/* subsystems/nv10_celsius.c: the GeForce 256's 3D class (0x56) */
+extern void     nv10_celsius_init(nv4_t *nv4);
+extern void     nv10_celsius_close(nv4_t *nv4);
+extern void     nv10_celsius_reset(nv4_t *nv4);
+extern int      nv10_celsius_method(nv4_t *nv4, int chid, int cls, uint32_t mthd, uint32_t data);
+extern uint32_t nv10_celsius_pipe_read(nv4_t *nv4);
+extern void     nv10_celsius_pipe_write(nv4_t *nv4, uint32_t val);
+extern void     nv10_celsius_reg_write(nv4_t *nv4, uint32_t addr, uint32_t val);
+
+/* subsystems/nv4_pgraph_2d.c, for the Celsius class's surface methods */
+extern void nv4_pgraph_dma_surf(nv4_t *nv4, int which, uint32_t inst);
+extern void nv4_pgraph_uclip_write(nv4_t *nv4, int which, int xy, int32_t coord);
 
 extern void nv4_3d_notify(nv4_t *nv4);
 extern int  nv4_3d_copy(nv4_t *nv4, uint32_t src, uint32_t dst, uint32_t spitch, uint32_t dpitch, uint32_t len, uint32_t rows);

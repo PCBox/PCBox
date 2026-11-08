@@ -47,6 +47,23 @@
 
 #define NV4_CURSOR_SIZE 32
 
+/* The cursor's size and bytes per pixel: 32x32 A1R5G5B5, or on the NV10
+   what PCRTC_CURSOR_CONFIG says once the driver has written the address
+   there */
+static int
+nv4_cursor_size(const nv4_t *nv4)
+{
+    if (NV4_IS_NV10(nv4) && (nv4->pcrtc_cursor_cfg & (1u << 16)))
+        return 64;
+    return NV4_CURSOR_SIZE;
+}
+
+static int
+nv4_cursor_bpp(const nv4_t *nv4)
+{
+    return (NV4_IS_NV10(nv4) && (nv4->pcrtc_cursor_cfg & (1u << 12))) ? 4 : 2;
+}
+
 void
 nv4_pcrtc_reset(nv4_t *nv4)
 {
@@ -55,6 +72,10 @@ nv4_pcrtc_reset(nv4_t *nv4)
     nv4->pcrtc_start     = 0;
     nv4->pcrtc_start_vga = 1;
     nv4->pcrtc_config    = 0;
+    nv4->pcrtc_cursor     = 0;
+    nv4->pcrtc_cursor_cfg = (32u << 20); /* 32x32 */
+    nv4->pcrtc_cursor_reg = 0;
+    nv4->pcrtc_gpio       = 0x00110011; /* outputs off */
 }
 
 uint32_t
@@ -74,10 +95,24 @@ nv4_pcrtc_read(nv4_t *nv4, uint32_t addr)
         case NV4_PCRTC_RASTER:
             /* position 10:0, vertical blank 16 */
             return (svga->displine & 0x7ff) | ((svga->cgastat & 8) ? 0x10000 : 0);
+        case NV10_PCRTC_CURSOR:
+            if (NV4_IS_NV10(nv4))
+                return nv4->pcrtc_cursor;
+            break;
+        case NV10_PCRTC_CURSOR_CONFIG:
+            /* ENABLE is CR31 bit 0 */
+            if (NV4_IS_NV10(nv4))
+                return (nv4->pcrtc_cursor_cfg & ~1u) | (svga->crtc[NV4_CR_HCUR_ADDR1] & 1);
+            break;
+        case NV10_PCRTC_GPIO:
+            if (NV4_IS_NV10(nv4))
+                return nv4->pcrtc_gpio;
+            break;
         default:
-            nv4_log("NV4 PCRTC: read %06x\n", addr);
-            return 0;
+            break;
     }
+    nv4_log("NV4 PCRTC: read %06x\n", addr);
+    return 0;
 }
 
 void
@@ -95,19 +130,40 @@ nv4_pcrtc_write(nv4_t *nv4, uint32_t addr, uint32_t val)
         case NV4_PCRTC_START_ADDR:
             /* a flip: the buffer now shown was drawn frames ago, so the
                frame must be redrawn whole, not just its changed rows */
-            if ((val & 0x01fffffc) != nv4->pcrtc_start) {
+            val &= NV4_IS_NV10(nv4) ? 0x07fffffc : 0x01fffffc;
+            if (val != nv4->pcrtc_start) {
                 nv4_3d_flush(nv4);
                 nv4->svga.fullchange = nv4->svga.monitor->mon_changeframecount;
             }
-            nv4->pcrtc_start     = val & 0x01fffffc;
+            nv4->pcrtc_start     = val;
             nv4->pcrtc_start_vga = 0;
             svga_recalctimings(&nv4->svga);
             break;
         case NV4_PCRTC_CONFIG:
-            nv4->pcrtc_config = val & 1;
+            nv4->pcrtc_config = val & (NV4_IS_NV10(nv4) ? 0x1103 : 1);
             svga_recalctimings(&nv4->svga);
             break;
+        case NV10_PCRTC_CURSOR:
+            if (!NV4_IS_NV10(nv4))
+                goto unmapped;
+            nv4->pcrtc_cursor     = val & 0x07ffffff;
+            nv4->pcrtc_cursor_reg = 1;
+            svga_recalctimings(&nv4->svga);
+            break;
+        case NV10_PCRTC_CURSOR_CONFIG:
+            if (!NV4_IS_NV10(nv4))
+                goto unmapped;
+            nv4->pcrtc_cursor_cfg = val & 0x1ff11111;
+            nv4->svga.crtc[NV4_CR_HCUR_ADDR1] = (nv4->svga.crtc[NV4_CR_HCUR_ADDR1] & ~1) | (val & 1);
+            svga_recalctimings(&nv4->svga);
+            break;
+        case NV10_PCRTC_GPIO:
+            if (!NV4_IS_NV10(nv4))
+                goto unmapped;
+            nv4->pcrtc_gpio = val & 0x01111111;
+            break;
         default:
+unmapped:
             nv4_log("NV4 PCRTC: write %06x = %08x\n", addr, val);
             break;
     }
@@ -398,19 +454,30 @@ nv4_recalctimings(svga_t *svga)
        CR2F (address 31:24), CR30 6:0 (23:17) and CR31 7:2 (16:11), in
        instance memory or, with CR30 bit 7, in the framebuffer. The
        TNT2's later drivers keep it in the top 16 MB of a 32 MB card. */
-    svga->hwcursor.ena       = (svga->crtc[NV4_CR_HCUR_ADDR1] & 0x01) && format;
-    svga->hwcursor.cur_xsize = NV4_CURSOR_SIZE;
-    svga->hwcursor.cur_ysize = NV4_CURSOR_SIZE;
-    svga->hwcursor.xoff      = (svga->hwcursor.x < 0) ? -svga->hwcursor.x : 0;
-    svga->hwcursor.yoff      = (svga->hwcursor.y < 0) ? -svga->hwcursor.y : 0;
-    svga->hwcursor.addr      = ((uint32_t) svga->crtc[NV4_CR_HCUR_ADDR2] << 24)
-                             | ((svga->crtc[NV4_CR_HCUR_ADDR0] & 0x7f) << 17)
-                             | ((svga->crtc[NV4_CR_HCUR_ADDR1] & 0xfc) << 9);
-    svga->hwcursor.addr += svga->hwcursor.yoff * NV4_CURSOR_SIZE * 2;
+    {
+        int size = nv4_cursor_size(nv4);
+        int bpp  = nv4_cursor_bpp(nv4);
+
+        svga->hwcursor.ena       = (svga->crtc[NV4_CR_HCUR_ADDR1] & 0x01) && format;
+        svga->hwcursor.cur_xsize = size;
+        svga->hwcursor.cur_ysize = size;
+        svga->hwcursor.xoff      = (svga->hwcursor.x < 0) ? -svga->hwcursor.x : 0;
+        svga->hwcursor.yoff      = (svga->hwcursor.y < 0) ? -svga->hwcursor.y : 0;
+        if (NV4_IS_NV10(nv4) && nv4->pcrtc_cursor_reg)
+            svga->hwcursor.addr = nv4->pcrtc_cursor;
+        else
+            svga->hwcursor.addr = ((uint32_t) svga->crtc[NV4_CR_HCUR_ADDR2] << 24)
+                                | ((svga->crtc[NV4_CR_HCUR_ADDR0] & 0x7f) << 17)
+                                | ((svga->crtc[NV4_CR_HCUR_ADDR1] & 0xfc) << 9);
+        svga->hwcursor.addr += svga->hwcursor.yoff * size * bpp;
+    }
 }
 
 /* One line of the cursor: 32 pixels of A1R5G5B5. A set alpha bit
-   replaces the screen pixel, a clear one XORs it (0 is transparent). */
+   replaces the screen pixel, a clear one XORs it (0 is transparent).
+   The NV10 adds 64x64 images, A8R8G8B8 pixels and alpha blending
+   (PCRTC_CURSOR_CONFIG): a blended A1R5G5B5 pixel with a clear alpha
+   bit is transparent, an A8R8G8B8 one mixes by its alpha. */
 void
 nv4_hwcursor_draw(svga_t *svga, int displine)
 {
@@ -419,8 +486,45 @@ nv4_hwcursor_draw(svga_t *svga, int displine)
     uint32_t  addr  = svga->hwcursor_latch.addr;
     int       x_pos = svga->hwcursor_latch.x + svga->x_add;
     int       in_fb = !!(svga->crtc[NV4_CR_HCUR_ADDR0] & 0x80);
+    int       size  = nv4_cursor_size(nv4);
+    int       bpp   = nv4_cursor_bpp(nv4);
+    int       blend = NV4_IS_NV10(nv4) && (nv4->pcrtc_cursor_cfg & (1u << 28));
 
-    for (int x = 0; x < NV4_CURSOR_SIZE; x++, addr += 2) {
+    if (NV4_IS_NV10(nv4) && nv4->pcrtc_cursor_reg)
+        in_fb = !!(nv4->pcrtc_cursor_cfg & (1u << 8));
+
+    if (bpp == 4) {
+        for (int x = 0; x < size; x++, addr += 4) {
+            uint32_t pixel;
+            int      px = x_pos + x;
+            uint32_t a, d;
+
+            if (in_fb)
+                pixel = *(uint32_t *) &svga->vram[addr & nv4->vram_mask & ~3];
+            else
+                pixel = nv4_ramin_read32(nv4, addr);
+            if ((px < 0) || (px > 2047))
+                continue;
+            a = pixel >> 24;
+            d = line[px];
+            if (blend)
+                line[px] = (((((pixel >> 16) & 0xff) * a + ((d >> 16) & 0xff) * (255 - a)) / 255) << 16)
+                         | (((((pixel >> 8) & 0xff) * a + ((d >> 8) & 0xff) * (255 - a)) / 255) << 8)
+                         | (((pixel & 0xff) * a + (d & 0xff) * (255 - a)) / 255);
+            else {
+                /* premultiplied */
+                uint32_t r = ((pixel >> 16) & 0xff) + ((d >> 16) & 0xff) * (255 - a) / 255;
+                uint32_t g = ((pixel >> 8) & 0xff) + ((d >> 8) & 0xff) * (255 - a) / 255;
+                uint32_t b = (pixel & 0xff) + (d & 0xff) * (255 - a) / 255;
+
+                line[px] = ((r > 255 ? 255 : r) << 16) | ((g > 255 ? 255 : g) << 8) | (b > 255 ? 255 : b);
+            }
+        }
+        svga->hwcursor_latch.addr += size * 4;
+        return;
+    }
+
+    for (int x = 0; x < size; x++, addr += 2) {
         uint16_t pixel;
         int      px = x_pos + x;
         uint32_t rgb;
@@ -439,9 +543,9 @@ nv4_hwcursor_draw(svga_t *svga, int displine)
 
         if (pixel & 0x8000)
             line[px] = rgb;
-        else
+        else if (!blend)
             line[px] ^= rgb;
     }
 
-    svga->hwcursor_latch.addr += NV4_CURSOR_SIZE * 2;
+    svga->hwcursor_latch.addr += size * 2;
 }
