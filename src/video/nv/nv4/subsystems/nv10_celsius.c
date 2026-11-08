@@ -42,8 +42,10 @@
  *          driver computes them (nvCelsiusState.cpp).
  *
  * Authors: Marcos Alves, <xeon4d@gmail.com>
+ *          Bachimus, <mszoopers@protonmail.com>
  *
  *          Copyright 2026 Marcos Alves
+ *          Copyright 2026 Bachimus
  */
 #include <math.h>
 #include <stdint.h>
