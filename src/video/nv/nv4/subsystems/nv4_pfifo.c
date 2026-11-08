@@ -909,6 +909,12 @@ nv4_pfifo_reset(nv4_t *nv4)
     p->timeslice    = 0x0003ffff;
     p->c1_dma_fetch = (0x0f << 3) | (3 << 13);
     p->c1_dma_push  = DMA_PUSH_EMPTY;
+    /* AT_INFO comes out of reset VALID (the register references). The
+       resman waits for it after it has pulsed PFIFO off in PMC_ENABLE
+       when it starts the device again (a Windows XP driver install
+       restarts it), giving up after 5 s with the display left in VGA
+       text mode. */
+    p->c1_dma_ctl   = 0x80000000;
 }
 
 uint32_t

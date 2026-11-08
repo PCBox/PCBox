@@ -189,6 +189,17 @@ nv4_pgraph_blowup(nv4_t *nv4, uint32_t nsource)
         nv4_pgraph_intr(nv4, NV4_PGRAPH_INTR_NOTIFY);
 }
 
+/* TRAPPED_ADDR for a method: subchannel 15:13 and channel 27:24 on the
+   TNT, 18:16 and 24:20 on the NV10. The NV10 resman loads the context of
+   the channel it reads here on CONTEXT_SWITCH. */
+static uint32_t
+nv4_pgraph_trapped_addr(const nv4_t *nv4, int chid, int subc, uint32_t mthd)
+{
+    if (NV4_IS_NV10(nv4))
+        return mthd | ((uint32_t) subc << 16) | ((uint32_t) chid << 20);
+    return mthd | ((uint32_t) subc << 13) | ((uint32_t) chid << 24);
+}
+
 static int
 nv4_pgraph_subc(nv4_t *nv4)
 {
@@ -425,7 +436,7 @@ nv4_pgraph_method(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
     user = GR(NV4_PGRAPH_CTX_USER);
     if ((nv4_user_chid(nv4, user) != (uint32_t) chid) || !(GR(NV4_PGRAPH_CTX_CONTROL) & (1u << 16))) {
         if (!(GR(NV4_PGRAPH_INTR) & NV4_PGRAPH_INTR_CONTEXT_SWITCH)) {
-            GR(NV4_PGRAPH_TRAPPED_ADDR) = mthd | (subc << 13) | ((uint32_t) chid << 24);
+            GR(NV4_PGRAPH_TRAPPED_ADDR) = nv4_pgraph_trapped_addr(nv4, chid, subc, mthd);
             GR(NV4_PGRAPH_TRAPPED_DATA) = data;
             nv4_log("NV4 PGRAPH: channel switch %d -> %d\n", nv4_user_chid(nv4, user), chid);
             nv4_pgraph_intr(nv4, NV4_PGRAPH_INTR_CONTEXT_SWITCH);
@@ -444,7 +455,7 @@ nv4_pgraph_method(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
                                | NV10_PGRAPH_INTR_ERROR))
         return NV4_MTHD_STALL;
 
-    GR(NV4_PGRAPH_TRAPPED_ADDR) = mthd | (subc << 13) | ((uint32_t) chid << 24);
+    GR(NV4_PGRAPH_TRAPPED_ADDR) = nv4_pgraph_trapped_addr(nv4, chid, subc, mthd);
     GR(NV4_PGRAPH_TRAPPED_DATA) = data;
 
     if ((mthd == 0) || (((user >> 13) & 7) != (uint32_t) subc)) {
