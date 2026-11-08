@@ -138,8 +138,6 @@ add_library(ui STATIC
     qt_mainwindow.cpp
     qt_mainwindow.hpp
     qt_mainwindow.ui
-    qt_debugconsole.cpp
-    qt_debugconsole.hpp
     qt_machinestatus.cpp
     qt_machinestatus.hpp
     qt_mediamenu.cpp

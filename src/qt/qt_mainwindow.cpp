@@ -46,6 +46,7 @@ extern "C" {
 #include <86box/keyboard.h>
 #include <86box/plat.h>
 #include <86box/ui.h>
+#include <86box/runctl.h>
 #include <86box/video.h>
 #include <86box/mouse.h>
 #include <86box/machine.h>
@@ -462,20 +463,15 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(qApp, &QGuiApplication::applicationStateChanged, [this](Qt::ApplicationState state) {
         if (state == Qt::ApplicationState::ApplicationActive) {
-            if (auto_paused) {
-                plat_pause(0);
-                auto_paused = 0;
-            }
+            runctl_resume(RUN_PAUSE_FOCUS);
         } else {
             if (mouse_capture)
                 emit setMouseCapture(false);
 
             keyboard_all_up();
 
-            if (do_auto_pause && !dopause) {
-                auto_paused = 1;
-                plat_pause(1);
-            }
+            if (do_auto_pause)
+                runctl_pause(RUN_PAUSE_FOCUS);
         }
     });
 
@@ -600,29 +596,6 @@ MainWindow::MainWindow(QWidget *parent)
         if (vid_api == RENDERER_VULKAN)
             vid_api = RENDERER_SOFTWARE;
         ui->actionVulkan->setVisible(false);
-    }
-
-    /* Action > Debug console: registers and memory of the paused machine. */
-    {
-        auto *dbg = new QAction(tr("&Debug console..."), this);
-        ui->menuAction->insertAction(ui->actionFullscreen, dbg);
-        ui->menuAction->insertSeparator(ui->actionFullscreen);
-        connect(dbg, &QAction::triggered, this, [this]() {
-            emit setMouseCapture(false);
-            releaseKeyboard();
-            keyboard_all_up();
-            if (!debugConsole)
-                debugConsole = new DebugConsole(this);
-            debugConsole->show();
-            debugConsole->raise();
-            debugConsole->activateWindow();
-        });
-        /* debug_console_port in the config: listening from start-up, with
-           no window, so a headless run can be looked at. */
-        if (debug_console_port) {
-            debugConsole = new DebugConsole(this);
-            debugConsole->listenOn(debug_console_port);
-        }
     }
 
     auto actGroup = new QActionGroup(this);
@@ -1119,7 +1092,7 @@ MainWindow::closeEvent(QCloseEvent *event)
     }
 
     qt_nvr_save();
-    cpu_thread_run = 0;
+    runctl_request_stop();
     event->accept();
 }
 
@@ -1430,7 +1403,7 @@ MainWindow::on_actionNon_maskable_interrupt_triggered()
 void
 MainWindow::on_actionPause_triggered()
 {
-    plat_pause(dopause ^ 1);
+    runctl_pause_user_toggle();
 }
 
 void
@@ -1461,9 +1434,7 @@ MainWindow::setVmmSupervised(bool supervised)
 void
 MainWindow::on_actionSettings_triggered()
 {
-    const int currentPause = dopause;
-    plat_pause(1);
-    /* The new layout's "Use Classic Mode" opens the dialog again. */
+    runctl_pause_wait(RUN_PAUSE_SYNC);
     Settings settings(this);
     settings.setModal(true);
     settings.setWindowModality(Qt::WindowModal);
@@ -1492,7 +1463,7 @@ MainWindow::on_actionSettings_triggered()
         case QDialog::Rejected:
             break;
     }
-    plat_pause(currentPause);
+    runctl_resume(RUN_PAUSE_SYNC);
 }
 
 void
@@ -1893,24 +1864,20 @@ MainWindow::eventFilter(QObject *receiver, QEvent *event)
     }
 
     if (receiver == this) {
-        static auto curdopause = dopause;
         if (event->type() == QEvent::WindowBlocked) {
             if (qt_osd_is_visible())
                 qt_osd_toggle();
             window_blocked     = true;
             mouse_was_captured = (mouse_capture != 0);
-            if (do_auto_dialog_pause > 0) {
-                curdopause = dopause;
-                plat_pause(isNonPause ? dopause : (isShowMessage ? 2 : 1));
-            }
+            if ((do_auto_dialog_pause > 0) && !isNonPause)
+                runctl_pause(RUN_PAUSE_DIALOG);
             if (mouse_was_captured)
                 plat_mouse_capture(0);
             releaseKeyboard();
             main_window_blocked = 1;
         } else if (event->type() == QEvent::WindowUnblocked) {
             window_blocked = false;
-            if (do_auto_dialog_pause > 0)
-                plat_pause(curdopause);
+            runctl_resume(RUN_PAUSE_DIALOG);
             if (mouse_was_captured) {
                 plat_mouse_capture(1);
             }
@@ -2022,7 +1989,6 @@ MainWindow::showMessage_(int flags, const QString &header, const QString &messag
     if (done) {
         *done = false;
     }
-    isShowMessage = true;
 
     auto defaultheader = QString();
     if (header.isEmpty()) {
@@ -2046,7 +2012,6 @@ MainWindow::showMessage_(int flags, const QString &header, const QString &messag
     if (done) {
         *done = true;
     }
-    isShowMessage = false;
     if (cpu_thread_run == 0)
         QApplication::exit(-1);
 }
@@ -2100,7 +2065,7 @@ MainWindow::keyReleaseEvent(QKeyEvent *event)
         return;
     if (event->key() == Qt::Key_Pause) {
         if (keyboard_recv_ui(0x38) && keyboard_recv_ui(0x138)) {
-            plat_pause(dopause ^ 1);
+            runctl_pause_user_toggle();
         }
     }
 
@@ -2963,10 +2928,9 @@ MainWindow::on_actionACPI_Shutdown_triggered()
     }
 
     if (device_has_power_button()) {
-        const int was_paused = dopause;
-        plat_pause(1); /* Wait for CPU acknowledgement before changing device state. */
+        runctl_pause_wait(RUN_PAUSE_SYNC); /* Park the CPU before changing device state. */
         device_power_button();
-        plat_pause(was_paused);
+        runctl_resume(RUN_PAUSE_SYNC);
         return;
     }
 
