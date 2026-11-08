@@ -198,12 +198,10 @@ video_cards[] = {
     { .device = &mystique_220_device,                           .flags = VIDEO_FLAG_TYPE_SEC       },
     { .device = &nv3_device_pci,                                .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv3t_device_pci,                               .flags = VIDEO_FLAG_TYPE_NONE      },
-#ifdef USE_NV3
     { .device = &nv4_tnt_pci_device,                            .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv5_tnt2_pci_device,                           .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv5_tnt2_ultra_pci_device,                     .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv5_vanta_pci_device,                          .flags = VIDEO_FLAG_TYPE_NONE      },
-#endif //USE_NV3
     { .device = &s3_86c928_pci_device,                          .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_trio32_pci_device,                          .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &s3_trio3d2x_pci_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
@@ -243,12 +241,10 @@ video_cards[] = {
     { .device = &millennium_ii_agp_device,                      .flags = VIDEO_FLAG_TYPE_SEC       },
     { .device = &nv3_device_agp,                                .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv3t_device_agp,                               .flags = VIDEO_FLAG_TYPE_NONE      },
-#ifdef USE_NV3
     { .device = &nv4_tnt_agp_device,                            .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv5_tnt2_agp_device,                           .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv5_tnt2_ultra_agp_device,                     .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv5_vanta_agp_device,                          .flags = VIDEO_FLAG_TYPE_NONE      },
-#endif //USE_NV3
 #ifdef USE_G100
     { .device = &productiva_g100_device,                        .flags = VIDEO_FLAG_TYPE_SEC       },
 #endif /*USE_G100 */
