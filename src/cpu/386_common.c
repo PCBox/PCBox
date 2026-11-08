@@ -570,7 +570,71 @@ is_lock_legal(uint32_t fetchdat)
   Note that this is only used for 286 / 386 systems. It is disabled when the
   internal cache on 486+ CPUs is enabled.
 */
+<<<<<<< HEAD
 int prefetch_bytes = 0;
+=======
+static int prefetch_bytes = 0;
+
+void
+prefetch_run(int instr_cycles, int bytes, int modrm, int reads, int reads_l, int writes, int writes_l, int ea32)
+{
+    int mem_cycles = reads * cpu_cycles_read + reads_l * cpu_cycles_read_l + writes * cpu_cycles_write + writes_l * cpu_cycles_write_l;
+
+    if (instr_cycles < mem_cycles)
+        instr_cycles = mem_cycles;
+
+    prefetch_bytes -= prefetch_prefixes;
+    prefetch_bytes -= bytes;
+    if (modrm != -1) {
+        if (ea32) {
+            if ((modrm & 7) == 4) {
+                if ((modrm & 0x700) == 0x500)
+                    prefetch_bytes -= 5;
+                else if ((modrm & 0xc0) == 0x40)
+                    prefetch_bytes -= 2;
+                else if ((modrm & 0xc0) == 0x80)
+                    prefetch_bytes -= 5;
+            } else {
+                if ((modrm & 0xc7) == 0x05)
+                    prefetch_bytes -= 4;
+                else if ((modrm & 0xc0) == 0x40)
+                    prefetch_bytes--;
+                else if ((modrm & 0xc0) == 0x80)
+                    prefetch_bytes -= 4;
+            }
+        } else {
+            if ((modrm & 0xc7) == 0x06)
+                prefetch_bytes -= 2;
+            else if ((modrm & 0xc0) != 0xc0)
+                prefetch_bytes -= ((modrm & 0xc0) >> 6);
+        }
+    }
+
+    int pc = cpu_prefetch_cycles;
+    if (!(machine_has_bus(machine, MACHINE_BUS_MCA | MACHINE_BUS_MCA32)) &&
+        (cpu_prefetch_cycles == cpu_rom_prefetch_cycles) &&
+        ((is586 && !cpu_cache_int_enabled) || (is_p6 && !(msr.mtrr_deftype & 0x800))))
+        pc *= cpu_prefetch_width;
+
+    /* Fill up prefetch queue */
+    while (prefetch_bytes < 0) {
+        prefetch_bytes += cpu_prefetch_width;
+        cycles -= pc;
+    }
+
+    /* Subtract cycles used for memory access by instruction */
+    instr_cycles -= mem_cycles;
+
+    while (instr_cycles >= cpu_prefetch_cycles) {
+        prefetch_bytes += cpu_prefetch_width;
+        instr_cycles -= pc;
+    }
+
+    prefetch_prefixes = 0;
+    if (prefetch_bytes > 16)
+        prefetch_bytes = 16;
+}
+>>>>>>> 4b96ebf80c71667a4813e21bc968e893cdfd694e
 
 void
 prefetch_flush(void)
