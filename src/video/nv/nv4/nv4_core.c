@@ -1143,6 +1143,8 @@ static const device_config_t nv4_tnt_pci_config[] = {
             { .description = "4", .value = 4 },
             { .description = "6", .value = 6 },
             { .description = "8", .value = 8 },
+            { .description = "12", .value = 12 },
+            { .description = "16", .value = 16 },
             { .description = "" }
         },
         .bios           = { { 0 } }
@@ -1225,6 +1227,8 @@ static const device_config_t nv4_tnt_agp_config[] = {
             { .description = "4", .value = 4 },
             { .description = "6", .value = 6 },
             { .description = "8", .value = 8 },
+            { .description = "12", .value = 12 },
+            { .description = "16", .value = 16 },
             { .description = "" }
         },
         .bios           = { { 0 } }
@@ -1301,6 +1305,8 @@ static const device_config_t nv5_tnt2_config[] = {
             { .description = "4", .value = 4 },
             { .description = "6", .value = 6 },
             { .description = "8", .value = 8 },
+            { .description = "12", .value = 12 },
+            { .description = "16", .value = 16 },
             { .description = "" }
         },
         .bios           = { { 0 } }
@@ -1365,6 +1371,8 @@ static const device_config_t nv5_tnt2_ultra_config[] = {
             { .description = "4", .value = 4 },
             { .description = "6", .value = 6 },
             { .description = "8", .value = 8 },
+            { .description = "12", .value = 12 },
+            { .description = "16", .value = 16 },
             { .description = "" }
         },
         .bios           = { { 0 } }
@@ -1434,6 +1442,8 @@ static const device_config_t nv5_vanta_config[] = {
             { .description = "4", .value = 4 },
             { .description = "6", .value = 6 },
             { .description = "8", .value = 8 },
+            { .description = "12", .value = 12 },
+            { .description = "16", .value = 16 },
             { .description = "" }
         },
         .bios           = { { 0 } }
@@ -1499,6 +1509,8 @@ static const device_config_t nv10_sdr_config[] = {
             { .description = "4", .value = 4 },
             { .description = "6", .value = 6 },
             { .description = "8", .value = 8 },
+            { .description = "12", .value = 12 },
+            { .description = "16", .value = 16 },
             { .description = "" }
         },
         .bios           = { { 0 } }
@@ -1564,6 +1576,8 @@ static const device_config_t nv10_ddr_config[] = {
             { .description = "4", .value = 4 },
             { .description = "6", .value = 6 },
             { .description = "8", .value = 8 },
+            { .description = "12", .value = 12 },
+            { .description = "16", .value = 16 },
             { .description = "" }
         },
         .bios           = { { 0 } }
@@ -1629,6 +1643,8 @@ static const device_config_t nv10_quadro_config[] = {
             { .description = "4", .value = 4 },
             { .description = "6", .value = 6 },
             { .description = "8", .value = 8 },
+            { .description = "12", .value = 12 },
+            { .description = "16", .value = 16 },
             { .description = "" }
         },
         .bios           = { { 0 } }

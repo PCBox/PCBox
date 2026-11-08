@@ -161,7 +161,7 @@ typedef struct {
 #define NV4_FILL_STORE 0
 #define NV4_FILL_ROP   1
 
-#define B3D_MAX_WORKERS 8
+#define B3D_MAX_WORKERS 16
 #define B3D_REGIONS     4
 
 /* A row layout in the batch: row y at base + y * pitch. A batch can hold
