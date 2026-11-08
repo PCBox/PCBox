@@ -1463,7 +1463,7 @@ static const device_config_t nv10_sdr_config[] = {
         .spinner        = { 0 },
         .selection      = { { 0 } },
         .bios           = {
-            { .name = "ELSA ERAZOR X", .internal_name = "nv10_erazor_x", .bios_type = BIOS_NORMAL,
+            { .name = "ELSA ERAZOR X2", .internal_name = "nv10_erazor_x", .bios_type = BIOS_NORMAL,
               .files_no = 1, .local = 0, .size = 0, .files = { "roms/video/nvidia/nv10/elsa-68c076dff1361896972312.rom", "" } },
             { .files_no = 0 }
         }
