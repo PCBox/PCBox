@@ -3051,19 +3051,47 @@ nv4_class_dvd(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t mthd, uint32_t data)
    swizzled surface, copied as is (no ROP, chroma or user clip), clipped
    to its own rectangle. Methods: the surfaces context 0x184, colour
    conversion 0x2fc, format 0x300, point 0x304, size 0x308 (in and out),
-   the clip's x and width 0x30c, y and height 0x310, pixels from 0x400. */
+   the clip's x and width 0x30c, y and height 0x310, pixels from 0x400.
+
+   The data words are texels packed in the surface's own format, as many
+   as a word holds (four Y8, two 16-bit, one 32-bit), stored unconverted:
+   the OpenGL ICD sets R5G6B5 for every upload and lets the surface say
+   the size. DXT and paletted textures go up as bytes through a Y8
+   surface (a 128x128 DXT1 texture is 256x32 texels in 2048 words). */
+static void
+nv4_tfc_data(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t data)
+{
+    uint32_t   sw1 = GR(NV4_PGRAPH_CTX_SWITCH1);
+    int        bpp = nv4_surf_bpp(nv4_surf_fmt(nv4, (sw1 & (1u << 14)) ? NV4_SURF_SWZ : NV4_SURF_DST));
+    nv4_draw_t d;
+    int        ok;
+
+    if (nv4_img_done(ch))
+        return;
+    if (!bpp)
+        bpp = 4;
+    /* SRCCOPY, no chroma key, no user clip, for these texels */
+    GR(NV4_PGRAPH_CTX_SWITCH1) = (sw1 & ~((7u << 15) | (1u << 13) | (1u << 12))) | (3u << 15);
+    ok = nv4_draw_begin(nv4, &d, 1, 0);
+    for (int i = 0; (i < 4 / bpp) && !nv4_img_done(ch); i++) {
+        uint32_t v = (bpp == 4) ? data : ((data >> (i * bpp * 8)) & ((1u << (bpp * 8)) - 1));
+        uint32_t p = ch->pos++;
+        uint32_t x = p % ch->in_w;
+        uint32_t y = p / ch->in_w;
+        nv4_px_t sp = { 0, v };
+
+        if (ok && (x < ch->out_w) && (y < ch->out_h))
+            nv4_put(&d, ch->img_x + (int32_t) x, ch->img_y + (int32_t) y, sp, v);
+    }
+    GR(NV4_PGRAPH_CTX_SWITCH1) = sw1;
+}
+
 static int
 nv4_class_tfc(nv4_t *nv4, nv4_gr_chan_t *ch, uint32_t mthd, uint32_t data)
 {
     if ((mthd >= 0x400) && (mthd < 0x2000)) {
-        if (ch->img_kind == IMG_IFC) {
-            uint32_t sw1 = GR(NV4_PGRAPH_CTX_SWITCH1);
-
-            /* SRCCOPY, no chroma key, no user clip, for these pixels */
-            GR(NV4_PGRAPH_CTX_SWITCH1) = (sw1 & ~((7u << 15) | (1u << 13) | (1u << 12))) | (3u << 15);
-            nv4_img_color_data(nv4, ch, data, 1);
-            GR(NV4_PGRAPH_CTX_SWITCH1) = sw1;
-        }
+        if (ch->img_kind == IMG_IFC)
+            nv4_tfc_data(nv4, ch, data);
         return NV4_GR_OK;
     }
     switch (mthd) {
