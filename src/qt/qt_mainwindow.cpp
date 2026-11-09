@@ -21,7 +21,6 @@
 #include <QDebug>
 
 #include "qt_mainwindow.hpp"
-#include "qt_debugconsole.hpp"
 #include "ui_qt_mainwindow.h"
 
 #include "qt_specifydimensions.h"
@@ -340,7 +339,7 @@ MainWindow::MainWindow(QWidget *parent)
         ui->actionForce_interpretation->setToolTip(tooltip_text);
         ui->actionForce_interpretation->setText(menu_text);
         ui->actionForce_interpretation->setChecked(cpu_force_interpreter);
-        ui->actionForce_interpretation->setEnabled(cpu_use_dynarec || cpu_use_dynarec_fast);
+        ui->actionForce_interpretation->setEnabled(cpu_use_dynarec);
     });
 
     connect(this, &MainWindow::hardResetCompleted, this, [this]() {
@@ -867,12 +866,6 @@ MainWindow::MainWindow(QWidget *parent)
     if (force_constant_mouse > 0) {
         ui->actionUpdate_mouse_every_CPU_frame->setChecked(true);
     }
-    /* --fast-forward, or fast_forward = 1 in the machine's configuration:
-       start fast-forwarded. */
-    if (start_in_fast_forward || start_fast_forward) {
-        fast_forward = true;
-        updateUiFastForwardState();
-    }
 
     if (!vnc_enabled)
         video_setblit(qt_blit);
@@ -1009,27 +1002,6 @@ MainWindow::MainWindow(QWidget *parent)
     updateShortcuts();
 }
 
-void MainWindow::onHardResetCompleted()
-{
-        ui->actionMCA_devices->setVisible(machine_has_bus(machine, MACHINE_BUS_MCA));
-        num_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
-        scroll_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
-        caps_label->setVisible(machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD));
-        /* TODO: Base this on keyboard type instead when that's done. */
-        int ext_ax_kbd = machine_has_bus(machine, MACHINE_BUS_PS2_PORTS | MACHINE_BUS_AT_KBD) &&
-                         (keyboard_type == KEYBOARD_TYPE_AX);
-        kana_label->setVisible(ext_ax_kbd);
-
-        while (QApplication::overrideCursor())
-            QApplication::restoreOverrideCursor();
-#ifdef USE_WACOM
-        ui->menuTablet_tool->menuAction()->setVisible(mouse_input_mode >= 1);
-#else
-        ui->menuTablet_tool->menuAction()->setVisible(false);
-#endif
-}
-
-
 void
 MainWindow::closeEvent(QCloseEvent *event)
 {
@@ -1043,9 +1015,9 @@ MainWindow::closeEvent(QCloseEvent *event)
     skip_exit_confirmation       = false;
 
     if (!skip_confirmation && confirm_exit && confirm_exit_cmdl && cpu_thread_run) {
-        QMessageBox questionbox(QMessageBox::Icon::Question, "86Box", tr("Are you sure you want to exit PCBox?"), QMessageBox::Yes | QMessageBox::No, this);
+        QMessageBox questionbox(QMessageBox::Icon::Question, "PCBox", tr("Are you sure you want to exit PCBox?"), QMessageBox::Yes | QMessageBox::No, this);
         auto        chkbox = new QCheckBox(tr("Don't show this message again"));
-            questionbox.setCheckBox(chkbox);
+        questionbox.setCheckBox(chkbox);
         chkbox->setChecked(!confirm_exit);
 
         QObject::connect(chkbox, &QCheckBox::CHECK_STATE_CHANGED, [](int state) {

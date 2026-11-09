@@ -15,9 +15,6 @@
 
 #include "qt_vmmanager_protocol.hpp"
 
-// NON-modal dialogs
-extern QTimer discordupdate;
-
 class MediaMenu;
 class RendererStack;
 
@@ -26,7 +23,6 @@ class MainWindow;
 }
 
 class MachineStatus;
-class DebugConsole;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -83,8 +79,6 @@ public slots:
     void applyGlobalPreferences();
     void showSettings();
     void hardReset();
-    void onHardResetCompleted();
-
     void togglePause();
     void initRendererMonitorSlot(int monitor_index);
     void destroyRendererMonitorSlot(int monitor_index);
@@ -188,7 +182,6 @@ private slots:
 
 private:
     Ui::MainWindow                *ui;
-    DebugConsole                  *debugConsole = nullptr;
     std::unique_ptr<MachineStatus> status;
     std::shared_ptr<MediaMenu>     mm;
     QMenu                         *dynarecMenu = nullptr;
