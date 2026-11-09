@@ -409,9 +409,6 @@ main(int argc, char **argv)
     if (start_in_fullscreen)
         video_fullscreen = 1;
 
-    if (start_in_fast_forward || start_fast_forward)
-        fast_forward = true;
-
     sdl_initho();
 
     /* Fire up the machine. */
