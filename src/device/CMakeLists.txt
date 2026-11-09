@@ -73,13 +73,14 @@ add_library(dev OBJECT
     mouse_microtouch_touchscreen.c
     tco.c
     mouse_ps2.c
-    mouse_serial.c
     mouse_upc.c
-    nec_mate_unk.c
+    mouse_serial.c
+    mouse_vaxmate.c
     novell_cardkey.c
+    nec_mate_unk.c
     pci_bridge.c
-    phoenix_486_jumper.c
     postcard.c
+    phoenix_486_jumper.c
     radisys_config.c
     serial_backend.c
     serial_host.c
@@ -96,6 +97,8 @@ add_library(dev OBJECT
     zenith_scratchpad.c
     lightpen_pxl380.c
 )
+
+add_subdirectory(modem)
 
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT MSVC)
     target_link_libraries(PCBox atomic)

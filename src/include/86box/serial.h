@@ -116,6 +116,8 @@ typedef struct serial_device_s {
     void    (*dev_write)(struct serial_s *serial, void *priv, uint8_t data);
     void    (*lcr_callback)(struct serial_s *serial, void *priv, uint8_t lcr);
     void    (*transmit_period_callback)(struct serial_s *serial, void *priv, double transmit_period);
+    void    (*control_callback)(void *priv, uint32_t flags);
+    void    (*format_callback)(void *priv, int baud, int data_bits, int parity, int stop_bits);
     void     *priv;
 } serial_device_t;
 
@@ -221,6 +223,7 @@ typedef struct serial_s {
     pc_timer_t receive_timer;
     double     clock_src;
     double     transmit_period;
+    double     rx_period; /* 0 = receive follows the transmit divisor */
 
     /* The chip's end of the seam: backend, device callbacks and the ops the
        device side reaches this chip through. Owned by the chip, so it goes
@@ -272,6 +275,14 @@ extern ser_port_t *serial_attach_ex_2(int port,
                                   void (*dtr_callback)(struct serial_s *serial, int status, void *priv),
                                   void *priv);
 
+extern ser_port_t *serial_attach_ex_3(int port,
+                                  void (*rcr_callback)(struct serial_s *serial, void *priv),
+                                  void (*dev_write)(struct serial_s *serial, void *priv, uint8_t data),
+                                  void (*dtr_callback)(struct serial_s *serial, int status, void *priv),
+                                  void (*control_callback)(void *priv, uint32_t flags),
+                                  void (*format_callback)(void *priv, int baud, int data_bits, int parity, int stop_bits),
+                                  void *priv);
+
 #define serial_attach(port, rcr_callback, dev_write, priv) \
         serial_attach_ex(port, rcr_callback, dev_write, NULL, NULL, priv);
 
@@ -297,6 +308,7 @@ extern void      serial_write_fifo(serial_t *dev, uint8_t dat);
 extern void      serial_set_next_inst(int ni);
 extern void      serial_standalone_init(void);
 extern void      serial_set_clock_src(serial_t *dev, double clock_src);
+extern void      serial_set_split_rx(serial_t *dev, int baud);
 extern void      serial_set_type(serial_t *dev, uint8_t type);
 extern void      serial_set_card_selected_feedback(serial_t *dev, uint8_t *reg_91);
 extern void      serial_reset_port(serial_t *dev);

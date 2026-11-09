@@ -117,10 +117,16 @@ extern int sound_card_current[SOUND_CARD_MAX];
 extern void sound_add_handler(void (*get_buffer)(int32_t *buffer,
                                                  uint16_t len, void *priv),
                               void *priv);
+extern void sound_remove_handler(void (*get_buffer)(int32_t *buffer,
+                                                     uint16_t len, void *priv),
+                                 void *priv);
 
 extern void sound_in_add_handler(void (*put_buffer)(int16_t *buffer,
                                                      int len, void *priv),
                                  void *priv);
+extern void sound_in_remove_handler(void (*put_buffer)(int16_t *buffer,
+                                                        int len, void *priv),
+                                    void *priv);
 
 extern void sound_in_start_input(void);
 extern void sound_in_stop_input(void);
@@ -198,10 +204,6 @@ extern int         al_capture_available(void);
 extern void        al_capture_start(void);
 extern void        al_capture_stop(void);
 extern void        al_capture_get_data(int16_t *buf, size_t *len);
-
-#ifdef bool
-extern bool        fast_forward;
-#endif
 
 extern unsigned long long src_freqs[I_MAX];
 
