@@ -20,9 +20,11 @@
 #define EMU_KEYBOARD_H
 
 #define FLAG_AT        0x00  /* dev is AT         */
-#define FLAG_PS2_KBD   0x10  /* dev is AT or PS/2 */
 #define FLAG_AX        0x08  /* dev is AX         */
-#define FLAG_TYPE_MASK 0x07  /* mask for type     */
+#define FLAG_PS2_KBD   0x10  /* dev is PS/2       */
+#define FLAG_PS55_KBD  0x20  /* dev is PS/55      */
+#define FLAG_LK250_KBD 0x40  /* dev is DEC LK250  */
+#define FLAG_TYPE_MASK 0x07  /* mask for kbd type */
 
 enum {
     KBD_83_KEY = 0,
@@ -77,6 +79,8 @@ typedef struct atkbc_dev_t {
     const char *name; /* name of this device */
 
     uint8_t     type;
+    uint8_t     ps55;
+    uint8_t     lk250;
     uint8_t     command;
     uint8_t     last_scan_code;
     uint8_t     state;
@@ -147,6 +151,7 @@ typedef struct scancode {
 #define KBC_VEN_UMC              0x11
 #define KBC_VEN_SIS              0x12
 #define KBC_VEN_HP_VECTRA        0x13
+#define KBC_VEN_DEC_LK250        0x14
 #define KBC_VEN_MASK             0x1f
 
 #define KBC_FLAG_IS_ASIC   0x80000000
@@ -213,6 +218,7 @@ extern const device_t keyboard_at_device;
 extern const device_t keyboard_ax_device;
 extern const device_t keyboard_ps2_device;
 extern const device_t keyboard_ps55_device;
+extern const device_t keyboard_lk250_device;
 extern const device_t keyboard_at_generic_device;
 
 extern const device_t keyboard_usb_device;
