@@ -30706,7 +30706,7 @@ const machine_t machines[] = {
             .max_multi = 8.0
         },
         .bus_flags = MACHINE_PS2_NOISA,
-        .flags = MACHINE_IDE_DUAL | MACHINE_SOUND,
+        .flags = MACHINE_IDE_DUAL | MACHINE_SOUND | MACHINE_USB,
         .ram = {
             .min = 32768,
             .max = 524288,
