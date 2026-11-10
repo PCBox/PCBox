@@ -236,6 +236,41 @@ else()
     install(TARGETS PCBox)
 endif()
 
+if(APPLE AND CMAKE_MACOSX_BUNDLE)
+    # Ghostscript is dynamically loaded by the emulator. MacPorts and Homebrew
+    # both build it with --disable-compile-inits, so libgs looks for its
+    # PostScript resources at an absolute path from the build machine. Copy the
+    # resources to the bundle; prt_ps.c points Ghostscript at them at runtime.
+    find_library(GHOSTSCRIPT_LIBRARY NAMES gs)
+    if(GHOSTSCRIPT_LIBRARY)
+        # Resolve symlinks (Homebrew links into the Cellar), then go from lib/ to the prefix
+        get_filename_component(GHOSTSCRIPT_REALPATH "${GHOSTSCRIPT_LIBRARY}" REALPATH)
+        get_filename_component(GHOSTSCRIPT_PREFIX "${GHOSTSCRIPT_REALPATH}/../.." ABSOLUTE)
+
+        # The data directory is versioned or unversioned depending on the package
+        file(GLOB GHOSTSCRIPT_INIT
+            "${GHOSTSCRIPT_PREFIX}/share/ghostscript/*/Resource/Init/gs_init.ps"
+            "${GHOSTSCRIPT_PREFIX}/share/ghostscript/Resource/Init/gs_init.ps")
+
+        if(GHOSTSCRIPT_INIT)
+            list(GET GHOSTSCRIPT_INIT 0 GHOSTSCRIPT_INIT)
+            get_filename_component(GHOSTSCRIPT_DATA_DIR "${GHOSTSCRIPT_INIT}/../../.." ABSOLUTE)
+            message(STATUS "Ghostscript resources: ${GHOSTSCRIPT_DATA_DIR}")
+
+            foreach(GHOSTSCRIPT_SUBDIR Resource lib iccprofiles)
+                if(EXISTS "${GHOSTSCRIPT_DATA_DIR}/${GHOSTSCRIPT_SUBDIR}")
+                    install(DIRECTORY "${GHOSTSCRIPT_DATA_DIR}/${GHOSTSCRIPT_SUBDIR}"
+                        DESTINATION "86Box.app/Contents/Resources/ghostscript"
+                        COMPONENT Runtime)
+                endif()
+            endforeach()
+        else()
+            message(WARNING "Ghostscript resources not found under ${GHOSTSCRIPT_PREFIX}; "
+                            "PostScript to PDF conversion will not work in the app bundle")
+        endif()
+    endif()
+endif()
+
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     include(GNUInstallDirs)
 
@@ -344,5 +379,15 @@ else()
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "NetBSD")
-    add_custom_command(TARGET PCBox POST_BUILD COMMAND paxctl ARGS +m $<TARGET_FILE:PCBox> COMMENT "Disable PaX MPROTECT")
+    add_custom_command(TARGET PCBox POST_BUILD COMMAND paxctl ARGS +m $<TARGET_FILE:8PCBox> COMMENT "Disable PaX MPROTECT")
+endif()
+
+if(AUTOMATION)
+    # Frames sent over the automation connection are zstd-compressed. libchdr
+    # (CD images) already needs the system zstd, found by the same module.
+    if(NOT TARGET zstd::zstd)
+        list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cdrom/libchdr/cmake")
+        find_package(zstd MODULE REQUIRED)
+    endif()
+    target_link_libraries(PCBox zstd::zstd)
 endif()

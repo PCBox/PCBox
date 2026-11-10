@@ -6,8 +6,8 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          Emulation run control: CPU thread lifecycle, pause reasons
- *          and pacing mode.
+ *          Emulation run control: CPU thread lifecycle, pause reasons,
+ *          pacing mode and speed measurement.
  *
  * Authors: David Hrdlička, <hrdlickadavid@outlook.com>
  *
@@ -17,12 +17,14 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
 #include <86box/86box.h>
 #include <86box/timer.h>
 #include <86box/nvr.h>
 #include <86box/plat.h>
+#include <86box/thread.h>
 #include <86box/ui.h>
 #include <86box/runctl.h>
 
@@ -38,6 +40,19 @@ static uint64_t    emu_us;
 static uint64_t    host_us;
 
 static atomic_int mode = RUN_MODE_REALTIME; /* written under the lock */
+
+/* Requests for the CPU thread, oldest first; guarded by the lock. */
+typedef struct request_t {
+    struct request_t *next;
+    void            (*fn)(void *arg);
+    void             *arg;
+    event_t          *done; /* runctl_call_wait(): set once fn has returned */
+} request_t;
+
+static request_t *req_head;
+static request_t *req_tail;
+static atomic_int req_pending; /* lets the CPU thread skip the lock when empty */
+static int        req_closed = 1; /* no CPU thread to drain the queue */
 
 static atomic_uint seq;   /* odd while the snapshot is being written */
 static atomic_int  acked; /* CPU thread passed a safe point since it last ran */
@@ -55,10 +70,67 @@ lock_release(void)
     atomic_flag_clear_explicit(&lock, memory_order_release);
 }
 
+/* Called with the lock held. */
+static request_t *
+queue_take_locked(void)
+{
+    request_t *list = req_head;
+
+    req_head = req_tail = NULL;
+    atomic_store_explicit(&req_pending, 0, memory_order_relaxed);
+    return list;
+}
+
+static void
+queue_run(request_t *list)
+{
+    while (list) {
+        request_t *next = list->next;
+
+        list->fn(list->arg);
+        if (list->done)
+            thread_set_event(list->done); /* the waiter owns the node */
+        else
+            free(list);
+        list = next;
+    }
+}
+
+/* Queue req, or return 0 if the caller should run it inline: on the CPU
+   thread, or when there is none. A request queued while the thread is
+   starting or stopping still runs, as the thread drains the queue on its way
+   out. */
+static int
+queue_add(request_t *req)
+{
+    if (is_cpu_thread)
+        return 0;
+
+    lock_acquire();
+    if (req_closed) {
+        lock_release();
+        return 0;
+    }
+
+    req->next = NULL;
+    if (req_tail)
+        req_tail->next = req;
+    else
+        req_head = req;
+    req_tail = req;
+    atomic_store_explicit(&req_pending, 1, memory_order_release);
+    lock_release();
+
+    return 1;
+}
+
 static uint64_t
 host_now_us(void)
 {
-    return timer_freq ? (uint64_t) ((double) plat_timer_read() * 1000000.0 / (double) timer_freq) : 0;
+    /* Millisecond ticks: plat_timer_read() has no known frequency on Qt
+       (timer_freq is only set by the SDL frontend). A millisecond is plenty
+       for one-second speed samples. */
+    return (uint64_t) plat_get_ticks() * 1000;
 }
 
 /* Called with the lock held. */
@@ -228,6 +300,10 @@ runctl_request_stop(void)
 void
 runctl_thread_starting(void)
 {
+    lock_acquire();
+    req_closed = 0;
+    lock_release();
+
     change(0, 0, RUN_STARTING);
 }
 
@@ -246,6 +322,20 @@ runctl_thread_started(void)
 void
 runctl_thread_exiting(void)
 {
+    /* Run what is still queued, and close the queue in the same critical
+       section that finds it empty, so no request is left behind. From then
+       on callers run their requests inline. */
+    request_t *list;
+
+    do {
+        lock_acquire();
+        list       = queue_take_locked();
+        req_closed = !list;
+        lock_release();
+
+        queue_run(list);
+    } while (list);
+
     change(0, 0, RUN_STOPPED);
 }
 
@@ -254,6 +344,42 @@ runctl_safe_point(void)
 {
     if (dopause && !atomic_load(&acked))
         atomic_store(&acked, 1);
+
+    if (atomic_load_explicit(&req_pending, memory_order_acquire)) {
+        lock_acquire();
+        request_t *list = queue_take_locked();
+        lock_release();
+
+        queue_run(list);
+    }
+}
+
+void
+runctl_call(void (*fn)(void *arg), void *arg)
+{
+    request_t *req = malloc(sizeof(request_t));
+
+    req->fn   = fn;
+    req->arg  = arg;
+    req->done = NULL;
+
+    if (!queue_add(req)) {
+        free(req);
+        fn(arg);
+    }
+}
+
+void
+runctl_call_wait(void (*fn)(void *arg), void *arg)
+{
+    request_t req = { .fn = fn, .arg = arg };
+
+    req.done = thread_create_event();
+    if (queue_add(&req))
+        thread_wait_event(req.done, -1);
+    else
+        fn(arg);
+    thread_destroy_event(req.done);
 }
 
 void
@@ -297,5 +423,44 @@ runctl_speed_between(const run_status_t *older, const run_status_t *newer)
     if (newer->host_us < (older->host_us + 100000))
         return -1;
 
-    return (int) (((newer->emu_us - older->emu_us) * 100) / (newer->host_us - older->host_us));
+    const uint64_t host = newer->host_us - older->host_us;
+
+    return (int) (((newer->emu_us - older->emu_us) * 100 + host / 2) / host);
+}
+
+/* The published speed. Both ends of a sample are the host times at which a
+   quantum finished, not the times the sampling timer fired, so a late timer
+   callback doesn't show up as a dip followed by a rebound. */
+static atomic_int   speed = -1;
+static run_status_t speed_base; /* only touched by runctl_speed_update()'s caller */
+static int          speed_base_valid;
+
+void
+runctl_speed_update(void)
+{
+    run_status_t now;
+    int          pct = -1;
+
+    runctl_get_status(&now);
+    if (speed_base_valid)
+        pct = runctl_speed_between(&speed_base, &now);
+    speed_base       = now;
+    speed_base_valid = 1;
+
+    /* Paused, held, just resumed or switched modes: keep the last value. */
+    if (pct < 0)
+        return;
+
+#ifdef SCREENSHOT_MODE
+    pct = ((pct + 2) / 5) * 5;
+#endif
+
+    atomic_store_explicit(&speed, pct, memory_order_relaxed);
+    ui_notify(UI_NOTIFY_SPEED);
+}
+
+int
+runctl_speed(void)
+{
+    return atomic_load_explicit(&speed, memory_order_relaxed);
 }
