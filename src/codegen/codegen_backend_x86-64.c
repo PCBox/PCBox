@@ -1979,6 +1979,7 @@ codegen_backend_prologue(codeblock_t *block)
 {
     block_pos = BLOCK_START; /*Entry code*/
     codegen_mem_slow_reset();
+    codegen_fault_stubs_reset();
     host_x86_PUSH(block, REG_RBX);
     host_x86_PUSH(block, REG_RBP);
 #ifdef _WIN64
@@ -2053,6 +2054,7 @@ codegen_backend_epilogue(codeblock_t *block)
     if (codegen_block_link) {
         codegen_link_exit(block);
         codegen_mem_slow_emit(block);
+        codegen_fault_stubs_emit(block);
         codegen_lazy_stubs_emit(block);
         return;
     }
@@ -2078,6 +2080,7 @@ codegen_backend_epilogue(codeblock_t *block)
     host_x86_POP(block, REG_RBX);
     host_x86_RET(block);
     codegen_mem_slow_emit(block);
+    codegen_fault_stubs_emit(block);
     codegen_lazy_stubs_emit(block);
 }
 #endif

@@ -504,7 +504,6 @@ void codegen_reg_reset(void);
 void codegen_reg_flush(struct ir_data_t *ir, codeblock_t *block);
 /*Memory slow paths write back state without changing the RAM-hit allocation.*/
 void codegen_reg_flush_mem_dest(codeblock_t *block, ir_reg_t dest_reg);
-void codegen_reg_reload_mem(codeblock_t *block, ir_reg_t dest_reg);
 /*Conditional slow/fault paths write back state without changing allocation.*/
 void codegen_reg_flush_conditional(codeblock_t *block, ir_reg_t dest_reg);
 /* Return a cached integer register for an implicit update, or -1 if uncached. */
@@ -567,6 +566,34 @@ void codegen_reg_defer_imm(codeblock_t *block, ir_reg_t ir_reg, uint32_t imm_dat
 void codegen_reg_flush_lazy(struct ir_data_t *ir, codeblock_t *block);
 /*Emit the stores of list*/
 void codegen_reg_lazy_stores(codeblock_t *block, const codegen_lazy_list_t *list);
+#endif
+
+#ifdef CODEGEN_BACKEND_HAS_COLD_STUBS
+/*The allocator's state at a site whose slow or fault path is emitted behind
+  the block, after the allocation has moved on: what the path stores (the
+  pending immediates, then the dirty registers, as codegen_reg_flush_conditional
+  would at the site) and what it loads again after a helper (every live
+  register but a load's destination)*/
+typedef struct codegen_reg_state_t {
+    uint8_t nr_imms, nr_writes, nr_reloads;
+    struct {
+        uint32_t imm;
+        uint8_t  ireg;
+    } imms[CODEGEN_LAZY_PENDING_MAX];
+    struct {
+        uint16_t reg;
+        uint8_t  fp, c;
+    } writes[CODEGEN_HOST_REGS + CODEGEN_HOST_FP_REGS], reloads[CODEGEN_HOST_REGS + CODEGEN_HOST_FP_REGS];
+} codegen_reg_state_t;
+
+/*Take the state now. dest_reg is a load's destination (neither stored, but
+  for its old value as codegen_reg_flush_mem_dest kept it, nor loaded); imms
+  takes the pending immediates, reloads the loads*/
+void codegen_reg_capture(codegen_reg_state_t *state, ir_reg_t dest_reg, int imms, int reloads);
+/*Emit the stores of a captured state. Only ECX may change*/
+void codegen_reg_emit_writes(codeblock_t *block, const codegen_reg_state_t *state);
+/*Emit the loads of a captured state*/
+void codegen_reg_emit_reloads(codeblock_t *block, const codegen_reg_state_t *state);
 #endif
 
 ir_host_reg_t codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_idx);

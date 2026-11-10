@@ -33,6 +33,10 @@
 #define CODEGEN_BACKEND_HAS_CMOV_Z
 #define CODEGEN_BACKEND_HAS_DIVMOD
 #define CODEGEN_BACKEND_HAS_LAZY_WRITEBACK
+/* The fault paths of the SSE checks and the 128-bit accesses' slow paths go
+   behind the block, with the register state captured where they branch
+   from (codegen_reg_capture). */
+#define CODEGEN_BACKEND_HAS_COLD_STUBS
 
 #ifdef _WIN64
 #    define CODEGEN_BACKEND_HAS_SELECTIVE_XMM

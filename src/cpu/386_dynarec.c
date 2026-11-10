@@ -469,6 +469,15 @@ codegen_mmx_unavailable(void)
     x86_int((cr0 & 0x4) ? 6 : 7);
 }
 
+void
+codegen_sse_unavailable(void)
+{
+    if ((cr0 & 0x4) || !(cr4 & CR4_OSFXSR))
+        x86illegal();
+    else
+        x86_int(7);
+}
+
 /* Before the compiled MMX_ENTER: a pending x87 exception is taken ahead of
    an MMX instruction (SDM 1999, 11.5.1). #UD and #NM come first, from
    the MMX_ENTER uop. */

@@ -74,19 +74,6 @@ REG_IS_Q(int size)
     return size == IREG_SIZE_Q;
 }
 
-static void
-codegen_MEM_ADDR_REG_OFFSET(codeblock_t *block, uop_t *uop, int seg_reg, int addr_reg, uint32_t offset)
-{
-    uint32_t imm = uop->imm_data + offset;
-
-    host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
-    if (imm) {
-        host_x86_ADD32_REG_IMM(block, REG_ESI, imm);
-        if (uop->is_a16)
-            host_x86_AND32_REG_IMM(block, REG_ESI, 0x0000ffff);
-    }
-}
-
 static uint64_t
 codegen_div_u64(uint32_t low, uint32_t high)
 {
@@ -2197,44 +2184,130 @@ codegen_MMX_COMMIT(codeblock_t *block, UNUSED(uop_t *uop))
     return 0;
 }
 
+/*The fault paths of SSE_ENTER and CHECK_ALIGN. The checks skip the IR
+  barrier's flush, so that a successful one leaves the cached registers live;
+  their fault path writes back the state instead: the pending immediates and
+  every dirty register, SIMD ones included. Inline, that writeback sat between
+  each check and the code after it. It goes behind the block now, with the
+  state captured at the check (codegen_reg_capture), and the check is a test
+  and a branch. Nothing runs between a check's branch and its stub, so every
+  host register still holds what the capture says. The stubs of a block that
+  would be the same code (an unrolled loop's copies of one check) are emitted
+  once; a block with more checks than slots keeps the rest inline.*/
+#    define FAULT_STUB_MAX 256
+
+typedef struct fault_stub_t {
+    codegen_reg_state_t state;
+    void               *helper;
+    void               *route;
+    uint32_t            oldpc;
+    int                 nr_branches;
+    uint32_t           *branch[2];
+    void               *addr;
+} fault_stub_t;
+
+static fault_stub_t fault_stubs[FAULT_STUB_MAX];
+static int          nr_fault_stubs;
+
+/*Start a check's fault path: it stores oldpc for the fault, calls helper,
+  if any, and leaves through route*/
+static fault_stub_t *
+fault_stub_begin(fault_stub_t *local, uint32_t oldpc, void *helper, void *route)
+{
+    fault_stub_t *stub = (nr_fault_stubs < FAULT_STUB_MAX) ? &fault_stubs[nr_fault_stubs++] : local;
+
+    codegen_reg_capture(&stub->state, invalid_ir_reg, 1, 0);
+    stub->helper      = helper;
+    stub->route       = route;
+    stub->oldpc       = oldpc;
+    stub->nr_branches = 0;
+    return stub;
+}
+
+static void
+fault_stub_branch(fault_stub_t *stub, uint32_t *branch)
+{
+    stub->branch[stub->nr_branches++] = branch;
+}
+
+static void
+fault_stub_patch(const fault_stub_t *stub, void *addr)
+{
+    for (int i = 0; i < stub->nr_branches; i++)
+        *stub->branch[i] = (uintptr_t) addr - ((uintptr_t) stub->branch[i] + 4);
+}
+
+static void
+fault_stub_body(codeblock_t *block, fault_stub_t *stub)
+{
+    codegen_alloc(block, 16);
+    stub->addr = &block_write_data[block_pos];
+    codegen_reg_emit_writes(block, &stub->state);
+    host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, stub->oldpc);
+    if (stub->helper)
+        host_x86_CALL(block, stub->helper);
+    host_x86_JMP(block, stub->route);
+}
+
+/*After the check's branches. A stub without a slot goes here, jumped over*/
+static void
+fault_stub_end(codeblock_t *block, fault_stub_t *stub, fault_stub_t *local)
+{
+    uint32_t *over;
+
+    if (stub != local)
+        return;
+    over = host_x86_JMP_long(block);
+    fault_stub_body(block, stub);
+    fault_stub_patch(stub, stub->addr);
+    *over = (uintptr_t) &block_write_data[block_pos] - ((uintptr_t) over + 4);
+}
+
+void
+codegen_fault_stubs_reset(void)
+{
+    nr_fault_stubs = 0;
+}
+
+/*After the block's last exit*/
+void
+codegen_fault_stubs_emit(codeblock_t *block)
+{
+    for (int i = 0; i < nr_fault_stubs; i++) {
+        fault_stub_t *stub = &fault_stubs[i];
+        int           j;
+
+        for (j = 0; j < i; j++) {
+            const fault_stub_t *other = &fault_stubs[j];
+
+            if (other->oldpc == stub->oldpc && other->helper == stub->helper && other->route == stub->route
+                && !memcmp(&other->state, &stub->state, sizeof(stub->state)))
+                break;
+        }
+        if (j < i)
+            stub->addr = fault_stubs[j].addr;
+        else
+            fault_stub_body(block, stub);
+        fault_stub_patch(stub, stub->addr);
+    }
+    nr_fault_stubs = 0;
+}
+
+/*#UD with CR0.EM set or CR4.OSFXSR clear, then #NM with CR0.TS set: two
+  tests on the way through, and the helper tells the faults apart*/
 static int
 codegen_SSE_ENTER(codeblock_t *block, uop_t *uop)
 {
-    uint32_t *branch_offset;
+    fault_stub_t  local;
+    fault_stub_t *stub = fault_stub_begin(&local, uop->imm_data, codegen_sse_unavailable, codegen_exit_rout);
 
     host_x86_MOV32_REG_ABS(block, REG_ECX, &cr0);
-    host_x86_TEST32_REG_IMM(block, REG_ECX, 0x4);
-    branch_offset = host_x86_JZ_long(block);
-    /* Successful checks leave cached values live. Exceptions need the guest
-       state written back before the handler, including earlier SIMD results. */
-    codegen_reg_flush_conditional(block, invalid_ir_reg);
-    host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
-    host_x86_CALL(block, x86illegal);
-    host_x86_JMP(block, codegen_exit_rout);
-    *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
-
+    host_x86_TEST32_REG_IMM(block, REG_ECX, 0xc);
+    fault_stub_branch(stub, host_x86_JNZ_long(block));
     host_x86_MOV32_REG_ABS(block, REG_ECX, &cr4);
     host_x86_TEST32_REG_IMM(block, REG_ECX, CR4_OSFXSR);
-    branch_offset = host_x86_JNZ_long(block);
-    codegen_reg_flush_conditional(block, invalid_ir_reg);
-    host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
-    host_x86_CALL(block, x86illegal);
-    host_x86_JMP(block, codegen_exit_rout);
-    *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
-
-    host_x86_MOV32_REG_ABS(block, REG_ECX, &cr0);
-    host_x86_TEST32_REG_IMM(block, REG_ECX, 0x8);
-    branch_offset = host_x86_JZ_long(block);
-    codegen_reg_flush_conditional(block, invalid_ir_reg);
-    host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
-#    if _WIN64
-    host_x86_MOV32_REG_IMM(block, REG_ECX, 7);
-#    else
-    host_x86_MOV32_REG_IMM(block, REG_EDI, 7);
-#    endif
-    host_x86_CALL(block, x86_int);
-    host_x86_JMP(block, codegen_exit_rout);
-    *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
+    fault_stub_branch(stub, host_x86_JZ_long(block));
+    fault_stub_end(block, stub, &local);
 
     host_x86_MOV32_BASE_OFFSET_IMM(block, REG_RSP, STACK_SSE_RECHECK, 0);
     return 0;
@@ -2255,14 +2328,12 @@ codegen_backend_sse_recheck(codeblock_t *block, uop_t *uop)
 static int
 codegen_CHECK_ALIGN(codeblock_t *block, uop_t *uop)
 {
-    uint32_t *branch_offset;
+    fault_stub_t  local;
+    fault_stub_t *stub = fault_stub_begin(&local, uop->imm_data, NULL, codegen_gpf_rout);
 
     host_x86_TEST32_REG_IMM(block, uop->src_reg_a_real, 15);
-    branch_offset = host_x86_JZ_long(block);
-    codegen_reg_flush_conditional(block, invalid_ir_reg);
-    host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
-    host_x86_JMP(block, codegen_gpf_rout);
-    *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
+    fault_stub_branch(stub, host_x86_JNZ_long(block));
+    fault_stub_end(block, stub, &local);
     return 0;
 }
 
@@ -2472,40 +2543,6 @@ codegen_MEM_SCALAR_LOOKUP(codeblock_t *block, uop_t *uop, uintptr_t *lookup, int
     return miss;
 }
 
-static void
-codegen_MEM_SLOW_ENTER(codeblock_t *block, uop_t *uop)
-{
-    const int dynamic_top = (block->flags & CODEBLOCK_HAS_FPU) && !(block->flags & CODEBLOCK_STATIC_TOP);
-
-    /* Helpers can change CR0/CR4. Leave the flag untouched on inline RAM hits;
-       the next SSE instruction must recheck after even a successful helper. */
-    if (uop->type & UOP_TYPE_SSE_INVALIDATE)
-        host_x86_MOV32_BASE_OFFSET_IMM(block, REG_RSP, STACK_SSE_RECHECK, 1);
-    /* Writeback preserves ESI; only dynamic x87 addressing clobbers ECX.
-       Preserve the store data only when that addressing can be emitted. */
-    if (dynamic_top)
-        host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG1, REG_ECX);
-    codegen_reg_flush_conditional(block, uop->dest_reg_a);
-    if (dynamic_top)
-        host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG1);
-}
-
-static void
-codegen_MEM_SLOW_LEAVE(codeblock_t *block, uop_t *uop)
-{
-    const int dynamic_top = (block->flags & CODEBLOCK_HAS_FPU) && !(block->flags & CODEBLOCK_STATIC_TOP);
-
-    /* Reloading a dynamic x87 stack value also uses ECX, which may now
-       contain a scalar load result. XMM0 is reserved for the helper result. */
-    if (dynamic_top)
-        host_x86_MOV32_BASE_OFFSET_REG(block, REG_RSP, STACK_ARG0, REG_ECX);
-    codegen_reg_reload_mem(block, uop->dest_reg_a);
-    if (dynamic_top)
-        host_x86_MOV32_REG_BASE_OFFSET(block, REG_ECX, REG_RSP, STACK_ARG0);
-    /* No guest page has this tag. Never carry a mapping across a callback. */
-    host_x86_MOV32_REG_IMM(block, REG_R8, UINT32_MAX);
-}
-
 typedef struct mem_slow_site_t {
     codegen_mem_reg_state_t state;
     uint32_t *unaligned, *miss, *page_cross;
@@ -2658,13 +2695,14 @@ enum {
     MEM_L,
     MEM_Q,
     MEM_SINGLE,
-    MEM_DOUBLE
+    MEM_DOUBLE,
+    MEM_DQ
 };
 
 static inline int
 mem_access_size(int kind)
 {
-    static const int sizes[] = { 1, 2, 4, 8, 4, 8 };
+    static const int sizes[] = { 1, 2, 4, 8, 4, 8, 16 };
 
     return sizes[kind];
 }
@@ -2687,14 +2725,82 @@ typedef struct mem_slow_t {
     int                  dest_reg;
     int                  store;
     int                  add;
+    /*MEM_DQ: the address's registers and displacement, and the registers the
+      slow path stores before the helper and loads after it*/
+    int                  seg_reg;
+    int                  addr_reg;
+    int                  is_a16;
+    int                  sse_invalidate;
+    uint32_t             imm;
+    codegen_reg_state_t  state;
 } mem_slow_t;
 
 static mem_slow_t mem_slow[MEM_SLOW_MAX];
 static int        nr_mem_slow;
 
+/*A 128-bit access's slow path (misaligned_p is the page crossing branch):
+  the helper for each half. It can change the guest's state (cycles, CR0 and
+  CR4 through a device) and it clobbers the SIMD registers, so the registers
+  are stored before it and loaded again after, as they were at the access.
+  Both halves leave through one exit, the access's lazy site's, whose stub
+  stores what the uop deferred, among it the oldpc a #PF takes as its EIP*/
+static void
+codegen_mem_slow_dq(codeblock_t *block, const mem_slow_t *slow)
+{
+    uint32_t  imm = slow->imm + 8;
+    uint32_t *fault_p;
+    void     *exit_p;
+
+    if (slow->misaligned_p)
+        jump_here(slow->misaligned_p);
+    if (slow->miss_p)
+        jump_here(slow->miss_p);
+    /*The next SSE instruction rechecks CR0 and CR4 after a helper*/
+    if (slow->sse_invalidate)
+        host_x86_MOV32_BASE_OFFSET_IMM(block, REG_RSP, STACK_SSE_RECHECK, 1);
+    codegen_reg_emit_writes(block, &slow->state);
+    if (slow->store) {
+        host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ, slow->dest_reg);
+        host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ);
+    }
+    host_x86_CALL(block, slow->rout);
+    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
+    fault_p = host_x86_JNZ_long(block);
+    if (!slow->store)
+        host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ, REG_XMM_TEMP);
+
+    host_x86_LEA_REG_REG(block, REG_ESI, slow->seg_reg, slow->addr_reg);
+    if (imm) {
+        host_x86_ADD32_REG_IMM(block, REG_ESI, imm);
+        if (slow->is_a16)
+            host_x86_AND32_REG_IMM(block, REG_ESI, 0x0000ffff);
+    }
+    if (slow->store)
+        host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ + 8);
+    host_x86_CALL(block, slow->rout);
+    host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
+    exit_p = codegen_exit_Jcc_add(block, slow->add, codegen_exit_rout, host_x86_JNZ_long, host_x86_JZ_long);
+    if (exit_p)
+        *fault_p = (uintptr_t) exit_p - ((uintptr_t) fault_p + 4);
+    else
+        codegen_lazy_exit_also(fault_p);
+    if (!slow->store)
+        host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + 8, REG_XMM_TEMP);
+
+    codegen_reg_emit_reloads(block, &slow->state);
+    /*No guest page has this tag. Never carry a mapping across a callback*/
+    host_x86_MOV32_REG_IMM(block, REG_R8, UINT32_MAX);
+    if (!slow->store)
+        host_x86_MOVDQU_XREG_BASE_OFFSET(block, slow->dest_reg, REG_RSP, STACK_TEMP_DQ);
+}
+
 static void
 codegen_mem_slow(codeblock_t *block, const mem_slow_t *slow)
 {
+    if (slow->kind == MEM_DQ) {
+        codegen_mem_slow_dq(block, slow);
+        return;
+    }
     if (slow->misaligned_p)
         jump_here(slow->misaligned_p);
     jump_here(slow->miss_p);
@@ -2766,19 +2872,59 @@ codegen_mem_slow_emit(codeblock_t *block)
     nr_mem_slow       = 0;
 }
 
-/*The fault exit of a 128-bit slow path, which makes two accesses: the
-  second's branch, and fault_p, the first's, leave through one exit. It must
-  be codegen_exit_Jcc's: a lazy uop's stub stores what the uop deferred,
-  among it this instruction's oldpc, which the #PF takes as its EIP*/
+/*A 128-bit access, ESI = address. A RAM hit within one page is a MOVDQU and
+  falls through; anything else takes the slow path behind the block
+  (codegen_mem_slow_dq). 16-bit addressing has only the slow path, inline*/
 static void
-codegen_mem_dq_exit(codeblock_t *block, uop_t *uop, uint32_t *fault_p)
+codegen_mem_dq(codeblock_t *block, uop_t *uop, int data_reg, int seg_reg, int addr_reg, int store, uintptr_t *lookup, void *rout)
 {
-    void *exit_p = codegen_exit_Jcc(block, uop, codegen_exit_rout, host_x86_JNZ_long, host_x86_JZ_long);
+    mem_slow_t  inline_slow;
+    mem_slow_t *slow;
+    uint32_t   *page_cross_p = NULL;
+    uint32_t   *miss_p       = NULL;
 
-    if (exit_p)
-        *fault_p = (uintptr_t) exit_p - ((uintptr_t) fault_p + 4);
-    else
-        codegen_lazy_exit_also(fault_p);
+    if (!uop->is_a16) {
+        void *lookup_resume;
+
+        /*(ESI & 0xfff) > 0xff0: it crosses into the next page*/
+        host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
+        host_x86_AND32_REG_IMM(block, REG_ECX, 0x00000fff);
+        host_x86_CMP32_REG_IMM(block, REG_ECX, 0x00000ff0);
+        page_cross_p = host_x86_JA_long(block);
+        miss_p       = codegen_MEM_LOOKUP(block, uop, lookup, &lookup_resume);
+        if (store)
+            host_x86_MOVDQU_BASE_INDEX_XREG(block, REG_RDI, REG_RSI, data_reg);
+        else
+            host_x86_MOVDQU_XREG_BASE_INDEX(block, data_reg, REG_RDI, REG_RSI);
+    }
+
+    slow = (!uop->is_a16 && (nr_mem_slow < MEM_SLOW_MAX)) ? &mem_slow[nr_mem_slow++] : &inline_slow;
+    slow->misaligned_p   = page_cross_p;
+    slow->miss_p         = miss_p;
+    slow->rout           = rout;
+    slow->lazy           = codegen_lazy_site;
+    slow->kind           = MEM_DQ;
+    slow->dest_reg       = data_reg;
+    slow->store          = store;
+    slow->add            = uop->imm_data2;
+    slow->seg_reg        = seg_reg;
+    slow->addr_reg       = addr_reg;
+    slow->is_a16         = uop->is_a16;
+    slow->sse_invalidate = !!(uop->type & UOP_TYPE_SSE_INVALIDATE);
+    slow->imm            = uop->imm_data;
+    codegen_reg_capture(&slow->state, uop->dest_reg_a, 0, 1);
+    if (slow != &inline_slow) {
+        slow->ret = &block_write_data[block_pos];
+        return;
+    }
+    if (uop->is_a16)
+        codegen_mem_slow_dq(block, slow);
+    else {
+        uint32_t *done_p = host_x86_JMP_long(block);
+
+        codegen_mem_slow_dq(block, slow);
+        jump_here(done_p);
+    }
 }
 
 static void
@@ -2889,49 +3035,7 @@ codegen_MEM_LOAD_REG(codeblock_t *block, uop_t *uop)
         }
     }
     if (REG_IS_DQ(dest_size)) {
-        uint32_t *done_offset = NULL;
-
-        /* Check if the 16-byte load stays entirely within a single 4KB guest page.
-           If (ESI & 0xFFF) > 4080 (0xFF0), the load crosses into the next page. */
-        if (!uop->is_a16) {
-            host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
-            host_x86_AND32_REG_IMM(block, REG_ECX, 0x00000fff);
-            host_x86_CMP32_REG_IMM(block, REG_ECX, 0x00000ff0);
-            uint32_t *page_cross_offset = host_x86_JA_long(block);
-
-            void *lookup_resume;
-            uint32_t *miss_offset = codegen_MEM_LOOKUP(block, uop, readlookup2, &lookup_resume);
-
-            /* Perform direct 128-bit unaligned load from host RAM */
-            host_x86_MOVDQU_XREG_BASE_INDEX(block, dest_reg, REG_RDI, REG_RSI);
-
-            /* Skip slow path fallback */
-            codegen_alloc_bytes(block, 5);
-            codegen_addbyte(block, 0xe9);
-            codegen_addlong(block, 0);
-            done_offset = (uint32_t *) &block_write_data[block_pos - 4];
-
-            codegen_set_jump_dest(block, page_cross_offset);
-            codegen_set_jump_dest(block, miss_offset);
-        }
-
-        /* Slow-path fallback: Two 64-bit reads */
-        codegen_MEM_SLOW_ENTER(block, uop);
-        host_x86_CALL(block, codegen_mem_load_quad);
-        host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-        uint32_t *fault_p = host_x86_JNZ_long(block);
-        host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ, REG_XMM_TEMP);
-
-        codegen_MEM_ADDR_REG_OFFSET(block, uop, seg_reg, addr_reg, 8);
-        host_x86_CALL(block, codegen_mem_load_quad);
-        host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-        codegen_mem_dq_exit(block, uop, fault_p);
-        host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + 8, REG_XMM_TEMP);
-        codegen_MEM_SLOW_LEAVE(block, uop);
-        host_x86_MOVDQU_XREG_BASE_OFFSET(block, dest_reg, REG_RSP, STACK_TEMP_DQ);
-
-        if (done_offset)
-            codegen_set_jump_dest(block, done_offset);
+        codegen_mem_dq(block, uop, dest_reg, seg_reg, addr_reg, 0, readlookup2, codegen_mem_load_quad);
         return 0;
     }
     if (REG_IS_B(dest_size)) {
@@ -3091,49 +3195,7 @@ codegen_MEM_STORE_REG(codeblock_t *block, uop_t *uop)
         }
     }
     if (REG_IS_DQ(src_size)) {
-        uint32_t *done_offset = NULL;
-
-        /* Check if the 16-byte store stays entirely within a single 4KB guest page.
-           If (ESI & 0xFFF) > 4080 (0xFF0), the store crosses into the next page. */
-        if (!uop->is_a16) {
-            host_x86_MOV32_REG_REG(block, REG_ECX, REG_ESI);
-            host_x86_AND32_REG_IMM(block, REG_ECX, 0x00000fff);
-            host_x86_CMP32_REG_IMM(block, REG_ECX, 0x00000ff0);
-            uint32_t *page_cross_offset = host_x86_JA_long(block);
-
-            void *lookup_resume;
-            uint32_t *miss_offset = codegen_MEM_LOOKUP(block, uop, writelookup2, &lookup_resume);
-
-            /* Perform direct 128-bit unaligned store to host RAM */
-            host_x86_MOVDQU_BASE_INDEX_XREG(block, REG_RDI, REG_RSI, src_reg);
-
-            /* Skip slow path fallback */
-            codegen_alloc_bytes(block, 5);
-            codegen_addbyte(block, 0xe9);
-            codegen_addlong(block, 0);
-            done_offset = (uint32_t *) &block_write_data[block_pos - 4];
-
-            codegen_set_jump_dest(block, page_cross_offset);
-            codegen_set_jump_dest(block, miss_offset);
-        }
-
-        /* Slow-path fallback: Two 64-bit writes */
-        codegen_MEM_SLOW_ENTER(block, uop);
-        host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ, src_reg);
-        host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ);
-        host_x86_CALL(block, codegen_mem_store_quad);
-        host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-        uint32_t *fault_p = host_x86_JNZ_long(block);
-
-        codegen_MEM_ADDR_REG_OFFSET(block, uop, seg_reg, addr_reg, 8);
-        host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ + 8);
-        host_x86_CALL(block, codegen_mem_store_quad);
-        host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-        codegen_mem_dq_exit(block, uop, fault_p);
-
-        codegen_MEM_SLOW_LEAVE(block, uop);
-        if (done_offset)
-            codegen_set_jump_dest(block, done_offset);
+        codegen_mem_dq(block, uop, src_reg, seg_reg, addr_reg, 1, writelookup2, codegen_mem_store_quad);
         return 0;
     }
     if (REG_IS_B(src_size)) {

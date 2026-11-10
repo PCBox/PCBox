@@ -92,5 +92,8 @@ void *codegen_exit_dest(void *route, int add);
   block starts, emitted after its last exit*/
 void codegen_mem_slow_reset(void);
 void codegen_mem_slow_emit(codeblock_t *block);
+/*The fault paths of SSE_ENTER and CHECK_ALIGN, the same way*/
+void codegen_fault_stubs_reset(void);
+void codegen_fault_stubs_emit(codeblock_t *block);
 /*REP MOVS/STOS routines, indexed by [STOS][log2 element size][32-bit addressing]*/
 extern void *codegen_rep_rout[2][3][2];

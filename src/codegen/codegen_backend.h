@@ -51,6 +51,9 @@ extern const uOpFn uop_handlers[];
 
 /*MMX_ENTER's fault: #UD with CR0.EM set, #NM for CR0.TS*/
 void codegen_mmx_unavailable(void);
+/*SSE_ENTER's fault: #UD with CR0.EM set or CR4.OSFXSR clear, else #NM for
+  CR0.TS*/
+void codegen_sse_unavailable(void);
 
 /*Register will not be preserved across function calls*/
 #define HOST_REG_FLAG_VOLATILE (1 << 0)
