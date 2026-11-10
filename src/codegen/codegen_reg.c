@@ -1351,6 +1351,20 @@ codegen_reg_flush_conditional(codeblock_t *block, ir_reg_t dest_reg)
 {
     host_reg_set_t *reg_sets[] = { &host_reg_set, &host_fp_reg_set };
 
+#ifdef CODEGEN_BACKEND_HAS_LAZY_WRITEBACK
+    /* The pending immediates as well (flags_op, an earlier MOV of a constant):
+       the SSE_ENTER and CHECK_ALIGN faults skip the barrier's flush and have
+       no lazy stub. They stay pending, as the dirty registers below stay
+       dirty; the stores are plain MOVs to memory, so the path that carries on
+       is untouched. */
+    for (int i = 0; i < nr_lazy_pending; i++) {
+        ir_reg_t ir_reg;
+
+        ir_reg.reg     = lazy_pending[i].ireg;
+        ir_reg.version = 0;
+        codegen_reg_write_imm(block, ir_reg, lazy_pending[i].imm);
+    }
+#endif
     for (int set = 0; set < 2; set++) {
         host_reg_set_t *reg_set = reg_sets[set];
 
