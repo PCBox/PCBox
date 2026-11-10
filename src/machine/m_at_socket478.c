@@ -24,6 +24,7 @@
 #include <86box/pci.h>
 #include <86box/device.h>
 #include <86box/chipset.h>
+#include <86box/ioapic_routes.h>
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
 #include <86box/keyboard.h>
@@ -41,7 +42,12 @@
 int
 machine_at_platinix2_init(const machine_t *model)
 {
+    static const ioapic_legacy_irq_routing_t platinix2_irq_routing = {
+        .irq_to_intin = IOAPIC_LEGACY_IRQ_ROUTE_ISA
+    };
+
     int ret;
+    void *ioapic;
 
     ret = bios_load_linear("roms/machines/platinix2/P2_V23.BIN",
                            0x000c0000, 262144, 0);
@@ -76,6 +82,10 @@ machine_at_platinix2_init(const machine_t *model)
 #if 0
     spd_register(SPD_TYPE_SDRAM, 0x7, 512); /* SPD */
 #endif
+
+    ioapic = device_add_params(&ioapic_validated_up_device,
+                               (void *) (IOAPIC_TOPOLOGY_UP_APIC_DEFAULT));
+    ioapic_set_legacy_irq_routing(ioapic, &platinix2_irq_routing);
 
     return ret;
 }

@@ -173,6 +173,9 @@ cpu_apic_model_capable(void)
         case CPU_PENTIUMPRO:
         case CPU_PENTIUM2:
         case CPU_PENTIUM2D:
+        case CPU_PENTIUM3:
+        case CPU_PENTIUM4W:
+        case CPU_GENERICINTEL:
             return 1;
 
         default:

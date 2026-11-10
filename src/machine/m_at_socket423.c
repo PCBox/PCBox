@@ -24,6 +24,7 @@
 #include <86box/pci.h>
 #include <86box/device.h>
 #include <86box/chipset.h>
+#include <86box/ioapic_routes.h>
 #include <86box/hdc.h>
 #include <86box/hdc_ide.h>
 #include <86box/keyboard.h>
@@ -41,7 +42,12 @@
 int
 machine_at_ms6529_init(const machine_t *model)
 {
+    static const ioapic_legacy_irq_routing_t ms6529_irq_routing = {
+        .irq_to_intin = IOAPIC_LEGACY_IRQ_ROUTE_ISA
+    };
+
     int ret;
+    void *ioapic;
 
     ret = bios_load_linear("roms/machines/ms6529/ms6529_ivens_oem.BIN",
                            0x000c0000, 262144, 0);
@@ -70,6 +76,10 @@ machine_at_ms6529_init(const machine_t *model)
     device_add(&sst_flash_49lf002_device);   /* SST 49LF002 2 Mbit Firmware Hub */
     device_add(ics9xxx_get(ICS9502_08));    /* ICS950208 Clock Chip */
     intel_845_spd_init();                   /* SPD */
+
+    ioapic = device_add_params(&ioapic_validated_up_device,
+                               (void *) (IOAPIC_TOPOLOGY_UP_APIC_DEFAULT));
+    ioapic_set_legacy_irq_routing(ioapic, &ms6529_irq_routing);
 
     return ret;
 }
@@ -116,7 +126,12 @@ machine_at_abbw7_init(const machine_t *model)
 int
 machine_at_wb72_init(const machine_t *model)
 {
+    static const ioapic_legacy_irq_routing_t wb72_irq_routing = {
+        .irq_to_intin = IOAPIC_LEGACY_IRQ_ROUTE_ISA
+    };
+
     int ret;
+    void* ioapic;
 
     ret = bios_load_linear("roms/machines/wb72/WB721924.BIN",
                            0x000c0000, 262144, 0);
@@ -149,6 +164,10 @@ machine_at_wb72_init(const machine_t *model)
     device_add(&w83627hf_no_port_92_device); /* Winbond W83627HF */
     device_add(&sst_flash_49lf002_device);   /* SST 49LF002 2 Mbit Firmware Hub */
     intel_845_spd_init_wb72();              /* SPD */
+
+    ioapic = device_add_params(&ioapic_validated_up_device,
+                               (void *) (IOAPIC_TOPOLOGY_UP_APIC_DEFAULT));
+    ioapic_set_legacy_irq_routing(ioapic, &wb72_irq_routing);
 
     return ret;
 }
