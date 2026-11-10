@@ -2766,6 +2766,21 @@ codegen_mem_slow_emit(codeblock_t *block)
     nr_mem_slow       = 0;
 }
 
+/*The fault exit of a 128-bit slow path, which makes two accesses: the
+  second's branch, and fault_p, the first's, leave through one exit. It must
+  be codegen_exit_Jcc's: a lazy uop's stub stores what the uop deferred,
+  among it this instruction's oldpc, which the #PF takes as its EIP*/
+static void
+codegen_mem_dq_exit(codeblock_t *block, uop_t *uop, uint32_t *fault_p)
+{
+    void *exit_p = codegen_exit_Jcc(block, uop, codegen_exit_rout, host_x86_JNZ_long, host_x86_JZ_long);
+
+    if (exit_p)
+        *fault_p = (uintptr_t) exit_p - ((uintptr_t) fault_p + 4);
+    else
+        codegen_lazy_exit_also(fault_p);
+}
+
 static void
 codegen_mem_load(codeblock_t *block, uop_t *uop, int kind, int dest_reg, void *rout)
 {
@@ -2904,13 +2919,13 @@ codegen_MEM_LOAD_REG(codeblock_t *block, uop_t *uop)
         codegen_MEM_SLOW_ENTER(block, uop);
         host_x86_CALL(block, codegen_mem_load_quad);
         host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-        host_x86_JNZ(block, codegen_exit_rout);
+        uint32_t *fault_p = host_x86_JNZ_long(block);
         host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ, REG_XMM_TEMP);
 
         codegen_MEM_ADDR_REG_OFFSET(block, uop, seg_reg, addr_reg, 8);
         host_x86_CALL(block, codegen_mem_load_quad);
         host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-        host_x86_JNZ(block, codegen_exit_rout);
+        codegen_mem_dq_exit(block, uop, fault_p);
         host_x86_MOVQ_BASE_OFFSET_XREG(block, REG_RSP, STACK_TEMP_DQ + 8, REG_XMM_TEMP);
         codegen_MEM_SLOW_LEAVE(block, uop);
         host_x86_MOVDQU_XREG_BASE_OFFSET(block, dest_reg, REG_RSP, STACK_TEMP_DQ);
@@ -3108,13 +3123,13 @@ codegen_MEM_STORE_REG(codeblock_t *block, uop_t *uop)
         host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ);
         host_x86_CALL(block, codegen_mem_store_quad);
         host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-        host_x86_JNZ(block, codegen_exit_rout);
+        uint32_t *fault_p = host_x86_JNZ_long(block);
 
         codegen_MEM_ADDR_REG_OFFSET(block, uop, seg_reg, addr_reg, 8);
         host_x86_MOVQ_XREG_BASE_OFFSET(block, REG_XMM_TEMP, REG_RSP, STACK_TEMP_DQ + 8);
         host_x86_CALL(block, codegen_mem_store_quad);
         host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
-        host_x86_JNZ(block, codegen_exit_rout);
+        codegen_mem_dq_exit(block, uop, fault_p);
 
         codegen_MEM_SLOW_LEAVE(block, uop);
         if (done_offset)
