@@ -1309,14 +1309,16 @@ nv10_texel(nv4_t *nv4, const nv4_3d_tex_t *t, nv10_tsamp_t *ts, uint32_t base, i
 
         raw = nv4_3d_tex_read(nv4, t, &ts->tc, base + off, t->bpp);
         switch (f) {
-            case 0x00:
-            case 0x13:
+            case 0x00: /* Y8 (L8) */
                 argb = 0xff000000 | (raw * 0x010101);
                 break;
             case 0x14: /* SY8 */
                 argb = 0xff000000 | ((raw ^ 0x80) * 0x010101);
                 break;
-            case 0x01:
+            case 0x01: /* AY8 (I8) */
+            case 0x13: /* IMAGE_Y8: on Celsius an intensity too (envytools
+                          I8_RECT; nouveau's EXA samples A8 masks through
+                          it), unlike Kelvin's L8_RECT */
                 argb = raw * 0x01010101;
                 break;
             case 0x06:
@@ -1384,8 +1386,10 @@ nv10_sample_level(nv4_t *nv4, const nv4_3d_tex_t *t, nv10_tsamp_t *ts, uint32_t 
     int      hl   = (t->hlog - l > 0) ? t->hlog - l : 0;
     int      w    = t->linear ? t->w : (1 << wl);
     int      h    = t->linear ? t->h : (1 << hl);
-    float    fu   = u * (float) w;
-    float    fv   = v * (float) h;
+    /* IMAGE (rect) textures take coordinates in texels, the swizzled
+       ones normalized (as nv10_lod has them) */
+    float    fu   = t->linear ? u : u * (float) w;
+    float    fv   = t->linear ? v : v * (float) h;
     uint32_t base = face_base + t->level_off[l];
 
     if (!linear) {
