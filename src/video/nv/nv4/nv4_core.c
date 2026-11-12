@@ -433,7 +433,10 @@ nv4_mmio_writel(uint32_t addr, uint32_t val, void *priv)
 /* Linear framebuffer (BAR1).                                          */
 /* ------------------------------------------------------------------ */
 /* The fitted VRAM repeats through the 16 MB (NV4) or 32 MB (NV5)
-   aperture. */
+   aperture. The memory core hands misaligned words that stay within a
+   page straight to these handlers, so they take any byte address (Linux
+   pixman reads A8 masks a dword at a time from any byte); only an access
+   running off the end of VRAM goes byte by byte to wrap. */
 static uint8_t
 nv4_lfb_readb(uint32_t addr, void *priv)
 {
@@ -447,7 +450,9 @@ static uint16_t
 nv4_lfb_readw(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
-    addr       = (addr - nv4->lfb_base) & nv4->vram_mask & ~1;
+    addr       = (addr - nv4->lfb_base) & nv4->vram_mask;
+    if (addr > nv4->vram_mask - 1)
+        return nv4_lfb_readb(nv4->lfb_base + addr, priv) | (nv4_lfb_readb(nv4->lfb_base + addr + 1, priv) << 8);
     NV4_3D_ACCESS(nv4, addr, 2);
     return *(uint16_t *) &nv4->svga.vram[addr];
 }
@@ -456,7 +461,9 @@ static uint32_t
 nv4_lfb_readl(uint32_t addr, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
-    addr       = (addr - nv4->lfb_base) & nv4->vram_mask & ~3;
+    addr       = (addr - nv4->lfb_base) & nv4->vram_mask;
+    if (addr > nv4->vram_mask - 3)
+        return nv4_lfb_readw(nv4->lfb_base + addr, priv) | ((uint32_t) nv4_lfb_readw(nv4->lfb_base + addr + 2, priv) << 16);
     NV4_3D_ACCESS(nv4, addr, 4);
     return *(uint32_t *) &nv4->svga.vram[addr];
 }
@@ -475,20 +482,33 @@ static void
 nv4_lfb_writew(uint32_t addr, uint16_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
-    addr       = (addr - nv4->lfb_base) & nv4->vram_mask & ~1;
+    addr       = (addr - nv4->lfb_base) & nv4->vram_mask;
+    if (addr > nv4->vram_mask - 1) {
+        nv4_lfb_writeb(nv4->lfb_base + addr, val & 0xff, priv);
+        nv4_lfb_writeb(nv4->lfb_base + addr + 1, val >> 8, priv);
+        return;
+    }
     NV4_3D_ACCESS(nv4, addr, 2);
     *(uint16_t *) &nv4->svga.vram[addr] = val;
-    nv4->svga.changedvram[addr >> 12]   = nv4->svga.monitor->mon_changeframecount;
+    /* a word can straddle two of the 4 KB dirty pages */
+    nv4->svga.changedvram[addr >> 12]       = nv4->svga.monitor->mon_changeframecount;
+    nv4->svga.changedvram[(addr + 1) >> 12] = nv4->svga.monitor->mon_changeframecount;
 }
 
 static void
 nv4_lfb_writel(uint32_t addr, uint32_t val, void *priv)
 {
     nv4_t *nv4 = (nv4_t *) priv;
-    addr       = (addr - nv4->lfb_base) & nv4->vram_mask & ~3;
+    addr       = (addr - nv4->lfb_base) & nv4->vram_mask;
+    if (addr > nv4->vram_mask - 3) {
+        nv4_lfb_writew(nv4->lfb_base + addr, val & 0xffff, priv);
+        nv4_lfb_writew(nv4->lfb_base + addr + 2, val >> 16, priv);
+        return;
+    }
     NV4_3D_ACCESS(nv4, addr, 4);
     *(uint32_t *) &nv4->svga.vram[addr] = val;
-    nv4->svga.changedvram[addr >> 12]   = nv4->svga.monitor->mon_changeframecount;
+    nv4->svga.changedvram[addr >> 12]       = nv4->svga.monitor->mon_changeframecount;
+    nv4->svga.changedvram[(addr + 3) >> 12] = nv4->svga.monitor->mon_changeframecount;
 }
 
 /* ------------------------------------------------------------------ */
