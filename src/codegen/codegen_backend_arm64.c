@@ -112,6 +112,17 @@ host_reg_def_t codegen_host_fp_reg_list[CODEGEN_HOST_FP_REGS] = {
     { REG_V15, 0}
 };
 
+/*The lookup table, fetched each time with one load off X29 (&cpu_state, in
+  every block): cpu_state keeps its address (lookup2_r, lookup2_w).*/
+static void
+load_lookup_table(codeblock_t *block, int reg, uintptr_t **field)
+{
+    intptr_t off = (intptr_t) field - (intptr_t) &cpu_state;
+
+    if (!in_range12_q(off))
+        fatal("load_lookup_table - cpu_state field out of range\n");
+    host_arm64_LDR_IMM_X(block, reg, REG_CPUSTATE, off);
+}
 /*A misaligned load that stays inside its page and has a read lookup: what
   readmemwl(), readmemll() and readmemql() do on their in-page branch, the
   timing_misaligned charge under the same Cyrix alignment rule and the load
