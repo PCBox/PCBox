@@ -454,6 +454,10 @@ block_free_list_add(codeblock_t *block)
     block_free_list = get_block_nr(block);
     block->flags    = CODEBLOCK_IN_FREE_LIST;
     block_versions_free_all(get_block_nr(block));
+#ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+    codegen_link_block_changed(block);
+    link_slots_clear(block);
+#endif
 }
 
 static void
@@ -475,6 +479,9 @@ block_dirty_list_add(codeblock_t *block)
         block_dirty_list_head = block_dirty_list_tail = get_block_nr(block);
     }
     block->flags |= CODEBLOCK_IN_DIRTY_LIST;
+#ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+    codegen_link_block_changed(block);
+#endif
     dirty_list_size++;
     if (dirty_list_size > DIRTY_LIST_MAX_SIZE) {
         /*Evict oldest block to the free list*/
@@ -527,6 +534,9 @@ block_dirty_list_remove(codeblock_t *block)
         fatal("remove - dirty_list_size < 0!\n");
 #endif
     block->flags &= ~CODEBLOCK_IN_DIRTY_LIST;
+#ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+    codegen_link_block_changed(block);
+#endif
 }
 
 int
@@ -600,6 +610,9 @@ codegen_init(void)
         block_free_list_add(&codeblock[c]);
     block_dirty_list_head = block_dirty_list_tail = 0;
     dirty_list_size                               = 0;
+#ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+    codegen_link_reset();
+#endif
 #ifdef DEBUG_EXTRA
     memset(instr_counts, 0, sizeof(instr_counts));
 #endif
@@ -658,6 +671,9 @@ codegen_reset(void)
         codeblock[c].valid = 0;
         block_free_list_add(&codeblock[c]);
     }
+#ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+    codegen_link_reset();
+#endif
 }
 
 void
@@ -843,6 +859,9 @@ invalidate_block(codeblock_t *block)
 #ifdef CODEGEN_CHAIN
     codegen_links_drop_owned(block);
 #endif
+#ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+    link_slots_clear(block);
+#endif
 }
 
 static void
@@ -1011,6 +1030,9 @@ codegen_block_init(uint32_t phys_addr)
     block->page_mask = block->page_mask2 = 0;
     block->flags                         = CODEBLOCK_STATIC_TOP;
     block->status                        = cpu_cur_status;
+#ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+    codegen_link_block_changed(block);
+#endif
 
     recomp_page = block->phys & ~0xfff;
     codeblock_tree_add(block);
@@ -1111,6 +1133,10 @@ codegen_block_start_recompile(codeblock_t *block)
         block->dirty_mask  = &page->byte_dirty_mask[(block->phys >> PAGE_BYTE_MASK_SHIFT) & PAGE_BYTE_MASK_OFFSET_MASK];
         block->dirty_mask2 = NULL;
     }
+#ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+    codegen_link_block_changed(block);
+    link_slots_clear(block);
+#endif
 
     ir_data        = codegen_ir_init();
     ir_data->block = block;
@@ -1402,6 +1428,9 @@ codegen_block_restore_version(codeblock_t *block)
         /* Other code is the block's now: no link made to the code it had
            may reach it. */
         codegen_links_drop(block);
+#endif
+#ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+        codegen_link_block_changed(block);
 #endif
         return 1;
     }

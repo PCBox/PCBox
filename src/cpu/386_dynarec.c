@@ -1460,6 +1460,9 @@ exec386_dynarec_common(int32_t cycs, const int dbg)
             tsc_old          = tsc;
             if (cpu_force_interpreter || cpu_override_dynarec || cpu_flush_pending || (!CACHE_ON_DBG(dbg))) /*Interpret block*/
             {
+#    ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+                link_from = NULL;
+#    endif
                 exec386_dynarec_int();
             } else {
                 exec386_dynarec_dyn(dbg);
