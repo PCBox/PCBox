@@ -93,18 +93,9 @@ host_reg_def_t codegen_host_reg_list[CODEGEN_HOST_REGS] = {
     { REG_EBX, 0},
     { REG_EDX, 0}
 };
-/* Keep the 128-bit IR spill at 0x50 separate from the memory scratch at 0x40,
-   MXCSR scratch at 0x60, and saved XMM6-XMM15. Both frames align helper calls.
-   Align the 16-byte saves too, so none straddles a cache line. */
-#define CODEGEN_WIN64_FRAME 0x118
-/* The frame elsewhere: the slots above, up to the MXCSR scratch. Every
-   epilogue must release what the prologue took. */
-#define CODEGEN_SYSV_FRAME  0x68
-#define CODEGEN_XMM6_SAVE   0x70 /*XMM6-XMM15 are saved at 16 byte intervals from here*/
-/* 0x28/0x30 hold FP temporaries, 0x40 holds memory scratch. The intervening
-   slot points at this block's epilogue, including on helper/fault exits. */
-#define CODEGEN_XMM7_SAVE   0x80
-#define CODEGEN_WIN64_EXIT  0x38
+_Static_assert(CODEGEN_XMM6_SAVE + 10 * 16 <= CODEGEN_WIN64_FRAME, "XMM6-XMM15 are saved inside the frame");
+_Static_assert(((8 + 8 * 8 + CODEGEN_WIN64_FRAME) & 15) == 0 && ((8 + 6 * 8 + CODEGEN_SYSV_FRAME) & 15) == 0,
+               "the frame leaves RSP 16-byte aligned after the prologue's pushes");
 
 host_reg_def_t codegen_host_fp_reg_list[CODEGEN_HOST_FP_REGS] = {
 #    ifdef _WIN64

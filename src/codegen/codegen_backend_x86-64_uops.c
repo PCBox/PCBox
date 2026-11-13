@@ -31,11 +31,20 @@
 #    define STACK_ARG1        (4)
 #    define STACK_ARG2        (8)
 #    define STACK_ARG3        (12)
-/* Between the x87 TOP delta at 32 and the first FP spill at 40. This is
-   block-local state, outside the Win64 shadow space, not architectural state. */
-#    define STACK_SSE_RECHECK (36)
-#    define STACK_TEMP_DQ     (64)
-#    define STACK_TEMP_MXCSR  (96)
+/* Block-local scratch among the IR temporaries' slots (codegen_reg.c), so
+   they move up with them by CODEGEN_TEMP_BASE, above the Win64 home area.
+   The SSE recheck flag lies between the x87 TOP delta and temp0d, the 16-byte
+   scratch between temp2d and temp0dq, and the MXCSR scratch after temp0dq. */
+#    define STACK_SSE_RECHECK (36 + CODEGEN_TEMP_BASE)
+#    define STACK_TEMP_DQ     (64 + CODEGEN_TEMP_BASE)
+#    define STACK_TEMP_MXCSR  (96 + CODEGEN_TEMP_BASE)
+
+_Static_assert(STACK_SSE_RECHECK == IREG_TOP_diff_stack_offset + 4, "the SSE recheck flag follows the x87 TOP delta");
+#    ifdef _WIN64
+_Static_assert(STACK_TEMP_MXCSR + 4 <= CODEGEN_XMM6_SAVE, "the scratch slots end below the XMM6-XMM15 saves");
+#    else
+_Static_assert(STACK_TEMP_MXCSR + 4 <= CODEGEN_SYSV_FRAME, "the scratch slots end inside the frame");
+#    endif
 
 /*AH-BH exist only for the first four registers; the allocator keeps
   registers accessed by byte out of R8-R15 (HOST_REG_FLAG_NO_BYTE).*/

@@ -100,8 +100,9 @@ extern uint16_t codegen_link_site_set[BLOCK_SIZE * CODEGEN_LINK_SLOTS];
 #if defined(__aarch64__) || defined(_M_ARM64)
 #    define CODEGEN_LINK_ENTRY_OFFSET 24
 #elif defined(_WIN64)
-/*Eight pushes, the frame and the XMM6/XMM7 saves*/
-#    define CODEGEN_LINK_ENTRY_OFFSET 114
+/*Eight pushes (12 bytes), the frame (7) and the XMM6-XMM15 saves, all with
+  32-bit displacements (9 each for XMM6/XMM7, 10 each for XMM8-XMM15)*/
+#    define CODEGEN_LINK_ENTRY_OFFSET 117
 #else
 /*Six pushes and the frame*/
 #    define CODEGEN_LINK_ENTRY_OFFSET 14

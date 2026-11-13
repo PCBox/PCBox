@@ -272,7 +272,7 @@ enum {
 
 /*Where the block temporaries start on the stack: above the 32 bytes of home
   space on Windows x64, whose callees may store their arguments there (the
-  frame is CODEGEN_WIN64_FRAME, codegen_backend_x86-64.c). The FPU TOP
+  frame is CODEGEN_WIN64_FRAME, codegen_backend_x86-64.h). The FPU TOP
   difference the block keeps between the integer and the double ones moves
   with them: left at 32, it was temp0.*/
 #if defined(_WIN64) && (defined(__x86_64__) || defined(_M_X64))

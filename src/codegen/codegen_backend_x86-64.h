@@ -19,6 +19,19 @@
 
 #define BLOCK_MAX   0x3c0
 
+/* The block frame, from RSP up. System V: the IR temporaries and the scratch
+   slots (STACK_* in codegen_backend_x86-64_uops.c) from 0x10 up to the MXCSR
+   scratch at 0x60. Windows x64: the 32-byte home area, which callees may
+   write, then the same slots 0x10 higher (CODEGEN_TEMP_BASE), up to the MXCSR
+   scratch at 0x70, then the saves of XMM6-XMM15 at 16-byte intervals. Both
+   sizes leave RSP 16-byte aligned after the prologue's pushes, for helper
+   calls, and every epilogue releases what the prologue took. Moving the XMM
+   saves changes the prologue's length: CODEGEN_LINK_ENTRY_OFFSET. */
+#define CODEGEN_SYSV_FRAME  0x68
+#define CODEGEN_WIN64_FRAME 0x128
+#define CODEGEN_XMM6_SAVE   0x80
+#define CODEGEN_XMM7_SAVE   (CODEGEN_XMM6_SAVE + 16)
+
 #define CODEGEN_BACKEND_HAS_MOV_IMM
 #define CODEGEN_BACKEND_HAS_MEM_REGS
 #define CODEGEN_BACKEND_HAS_SSE_REGS
