@@ -69,6 +69,11 @@ typedef struct codeblock_t {
       once (codegen_delete_random_block).*/
     uint8_t used;
 
+    /*One bit per run from block->data still needed to pay for compiling.
+      Each dispatcher or linked entry shifts right, saturating at zero
+      without a branch. The compile pass itself does not count as a run.*/
+    uint8_t runs_left;
+
     /*Set once this compile's code has been reached again and run from
       block->data (the CODEBLOCK_WAS_RECOMPILED fast path), rather than just
       the single execution the compile pass itself performs. Cleared at the
@@ -76,11 +81,6 @@ typedef struct codeblock_t {
       apart from one that was rewritten before it could ever be reused - see
       page_t's smc_strikes/smc_cooldown_until.*/
     uint8_t reused;
-
-    /*One bit per run from block->data still needed to pay for compiling.
-      Each dispatcher or linked entry shifts right, saturating at zero
-      without a branch. The compile pass itself does not count as a run.*/
-    uint8_t runs_left;
 
     /*Self-modifying-code thrash tracking: each time this block is compiled
       and then rewritten before it paid for itself (runs_left still not 0),
@@ -146,6 +146,9 @@ codeblock_hash_remove(uint32_t hash, uint32_t block_nr)
 }
 
 extern uint8_t *block_write_data;
+
+extern int     codegen_timing_peek;
+extern uint8_t codegen_peekb(uint32_t addr);
 
 
 /*Code block uses FPU*/
@@ -509,6 +512,28 @@ extern uint32_t op_old_pc;
 extern int codegen_flags_changed;
 /*Forgets the block's inline flags rebuilds (codegen_ops_helpers.c)*/
 extern void codegen_flags_known_reset(void);
+/*An inline flags rebuild of the block: its uops start..end-1 and the bits of
+  flags it writes*/
+typedef struct codegen_flags_inline_t {
+    int      start;
+    int      end;
+    uint16_t written;
+} codegen_flags_inline_t;
+extern int codegen_flags_inline_sites(const codegen_flags_inline_t **sites);
+/*A flag read compiled as one uop in place of the one uop calling func: the
+  bits of flags the call reads as the dead flags pass sees it, and the uop
+  that set the flags op it was compiled for when an unrolled copy whose loop
+  starts after that uop must call func instead (-1 otherwise). pair: the uop
+  writes 16 bits of its register and the next uop, a CMP_IMM_JZ/JNZ_DEST,
+  tests them; a copy that calls func tests the whole result instead*/
+typedef struct codegen_flags_read_t {
+    int      uop;
+    uint16_t read;
+    int      producer;
+    void    *func;
+    int      pair;
+} codegen_flags_read_t;
+extern int codegen_flags_read_sites(const codegen_flags_read_t **sites);
 
 /*Set while the block being recompiled is a V86 block entered with every
   segment limit 0..0xffff (CPU_STATUS_NOT64K clear): V86 segment loads keep

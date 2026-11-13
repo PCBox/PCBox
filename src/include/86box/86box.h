@@ -246,6 +246,7 @@ extern int      confirm_save;               /* (G) enable save confirmation */
 extern int      settings_layout;            /* (G) Settings dialog: 0 classic, 1 slot-based preview */
 extern int      settings_advanced;          /* (G) slot-based Settings: the Cards page's Advanced view */
 extern int      chd_precache_level;         /* (G) CHD precache level */
+extern int      fast_forward_new_machines;  /* (G) New machines start in fast forward */
 extern int      force_10ms;                 /* (C) force 10ms CPU frame interval */
 extern int      start_fast_forward;         /* (C) start in fast-forward mode */
 extern int      jumpered_internal_ecp_dma;  /* (C) Jumpered internal EPC DMA */
@@ -262,6 +263,7 @@ extern int    do_auto_pause;                /* (G) Auto-pause the emulator on fo
 extern int    do_auto_dialog_pause;         /* (G) Auto-pause the emulator on dialog boxes */
 extern int    auto_paused;
 extern int    force_constant_mouse;         /* (C) Force constant updating of the mouse */
+extern int    fast_forward_on_start;        /* (C) Start the machine in fast forward */
 extern double mouse_sensitivity;            /* (G) Mouse sensitivity scale */
 #ifdef _Atomic
 extern _Atomic double mouse_x_error;        /* Mouse error accumulator - Y */

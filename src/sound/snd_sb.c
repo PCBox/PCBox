@@ -18,6 +18,7 @@
  *          Copyright 2016-2020 Miran Grca.
  *          Copyright 2024-2026 Jasmine Iwanek.
  *          Copyright      2026 win2kgamer
+ *          Copyright 2026 Xeon3D.
  */
 #include <stdarg.h>
 #include <stdint.h>
@@ -5652,6 +5653,9 @@ sb_pro_compat_init(UNUSED(const device_t *info))
 
     sb->mixer_enabled = 1;
     sound_add_handler(sb_get_buffer_sbpro, sb);
+    /* the DSP records the host's input, as on the SB Pro cards. */
+    sound_in_add_handler(sb_put_buffer_sbpro, sb);
+    sound_in_start_input();
     if (sb->opl_enabled)
         music_add_handler(sb_get_music_buffer_sbpro, sb);
 
@@ -7537,6 +7541,18 @@ ess_solo1_legacy_mpu_write(void *priv, uint16_t addr, uint8_t val)
         return;
 
     mpu401_write(addr, val, ess->mpu);
+}
+
+/* The native game port (PCI BAR4) is the same port as the legacy one. */
+void
+ess_solo1_legacy_native_gameport(void *priv, uint16_t addr)
+{
+    sb_t *ess = (sb_t *) priv;
+
+    if ((ess == NULL) || (ess->gameport == NULL))
+        return;
+
+    gameport_remap_alt(ess->gameport, addr, 0x04);
 }
 
 void

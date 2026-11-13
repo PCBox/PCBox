@@ -189,6 +189,7 @@ extern const device_t  gameport_card_device;
 extern const device_t  gameport_card_208_device;
 extern const device_t  gameport_card_pnp_device;
 extern void  gameport_remap(void *priv, uint16_t address);
+extern void  gameport_remap_alt(void *priv, uint16_t address, uint8_t len);
 extern void  gameport_set_decode(void *priv, int read_enabled, int write_enabled);
 extern void *gameport_add(const device_t *gameport_type);
 

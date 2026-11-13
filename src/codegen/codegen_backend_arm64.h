@@ -50,6 +50,11 @@
    back before each of those uops. */
 #define CODEGEN_BACKEND_HAS_LAZY_WRITEBACK
 void codegen_lazy_stubs_emit(codeblock_t *block);
+/* CMP_IMM_JZ_DEST_COLD, TEST_IMM_JZ_DEST_COLD and FCMP_JWITHIN_DEST_COLD, the
+   branches over a cold region (UOP_TYPE_COLD). A backend without them writes
+   back before those branches (CMP_IMM_JZ_DEST, FCMP_JWITHIN_DEST), and makes
+   the no-wait FERR# call unconditionally. */
+#define CODEGEN_BACKEND_HAS_COLD_REGION
 
 /*The AArch64 procedure call standard only preserves the low 64 bits of
   V8-V15 across calls, so 128-bit values cached in host vector registers do
