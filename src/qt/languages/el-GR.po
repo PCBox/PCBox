@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"PO-Revision-Date: 2026-11-06 17:16+0000\n"
+"PO-Revision-Date: 2026-11-14 17:46+0000\n"
 "Last-Translator: DimMan88 <dimman88@hotmail.com>\n"
 "Language-Team: Greek <https://weblate.86box.net/projects/86box/86box/el/>\n"
 "Language: el-GR\n"
@@ -157,7 +157,7 @@ msgid "4:3 Cen&ter"
 msgstr "4:3 Κέν&τρο"
 
 msgid "4:3 Integer scale (&vertical)"
-msgstr ""
+msgstr "Κλιμάκωση ακέραιου πολλαπλασίου 4:3 (&κατακόρυφη)"
 
 msgid "Inverted VGA monitor"
 msgstr "Αντεστραμμένο VGA monitor"
@@ -245,6 +245,30 @@ msgstr "&Προτιμήσεις…"
 
 msgid "Sound &gain…"
 msgstr "&Ενίσχυση ήχου…"
+
+msgid "M&IDI output device"
+msgstr ""
+
+msgid "Restart &device"
+msgstr ""
+
+msgid "Send MIDI &command"
+msgstr ""
+
+msgid "&GM System On"
+msgstr ""
+
+msgid "G&S Reset"
+msgstr ""
+
+msgid "&XG System On"
+msgstr ""
+
+msgid "&MT-32 Reset"
+msgstr ""
+
+msgid "All &notes off"
+msgstr ""
 
 msgid "Begin trace"
 msgstr "Αρχλη καταγραφής"
@@ -1590,10 +1614,10 @@ msgid "Hard disk (%1)"
 msgstr "Σκληρός δίσκος (%1)"
 
 msgid "Board LED"
-msgstr ""
+msgstr "LED πλακέτας"
 
 msgid "Board LED %1"
-msgstr ""
+msgstr "LED πλακέτας %1"
 
 msgid "Custom…"
 msgstr "Προσαρμογή…"
@@ -2511,7 +2535,7 @@ msgid "Snow emulation"
 msgstr "Εξομοίωση εφέ \"χιονιού\""
 
 msgid "Display Enhancement Board (GO329)"
-msgstr ""
+msgstr "Πλακέτα Βελτίωσης Απεικόνισης (GO329)"
 
 msgid "Monitor type"
 msgstr "Τύπος οθόνης"
@@ -3463,16 +3487,19 @@ msgid "&Fast forward"
 msgstr "&Γρήγορα μπροστά"
 
 msgid "Fast forward at startup"
-msgstr ""
+msgstr "Γρήγορη προώθηση κατά την εκκίνηση"
 
 msgid "Start new machines in fast forward"
-msgstr ""
+msgstr "Ξεκινήστε νέα μηχανήματα σε γρήγορη προώθηση"
 
 msgid "Only affects machines created from now on. Each machine can be changed in its settings, under Machine > Performance."
 msgstr ""
+"Επηρεάζει μόνο τα μηχανήματα που δημιουργούνται από εδώ και στο εξής. Οι "
+"ρυθμίσεις κάθε μηχανήματος μπορούν να τροποποιηθούν, στην ενότητα Μηχανή > "
+"Απόδοση."
 
 msgid "Fast forward at &startup"
-msgstr ""
+msgstr "Γρήγορη προώθηση κατά την &εκκίνηση"
 
 msgid "Fast forward"
 msgstr "Γρήγορα μπροστά"
@@ -3802,100 +3829,106 @@ msgid "Software-initiated poweroff device (IBM 5140)"
 msgstr "Συσκευή απενεργοποίησης μέσω λογισμικού (IBM 5140)"
 
 msgid "Memory &viewer"
-msgstr ""
+msgstr "&Προβολέας μνήμης"
 
 msgid "The emulator is busy; the memory view was not updated."
-msgstr ""
+msgstr "Ο εξομοιωτής είναι απασχολημένος; η προβολή μνήμης δεν ενημερώθηκε."
 
 msgid "The match is not on mapped memory; the selection and the view did not move."
 msgstr ""
+"Η αντιστοιχία δεν είναι στη χαρτογραφημένη μνήμη; η επιλογή και η προβολή "
+"δεν μετακινήθηκαν."
 
 msgid "Only RAM and video memory can be written."
-msgstr ""
+msgstr "Η εγγραφή είναι δυνατή μόνο στην RAM και στην μνήμη βίντεο."
 
 msgid "not written (not writable RAM or video memory, or the emulator is busy)."
 msgstr ""
+"δεν έγινε εγγραφή (μη εγγράψιμη μνήμη RAM ή μνήμη βίντεο, ή ο εξομοιωτής "
+"είναι απασχολημένος)."
 
 msgid "The emulator is busy; try again."
-msgstr ""
+msgstr "Ο εξομοιωτής είναι απασχολημένος; δοκιμάστε ξανά."
 
 msgid "Copied %1 bytes from %2 to the clipboard"
-msgstr ""
+msgstr "Αντιγράφηκαν %1 bytes από %2 στο πρόχειρο"
 
 msgid " (%1 could not be read)"
-msgstr ""
+msgstr " (%1 δεν ήταν δυνατή η ανάγνωση)"
 
 msgid " of a %1 byte selection"
-msgstr ""
+msgstr " μιας επιλογής %1 byte"
 
 msgid "There is no mapped memory to search."
-msgstr ""
+msgstr "Δεν υπάρχει χαρτογραφημένη μνήμη για αναζήτηση."
 
 msgid "There is no mapped memory in the requested range."
-msgstr ""
+msgstr "Δεν υπάρχει χαρτογραφημένη μνήμη στο ζητούμενο εύρος."
 
 msgid "The search is limited to %1 bytes."
-msgstr ""
+msgstr "Η αναζήτηση περιορίζεται σε %1 bytes."
 
 msgid "Searching memory..."
-msgstr ""
+msgstr "Αναζήτηση στη μνήμη..."
 
 msgid "The search was cancelled. The selection did not move."
-msgstr ""
+msgstr "Η αναζήτηση ακυρώθηκε. Η επιλογή δεν μετακινήθηκε."
 
 msgid "Found at %1."
-msgstr ""
+msgstr "Βρέθηκε στο %1."
 
 msgid "Not found. The selection did not move."
-msgstr ""
+msgstr "Δεν βρέθηκε. Η επιλογή δεν μετακινήθηκε."
 
 msgid "Fill selection"
-msgstr ""
+msgstr "Συμπλήρωση επιλογής"
 
 msgid "Fill %1 bytes from %2 with (hex):"
-msgstr ""
+msgstr "Συμπλήρωσε %1 bytes από %2 με (δεκαεξαδικά):"
 
 msgid "Enter a hex byte from 00 to FF."
-msgstr ""
+msgstr "Εισάγετε ένα byte σε δεκαεξαδική μορφή, από 00 έως FF."
 
 msgid "Filled %1 of %2 bytes with %3 (%4 were not writable RAM or video memory)."
 msgstr ""
+"Συμπληρώθηκαν %1 από %2 bytes με %3 (%4 δεν ήταν εγγράψιμη μνήμη RAM ή μνήμη "
+"βίντεο)."
 
 msgid " Selected: %1 bytes (%2 were skipped)."
-msgstr ""
+msgstr " Επιλέχθηκαν: %1 bytes (παραλείφθηκαν %2)."
 
 msgid "Edit byte"
-msgstr ""
+msgstr "Επεξεργασία byte"
 
 msgid "Copy selection (hex)"
-msgstr ""
+msgstr "Αντιγραφή επιλογής (δεκαεξαδική)"
 
 msgid "Copy selection (ASCII)"
-msgstr ""
+msgstr "Αντιγραφή επιλογής (ASCII)"
 
 msgid "Fill selection..."
-msgstr ""
+msgstr "Συμπλήρωση επιλογής..."
 
 msgid "Copy address"
-msgstr ""
+msgstr "Αντιγραφή διεύθυνσης"
 
 msgid "Disassemble here"
-msgstr ""
+msgstr "Αποσυναρμολόγηση εδώ"
 
 msgid "Dump memory from here..."
-msgstr ""
+msgstr "Εξαγωγή μνήμης από εδώ..."
 
 msgid "Memory viewer"
-msgstr ""
+msgstr "Προβολέας μνήμης"
 
 msgid "Pause / Resume"
-msgstr ""
+msgstr "Παύση / Συνέχεια"
 
 msgid "Step"
-msgstr ""
+msgstr "Βήμα"
 
 msgid "Run the given number of instructions (F11)"
-msgstr ""
+msgstr "Εκτέλεσε τον καθορισμένο αριθμό εντολών (F11)"
 
 msgid "Instructions per step"
 msgstr ""

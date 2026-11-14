@@ -568,6 +568,15 @@ index_file_init(const uint8_t id, const char *filename, int *error, int *is_viso
 
     *is_viso = 0;
 
+#ifndef IS_TEST
+    const char *extension = strrchr(filename, '.');
+    if (extension && !stricmp(extension, ".zip")) {
+        tf = viso_init(id, filename, error);
+        *is_viso = !*error;
+        return tf;
+    }
+#endif
+
     /* Current we only support .BIN files, either combined or one per
        track. In the future, more is planned. */
     tf = bin_init(id, filename, error);

@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"PO-Revision-Date: 2026-11-11 07:33+0000\n"
+"PO-Revision-Date: 2026-11-14 17:46+0000\n"
 "Last-Translator: toshineon <pettersson.mk11@gmail.com>\n"
 "Language-Team: Swedish <https://weblate.86box.net/projects/86box/86box/sv/>\n"
 "Language: sv-SE\n"
@@ -245,6 +245,30 @@ msgstr "&Preferenser…"
 
 msgid "Sound &gain…"
 msgstr "Ljud&förstärkning…"
+
+msgid "M&IDI output device"
+msgstr ""
+
+msgid "Restart &device"
+msgstr ""
+
+msgid "Send MIDI &command"
+msgstr ""
+
+msgid "&GM System On"
+msgstr ""
+
+msgid "G&S Reset"
+msgstr ""
+
+msgid "&XG System On"
+msgstr ""
+
+msgid "&MT-32 Reset"
+msgstr ""
+
+msgid "All &notes off"
+msgstr ""
 
 msgid "Begin trace"
 msgstr "Börja spårning"
@@ -3419,16 +3443,18 @@ msgid "&Fast forward"
 msgstr "&Spola fram"
 
 msgid "Fast forward at startup"
-msgstr ""
+msgstr "Snabbspola vid start"
 
 msgid "Start new machines in fast forward"
-msgstr ""
+msgstr "Starta nya maskiner i snabbspolning"
 
 msgid "Only affects machines created from now on. Each machine can be changed in its settings, under Machine > Performance."
 msgstr ""
+"Påverkar endast maskiner som skapas från och med nu. Varje maskin kan ändras "
+"i sina inställningar, under Maskin > Prestanda."
 
 msgid "Fast forward at &startup"
-msgstr ""
+msgstr "Snabbspola vid &start"
 
 msgid "Fast forward"
 msgstr "Spola fram"
@@ -3975,94 +4001,96 @@ msgid "Note"
 msgstr ""
 
 msgid "Double-click a line to set or clear a breakpoint there"
-msgstr ""
+msgstr "Dubbelklicka en rad för att ange eller rensa en brytpunkt där"
 
 msgid "Disassembly"
-msgstr ""
+msgstr "Disassemblator"
 
 msgid "Disassembly (not available in this build)"
-msgstr ""
+msgstr "Disassemblator (ej tillgänglig i denna version)"
 
 msgid "Viewer message"
-msgstr ""
+msgstr "Vy-meddelande"
 
 msgid "Selected range"
-msgstr ""
+msgstr "Valt spann"
 
 msgid "Debugger commands"
-msgstr ""
+msgstr "Felsökningskommandon"
 
 msgid "Debugger command output"
-msgstr ""
+msgstr "Utmatning från felsökningskommando"
 
 msgid "Debugger command"
-msgstr ""
+msgstr "Felsökningskommando"
 
 msgid "help — commands; Up/Down — history; . — selected address"
-msgstr ""
+msgstr "hjälp — kommandon, Upp/Ner — historik, . — vald adress"
 
 msgid "Commands share the memory viewer's address space and selection. Type help for commands."
 msgstr ""
+"Kommandon delar minnesvyns adressrymd och urval. Skriv hjälp för kommandon."
 
 msgid "Let the processor run (F5)"
-msgstr ""
+msgstr "Låt processorn köra (F5)"
 
 msgid "Stop the processor at the next instruction (F5)"
-msgstr ""
+msgstr "Stoppa processorn vid nästa instruktion (F5)"
 
 msgid "Too many breakpoints."
-msgstr ""
+msgstr "För många brytpunkter."
 
 msgid "Stopped: %1"
-msgstr ""
+msgstr "Stoppad: %1"
 
 msgid "The emulator is busy; the view was not updated."
-msgstr ""
+msgstr "Emulatorn är upptagen, vyn uppdaterades inte."
 
 msgid "Stopped at a breakpoint."
-msgstr ""
+msgstr "Stoppad vid en brytpunkt."
 
 msgid "Stopped after stepping."
-msgstr ""
+msgstr "Stoppad efter stegning."
 
 msgid "Stopped."
-msgstr ""
+msgstr "Stoppad."
 
 msgid "Stepping..."
-msgstr ""
+msgstr "Stegar..."
 
 msgid "Running."
-msgstr ""
+msgstr "Körs."
 
 msgid "The emulator is paused; resume it to run or step."
-msgstr ""
+msgstr "Emulatorn är pausad, återuppta den för att köra eller stega."
 
 msgid "The dynamic recompiler is off while this window is open."
-msgstr ""
+msgstr "Den dynamiska omkompilatorn är avstängd medans detta fönster är öppet."
 
 msgid "Enter an address."
-msgstr ""
+msgstr "Ange en adress."
 
 msgid "The selector cannot be looked up."
-msgstr ""
+msgstr "Väljaren kan inte slås upp."
 
 msgid "Unknown segment \"%1\"."
-msgstr ""
+msgstr "Okänt segment \"%1\"."
 
 msgid "Unknown offset \"%1\"."
-msgstr ""
+msgstr "Okänd offset \"%1\"."
 
 msgid "The linear address is not mapped to physical memory."
-msgstr ""
+msgstr "Den linjära adressen är inte kartlagd till fysiskt minne."
 
 msgid "\"%1\" is not an address or a register."
-msgstr ""
+msgstr "\"%1\" är inte en adress eller ett register."
 
 msgid "Usage: %1"
-msgstr ""
+msgstr "Användning: %1"
 
 msgid "The selection is physical; use a linear address or switch to linear space."
 msgstr ""
+"Urvalet är fysiskt, använd en linjär adress eller växla till linjär rymd."
 
 msgid "r name [hex-value]: read or edit a register supported by the current processor.\nEAX ECX EDX EBX ESP EBP ESI EDI; AX CX DX BX SP BP SI DI; AL CL DL BL AH CH DH BH\nIP EIP FLAGS EFLAGS; CS SS DS ES FS GS; MSW CR0 CR2 CR3 CR4; DR0..DR7\nGDTR.base GDTR.limit IDTR.base IDTR.limit LDTR TR\nCS/SS/DS/ES/FS/GS/LDTR/TR: .base .limit .access .flags (hidden descriptor cache)\nSelectors load descriptors without executing guest instructions; cache fields are literal edits.\nWrites require pause at a complete instruction boundary. NEC 8080-mode register edits are unavailable."
 msgstr ""
@@ -4072,6 +4100,8 @@ msgstr ""
 
 msgid "Register unavailable, value invalid, or processor not paused at a complete instruction boundary."
 msgstr ""
+"Register otillgängligt, värde ogiltigt, eller processor ej pausad vid en hel "
+"instruktionsgräns."
 
 msgid "Pause the processor before side-effecting memory access."
 msgstr ""

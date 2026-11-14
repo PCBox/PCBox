@@ -306,8 +306,8 @@ soundcanvas_thread(void *param)
                     double dr = (double) r;
                     filter_midi(0, &dl, filter_midi_p);
                     filter_midi(1, &dr, filter_midi_p);
-                    l = (float) l;
-                    r = (float) r;
+                    l = (float) dl;
+                    r = (float) dr;
                 }
 
                 if (l >  32767.0f) l =  32767.0f;
@@ -512,6 +512,10 @@ soundcanvas_close(void *priv)
     data->on = 0;
     thread_set_event(data->event);
     thread_wait(data->thread_h);
+    thread_destroy_event(data->event);
+    thread_destroy_event(data->start_event);
+    data->event       = NULL;
+    data->start_event = NULL;
 
     /* Destroy CLAP instance */
     if (data->clap_inst) {

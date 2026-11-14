@@ -289,6 +289,7 @@ typedef struct fdd_drive_t {
     int                check_bpb;
     int                seek_in_progress;
     int                driveloader;
+    int                folder_image;
     int                audio_profile;
     /*
        The image is write-protected (is either an advanced sector-based image, has
