@@ -339,7 +339,13 @@ ireg_seg_limit_high(x86seg *seg)
     return 0;
 }
 
-extern uint8_t reg_last_version[IREG_COUNT];
+/*IREG_COUNT rounded up to a whole group of 8, for the arrays that
+  codegen_reg_mark_as_required() reads 8 bytes at a time: the entries past
+  IREG_COUNT stay 0, so a group reads no other object and marks nothing past
+  reg_version[]*/
+#define IREG_COUNT_GROUPS ((IREG_COUNT + 7) & ~7)
+
+extern uint8_t reg_last_version[IREG_COUNT_GROUPS];
 extern uint64_t dirty_ir_regs[2];
 extern uint64_t ireg_permanent_mask[2];
 

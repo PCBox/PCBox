@@ -35,7 +35,7 @@ typedef struct codegen_link_slot_t {
     uintptr_t   *xlat;        /*&readlookup2[virt >> 12], compared when paging is on*/
     uintptr_t    xlat_val;    /*readlookup2[virt >> 12], never (int)-1*/
     uint8_t    **mem_exec;    /*&_mem_exec[phys >> MEM_GRANULARITY_BITS]*/
-    uint32_t    *hash;        /*&codeblock_hash[HASH(phys)]*/
+    uint32_t    *hash;        /*the first way of the block's bucket, &codeblock_hash[HASH(phys) * CODEBLOCK_HASH_WAYS]*/
 #if defined(__aarch64__) || defined(_M_ARM64)
     /*Fits 16 bits there (BLOCK_SIZE 0x10000); the arm64 routine loads it with
       the three fields after it as one word*/

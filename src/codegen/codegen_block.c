@@ -386,10 +386,13 @@ codegen_link_patch(codegen_link_slot_t *from, codeblock_t *block, uint32_t phys)
     uintptr_t            xlat_val = 0;
     codegen_link_slot_t *slot;
 
-    /*Only a compiled block the hash already points to.*/
+    /*Only a compiled block the hash already points to, in the way the C loop
+      looks in first (it moves a block it finds in the other one there). The
+      hash is 2-way: codeblock_hash[HASH(phys)] would be another bucket's
+      entry, which held this block only for HASH(phys) == 0*/
     if ((block->flags & (CODEBLOCK_WAS_RECOMPILED | CODEBLOCK_IN_DIRTY_LIST)) != CODEBLOCK_WAS_RECOMPILED)
         return;
-    if (codeblock_hash[HASH(phys)] != get_block_nr(block))
+    if (codeblock_hash_get(HASH(phys), 0) != get_block_nr(block))
         return;
     if (cr0 >> 31) {
         /*The routine can only redo the translation from readlookup2.*/
@@ -427,7 +430,7 @@ codegen_link_patch(codegen_link_slot_t *from, codeblock_t *block, uint32_t phys)
     slot->xlat       = xlat;
     slot->xlat_val   = xlat_val;
     slot->mem_exec   = &_mem_exec[phys >> MEM_GRANULARITY_BITS];
-    slot->hash       = &codeblock_hash[HASH(phys)];
+    slot->hash       = &codeblock_hash[HASH(phys) * CODEBLOCK_HASH_WAYS];
     slot->block_nr   = get_block_nr(block);
     slot->top_mask   = (block->flags & CODEBLOCK_STATIC_TOP) ? 7 : 0;
     slot->top        = (block->flags & CODEBLOCK_STATIC_TOP) ? block->TOP : 0;

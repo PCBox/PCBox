@@ -18,8 +18,10 @@
 #define UOP_TYPE_ORDER_BARRIER (1 << 27)
 
 /*Memory accesses remain ordering barriers for liveness and fault recovery.
-  Backends with an inline RAM path can defer writeback until that path misses.*/
-#define UOP_TYPE_MEM (1 << 24)
+  Backends with an inline RAM path can defer writeback until that path misses.
+  Not bit 24, which is UOP_TYPE_COLD: on arm64 every access would be taken for
+  the branch over a cold region*/
+#define UOP_TYPE_MEM (1 << 18)
 
 /*Set during emission when a memory helper must invalidate an earlier SSE check.*/
 #define UOP_TYPE_SSE_INVALIDATE (1 << 23)
@@ -64,6 +66,22 @@
 #else
 #    define UOP_TYPE_IR_ORDER (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER)
 #endif
+
+/*Each flag a bit of its own, above the uop numbers: one bit each, so their
+  sum is their OR only when no two share a bit*/
+#define UOP_TYPE_FLAGS_SUM                                                                                             \
+    ((uint64_t) UOP_TYPE_BARRIER + (uint64_t) UOP_TYPE_ORDER_BARRIER + (uint64_t) UOP_TYPE_MEM +                       \
+     (uint64_t) UOP_TYPE_SSE_INVALIDATE + (uint64_t) UOP_TYPE_MEM_REUSE + (uint64_t) UOP_TYPE_MEM_SAME_ADDR +          \
+     (uint64_t) UOP_TYPE_FP_STATUS + (uint64_t) UOP_TYPE_INT_FLAGS + (uint64_t) UOP_TYPE_PARAMS_REGS +                \
+     (uint64_t) UOP_TYPE_PARAMS_POINTER + (uint64_t) UOP_TYPE_PARAMS_IMM + (uint64_t) UOP_TYPE_JUMP +                 \
+     (uint64_t) UOP_TYPE_JUMP_DEST + (uint64_t) UOP_TYPE_COLD)
+#define UOP_TYPE_FLAGS_OR                                                                                              \
+    ((uint64_t) (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER | UOP_TYPE_MEM | UOP_TYPE_SSE_INVALIDATE |                \
+                 UOP_TYPE_MEM_REUSE | UOP_TYPE_MEM_SAME_ADDR | UOP_TYPE_FP_STATUS | UOP_TYPE_INT_FLAGS |             \
+                 UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_POINTER | UOP_TYPE_PARAMS_IMM | UOP_TYPE_JUMP |              \
+                 UOP_TYPE_JUMP_DEST | UOP_TYPE_COLD))
+_Static_assert(UOP_TYPE_FLAGS_SUM == UOP_TYPE_FLAGS_OR, "two UOP_TYPE_ flags share a bit");
+_Static_assert(!(UOP_TYPE_FLAGS_OR & 0xffff), "a UOP_TYPE_ flag overlaps the uop numbers (UOP_MASK)");
 
 #define UOP_LOAD_FUNC_ARG_0     (UOP_TYPE_PARAMS_REGS | 0x00)
 #define UOP_LOAD_FUNC_ARG_1     (UOP_TYPE_PARAMS_REGS | 0x01)

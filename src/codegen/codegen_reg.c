@@ -13,7 +13,7 @@
 int      max_version_refcount;
 uint16_t reg_dead_list = 0;
 
-uint8_t       reg_last_version[IREG_COUNT];
+uint8_t       reg_last_version[IREG_COUNT_GROUPS];
 reg_version_t reg_version[IREG_COUNT][256];
 
 ir_reg_t invalid_ir_reg = { IREG_INVALID };
@@ -300,10 +300,14 @@ uint64_t ireg_permanent_mask[2];
 /*0xff for each permanent register from IREG_ESP up, 0 for the others. Built
   once with ireg_permanent_mask by codegen_check_regs(): ireg_data never
   changes*/
-static uint8_t ireg_mark_bytes[IREG_COUNT];
+static uint8_t ireg_mark_bytes[IREG_COUNT_GROUPS];
 
 _Static_assert(sizeof(reg_last_version[0]) == 1, "codegen_reg_mark_as_required() reads reg_last_version 8 bytes at a time");
-//_Static_assert((IREG_COUNT % 8) == 0, "codegen_reg_mark_as_required() reads reg_last_version 8 bytes at a time");
+/*The fork's IR registers make IREG_COUNT 106: the arrays the groups read are
+  padded to IREG_COUNT_GROUPS instead (the padding is never written, so it
+  stays 0 and is never marked)*/
+_Static_assert((sizeof(reg_last_version) % 8) == 0, "codegen_reg_mark_as_required() reads reg_last_version 8 bytes at a time");
+_Static_assert((sizeof(ireg_mark_bytes) % 8) == 0, "codegen_reg_mark_as_required() reads ireg_mark_bytes 8 bytes at a time");
 
 void
 codegen_reg_mark_as_required(void)
@@ -834,6 +838,8 @@ ireg_mem_size(int ireg)
         case REG_FPU_ST_QWORD:
         case REG_FPU_ST_DOUBLE:
             return 64;
+        case REG_DQWORD:
+            return 16;
         default:
             return 8;
     }
@@ -1825,8 +1831,10 @@ codegen_reg_process_dead_list(ir_data_t *ir)
         reg_version_t *regv    = &reg_version[reg][version];
         uop_t         *uop     = &ir->uops[regv->parent_uop];
 
-        /*Barrier uOPs should be preserved*/
-        if (!(uop->type & (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER))) {
+        /*Barrier uOPs should be preserved, and so should those that update
+          the SSE status (MXCSR's sticky exception flags) whatever becomes of
+          their result*/
+        if (!(uop->type & (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER | UOP_TYPE_FP_STATUS))) {
             uop->type = UOP_INVALID;
             /*Adjust refcounts on source registers. If these drop to
               zero then those registers can be considered for removal*/

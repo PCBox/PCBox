@@ -1256,8 +1256,10 @@ codegen_FDIV_JSLOW_DEST(codeblock_t *block, uop_t *uop)
   r != 0 and C1 a rounding up in magnitude, r and num of opposite signs. r is
   Dekker's product, the operations of x87_divide_fast's path without FMA in
   its order, worked in XMM_TEMP and four allocated XMM registers the uop does
-  not read: their low halves, all an allocated value occupies, wait in R8-R11
-  and are put back before the first branch. At 24 bits the quotient rounds
+  not read: all 128 bits of each wait below the frame and are put back before
+  the first branch, RSP with them. Not the low halves only: a guest XMM
+  register is a 128-bit value, and Win64 keeps XMM6 and XMM7 allocated across
+  the order barrier, so one of them can hold it here. At 24 bits the quotient rounds
   once more, to single: a single-precision midpoint with r != 0, or a single
   that is not normal, is the software divide's; when the single differs from
   the quotient the flags are that rounding's, C1 for the larger magnitude. PE
@@ -1292,8 +1294,10 @@ codegen_FDIV_FLAGS_JSLOW_DEST(codeblock_t *block, uop_t *uop)
         if ((c != q_reg) && (c != num_reg) && (c != den_reg))
             w[nr_w++] = c;
     }
+    /*Nothing below addresses the stack until the restore*/
+    host_x86_SUB64_REG_IMM(block, REG_RSP, 64);
     for (int c = 1; c < 5; c++)
-        host_x86_MOVQ_REG_XREG(block, REG_R8 + c - 1, w[c]);
+        host_x86_MOVDQU_BASE_OFFSET_XREG(block, REG_RSP, (c - 1) * 16, w[c]);
 
     /* split = 2^27 + 1 */
     host_x86_MOV64_REG_IMM(block, REG_RCX, 0x41a0000002000000ull);
@@ -1332,7 +1336,8 @@ codegen_FDIV_FLAGS_JSLOW_DEST(codeblock_t *block, uop_t *uop)
     host_x86_SUBSD_XREG_XREG(block, w[1], w[0]); /* r = (num - p) - e */
     host_x86_MOVQ_REG_XREG(block, REG_RCX, w[1]);
     for (int c = 1; c < 5; c++)
-        host_x86_MOVQ_XREG_REG(block, w[c], REG_R8 + c - 1);
+        host_x86_MOVDQU_XREG_BASE_OFFSET(block, w[c], REG_RSP, (c - 1) * 16);
+    host_x86_ADD64_REG_IMM(block, REG_RSP, 64);
 
     host_x86_MOVQ_REG_XREG(block, REG_RSI, num_reg);
     host_x86_SHR64_IMM(block, REG_RSI, 63);
