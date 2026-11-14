@@ -138,7 +138,6 @@ if(INSTRUMENT)
 endif()
 
 target_link_libraries(PCBox
-    media_archive
     cpu
     char
     chipset
