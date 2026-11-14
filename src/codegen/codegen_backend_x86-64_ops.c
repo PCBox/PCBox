@@ -1213,19 +1213,29 @@ host_x86_MOVSX_REG_32_16(codeblock_t *block, int dst_reg, int src_reg)
     codegen_addbyte3(block, 0x0f, 0xbf, modrm_reg_reg(dst_reg, src_reg)); /*MOVSX dst_reg, src_reg*/
 }
 
+/*MOVZX dst_reg, [base_reg + index_reg]*/
+static void
+emit_movzx_base_index(codeblock_t *block, uint8_t opcode, int dst_reg, int base_reg, int index_reg)
+{
+    codegen_alloc_bytes(block, 6);
+    add_rex_if_needed(block, 0, dst_reg, index_reg, base_reg);
+    if ((base_reg & 7) == REG_RBP) {
+        /*With mod 00, a SIB base of RBP/R13 means disp32 and no base, so
+          those take mod 01 and a zero disp8*/
+        codegen_addbyte4(block, 0x0f, opcode, 0x44 | ((dst_reg & 7) << 3), ((index_reg & 7) << 3) | (base_reg & 7));
+        codegen_addbyte(block, 0);
+    } else
+        codegen_addbyte4(block, 0x0f, opcode, 0x04 | ((dst_reg & 7) << 3), ((index_reg & 7) << 3) | (base_reg & 7));
+}
 void
 host_x86_MOVZX_BASE_INDEX_32_8(codeblock_t *block, int dst_reg, int base_reg, int index_reg)
 {
-    codegen_alloc_bytes(block, 5);
-    add_rex_if_needed(block, 0, dst_reg, index_reg, base_reg);
-    codegen_addbyte4(block, 0x0f, 0xb6, 0x04 | ((dst_reg & 7) << 3), ((index_reg & 7) << 3) | (base_reg & 7));
+    emit_movzx_base_index(block, 0xb6, dst_reg, base_reg, index_reg);
 }
 void
 host_x86_MOVZX_BASE_INDEX_32_16(codeblock_t *block, int dst_reg, int base_reg, int index_reg)
 {
-    codegen_alloc_bytes(block, 5);
-    add_rex_if_needed(block, 0, dst_reg, index_reg, base_reg);
-    codegen_addbyte4(block, 0x0f, 0xb7, 0x04 | ((dst_reg & 7) << 3), ((index_reg & 7) << 3) | (base_reg & 7));
+    emit_movzx_base_index(block, 0xb7, dst_reg, base_reg, index_reg);
 }
 
 void
