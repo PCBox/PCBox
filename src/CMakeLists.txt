@@ -60,6 +60,7 @@ add_executable(PCBox
     usb_legacy.c
     usb_msd.c
     device.c
+    upi42.c
     nvr.c
     nvr_at.c
     nvr_ps2.c
@@ -137,6 +138,7 @@ if(INSTRUMENT)
 endif()
 
 target_link_libraries(PCBox
+    media_archive
     cpu
     char
     chipset
