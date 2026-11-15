@@ -40,12 +40,9 @@
 #include <86box/sound.h>
 #include <86box/clock.h>
 #include <86box/snd_ac97.h>
-<<<<<<< HEAD
-#include <86box/timer.h>
+#include <86box/timer.h>s
 #include <86box/apic.h>
-=======
 #include <86box/scsi.h>
->>>>>>> 57b10b0a1b9785aa428c94bb6d35c4799079de8e
 
 /* ALi ALADDiN-PRO II */
 int
