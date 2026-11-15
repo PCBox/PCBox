@@ -3256,9 +3256,11 @@ const machine_t machines[] = {
         .net_device               = NULL,
         .aliases                  = { "" }
     },
-    /* Type 8525-004, original 8 MHz 8086 color model with integrated MCGA. */
+    /* Type 8525, original 8 MHz 8086 with integrated MCGA: the monochrome
+       (8525-001) and color (8525-004) models differ in the built-in display,
+       which is the MCGA's monitor type. */
     {
-        .name              = "[8086] IBM PS/2 model 25 (color)",
+        .name              = "[8086] IBM PS/2 model 25",
         .internal_name     = "ibmps2_m25",
         .type              = MACHINE_TYPE_8086,
         .chipset           = MACHINE_CHIPSET_PROPRIETARY,
@@ -28264,7 +28266,11 @@ const machine_t machines[] = {
             .max_multi   = 8.0
         },
         .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_NIC | MACHINE_USB | MACHINE_UART_PRI | MACHINE_UART_SEC | MACHINE_LPT_PRI, /* Machine has internal SCSI: Adaptec AIC-7890AB (not yet implemented) */
+#ifdef USE_AIC7890
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_NIC | MACHINE_USB | MACHINE_SCSI, /* Machine has internal SCSI: Adaptec AIC-7890AB */
+#else
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_NIC | MACHINE_USB,
+#endif
         .ram       = {
             .min  = 8192,
             .max  = 1048576,
@@ -28301,6 +28307,9 @@ const machine_t machines[] = {
             MSLOT_BRIDGE(0x01, PCI_CARD_AGPBRIDGE, 1, 2, 3, 4, machine_bus_agp),
             MSLOT_END
         },
+#ifdef USE_AIC7890
+        .scsi_device              = &aic7890_pci_device,
+#endif
         .aliases                  = { "" }
     },
     /* Has a Winbond W83977EF Super I/O chip with on-chip KBC with AMIKey-2 KBC
@@ -30092,7 +30101,11 @@ const machine_t machines[] = {
             .max_multi   = 8.0
         },
         .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB | MACHINE_UART_PRI | MACHINE_UART_SEC | MACHINE_LPT_PRI, /* Machine has internal Adaptec SCSI */
+#ifdef USE_AIC7890
+        .flags     = MACHINE_IDE_DUAL | MACHINE_SCSI | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+#else
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+#endif
         .ram       = {
             .min  = 16384,
             .max  = 2097152,
@@ -30128,12 +30141,15 @@ const machine_t machines[] = {
             MSLOT_BRIDGE(0x01, PCI_CARD_AGPBRIDGE, 1, 2, 3, 4, machine_bus_agp),
             MSLOT_END
         },
+#ifdef USE_AIC7890
+        .scsi_device              = &aic7890_pci_device,
+#endif
         .aliases                  = { "" }
     },
     /* Has a Winbond W83977TF Super I/O chip with on-chip KBC with AMIKey-2 KBC
        firmware. */
     {
-        .name              = "[i440GX] Supermicro S2DGE",
+        .name              = "[i440GX] Supermicro S2DGU/DGE",
         .internal_name     = "s2dge",
         .type              = MACHINE_TYPE_SLOT2,
         .chipset           = MACHINE_CHIPSET_INTEL_440GX,
@@ -30153,7 +30169,11 @@ const machine_t machines[] = {
             .max_multi   = 8.0
         },
         .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB | MACHINE_UART_PRI | MACHINE_UART_SEC | MACHINE_LPT_PRI,
+#ifdef USE_AIC7890
+        .flags     = MACHINE_IDE_DUAL | MACHINE_SCSI | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+#else
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM | MACHINE_ACPI | MACHINE_USB,
+#endif
         .ram       = {
             .min  = 16384,
             .max  = 2097152,
@@ -30191,6 +30211,10 @@ const machine_t machines[] = {
             MSLOT_END
         },
         .aliases                  = { "" }
+#ifdef USE_AIC7890
+        .scsi_device              = &aic7890_pci_device,
+#endif
+        .aliases                  = { "Supermicro S2DGE", "Supermicro S2DGU", "" }
     },
 
     /* PGA370 machines */

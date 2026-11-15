@@ -326,8 +326,8 @@ msgstr "&Пустий"
 msgid "Reload previous image"
 msgstr "Знову завантажити попередній образ"
 
-msgid "&Folder…"
-msgstr "&Тека…"
+msgid "Mount &folder…"
+msgstr "Змонтувати &теку…"
 
 msgid "Preferences"
 msgstr "Параметри"
@@ -808,8 +808,8 @@ msgstr "Стрічкові накопичувачі:"
 msgid "ISA RTC:"
 msgstr "ISA RTC:"
 
-msgid "ISA Memory Expansion"
-msgstr "Карта розширення пам'яті (ISA)"
+msgid "ISA/MCA Memory Expansion"
+msgstr "Карта розширення пам'яті (ISA/MCA)"
 
 msgid "ISA ROM Cards"
 msgstr "Карти ПЗП ISA"
@@ -4363,4 +4363,28 @@ msgid "4-port USB 1.1 hub"
 msgstr ""
 
 msgid "USB Mass Storage"
+msgstr ""
+
+msgid "Mount folder as a temporary floppy"
+msgstr ""
+
+msgid "The selected drive does not support folder mounting."
+msgstr ""
+
+msgid "The contents exceed the capacity of the configured floppy drive."
+msgstr ""
+
+msgid "The floppy is out of directory entries or space, or a filename cannot be represented on FAT12."
+msgstr ""
+
+msgid "The source contains a filename that cannot be represented on FAT12."
+msgstr ""
+
+msgid "There is not enough memory to create the floppy image."
+msgstr ""
+
+msgid "The source path is too long or its contents could not be read."
+msgstr ""
+
+msgid "Unable to mount folder or ZIP archive"
 msgstr ""

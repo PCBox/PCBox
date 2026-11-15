@@ -40,8 +40,12 @@
 #include <86box/sound.h>
 #include <86box/clock.h>
 #include <86box/snd_ac97.h>
+<<<<<<< HEAD
 #include <86box/timer.h>
 #include <86box/apic.h>
+=======
+#include <86box/scsi.h>
+>>>>>>> 57b10b0a1b9785aa428c94bb6d35c4799079de8e
 
 /* ALi ALADDiN-PRO II */
 int
@@ -1834,6 +1838,8 @@ machine_at_p2bls_init(const machine_t *model)
     device_add(&i440bx_device);
     device_add(&piix4e_device);
     device_add_params(&w83977_device, (void *) (W83977EF | W83977_AMI | W83977_NO_NVR));
+    if ((scsi_card_current[0] == SCSI_CARD_INTERNAL) && machine_get_scsi_device(machine))
+        device_add(machine_get_scsi_device(machine));
 #if 0
     device_add(ics9xxx_get(ICS9150_08)); /* setting proper speeds requires some interaction with the AS97127F ASIC */
 #endif
