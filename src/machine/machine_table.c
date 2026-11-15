@@ -30210,7 +30210,6 @@ const machine_t machines[] = {
             MSLOT_BRIDGE(0x01, PCI_CARD_AGPBRIDGE, 1, 2, 0, 0, machine_bus_agp),
             MSLOT_END
         },
-        .aliases                  = { "" }
 #ifdef USE_AIC7890
         .scsi_device              = &aic7890_pci_device,
 #endif
