@@ -2497,8 +2497,8 @@ nv10_celsius_reset(nv4_t *nv4)
     if (nv4->chip == NV4_CHIP_NV11) {
         GR(0x400e18) = 0x40000000; /* TEX_CONTROL0(0): enable */
         GR(0x400e1c) = 0x40000000; /* TEX_CONTROL0(1): enable */
-        GR(0x400e38) = 0x00001c00; /* TEX_FILTER(0): min/mag linear */
-        GR(0x400e3c) = 0x00001c00; /* TEX_FILTER(1): min/mag linear */
+        GR(0x400e38) = 0x02020000; /* TEX_FILTER(0): min/mag linear */
+        GR(0x400e3c) = 0x02020000; /* TEX_FILTER(1): min/mag linear */
         GR(0x400e68) = 0x1b1b1b1b; /* RC_FINAL0 */
         GR(0x400e6c) = 0x1b1b1b00; /* RC_FINAL1 */
         GR(0x400ea8) = 0x00000008; /* POINT_SIZE: 1.0 */
