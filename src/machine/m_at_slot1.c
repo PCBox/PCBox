@@ -40,7 +40,7 @@
 #include <86box/sound.h>
 #include <86box/clock.h>
 #include <86box/snd_ac97.h>
-#include <86box/timer.h>s
+#include <86box/timer.h>
 #include <86box/apic.h>
 #include <86box/scsi.h>
 
