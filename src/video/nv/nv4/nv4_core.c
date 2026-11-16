@@ -1927,3 +1927,17 @@ static const device_config_t nv11_mx_config[] = {
     },
     { .name = "", .description = "", .type = CONFIG_END }
 };
+const device_t nv11_geforce2_mx_agp_device = {
+    .name          = "nVIDIA GeForce2 MX (NV11) AGP",
+    .internal_name = "nv11_geforce2_mx_agp",
+    .flags         = DEVICE_AGP,
+    .local         = (uintptr_t) &board_nv11_gf2mx,
+    .init          = nv4_init,
+    .close         = nv4_close,
+    .reset         = nv4_reset,
+    .available     = nv11_mx_available,
+    .speed_changed = nv4_speed_changed,
+    .force_redraw  = nv4_force_redraw,
+    .config        = nv11_mx_config
+};
+/* clang-format on */
