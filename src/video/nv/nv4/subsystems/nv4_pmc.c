@@ -47,6 +47,8 @@ static uint32_t
 nv4_pmc_boot_0(const nv4_t *nv4)
 {
     uint32_t boot = 0x20004000 | (nv4->board->revision & 0x0f);
+    if (nv4->chip == NV4_CHIP_NV11)
+    return 0x01100000 | ((nv4->board->device_id & 3) << 16) | (nv4->board->revision & 0xff);
 
     /* NV10: the chip id 0x10 in 27:20, the device id's low bits in
        17:16, the mask revision in 7:0 (B1: PCI revision 0x10). The
@@ -58,6 +60,7 @@ nv4_pmc_boot_0(const nv4_t *nv4)
         boot |= 0x00100000;
     return boot;
 }
+
 
 /* PMC_INTR_0: a unit's bit is set while that unit has an enabled
    interrupt pending. */
