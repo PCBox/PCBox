@@ -313,7 +313,10 @@ timer_set_new_tsc(uint64_t new_tsc)
     /* Run timers already expired. */
 #ifdef USE_DYNAREC
     if (cpu_use_dynarec || cpu_use_dynarec_fast)
+    {
         update_tsc();
+        update_tsc_write(new_tsc);
+    }
 #endif
 
     /* Shifting every timestamp by the same delta preserves the heap order. */
