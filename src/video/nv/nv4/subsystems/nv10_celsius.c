@@ -1167,6 +1167,7 @@ nv10_fill(nv4_t *nv4, const nv10_rv_t *in, int n)
         { 0.0f, 1.0f, 0.0f, 0.0f, -NV10_GB0 },
         { 0.0f, -1.0f, 0.0f, 0.0f, NV10_GB1 }
     };
+
     nv10_rv_t        buf[2][NV10_MAXV];
     const nv10_rv_t *v   = in;
     int              out = 0;
@@ -2007,7 +2008,7 @@ nv10_celsius_method(nv4_t *nv4, int chid, int cls, uint32_t mthd, uint32_t data)
         return NV4_GR_OK;
     }
     if ((mthd >= 0x1600) && (mthd < 0x1660))
-        return NV4_GR_MISSING; /* the resman's: DEBUG_INIT, MATERIAL_EMISSION_SW */
+        return (nv4->chip == NV4_CHIP_NV11) ? NV4_GR_OK : NV4_GR_MISSING; /* the resman's: DEBUG_INIT, MATERIAL_EMISSION_SW */
     if ((mthd >= 0x1400) && (mthd < 0x1600)) {
         uint32_t start = data & 0xffffff;
         uint32_t count = (data >> 24) + 1;
@@ -2045,8 +2046,7 @@ nv10_celsius_method(nv4_t *nv4, int chid, int cls, uint32_t mthd, uint32_t data)
     if (r >= 0)
         return r;
     if ((mthd >= 0x72c) && (mthd < 0x738))
-        return NV4_GR_MISSING; /* EYE_DIRECTION_SW: the resman loads the pipe */
-
+        return (nv4->chip == NV4_CHIP_NV11) ? NV4_GR_OK : NV4_GR_MISSING; /* EYE_DIRECTION_SW: the resman loads the pipe */
     /* everything below changes the draw state */
     nv4->celsius_si = -1;
     if ((mthd >= 0x218) && (mthd < 0x258)) {
@@ -2134,6 +2134,11 @@ nv10_celsius_method(nv4_t *nv4, int chid, int cls, uint32_t mthd, uint32_t data)
         case 0x10c: /* GET_STATE */
             return NV4_GR_MISSING;
         case 0x110: /* WAIT_FOR_IDLE */
+        case 0x120: /* NV11_CELSIUS DMA/Notify context methods */
+        case 0x124:
+        case 0x128:
+        case 0x12c:
+        case 0x130:
         case 0x140: /* PM_TRIGGER */
         case 0x728: /* FLUSH */
             return NV4_GR_OK;
@@ -2489,6 +2494,15 @@ nv10_celsius_reset(nv4_t *nv4)
     for (int i = 0; i < VAB_WORDS; i++)
         nv4->pgraph_pipe[PIPE_VAB + i] = f2u(vab[i]);
     nv4->celsius_si = -1;
+    if (nv4->chip == NV4_CHIP_NV11) {
+        GR(0x400e18) = 0x40000000; /* TEX_CONTROL0(0): enable */
+        GR(0x400e1c) = 0x40000000; /* TEX_CONTROL0(1): enable */
+        GR(0x400e38) = 0x00001c00; /* TEX_FILTER(0): min/mag linear */
+        GR(0x400e3c) = 0x00001c00; /* TEX_FILTER(1): min/mag linear */
+        GR(0x400e68) = 0x1b1b1b1b; /* RC_FINAL0 */
+        GR(0x400e6c) = 0x1b1b1b00; /* RC_FINAL1 */
+        GR(0x400ea8) = 0x00000008; /* POINT_SIZE: 1.0 */
+    }
 }
 
 void
