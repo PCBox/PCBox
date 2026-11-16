@@ -1861,35 +1861,69 @@ const device_t nv10_quadro_agp_device = {
     .config        = nv10_quadro_config
 };
 
-/* clang-format on */
 static const device_config_t nv11_mx_config[] = {
-    { .name           = "bios",
-     .description    = "Model",
-     .type           = CONFIG_BIOS,
-     .default_string = "nv11_gf2mx",
-     .default_int    = 0,
-     .file_filter    = NULL,
-     .spinner        = { 0 },
-     .selection      = { { 0 } },
-     .bios           = {
-          { .name = "NVIDIA GeForce2 MX (32 MB)", .internal_name = "nv11_gf2mx", .bios_type = BIOS_NORMAL, .files_no = 1, .local = 0, .size = 0, .files = { "roms/video/nvidia/nv11/gf2mx.rom", "" } },
-          { .files_no = 0 } } },
-    { .name = "memory", .description = "Memory size", .type = CONFIG_SELECTION, .default_string = NULL, .default_int = 32, .file_filter = NULL, .spinner = { 0 }, .selection = { { .description = "16 MB", .value = 16 }, { .description = "32 MB", .value = 32 }, { .description = "64 MB", .value = 64 }, { .description = "" } }, .bios = { { 0 } } },
-    { .name = "render_threads", .description = "Render threads", .type = CONFIG_SELECTION, .default_string = NULL, .default_int = 2, .file_filter = NULL, .spinner = { 0 }, .selection = { { .description = "1", .value = 1 }, { .description = "2", .value = 2 }, { .description = "3", .value = 3 }, { .description = "4", .value = 4 }, { .description = "6", .value = 6 }, { .description = "8", .value = 8 }, { .description = "12", .value = 12 }, { .description = "16", .value = 16 }, { .description = "" } }, .bios = { { 0 } } },
-    { .name = "gpu_raster", .description = "Draw 3D on the host GPU (Vulkan)", .type = CONFIG_BINARY, .default_string = NULL, .default_int = 0, .file_filter = NULL, .spinner = { 0 }, .selection = { { 0 } }, .bios = { { 0 } } },
+    {
+        .name           = "bios",
+        .description    = "Model",
+        .type           = CONFIG_BIOS,
+        .default_string = "nv11_gf2mx",
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            { .name = "NVIDIA GeForce2 MX (32 MB)", .internal_name = "nv11_gf2mx", .bios_type = BIOS_NORMAL,
+              .files_no = 1, .local = 0, .size = 0, .files = { "roms/video/nvidia/nv11/gf2mx.rom", "" } },
+            { .files_no = 0 }
+        }
+    },
+    {
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 32,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "16 MB", .value = 16 },
+            { .description = "32 MB", .value = 32 },
+            { .description = "64 MB", .value = 64 },
+            { .description = "" }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "render_threads",
+        .description    = "Render threads",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1", .value = 1 },
+            { .description = "2", .value = 2 },
+            { .description = "3", .value = 3 },
+            { .description = "4", .value = 4 },
+            { .description = "6", .value = 6 },
+            { .description = "8", .value = 8 },
+            { .description = "12", .value = 12 },
+            { .description = "16", .value = 16 },
+            { .description = "" }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "gpu_raster",
+        .description    = "Draw 3D on the host GPU (Vulkan)",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
     { .name = "", .description = "", .type = CONFIG_END }
-};
-
-const device_t nv11_geforce2_mx_agp_device = {
-    .name          = "nVIDIA GeForce2 MX (NV11) AGP",
-    .internal_name = "nv11_geforce2_mx_agp",
-    .flags         = DEVICE_AGP,
-    .local         = (uintptr_t) &board_nv11_gf2mx,
-    .init          = nv4_init,
-    .close         = nv4_close,
-    .reset         = nv4_reset,
-    .available     = nv11_mx_available,
-    .speed_changed = nv4_speed_changed,
-    .force_redraw  = nv4_force_redraw,
-    .config        = nv11_mx_config
 };
