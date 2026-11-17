@@ -532,8 +532,8 @@ RecompOpFn recomp_opcodes_da[512] = {
 /*a0*/  ropFISUBl,      ropFISUBl,      ropFISUBl,      ropFISUBl,      ropFISUBl,      ropFISUBl,      ropFISUBl,      ropFISUBl,      ropFISUBRl,     ropFISUBRl,     ropFISUBRl,     ropFISUBRl,     ropFISUBRl,     ropFISUBRl,     ropFISUBRl,     ropFISUBRl,
 /*b0*/  ropFIDIVl,      ropFIDIVl,      ropFIDIVl,      ropFIDIVl,      ropFIDIVl,      ropFIDIVl,      ropFIDIVl,      ropFIDIVl,      ropFIDIVRl,     ropFIDIVRl,     ropFIDIVRl,     ropFIDIVRl,     ropFIDIVRl,     ropFIDIVRl,     ropFIDIVRl,     ropFIDIVRl,
 
-/*c0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFUCOMPP,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
-/*d0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFUCOMPP,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*c0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*d0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*e0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFUCOMPP,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*f0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
@@ -554,8 +554,8 @@ RecompOpFn recomp_opcodes_da[512] = {
 /*a0*/  ropFISUBl,      ropFISUBl,      ropFISUBl,      ropFISUBl,      ropFISUBl,      ropFISUBl,      ropFISUBl,      ropFISUBl,      ropFISUBRl,     ropFISUBRl,     ropFISUBRl,     ropFISUBRl,     ropFISUBRl,     ropFISUBRl,     ropFISUBRl,     ropFISUBRl,
 /*b0*/  ropFIDIVl,      ropFIDIVl,      ropFIDIVl,      ropFIDIVl,      ropFIDIVl,      ropFIDIVl,      ropFIDIVl,      ropFIDIVl,      ropFIDIVRl,     ropFIDIVRl,     ropFIDIVRl,     ropFIDIVRl,     ropFIDIVRl,     ropFIDIVRl,     ropFIDIVRl,     ropFIDIVRl,
 
-/*c0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFUCOMPP,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
-/*d0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFUCOMPP,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*c0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*d0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*e0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFUCOMPP,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*f0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
     // clang-format on
@@ -580,8 +580,8 @@ RecompOpFn recomp_opcodes_db[512] = {
 /*a0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*b0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
-/*c0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFUCOMPP,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
-/*d0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFUCOMPP,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*c0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*d0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*e0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*f0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
@@ -602,8 +602,8 @@ RecompOpFn recomp_opcodes_db[512] = {
 /*a0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*b0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 
-/*c0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFUCOMPP,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
-/*d0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropFUCOMPP,     NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*c0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
+/*d0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*e0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
 /*f0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,
     // clang-format on
