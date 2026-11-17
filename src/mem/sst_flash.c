@@ -682,7 +682,8 @@ sst_flash_create(const device_t *model, const sst_flash_cfg_t *cfg)
     dev->manufacturer = model->local & 0xff;
     dev->id           = (model->local >> 8) & 0xff;
     dev->has_bbp      = (dev->manufacturer == WINBOND) && ((model->local & 0xff00) >= W29C020);
-    dev->is_39        = (dev->manufacturer == SST) && ((model->local & 0xff00) >= SST39SF512);
+    dev->is_39        = (dev->manufacturer == SST) && sst_is_byte_program_device(model->local & 0xff00);
+    dev->block_erase_size = (dev->manufacturer == SST) ? sst_block_erase_size(model->local & 0xff00) : 0;
     if (dev->manufacturer == AMD)
         dev->is_39 = 1;
 
