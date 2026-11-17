@@ -58,8 +58,9 @@ SettingsNetwork::enableElements(Ui::SettingsNetwork *ui)
         auto *bridge_label = networkControl<QLabel *>(QString("labelBridgeTAPNIC%1").arg(i + 1));
         auto *bridge_line  = networkControl<QLineEdit *>(QString("bridgeTAPNIC%1").arg(i + 1));
 
-        auto *option_list_label = networkControl<QLabel *>(QString("labelOptionList%1").arg(i + 1));
-        auto *option_list_line  = networkControl<QWidget *>(QString("lineOptionList%1").arg(i + 1));
+        auto *option_list_label = findChild<QLabel *>(QString("labelOptionList%1").arg(i + 1));
+        auto *option_list_line  = findChild<QWidget *>(QString("lineOptionList%1").arg(i + 1));
+        auto *slirp_8023_rx     = findChild<QCheckBox *>(QString("boxSlirp8023Rx%1").arg(i + 1));
 
         // Shared secret
         auto *secret_label = networkControl<QLabel *>(QString("labelSecret%1").arg(i + 1));
@@ -99,6 +100,7 @@ SettingsNetwork::enableElements(Ui::SettingsNetwork *ui)
         // Option list label and line
         option_list_label->setVisible(false);
         option_list_line->setVisible(false);
+        slirp_8023_rx->setVisible(false);
 
         // VDE
         vde_socket_label->setVisible(false);
@@ -175,7 +177,14 @@ SettingsNetwork::enableElements(Ui::SettingsNetwork *ui)
                     hostname_value->setVisible(true);
                     break;
 
-                case NET_TYPE_SLIRP:
+                case NET_TYPE_SLIRP: {
+                    const char *nic_name = network_card_get_internal_name(nic);
+                    const bool ethernet = nic_name && strcmp(nic_name, "modem") && strcmp(nic_name, "plip");
+                    option_list_label->setVisible(ethernet);
+                    option_list_line->setVisible(ethernet);
+                    slirp_8023_rx->setVisible(ethernet);
+                    break;
+                }
                 default:
                     break;
             }
@@ -244,10 +253,14 @@ SettingsNetwork::changed()
         has_changed                 |= net_card_cfg_changed[i];
         cbox                         = networkControl<QComboBox *>(QString("comboBoxNet%1").arg(i + 1));
         has_changed                 |= (net_cards_conf[i].net_type != cbox->currentData().toInt());
-        cbox                         = networkControl<QComboBox *>(QString("comboBoxIntf%1").arg(i + 1));
-        auto *hostname_value         = networkControl<QLineEdit *>(QString("hostnameSwitch%1").arg(i + 1));
-        auto *promisc_value          = networkControl<QCheckBox *>(QString("boxPromisc%1").arg(i + 1));
-        auto *secret_value           = networkControl<QLineEdit *>(QString("secretSwitch%1").arg(i + 1));
+        if (cbox->currentData().toInt() == NET_TYPE_SLIRP) {
+            auto *slirp_8023_rx = findChild<QCheckBox *>(QString("boxSlirp8023Rx%1").arg(i + 1));
+            has_changed |= (net_cards_conf[i].slirp_8023_rx != slirp_8023_rx->isChecked());
+        }
+        cbox                         = findChild<QComboBox *>(QString("comboBoxIntf%1").arg(i + 1));
+        auto *hostname_value         = findChild<QLineEdit *>(QString("hostnameSwitch%1").arg(i + 1));
+        auto *promisc_value          = findChild<QCheckBox *>(QString("boxPromisc%1").arg(i + 1));
+        auto *secret_value           = findChild<QLineEdit *>(QString("secretSwitch%1").arg(i + 1));
         char  temp_host_dev_name[128];
         char  temp_secret[256];
         char  temp_nrs_hostname[128];
@@ -307,10 +320,12 @@ SettingsNetwork::save(int soft)
         net_cards_conf[i].device_num = cbox->currentData().toInt();
         cbox                         = networkControl<QComboBox *>(QString("comboBoxNet%1").arg(i + 1));
         net_cards_conf[i].net_type   = cbox->currentData().toInt();
-        cbox                         = networkControl<QComboBox *>(QString("comboBoxIntf%1").arg(i + 1));
-        auto *hostname_value         = networkControl<QLineEdit *>(QString("hostnameSwitch%1").arg(i + 1));
-        auto *promisc_value          = networkControl<QCheckBox *>(QString("boxPromisc%1").arg(i + 1));
-        auto *secret_value           = networkControl<QLineEdit *>(QString("secretSwitch%1").arg(i + 1));
+        auto *slirp_8023_rx          = findChild<QCheckBox *>(QString("boxSlirp8023Rx%1").arg(i + 1));
+        net_cards_conf[i].slirp_8023_rx = (net_cards_conf[i].net_type == NET_TYPE_SLIRP) && slirp_8023_rx->isChecked();
+        cbox                         = findChild<QComboBox *>(QString("comboBoxIntf%1").arg(i + 1));
+        auto *hostname_value         = findChild<QLineEdit *>(QString("hostnameSwitch%1").arg(i + 1));
+        auto *promisc_value          = findChild<QCheckBox *>(QString("boxPromisc%1").arg(i + 1));
+        auto *secret_value           = findChild<QLineEdit *>(QString("secretSwitch%1").arg(i + 1));
         memset(net_cards_conf[i].host_dev_name, '\0', sizeof(net_cards_conf[i].host_dev_name));
         if (net_cards_conf[i].net_type == NET_TYPE_PCAP)
             strncpy(net_cards_conf[i].host_dev_name, network_devs[cbox->currentData().toInt()].device, sizeof(net_cards_conf[i].host_dev_name) - 1);
@@ -439,6 +454,9 @@ SettingsNetwork::onCurrentMachineChanged(int machineId)
             model->removeRows(0, removeRows);
             cbox->setCurrentIndex(selectedRow);
         }
+
+        auto *slirp_8023_rx = findChild<QCheckBox *>(QString("boxSlirp8023Rx%1").arg(i + 1));
+        slirp_8023_rx->setChecked(net_cards_conf[i].slirp_8023_rx);
 
         if (net_cards_conf[i].net_type == NET_TYPE_VDE) {
 #ifdef HAS_VDE
