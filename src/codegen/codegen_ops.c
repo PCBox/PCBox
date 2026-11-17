@@ -197,8 +197,8 @@ RecompOpFn recomp_opcodes_0f[512] = {
 
 /*80*/  ropJO_16,       ropJNO_16,      ropJB_16,       ropJNB_16,      ropJE_16,       ropJNE_16,      ropJBE_16,      ropJNBE_16,     ropJS_16,       ropJNS_16,      ropJP_16,       ropJNP_16,      ropJL_16,       ropJNL_16,      ropJLE_16,      ropJNLE_16,
 /*90*/  ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,
-/*a0*/  ropPUSH_FS_16,  ropPOP_FS_16,   NULL,           NULL,           ropSHLD_16_imm, ropSHLD_16_CL,  NULL,           NULL,           ropPUSH_GS_16,  ropPOP_GS_16,   NULL,           NULL,           ropSHRD_16_imm, ropSHRD_16_CL,  NULL,           ropIMUL_w_rm,
-/*b0*/  ropCMPXCHG_b,   ropCMPXCHG_w,   ropLSS_16,      NULL,           ropLFS_16,      ropLGS_16,      ropMOVZX_16_8,  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVSX_16_8,  NULL,
+/*a0*/  ropPUSH_FS_16,  ropPOP_FS_16,   NULL,           ropBT_w_r,      ropSHLD_16_imm, ropSHLD_16_CL,  NULL,           NULL,           ropPUSH_GS_16,  ropPOP_GS_16,   NULL,           ropBTS_w_r,           ropSHRD_16_imm, ropSHRD_16_CL,  NULL,           ropIMUL_w_rm,
+/*b0*/  ropCMPXCHG_b,   ropCMPXCHG_w,   ropLSS_16,      ropBTR_w_r,     ropLFS_16,      ropLGS_16,      ropMOVZX_16_8,  NULL,           NULL,           NULL,           ropBA_w,        ropBTC_w_r,     ropBSF_w,       ropBSR_w,       ropMOVSX_16_8,  NULL,
 
 /*c0*/  ropXADD_b,      ropXADD_w,      X86_CMPPS,      NULL,           X86_PINSRW,     X86_PEXTRW,     X86_SHUFPS,     NULL,           ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,
 /*d0*/  NULL,           NULL,           NULL,           NULL,           X86_PADDQ,      ropPMULLW,      NULL,           X86_PMOVMSKB,   ropPSUBUSB,     ropPSUBUSW,     X86_PMINUB,     ropPAND,        ropPADDUSB,     ropPADDUSW,     X86_PMAXUB,     ropPANDN,
@@ -223,8 +223,8 @@ RecompOpFn recomp_opcodes_0f[512] = {
 
 /*80*/  ropJO_32,       ropJNO_32,      ropJB_32,       ropJNB_32,      ropJE_32,       ropJNE_32,      ropJBE_32,      ropJNBE_32,     ropJS_32,       ropJNS_32,      ropJP_32,       ropJNP_32,      ropJL_32,       ropJNL_32,      ropJLE_32,      ropJNLE_32,
 /*90*/  ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,       ropSETcc,
-/*a0*/  ropPUSH_FS_32,  ropPOP_FS_32,   NULL,           NULL,           ropSHLD_32_imm, ropSHLD_32_CL,  NULL,           NULL,           ropPUSH_GS_32,  ropPOP_GS_32,   NULL,           NULL,           ropSHRD_32_imm, ropSHRD_32_CL,  NULL,           ropIMUL_l_rm,
-/*b0*/  ropCMPXCHG_b,   ropCMPXCHG_l,   ropLSS_32,      NULL,           ropLFS_32,      ropLGS_32,      ropMOVZX_32_8,  ropMOVZX_32_16, NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropMOVSX_32_8,  ropMOVSX_32_16,
+/*a0*/  ropPUSH_FS_32,  ropPOP_FS_32,   NULL,           ropBT_l_r,      ropSHLD_32_imm, ropSHLD_32_CL,  NULL,           NULL,           ropPUSH_GS_32,  ropPOP_GS_32,   NULL,           NULL,           ropSHRD_32_imm, ropSHRD_32_CL,  NULL,           ropIMUL_l_rm,
+/*b0*/  ropCMPXCHG_b,   ropCMPXCHG_l,   ropLSS_32,      ropBTR_l_r,     ropLFS_32,      ropLGS_32,      ropMOVZX_32_8,  ropMOVZX_32_16, NULL,           NULL,           ropBA_l,        ropBTC_l_r,     ropBSF_l,       ropBSR_l,       ropMOVSX_32_8,  ropMOVSX_32_16,
 
 /*c0*/  ropXADD_b,      ropXADD_l,      X86_CMPPS,      NULL,           X86_PINSRW,     X86_PEXTRW,     X86_SHUFPS,     NULL,           ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,
 /*d0*/  NULL,           NULL,           NULL,           NULL,           X86_PADDQ,      ropPMULLW,      NULL,           X86_PMOVMSKB,   ropPSUBUSB,     ropPSUBUSW,     X86_PMINUB,     ropPAND,        ropPADDUSB,     ropPADDUSW,     X86_PMAXUB,     ropPANDN,
