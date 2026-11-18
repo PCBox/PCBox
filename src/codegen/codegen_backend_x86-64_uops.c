@@ -4080,7 +4080,9 @@ codegen_MOVZX(codeblock_t *block, uop_t *uop)
     int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
 
-    if ((REG_IS_Q(dest_size) || REG_IS_DQ(dest_size)) && REG_IS_L(src_size)) {
+    if (REG_IS_DQ(dest_size) && REG_IS_Q(src_size)) {
+        host_x86_MOVQ_XREG_XREG(block, dest_reg, src_reg);
+    } else if ((REG_IS_Q(dest_size) || REG_IS_DQ(dest_size)) && REG_IS_L(src_size)) {
         host_x86_MOVD_XREG_REG(block, dest_reg, src_reg);
     } else if (REG_IS_L(dest_size) && (REG_IS_Q(src_size) || REG_IS_DQ(src_size))) {
         host_x86_MOVD_REG_XREG(block, dest_reg, src_reg);

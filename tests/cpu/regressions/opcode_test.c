@@ -15,8 +15,21 @@ typedef struct {
     uint8_t bytes[32];
     unsigned length, cr0_bits, no_osfxsr, trap_p3, trap_p4, setup, only_p4;
 } opcode_case;
-enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP_ALL_WRAP, UNPACK_SS, SSE_CALLBACK };
+enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP_ALL_WRAP, UNPACK_SS, SSE_CALLBACK, SSE2_MOVD, SSE2_MOVQ, SSE2_MOVDQ, SSE2_MOVDQA_FAULT };
 static const opcode_case opcases[] = {
+    /* MOVD xmm0,ecx / [edi],xmm0 / xmm1,[edi] / edx,xmm1 */
+    {"SSE2 MOVD round trip", {0x66,0x0f,0x6e,0xc1, 0x66,0x0f,0x7e,0x07,
+                              0x66,0x0f,0x6e,0x0f, 0x66,0x0f,0x7e,0xca},16,0,0,6,0,SSE2_MOVD,1},
+    /* MOVQ xmm0,xmm0 / xmm1,xmm0 / [edi],xmm1 */
+    {"SSE2 MOVQ self copy", {0xf3,0x0f,0x7e,0xc0, 0x66,0x0f,0xd6,0xc1,
+                             0x66,0x0f,0xd6,0x0f},12,0,0,6,0,SSE2_MOVQ,1},
+    /* Copy via an aligned load, both register directions, an unaligned
+       store/load pair, and an aligned store. */
+    {"SSE2 MOVDQA MOVDQU", {0x66,0x0f,0x6f,0x07, 0x66,0x0f,0x7f,0xc1,
+                            0xf3,0x0f,0x7f,0x4f,17, 0xf3,0x0f,0x6f,0x57,17,
+                            0xf3,0x0f,0x6f,0xda, 0x66,0x0f,0x7f,0x5f,48},27,0,0,6,0,SSE2_MOVDQ,1},
+    {"SSE2 MOVDQA misaligned load", {0x66,0x0f,0x6f,0x47,1},5,0,0,6,13,SSE2_MOVDQA_FAULT,1},
+    {"SSE2 MOVDQA misaligned store", {0x66,0x0f,0x7f,0x47,1},5,0,0,6,13,SSE2_MOVDQA_FAULT,1},
     /* MOVAPS xmm2,xmm0; MOV edx,[edi] / MOV [edi],edx; MOVAPS xmm2,xmm1 */
     {"SSE after scalar read callback", {0x0f,0x28,0xd0,0x8b,0x17,0x0f,0x28,0xd1},8,0,0,0,0,SSE_CALLBACK},
     {"SSE after scalar write callback", {0x0f,0x28,0xd0,0x89,0x17,0x0f,0x28,0xd1},8,0,0,0,0,SSE_CALLBACK},
@@ -581,6 +594,10 @@ int main(int argc,char **argv) {
                 if (call & 64) cpu_cur_status |= CPU_STATUS_SSE_UNMASKED;
             }
             unsigned stack_fault = (call / 8) & 1;
+            if (probe->setup >= SSE2_MOVD && probe->setup <= SSE2_MOVDQA_FAULT) {
+                for (unsigned n = 0; n < 64; ++n)
+                    ram[EDI + n] = (uint8_t)(n + call);
+            }
             if (probe->setup == SSE_CALLBACK) {
                 EDI = 0xd0000;
                 callback_count = 0;
@@ -650,6 +667,31 @@ int main(int argc,char **argv) {
             if (get32(TRAP) != expected) {
                 fprintf(stderr, "%s call %u: trap %u, expected %u\n", probe->name, call, get32(TRAP), expected);
                 return 1;
+            }
+            if (probe->setup == SSE2_MOVD || probe->setup == SSE2_MOVQ) {
+                int dword = probe->setup == SSE2_MOVD;
+                unsigned width = dword ? 4 : 8;
+                uint64_t value = dword ? UINT32_C(0x12345678) : UINT64_C(0x1111111111111111);
+                if (cpu_state.XMM[0].q[0] != value || cpu_state.XMM[0].q[1] ||
+                    cpu_state.XMM[1].q[0] != value || cpu_state.XMM[1].q[1] ||
+                    (dword && EDX != value) || memcmp(ram + EDI, &value, width) ||
+                    ram[EDI + width] != width + call || cpu_state.ismmx)
+                    fatal("%s: incorrect scalar transfer", probe->name);
+            }
+            if (probe->setup == SSE2_MOVDQ || probe->setup == SSE2_MOVDQA_FAULT) {
+                for (unsigned n = 0; n < 64; ++n) {
+                    unsigned src = n;
+                    if (probe->setup == SSE2_MOVDQ) {
+                        if (n >= 17 && n < 33) src = n - 17;
+                        if (n >= 48) src = n - 48;
+                    }
+                    if (ram[EDI + n] != src + call)
+                        fatal("%s: wrong byte at offset %u", probe->name, n);
+                }
+                if (expected && (get32(FAULT_PC) != BODY ||
+                                 cpu_state.XMM[0].q[0] != UINT64_C(0x1111111111111111) ||
+                                 cpu_state.XMM[0].q[1] != UINT64_C(0x1111111111111111)))
+                    fatal("%s: wrong fault EIP or destination", probe->name);
             }
             if (probe->setup == POP_SP && ESP != (((initial_sp + 2) & 0xffff0000) | 0x4321))
                 fatal("%s: wrong ESP %x", probe->name, ESP);

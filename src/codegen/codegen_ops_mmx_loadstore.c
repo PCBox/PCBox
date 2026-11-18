@@ -14,22 +14,24 @@
 #include "codegen_ir.h"
 #include "codegen_ops.h"
 #include "codegen_ops_mmx_loadstore.h"
+#include "codegen_ops_sse_loadstore.h"
 #include "codegen_ops_helpers.h"
 
 uint32_t
 ropMOVD_r_d(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int dest_reg = (fetchdat >> 3) & 7;
+    int vector = op_sse_xmm ? IREG_XMM(dest_reg) : IREG_MM(dest_reg);
 
-    if(op_sse_xmm)
-        return 0;
-
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
-    uop_MMX_ENTER(ir);
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_MMX);
+    if (op_sse_xmm)
+        uop_SSE_ENTER(ir);
+    else
+        uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
         int src_reg = fetchdat & 7;
-        uop_MOVZX(ir, IREG_MM(dest_reg), IREG_32(src_reg));
+        uop_MOVZX(ir, vector, IREG_32(src_reg));
     } else {
         x86seg *target_seg;
 
@@ -38,30 +40,32 @@ ropMOVD_r_d(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
         codegen_check_seg_read(block, ir, target_seg);
         CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 3);
         uop_MEM_LOAD_REG(ir, IREG_temp0, ireg_seg_base(target_seg), IREG_eaaddr);
-        uop_MOVZX(ir, IREG_MM(dest_reg), IREG_temp0);
+        uop_MOVZX(ir, vector, IREG_temp0);
     }
 
     return op_pc + 1;
 }
+
 uint32_t
 ropMOVD_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int src_reg = (fetchdat >> 3) & 7;
+    int vector = op_sse_xmm ? IREG_XMM(src_reg) : IREG_MM(src_reg);
 
-    if(op_sse_xmm)
-        return 0;
-
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_MMX);
     /*0F 7E is SMINT on a Cyrix in SMM, and blocks aren't kept apart by SMM
       (nothing sets CPU_STATUS_SMM): a block compiled outside SMM can run in it*/
     if (cpu_iscyrix)
         return 0;
 
-    uop_MMX_ENTER(ir);
+    if (op_sse_xmm)
+        uop_SSE_ENTER(ir);
+    else
+        uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
         int dest_reg = fetchdat & 7;
-        uop_MOVZX(ir, IREG_32(dest_reg), IREG_MM(src_reg));
+        uop_MOVZX(ir, IREG_32(dest_reg), vector);
     } else {
         x86seg *target_seg;
 
@@ -69,7 +73,7 @@ ropMOVD_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
         codegen_check_seg_write(block, ir, target_seg);
         CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 3);
-        uop_MOVZX(ir, IREG_temp0, IREG_MM(src_reg));
+        uop_MOVZX(ir, IREG_temp0, vector);
         uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0);
     }
 
@@ -77,12 +81,12 @@ ropMOVD_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
 }
 
 uint32_t
-ropMOVQ_r_q(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+ropMOVQ_r_q(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
-    if(op_sse_xmm)
-        return 0;
+    if (op_sse_xmm) /* 66 0F 6F MOVDQA */
+        return ropMOVAPS_r_d(block, ir, opcode, fetchdat, op_32, op_pc);
 
     REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
     uop_MMX_ENTER(ir);
@@ -104,12 +108,12 @@ ropMOVQ_r_q(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
 }
 
 uint32_t
-ropMOVQ_q_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+ropMOVQ_q_r(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int src_reg = (fetchdat >> 3) & 7;
 
-    if(op_sse_xmm)
-        return 0;
+    if (op_sse_xmm) /* 66 0F 7F MOVDQA */
+        return ropMOVAPS_d_r(block, ir, opcode, fetchdat, op_32, op_pc);
 
     REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
     uop_MMX_ENTER(ir);

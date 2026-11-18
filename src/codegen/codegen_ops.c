@@ -56,6 +56,7 @@
 #    define X86_MOVLPS_Q_R ropMOVLPS_q_r
 #    define X86_MOVHPS_R_Q ropMOVHPS_r_q
 #    define X86_MOVHPS_Q_R ropMOVHPS_q_r
+#    define X86_MOVQ_XMM ropMOVQ_xmm
 #    define X86_MOVMSKPS ropMOVMSKPS
 #    define X86_SHUFPS ropSHUFPS
 #    define X86_SQRTPS ropSQRTPS
@@ -102,6 +103,7 @@
 #    define X86_MOVLPS_Q_R NULL
 #    define X86_MOVHPS_R_Q NULL
 #    define X86_MOVHPS_Q_R NULL
+#    define X86_MOVQ_XMM NULL
 #    define X86_MOVMSKPS NULL
 #    define X86_SHUFPS NULL
 #    define X86_SQRTPS NULL
@@ -201,7 +203,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
 /*b0*/  ropCMPXCHG_b,   ropCMPXCHG_w,   ropLSS_16,      ropBTR_w_r,     ropLFS_16,      ropLGS_16,      ropMOVZX_16_8,  ropMOV_r_w,     NULL,           NULL,           ropBA_w,        ropBTC_w_r,     ropBSF_w,       ropBSR_w,       ropMOVSX_16_8,  ropMOV_r_w,
 
 /*c0*/  ropXADD_b,      ropXADD_w,      X86_CMPPS,      NULL,           X86_PINSRW,     X86_PEXTRW,     X86_SHUFPS,     NULL,           ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,
-/*d0*/  NULL,           NULL,           NULL,           NULL,           X86_PADDQ,      ropPMULLW,      NULL,           X86_PMOVMSKB,   ropPSUBUSB,     ropPSUBUSW,     X86_PMINUB,     ropPAND,        ropPADDUSB,     ropPADDUSW,     X86_PMAXUB,     ropPANDN,
+/*d0*/  NULL,           NULL,           NULL,           NULL,           X86_PADDQ,      ropPMULLW,      X86_MOVQ_XMM,   X86_PMOVMSKB,   ropPSUBUSB,     ropPSUBUSW,     X86_PMINUB,     ropPAND,        ropPADDUSB,     ropPADDUSW,     X86_PMAXUB,     ropPANDN,
 /*e0*/  X86_PAVGB,      NULL,           NULL,           X86_PAVGW,      X86_PMULHUW,    ropPMULHW,      NULL,           NULL,           ropPSUBSB,      ropPSUBSW,      X86_PMINSW,     ropPOR,         ropPADDSB,      ropPADDSW,      X86_PMAXSW,     ropPXOR,
 #if defined __ARM_EABI__ || defined _ARM_ || defined _M_ARM || defined __aarch64__ || defined _M_ARM64
 /*f0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropPSUBB,       ropPSUBW,       ropPSUBD,       NULL,           ropPADDB,       ropPADDW,       ropPADDD,       NULL,
@@ -227,7 +229,7 @@ RecompOpFn recomp_opcodes_0f[512] = {
 /*b0*/  ropCMPXCHG_b,   ropCMPXCHG_l,   ropLSS_32,      ropBTR_l_r,     ropLFS_32,      ropLGS_32,      ropMOVZX_32_8,  ropMOVZX_32_16, NULL,           NULL,           ropBA_l,        ropBTC_l_r,     ropBSF_l,       ropBSR_l,       ropMOVSX_32_8,  ropMOVSX_32_16,
 
 /*c0*/  ropXADD_b,      ropXADD_l,      X86_CMPPS,      NULL,           X86_PINSRW,     X86_PEXTRW,     X86_SHUFPS,     NULL,           ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,       ropBSWAP,
-/*d0*/  NULL,           NULL,           NULL,           NULL,           X86_PADDQ,      ropPMULLW,      NULL,           X86_PMOVMSKB,   ropPSUBUSB,     ropPSUBUSW,     X86_PMINUB,     ropPAND,        ropPADDUSB,     ropPADDUSW,     X86_PMAXUB,     ropPANDN,
+/*d0*/  NULL,           NULL,           NULL,           NULL,           X86_PADDQ,      ropPMULLW,      X86_MOVQ_XMM,   X86_PMOVMSKB,   ropPSUBUSB,     ropPSUBUSW,     X86_PMINUB,     ropPAND,        ropPADDUSB,     ropPADDUSW,     X86_PMAXUB,     ropPANDN,
 /*e0*/  X86_PAVGB,      NULL,           NULL,           X86_PAVGW,      X86_PMULHUW,    ropPMULHW,      NULL,           NULL,           ropPSUBSB,      ropPSUBSW,      X86_PMINSW,     ropPOR,         ropPADDSB,      ropPADDSW,      X86_PMAXSW,     ropPXOR,
 #if defined __ARM_EABI__ || defined _ARM_ || defined _M_ARM || defined __aarch64__ || defined _M_ARM64
 /*f0*/  NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           NULL,           ropPSUBB,       ropPSUBW,       ropPSUBD,       NULL,           ropPADDB,       ropPADDW,       ropPADDD,       NULL,
@@ -302,6 +304,9 @@ RecompOpFn recomp_opcodes_REPE_0f[512] = {
     [0x05d] = ropMINSS,
     [0x05e] = ropDIVSS,
     [0x05f] = ropMAXSS,
+    [0x06f] = ropMOVUPS_r_d, /* MOVDQU */
+    [0x07e] = ropMOVQ_xmm,
+    [0x07f] = ropMOVUPS_d_r, /* MOVDQU */
     [0x0c2] = ropCMPSS,
     [0x110] = ropMOVSS_r_d,
     [0x111] = ropMOVSS_d_r,
@@ -317,6 +322,9 @@ RecompOpFn recomp_opcodes_REPE_0f[512] = {
     [0x15d] = ropMINSS,
     [0x15e] = ropDIVSS,
     [0x15f] = ropMAXSS,
+    [0x16f] = ropMOVUPS_r_d, /* MOVDQU */
+    [0x17e] = ropMOVQ_xmm,
+    [0x17f] = ropMOVUPS_d_r, /* MOVDQU */
     [0x1c2] = ropCMPSS,
 #endif
 // clang-format on

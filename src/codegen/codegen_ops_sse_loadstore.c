@@ -17,11 +17,11 @@
 #include "codegen_ops_helpers.h"
 
 uint32_t
-ropMOVUPS_r_d(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+ropMOVUPS_r_d(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
-    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
+    REQUIRE_GUEST_FEATURE((opcode == 0x6f || op_sse_xmm) ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -42,11 +42,11 @@ ropMOVUPS_r_d(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 }
 
 uint32_t
-ropMOVUPS_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+ropMOVUPS_d_r(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int src_reg = (fetchdat >> 3) & 7;
 
-    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
+    REQUIRE_GUEST_FEATURE((opcode == 0x7f || op_sse_xmm) ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -112,6 +112,39 @@ ropMOVSS_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
         uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0);
     }
 
+    return op_pc + 1;
+}
+
+/* F3 0F 7E loads the low qword, 66 0F D6 stores it. Both register
+   forms clear the high qword, including moves to the same register. */
+uint32_t
+ropMOVQ_xmm(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    int reg = (fetchdat >> 3) & 7;
+    int rm = fetchdat & 7;
+    int store = opcode == 0xd6;
+
+    if (store && !op_sse_xmm)
+        return 0;
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE2);
+    uop_SSE_ENTER(ir);
+    codegen_mark_code_present(block, cs + op_pc, 1);
+    if ((fetchdat & 0xc0) == 0xc0) {
+        uop_MOVZX(ir, IREG_XMM(store ? rm : reg), IREG_XMM_Q(store ? reg : rm));
+    } else {
+        uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+        x86seg *seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+        if (store) {
+            codegen_check_seg_write(block, ir, seg);
+            CHECK_SEG_LIMITS(block, ir, seg, IREG_eaaddr, 7);
+            uop_MEM_STORE_REG(ir, ireg_seg_base(seg), IREG_eaaddr, IREG_XMM_Q(reg));
+        } else {
+            codegen_check_seg_read(block, ir, seg);
+            CHECK_SEG_LIMITS(block, ir, seg, IREG_eaaddr, 7);
+            uop_MEM_LOAD_REG(ir, IREG_temp0_Q, ireg_seg_base(seg), IREG_eaaddr);
+            uop_MOVZX(ir, IREG_XMM(reg), IREG_temp0_Q);
+        }
+    }
     return op_pc + 1;
 }
 
@@ -230,7 +263,7 @@ ropUNPCKHPS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
 }
 
 uint32_t
-ropMOVAPS_r_d(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+ropMOVAPS_r_d(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
@@ -245,9 +278,12 @@ ropMOVAPS_r_d(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+        if (opcode == 0x6f) /* MOVDQA */
+            codegen_check_sse_align(ir, target_seg);
         codegen_check_seg_read(block, ir, target_seg);
         CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 15);
-        codegen_check_sse_align(ir, target_seg);
+        if (opcode != 0x6f)
+            codegen_check_sse_align(ir, target_seg);
         uop_MEM_LOAD_REG(ir, IREG_temp0_DQ, ireg_seg_base(target_seg), IREG_eaaddr);
         uop_MOV(ir, IREG_XMM(dest_reg), IREG_temp0_DQ);
     }
@@ -275,9 +311,12 @@ ropMOVAPS_d_r(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchd
 
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+        if (opcode == 0x7f) /* MOVDQA */
+            codegen_check_sse_align(ir, target_seg);
         codegen_check_seg_write(block, ir, target_seg);
         CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 15);
-        codegen_check_sse_align(ir, target_seg);
+        if (opcode != 0x7f)
+            codegen_check_sse_align(ir, target_seg);
         uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_XMM(src_reg));
     }
 
