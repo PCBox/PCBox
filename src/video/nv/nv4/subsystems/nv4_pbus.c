@@ -63,7 +63,7 @@ nv4_pbus_read(nv4_t *nv4, uint32_t addr)
         default:
             /* NV10: more debug and trim registers (0x1090-0x10fc), kept
                as written */
-            if (NV4_IS_NV10(nv4) && (addr >= 0x001090) && (addr < 0x001100))
+            if (NV4_IS_CELSIUS(nv4) && (addr >= 0x001090) && (addr < 0x001100))
                 return nv4->pbus_ext[(addr - 0x001090) >> 2];
             nv4_log("NV4 PBUS: read %06x\n", addr);
             return 0;
@@ -92,7 +92,7 @@ nv4_pbus_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             nv4->pbus_rom_config = val & 0x3f;
             break;
         default:
-            if (NV4_IS_NV10(nv4) && (addr >= 0x001090) && (addr < 0x001100)) {
+            if (NV4_IS_CELSIUS(nv4) && (addr >= 0x001090) && (addr < 0x001100)) {
                 nv4->pbus_ext[(addr - 0x001090) >> 2] = val;
                 break;
             }

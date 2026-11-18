@@ -6,7 +6,7 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          NVIDIA GeForce 256 (NV10) -- the Celsius class (0x56), the
+ *          NVIDIA GeForce 256 / GeForce2 -- the Celsius classes (0x56, 0x96), the
  *          chip's 3D engine with transform and lighting.
  *
  *          Methods load three kinds of state, as the hardware keeps it:
@@ -347,7 +347,7 @@ nv10_bpp(int sfmt)
 /* Registers.                                                          */
 /* ------------------------------------------------------------------ */
 static uint32_t
-nv10_reg_mask(uint32_t addr)
+nv10_reg_mask(const nv4_t *nv4, uint32_t addr)
 {
     if ((addr >= 0x400f00) && (addr < 0x400f40))
         return 0x0fff0fff;
@@ -390,7 +390,7 @@ nv10_reg_mask(uint32_t addr)
         case NV10_CONFIG_B:
             return 0x00003ff5;
         case NV10_BLEND:
-            return 0x00000fff;
+            return nv4->chip == NV4_CHIP_NV15 ? 0x0001ffff : 0x00000fff;
         case NV10_RASTER:
             return 0xfcffffcf;
         case NV10_POINT_SIZE:
@@ -407,7 +407,7 @@ nv10_reg_mask(uint32_t addr)
 void
 nv10_celsius_reg_write(nv4_t *nv4, uint32_t addr, uint32_t val)
 {
-    GR(addr) = val & nv10_reg_mask(addr);
+    GR(addr) = val & nv10_reg_mask(nv4, addr);
     nv4->celsius_si = -1;
 }
 
@@ -650,7 +650,8 @@ nv10_make_state(nv4_t *nv4, nv4_3d_state_t *s)
     s->persp     = 1;
     s->fog_color = GR(NV10_FOG_COLOR);
     s->fogmode   = GR(NV10_CONFIG_C) & 7;
-    s->ablend    = (bl >> 3) & 1;
+    s->logic_op  = (bl >> 12) & 0x1f;
+    s->ablend    = ((bl >> 3) & 1) && !(s->logic_op & 0x10);
     s->beq       = bl & 7;
     s->sblend    = (bl >> 4) & 0xf;
     s->dblend    = (bl >> 8) & 0xf;
@@ -2457,8 +2458,17 @@ nv10_celsius_method(nv4_t *nv4, int chid, int cls, uint32_t mthd, uint32_t data)
         case 0x3f4: /* FLAT_SHADE_OP: first vertex */
             nv10_insrt(nv4, NV10_CONFIG_B, 0, 1, data & 1);
             return NV4_GR_OK;
-        case 0xd40: /* COLOR_LOGIC_OP: not modeled */
-        case 0xd44:
+        case 0xd40: /* COLOR_LOGIC_OP_ENABLE */
+            if (cls != 0x96)
+                return NV4_GR_ILLEGAL;
+            if (data <= 1)
+                nv10_insrt(nv4, NV10_BLEND, 16, 1, data);
+            return NV4_GR_OK;
+        case 0xd44: /* COLOR_LOGIC_OP_OP: GL_CLEAR through GL_SET */
+            if (cls != 0x96)
+                return NV4_GR_ILLEGAL;
+            if (data >= 0x1500 && data <= 0x150f)
+                nv10_insrt(nv4, NV10_BLEND, 12, 4, data);
             return NV4_GR_OK;
 
         default:

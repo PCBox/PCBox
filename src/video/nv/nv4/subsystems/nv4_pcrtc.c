@@ -52,7 +52,7 @@
 static int
 nv4_cursor_size(const nv4_t *nv4)
 {
-    if (NV4_IS_NV10(nv4) && (nv4->pcrtc_cursor_cfg & (1u << 16)))
+    if (NV4_IS_CELSIUS(nv4) && (nv4->pcrtc_cursor_cfg & (1u << 16)))
         return 64;
     return NV4_CURSOR_SIZE;
 }
@@ -60,12 +60,14 @@ nv4_cursor_size(const nv4_t *nv4)
 static int
 nv4_cursor_bpp(const nv4_t *nv4)
 {
-    return (NV4_IS_NV10(nv4) && (nv4->pcrtc_cursor_cfg & (1u << 12))) ? 4 : 2;
+    return (NV4_IS_CELSIUS(nv4) && (nv4->pcrtc_cursor_cfg & (1u << 12))) ? 4 : 2;
 }
 
 void
 nv4_pcrtc_reset(nv4_t *nv4)
 {
+    nv4->raster_start    = 0;
+    nv4->raster_stop     = 0;
     nv4->pcrtc_intr      = 0;
     nv4->pcrtc_intr_en   = 0;
     nv4->pcrtc_start     = 0;
@@ -134,16 +136,20 @@ nv4_pcrtc_read(nv4_t *nv4, uint32_t addr)
         case NV4_PCRTC_RASTER:
             /* position 10:0, vertical blank 16 */
             return (svga->displine & 0x7ff) | ((svga->cgastat & 8) ? 0x10000 : 0);
+        case NV15_PCRTC_RASTER_START:
+            return nv4->chip == NV4_CHIP_NV15 ? nv4->raster_start : 0;
+        case NV15_PCRTC_RASTER_STOP:
+            return nv4->chip == NV4_CHIP_NV15 ? nv4->raster_stop : 0;
         case NV10_PCRTC_CURSOR:
-            if (NV4_IS_NV10(nv4))
+            if (NV4_IS_CELSIUS(nv4))
                 return nv4->pcrtc_cursor;
             break;
         case NV10_PCRTC_CURSOR_CONFIG:
-            if (NV4_IS_NV10(nv4))
+            if (NV4_IS_CELSIUS(nv4))
                 return nv4->pcrtc_cursor_cfg;
             break;
         case NV10_PCRTC_GPIO:
-            if (NV4_IS_NV10(nv4))
+            if (NV4_IS_CELSIUS(nv4))
                 return nv4->pcrtc_gpio;
             break;
         default:
@@ -168,7 +174,7 @@ nv4_pcrtc_write(nv4_t *nv4, uint32_t addr, uint32_t val)
         case NV4_PCRTC_START_ADDR:
             /* a flip: the buffer now shown was drawn frames ago, so the
                frame must be redrawn whole, not just its changed rows */
-            val &= NV4_IS_NV10(nv4) ? 0x07fffffc : 0x01fffffc;
+            val &= NV4_IS_CELSIUS(nv4) ? 0x07fffffc : 0x01fffffc;
             if (val != nv4->pcrtc_start) {
                 nv4_3d_flush(nv4);
                 nv4->svga.fullchange = nv4->svga.monitor->mon_changeframecount;
@@ -178,25 +184,33 @@ nv4_pcrtc_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             svga_recalctimings(&nv4->svga);
             break;
         case NV4_PCRTC_CONFIG:
-            nv4->pcrtc_config = val & (NV4_IS_NV10(nv4) ? 0x1103 : 1);
+            nv4->pcrtc_config = val & (NV4_IS_CELSIUS(nv4) ? 0x1103 : 1);
             svga_recalctimings(&nv4->svga);
             break;
+        case NV15_PCRTC_RASTER_START:
+            if (nv4->chip == NV4_CHIP_NV15)
+                nv4->raster_start = val & 0x8000ffff;
+            break;
+        case NV15_PCRTC_RASTER_STOP:
+            if (nv4->chip == NV4_CHIP_NV15)
+                nv4->raster_stop = val & 0xffff;
+            break;
         case NV10_PCRTC_CURSOR:
-            if (!NV4_IS_NV10(nv4))
+            if (!NV4_IS_CELSIUS(nv4))
                 goto unmapped;
             nv4->pcrtc_cursor = val & 0x07ffffff;
             nv10_cursor_to_crs(nv4);
             svga_recalctimings(&nv4->svga);
             break;
         case NV10_PCRTC_CURSOR_CONFIG:
-            if (!NV4_IS_NV10(nv4))
+            if (!NV4_IS_CELSIUS(nv4))
                 goto unmapped;
             nv4->pcrtc_cursor_cfg = val & 0x1ff11111;
             nv10_cursor_to_crs(nv4);
             svga_recalctimings(&nv4->svga);
             break;
         case NV10_PCRTC_GPIO:
-            if (!NV4_IS_NV10(nv4))
+            if (!NV4_IS_CELSIUS(nv4))
                 goto unmapped;
             nv4->pcrtc_gpio = val & 0x01111111;
             break;
@@ -501,7 +515,7 @@ nv4_recalctimings(svga_t *svga)
         svga->hwcursor.cur_ysize = size;
         svga->hwcursor.xoff      = (svga->hwcursor.x < 0) ? -svga->hwcursor.x : 0;
         svga->hwcursor.yoff      = (svga->hwcursor.y < 0) ? -svga->hwcursor.y : 0;
-        if (NV4_IS_NV10(nv4))
+        if (NV4_IS_CELSIUS(nv4))
             svga->hwcursor.addr = nv4->pcrtc_cursor;
         else
             svga->hwcursor.addr = ((uint32_t) svga->crtc[NV4_CR_HCUR_ADDR2] << 24)
@@ -526,9 +540,9 @@ nv4_hwcursor_draw(svga_t *svga, int displine)
     int       in_fb = !!(svga->crtc[NV4_CR_HCUR_ADDR0] & 0x80);
     int       size  = nv4_cursor_size(nv4);
     int       bpp   = nv4_cursor_bpp(nv4);
-    int       blend = NV4_IS_NV10(nv4) && (nv4->pcrtc_cursor_cfg & (1u << 28));
+    int       blend = NV4_IS_CELSIUS(nv4) && (nv4->pcrtc_cursor_cfg & (1u << 28));
 
-    if (NV4_IS_NV10(nv4))
+    if (NV4_IS_CELSIUS(nv4))
         in_fb = !!(nv4->pcrtc_cursor_cfg & (1u << 8));
 
     if (bpp == 4) {

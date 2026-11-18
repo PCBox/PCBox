@@ -94,8 +94,10 @@ typedef struct {
     float    origin;               /* 0: D3D pixel centers, 0.5: corner */
     nv4_3d_tex_t tex[2];
     uint32_t color_key;
-    /* DX5 */
-    int      texblend;
+    union {
+        int texblend; /* DX5 */
+        int logic_op; /* Celsius BLEND[16:12], enable and GL opcode */
+    };
     /* DX6 */
     uint32_t comb_a[2], comb_c[2], factor;
     /* both */

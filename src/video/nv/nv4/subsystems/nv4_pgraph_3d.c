@@ -487,7 +487,7 @@ nv4_3d_make_state(nv4_t *nv4, nv4_3d_batch_t *b, int cls, const nv4_d3d_t *d)
        laid out as textures are. The depth surface is taken to follow
        the same addressing from its own offset (one address generator;
        not checked against the hardware), so its pitch is unused. */
-    s->swz     = (GR(NV4_PGRAPH_SURFACE) == 2);
+    s->swz     = ((GR(NV4_PGRAPH_SURFACE) & 3) == 2);
     s->swz_wl  = (GR(NV4_PGRAPH_BSWIZZLE2) >> 16) & 0xf;
     s->swz_hl  = (GR(NV4_PGRAPH_BSWIZZLE2) >> 24) & 0xf;
     s->col_fmt = (GR(NV4_PGRAPH_BPIXEL) >> 8) & 0xf;
@@ -1080,15 +1080,8 @@ static const int dither4[4][4] = {
 };
 
 static uint32_t
-nv4_pack_color(const nv4_3d_state_t *s, rgba_t c, int x, int y)
+nv4_encode_color(const nv4_3d_state_t *s, rgba_t c)
 {
-    if ((s->bpp == 2) && s->dither) {
-        int d = dither4[y & 3][x & 3] >> 1; /* 0-7 */
-
-        c.r = clamp255(c.r + d - 4);
-        c.g = clamp255(c.g + ((s->col_fmt == 5) ? (d >> 1) - 2 : d - 4));
-        c.b = clamp255(c.b + d - 4);
-    }
     switch (s->col_fmt) {
         case 2:
         case 3:
@@ -1107,6 +1100,36 @@ nv4_pack_color(const nv4_3d_state_t *s, rgba_t c, int x, int y)
         default:
             return (c.r << 16) | (c.g << 8) | c.b;
     }
+}
+
+static uint32_t
+nv4_pack_color(const nv4_3d_state_t *s, rgba_t c, int x, int y)
+{
+    if ((s->bpp == 2) && s->dither) {
+        int d = dither4[y & 3][x & 3] >> 1; /* 0-7 */
+
+        c.r = clamp255(c.r + d - 4);
+        c.g = clamp255(c.g + ((s->col_fmt == 5) ? (d >> 1) - 2 : d - 4));
+        c.b = clamp255(c.b + d - 4);
+    }
+    return nv4_encode_color(s, c);
+}
+
+/* The OpenGL opcode is a four-bit truth table, ordered S&D, S&~D,
+   ~S&D, ~S&~D. Operate on the bits stored in the framebuffer. */
+static uint32_t
+nv15_logic_op(unsigned op, uint32_t src, uint32_t dst)
+{
+    uint32_t result = 0;
+    if (op & 1)
+        result |= src & dst;
+    if (op & 2)
+        result |= src & ~dst;
+    if (op & 4)
+        result |= ~src & dst;
+    if (op & 8)
+        result |= ~src & ~dst;
+    return result;
 }
 
 static rgba_t
@@ -1931,6 +1954,13 @@ nv4_3d_span(nv4_t *nv4, const nv4_3d_state_t *states, const nv4_3d_tri_t *tris, 
     nv10_tsamp_t          tsbuf[2];
     const int             zb    = s->z_bpp;
 
+    int      logic_enabled = s->celsius && (s->logic_op & 0x10);
+    uint32_t write_mask = 0;
+    if (logic_enabled) {
+        rgba_t channels = { s->wr_r * 255, s->wr_g * 255, s->wr_b * 255, s->wr_a * 255 };
+        write_mask = nv4_encode_color(s, channels) ^ nv4_encode_color(s, (rgba_t) { 0 });
+    }
+
     if (s->celsius) {
         ts = tsbuf;
         for (int n = 0; n < 2; n++) {
@@ -2144,10 +2174,11 @@ celsius_tests:
             rgba_t   dst = { 0, 0, 0, 0 };
             uint32_t v;
 
-            if (s->ablend || !(s->wr_r && s->wr_g && s->wr_b && s->wr_a)) {
+            if (logic_enabled || s->ablend || !(s->wr_r && s->wr_g && s->wr_b && s->wr_a)) {
                 for (int i = 0; i < s->bpp; i++)
                     old |= (uint32_t) vram[(ca + i) & vm] << (i * 8);
-                dst = nv4_unpack_color(s, old);
+                if (!logic_enabled)
+                    dst = nv4_unpack_color(s, old);
             }
             if (s->ablend && s->celsius)
                 out = nv10_blend(s, out, dst);
@@ -2166,15 +2197,20 @@ celsius_tests:
                 out.b = clamp255(mul8(out.b, sfb) + mul8(dst.b, dfb));
                 out.a = clamp255(mul8(out.a, sfa) + mul8(dst.a, dfa));
             }
-            if (!s->wr_r)
-                out.r = dst.r;
-            if (!s->wr_g)
-                out.g = dst.g;
-            if (!s->wr_b)
-                out.b = dst.b;
-            if (!s->wr_a)
-                out.a = dst.a;
-            v = nv4_pack_color(s, out, x, sp->y);
+            if (logic_enabled) {
+                v = nv15_logic_op(s->logic_op, nv4_pack_color(s, out, x, sp->y), old);
+                v = (v & write_mask) | (old & ~write_mask);
+            } else {
+                if (!s->wr_r)
+                    out.r = dst.r;
+                if (!s->wr_g)
+                    out.g = dst.g;
+                if (!s->wr_b)
+                    out.b = dst.b;
+                if (!s->wr_a)
+                    out.a = dst.a;
+                v = nv4_pack_color(s, out, x, sp->y);
+            }
             for (int i = 0; i < s->bpp; i++)
                 vram[(ca + i) & vm] = v >> (i * 8);
         }
@@ -2877,12 +2913,14 @@ nv4_3d_raster_tri(nv4_t *nv4, nv4_3d_batch_t *b, int si, const float xy[3][2], c
        a clock, or work as one on a pixel with two textures (counted
        twice); the color write, a depth read and write, the destination
        read for blending */
-    if (s->celsius)
+    if (nv4->chip == NV4_CHIP_NV15)
+        nv4->eng_px3d += px; /* two texture units per pixel pipeline */
+    else if (s->celsius)
         nv4->eng_px3d += (s->tex[0].on && s->tex[1].on) ? 2 * px : px;
     else
         nv4->eng_px3d += (s->tex[1].on && nv4_3d_comb_uses(s, 1)) ? 2 * px : px;
     nv4->eng_bytes += px * (s->bpp + ((s->z_on && s->zen) ? s->z_bpp : 0) + ((s->z_on && s->zwrite) ? s->z_bpp : 0)
-                            + (s->ablend ? s->bpp : 0));
+                            + ((s->ablend || (s->celsius && (s->logic_op & 0x10))) ? s->bpp : 0));
     if (b->parallel && (ymin <= ymax))
         nv4_3d_written(b, s, ymin, ymax);
     b->ntris++;

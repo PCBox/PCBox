@@ -95,6 +95,17 @@ nv4_dma_translate(nv4_t *nv4, uint32_t inst, uint32_t offset, int write, uint32_
     return !NV4_DMA_OK;
 }
 
+int
+nv4_dma_read(nv4_t *nv4, uint32_t inst, uint32_t offset, uint8_t *buf, uint32_t len)
+{
+    (void) nv4;
+    (void) inst;
+    (void) offset;
+    (void) buf;
+    (void) len;
+    return NV4_DMA_FAULT;
+}
+
 uint32_t
 nv4_dma_page_left(nv4_t *nv4, uint32_t inst, uint32_t offset)
 {
@@ -382,6 +393,8 @@ test_square(void)
 {
     card_new();
     surfaces(1, 3, 3, 0, 0);
+    /* NV15 keeps its flip counters above the surface layout bits. */
+    NV4_GR(nv4, NV4_PGRAPH_SURFACE) |= 0x21000000;
     dx5_state(0);
     rect(0, 0, 4, 2, 0.5f, 0xff112233);
     nv4_3d_flush(nv4);
@@ -662,10 +675,45 @@ test_triangle_edges(void)
     card_free();
 }
 
+/* Draw one Celsius fragment through each GL logic op. Red and blue are
+   writable. The destination's green, alpha and neighbouring bytes survive. */
+static void
+test_nv15_logic_ops(void)
+{
+    const uint32_t color = 0xb3e75291, dst = 0x9c3176a5;
+    nv4_3d_state_t state = { .celsius = 1, .wr_r = 1, .wr_b = 1,
+                             .col_base = COL_BASE, .col_lim = COL_BASE + 3,
+                             .rc_k = { color }, .rc_f0 = 1, .rc_f1 = 0x1100 };
+    nv4_3d_tri_t tri = { 0 };
+    nv4_3d_tri_ext_t ext = { 0 };
+    nv4_3d_span_t span = { .x1 = 1 };
+
+    card_new();
+    tri.c[AT_Q] = 1.0f;
+    for (int bpp = 2; bpp <= 4; bpp += 2) {
+        uint32_t src = bpp == 2 ? 0xe292 : color; /* RGB565 or A8R8G8B8 */
+        uint32_t mask = bpp == 2 ? 0xf81f : 0xff00ff;
+        const uint32_t ops[] = {
+            0, src & dst, src & ~dst, src, ~src & dst, dst, src ^ dst, src | dst,
+            ~(src | dst), ~(src ^ dst), ~dst, src | ~dst, ~src, ~src | dst, ~(src & dst), ~0u
+        };
+        state.bpp = bpp;
+        state.col_fmt = bpp == 2 ? 5 : 0xc;
+        for (int op = 0; op < 16; op++) {
+            memcpy(nv4->svga.vram + COL_BASE, &dst, 4);
+            state.logic_op = 0x10 | op;
+            nv4_3d_span(nv4, &state, &tri, &ext, &span);
+            CHECK(rd32(COL_BASE) == ((ops[op] & mask) | (dst & ~mask)));
+        }
+    }
+    card_free();
+}
+
 int
 main(void)
 {
     test_square();
+    test_nv15_logic_ops();
     test_wide_clipped();
     test_depth();
     test_pitch();

@@ -6,7 +6,7 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          NVIDIA RIVA TNT (NV4), RIVA TNT2 (NV5) and GeForce 256 (NV10)
+ *          NVIDIA RIVA TNT (NV4), RIVA TNT2 (NV5) and GeForce (NV10/NV15)
  *          -- shared state.
  *
  *          One nv4_t per chip; every block takes the chip it acts on, so
@@ -15,7 +15,7 @@
  *          and one file per chip unit under subsystems/. The GeForce 256
  *          is the same family with a wider FIFO (32 channels), relocated
  *          PGRAPH context registers, the NV10 overlay and the Celsius 3D
- *          class (nv10_celsius.c); every unit branches on NV4_IS_NV10.
+ *          class (nv10_celsius.c); every unit branches on NV4_IS_CELSIUS.
  *
  * Authors: Marcos Alves, <xeon4d@gmail.com>
  *
@@ -38,14 +38,16 @@
 #define NV10_PCI_DEVICE_SDR      0x0100 /* GeForce 256 (NV10, SDR) */
 #define NV10_PCI_DEVICE_DDR      0x0101 /* GeForce 256 DDR (NV10) */
 #define NV10_PCI_DEVICE_QUADRO   0x0103 /* Quadro (NV10GL) */
+#define NV15_PCI_DEVICE_GTS_PRO  0x0150 /* GeForce2 GTS / Pro */
 
 typedef enum nv4_chip_e {
     NV4_CHIP_TNT  = 4, /* NV4 */
     NV4_CHIP_TNT2 = 5, /* NV5 and its 64-bit variants */
-    NV4_CHIP_NV10 = 10 /* GeForce 256 */
+    NV4_CHIP_NV10 = 10, /* GeForce 256 */
+    NV4_CHIP_NV15 = 15  /* GeForce2 GTS / Pro */
 } nv4_chip_t;
 
-#define NV4_IS_NV10(nv4) ((nv4)->chip == NV4_CHIP_NV10)
+#define NV4_IS_CELSIUS(nv4) ((nv4)->chip >= NV4_CHIP_NV10)
 /* what the TNT2 added to the TNT, which the GeForce 256 keeps */
 #define NV4_IS_NV5P(nv4) ((nv4)->chip >= NV4_CHIP_TNT2)
 
@@ -162,6 +164,8 @@ typedef enum nv4_chip_e {
 #define NV10_PCRTC_CURSOR        0x60080c /* cursor image address */
 #define NV10_PCRTC_CURSOR_CONFIG 0x600810
 #define NV10_PCRTC_GPIO          0x600818
+#define NV15_PCRTC_RASTER_START  0x600830
+#define NV15_PCRTC_RASTER_STOP   0x600834
 
 /* PRAMDAC */
 #define NV4_PRAMDAC_CU_START_POS     0x680300
@@ -379,6 +383,7 @@ typedef struct nv4_pfifo_s {
 #define NV4_GR_OK      0
 #define NV4_GR_ILLEGAL 1 /* not a method of the class: the driver emulates it */
 #define NV4_GR_MISSING 2 /* a software method */
+#define NV4_GR_WAIT    3 /* retry this method when the display releases it */
 
 /* Per-channel progress of primitives and transfers: what a method stream
    leaves half done (vertices, image data). Object state proper lives in
@@ -465,7 +470,8 @@ typedef struct nv4_board_s {
     uint8_t     mem_64bit;    /* 64-bit memory bus (M64, Vanta) */
     uint8_t     sgram;        /* SGRAM rather than SDRAM */
     uint8_t     crystal_14m;  /* 14.318 MHz crystal rather than 13.5 MHz */
-    uint8_t     ddr;          /* NV10: DDR memory rather than SDR */
+    uint8_t     ramcfg;       /* PEXTDEV_BOOT_0[5:2], index into the board BIOS memory table */
+    uint8_t     ddr;          /* Celsius memory type */
 } nv4_board_t;
 
 /* ------------------------------------------------------------------ */
@@ -554,6 +560,7 @@ typedef struct nv4_s {
     uint32_t pcrtc_cursor;     /* NV10: cursor image address (CR2F/CR30/CR31 widened) */
     uint32_t pcrtc_cursor_cfg; /* NV10: size, depth, blend, address space */
     uint32_t pcrtc_gpio;
+    uint32_t raster_start, raster_stop; /* NV15 blit scanline range and polarity */
     /* 15/16 bpp scan-out through the palette as a gamma ramp: a table
        per format, built for the palette in gamma_clut */
     uint32_t gamma_table[2][65536]; /* [0] X1R5G5B5, [1] R5G6B5 */
@@ -809,6 +816,7 @@ extern void nv4_3d_reset(nv4_t *nv4);
 extern void nv4_3d_stats(nv4_t *nv4);
 
 /* subsystems/nv4_pgraph.c, nv4_pvideo.c, nv4_pme.c */
+extern void     nv10_pgraph_st2_run(nv4_t *nv4);
 extern void     nv4_pgraph_reset(nv4_t *nv4);
 extern uint32_t nv4_pgraph_read(nv4_t *nv4, uint32_t addr);
 extern void     nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val);

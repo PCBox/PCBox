@@ -129,7 +129,7 @@ nv4_pramdac_read(nv4_t *nv4, uint32_t addr)
         default:
             if ((addr >= 0x680700) && (addr <= 0x68071c))
                 return nv4->tv_regs[(addr - 0x680700) >> 2];
-            if (NV4_IS_NV10(nv4)) {
+            if (NV4_IS_CELSIUS(nv4)) {
                 /* flat panel timings and its RAM, kept as written */
                 if ((addr >= 0x680800) && (addr < 0x680a00))
                     return nv4->dac_ext[(addr - 0x680800) >> 2];
@@ -188,7 +188,7 @@ nv4_pramdac_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             nv4->palette_test = val & 0x11000000;
             break;
         case NV4_PRAMDAC_GENERAL_CONTROL:
-            nv4->general_control = val & (NV4_IS_NV10(nv4) ? 0x11331131 : 0x11131131);
+            nv4->general_control = val & (NV4_IS_CELSIUS(nv4) ? 0x11331131 : 0x11131131);
             nv4_pramdac_update_dac(nv4);
             svga_recalctimings(&nv4->svga);
             break;
@@ -198,11 +198,11 @@ nv4_pramdac_write(nv4_t *nv4, uint32_t addr, uint32_t val)
         default:
             if ((addr >= 0x680700) && (addr <= 0x68071c))
                 nv4->tv_regs[(addr - 0x680700) >> 2] = val;
-            else if (NV4_IS_NV10(nv4) && (addr >= 0x680800) && (addr < 0x680a00))
+            else if (NV4_IS_CELSIUS(nv4) && (addr >= 0x680800) && (addr < 0x680a00))
                 nv4->dac_ext[(addr - 0x680800) >> 2] = val;
-            else if (NV4_IS_NV10(nv4) && (addr >= 0x680320) && (addr <= 0x680328))
+            else if (NV4_IS_CELSIUS(nv4) && (addr >= 0x680320) && (addr <= 0x680328))
                 nv4->dac_misc[(addr - 0x680320) >> 2] = val;
-            else if (NV4_IS_NV10(nv4) && (addr == 0x680604))
+            else if (NV4_IS_CELSIUS(nv4) && (addr == 0x680604))
                 nv4->dac_misc[3] = val;
             else
                 nv4_log("NV4 PRAMDAC: write %06x = %08x\n", addr, val);

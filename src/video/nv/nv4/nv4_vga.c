@@ -228,12 +228,14 @@ nv4_vga_update_mapping(nv4_t *nv4)
    data port that collects a dword and writes it when byte 3 is
    written. The pointer reaches the registers below 16 MB and the
    framebuffer above, at pointer - 16 MB: 25 bits on the TNT, 26 on the
-   TNT2, whose video BIOS probes 32 MB through it. */
+   TNT2, whose video BIOS probes 32 MB through it. The GeForce BIOSes
+   select the framebuffer with RMA_PTR.SPACE (bit 31) and use the low
+   address bits as the byte offset. */
 static uint32_t
 nv4_rma_ptr_mask(const nv4_t *nv4)
 {
-    if (NV4_IS_NV10(nv4))
-        return 0x07fffffc; /* 64 MB boards */
+    if (NV4_IS_CELSIUS(nv4))
+        return 0x87fffffc; /* bit 31 selects framebuffer space, address in 26:2 */
     return (nv4->chip == NV4_CHIP_TNT2) ? 0x03fffffc : 0x01fffffc;
 }
 
@@ -242,7 +244,7 @@ static uint32_t
 nv4_rma_space_read(nv4_t *nv4, uint32_t addr, int len)
 {
     if (addr >= 0x01000000) {
-        uint32_t off = (addr - 0x01000000) & nv4->vram_mask;
+        uint32_t off = ((addr & 0x80000000) ? addr : addr - 0x01000000) & nv4->vram_mask;
         uint32_t ret = 0;
         for (int i = 0; i < len; i++)
             ret |= (uint32_t) nv4->svga.vram[(off + i) & nv4->vram_mask] << (i * 8);
@@ -255,7 +257,7 @@ static void
 nv4_rma_space_write(nv4_t *nv4, uint32_t addr, uint32_t val, int len)
 {
     if (addr >= 0x01000000) {
-        uint32_t off = (addr - 0x01000000) & nv4->vram_mask;
+        uint32_t off = ((addr & 0x80000000) ? addr : addr - 0x01000000) & nv4->vram_mask;
         for (int i = 0; i < len; i++)
             nv4->svga.vram[(off + i) & nv4->vram_mask] = val >> (i * 8);
         nv4->svga.changedvram[off >> 12] = nv4->svga.monitor->mon_changeframecount;
@@ -558,7 +560,7 @@ nv4_vga_out(uint16_t addr, uint8_t val, void *priv)
                 old             = svga->crtc[idx];
                 svga->crtc[idx] = val;
                 nv4_pcrtc_crtc_start_write(nv4, idx);
-                if (NV4_IS_NV10(nv4))
+                if (NV4_IS_CELSIUS(nv4))
                     nv10_pcrtc_cursor_cr_write(nv4, idx);
                 switch (idx) {
                     case NV4_CR_ENH:

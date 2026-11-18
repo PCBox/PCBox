@@ -89,7 +89,7 @@ nv4_pvideo_update(nv4_t *nv4)
 void
 nv4_pvideo_reset(nv4_t *nv4)
 {
-    if (NV4_IS_NV10(nv4)) {
+    if (NV4_IS_CELSIUS(nv4)) {
         nv10_pvideo_reset(nv4);
         return;
     }
@@ -126,7 +126,7 @@ nv4_pvideo_vblank(nv4_t *nv4)
     uint32_t next = cur ^ 1;
     uint32_t bit  = 1u << (16 + 4 * next);
 
-    if (NV4_IS_NV10(nv4)) {
+    if (NV4_IS_CELSIUS(nv4)) {
         nv10_pvideo_vblank(nv4);
         return;
     }
@@ -149,7 +149,7 @@ nv4_pvideo_vblank(nv4_t *nv4)
 uint32_t
 nv4_pvideo_read(nv4_t *nv4, uint32_t addr)
 {
-    if (NV4_IS_NV10(nv4))
+    if (NV4_IS_CELSIUS(nv4))
         return nv10_pvideo_read(nv4, addr);
     switch (addr) {
         case NV4_PVIDEO_INTR:
@@ -166,7 +166,7 @@ nv4_pvideo_read(nv4_t *nv4, uint32_t addr)
 void
 nv4_pvideo_write(nv4_t *nv4, uint32_t addr, uint32_t val)
 {
-    if (NV4_IS_NV10(nv4)) {
+    if (NV4_IS_CELSIUS(nv4)) {
         nv10_pvideo_write(nv4, addr, val);
         return;
     }
@@ -465,7 +465,7 @@ nv4_pvideo_draw(svga_t *svga, int displine)
 {
     nv4_t   *nv4    = (nv4_t *) svga->priv;
 
-    if (NV4_IS_NV10(nv4)) {
+    if (NV4_IS_CELSIUS(nv4)) {
         nv10_pvideo_draw(svga, displine);
         return;
     }

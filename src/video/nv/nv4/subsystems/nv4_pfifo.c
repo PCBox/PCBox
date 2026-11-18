@@ -318,7 +318,7 @@ nv4_ramfc_save(nv4_t *nv4, int chid)
     nv4_pfifo_t *p = &nv4->pfifo;
     uint32_t     a = nv4_ramfc_base(p) + chid * 32;
 
-    if (NV4_IS_NV10(nv4)) {
+    if (NV4_IS_CELSIUS(nv4)) {
         nv4_ramin_write32(nv4, a + 0x00, p->c1_dma_put);
         nv4_ramin_write32(nv4, a + 0x04, p->c1_dma_get);
         nv4_ramin_write32(nv4, a + 0x08, p->c1_ref);
@@ -344,7 +344,7 @@ nv4_ramfc_load(nv4_t *nv4, int chid)
     nv4_pfifo_t *p = &nv4->pfifo;
     uint32_t     a = nv4_ramfc_base(p) + chid * 32;
 
-    if (NV4_IS_NV10(nv4)) {
+    if (NV4_IS_CELSIUS(nv4)) {
         uint32_t w3 = nv4_ramin_read32(nv4, a + 0x0c);
 
         p->c1_dma_put      = nv4_ramin_read32(nv4, a + 0x00) & 0x1ffffffc;
@@ -427,7 +427,7 @@ nv4_pull_one(nv4_t *nv4, int chid, uint32_t *engines, uint32_t *pull0, uint32_t 
        drawn later and reads its textures then: the driver may reuse a
        texture's memory once it sees the count, so the batch is drawn
        first, as for a notifier. */
-    if ((mthd == 0x50) && NV4_IS_NV10(nv4)) {
+    if ((mthd == 0x50) && NV4_IS_CELSIUS(nv4)) {
         nv4_3d_notify(nv4);
         if (chid == CHID(&nv4->pfifo))
             nv4->pfifo.c1_ref = data;
@@ -623,7 +623,7 @@ nv4_dma_push(nv4_t *nv4)
                 break;
             case 2:
                 /* NV10: non-incrementing methods, 010 then as above */
-                if (!NV4_IS_NV10(nv4) || (word & 0x00030003)) {
+                if (!NV4_IS_CELSIUS(nv4) || (word & 0x00030003)) {
                     nv4_dma_error(nv4, DMA_ERR_RESERVED_CMD);
                     return work;
                 }
@@ -654,7 +654,8 @@ nv4_dma_push(nv4_t *nv4)
    flips run up to five frames ahead, then wait for that counter).
    Rates: the 2D engine moves 16 bytes per memory clock over the
    128-bit framebuffer interface, the 3D pipeline draws two pixels per
-   clock (one with two textures) and is held to the same memory rate;
+   clock (one with two textures), or four dual-textured pixels on NV15;
+   both are held to the memory rate;
    every method takes at least one clock. */
 #define NV4_ENG_SLACK_US 20.0 /* run ahead this far before deferring */
 
@@ -668,12 +669,13 @@ nv4_eng_charge(nv4_t *nv4)
        three divisions per method were a tenth of the emulation thread in
        image uploads */
     if ((nv4->eng_clk[0] != nv4->nvclk_hz) || (nv4->eng_clk[1] != nv4->mclk_hz) || (nv4->eng_clk[2] != cpuclock)) {
+        double pipes = nv4->chip == NV4_CHIP_NV15 ? 4.0 : 2.0;
         nv4->eng_clk[0]  = nv4->nvclk_hz;
         nv4->eng_clk[1]  = nv4->mclk_hz;
         nv4->eng_clk[2]  = cpuclock;
         nv4->eng_k_base  = (nv4->nvclk_hz > 0.0) ? cpuclock / nv4->nvclk_hz : 0.0;
         nv4->eng_k_byte  = (nv4->mclk_hz > 0.0) ? cpuclock / (16.0 * nv4->mclk_hz) : 0.0;
-        nv4->eng_k_px    = (nv4->nvclk_hz > 0.0) ? cpuclock / (2.0 * nv4->nvclk_hz) : 0.0;
+        nv4->eng_k_px    = nv4->eng_k_base / pipes;
     }
     mem            = (double) nv4->eng_bytes * nv4->eng_k_byte;
     px             = (double) nv4->eng_px3d * nv4->eng_k_px;
@@ -774,6 +776,8 @@ nv4_pfifo_run(nv4_t *nv4)
     if (p->busy)
         return;
     p->busy = 1;
+    if (nv4->chip == NV4_CHIP_NV15)
+        nv10_pgraph_st2_run(nv4);
 
     do {
         work = nv4_cache0_pull(nv4);
@@ -822,7 +826,7 @@ nv4_user_read(nv4_t *nv4, uint32_t addr)
             return (chid == CHID(p)) ? p->c1_dma_put : nv4_ramin_read32(nv4, a);
         if (off == 0x44)
             return (chid == CHID(p)) ? p->c1_dma_get : nv4_ramin_read32(nv4, a + 4);
-        if ((off == 0x48) && NV4_IS_NV10(nv4))
+        if ((off == 0x48) && NV4_IS_CELSIUS(nv4))
             return (chid == CHID(p)) ? p->c1_ref : nv4_ramin_read32(nv4, a + 8);
         return 0;
     }
@@ -894,7 +898,7 @@ nv4_pfifo_reset(nv4_t *nv4)
     nv4_pfifo_t *p = &nv4->pfifo;
 
     memset(p, 0, sizeof(*p));
-    p->channels  = NV4_IS_NV10(nv4) ? NV10_CHANNELS : NV4_CHANNELS;
+    p->channels  = NV4_IS_CELSIUS(nv4) ? NV10_CHANNELS : NV4_CHANNELS;
     p->chid_mask = p->channels - 1;
     timer_disable(&nv4->eng_timer);
     timer_disable(&nv4->kick_timer);
@@ -1024,7 +1028,7 @@ nv4_pfifo_read(nv4_t *nv4, uint32_t addr)
         case PFIFO_CACHE1_DMA_GET:
             return p->c1_dma_get;
         case PFIFO_CACHE1_REF:
-            return NV4_IS_NV10(nv4) ? p->c1_ref : 0;
+            return NV4_IS_CELSIUS(nv4) ? p->c1_ref : 0;
         case PFIFO_CACHE1_PULL0:
             return p->c1_pull0;
         case PFIFO_CACHE1_PULL1:
@@ -1091,7 +1095,7 @@ nv4_pfifo_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             p->ramht = val & 0x030301f0;
             break;
         case PFIFO_RAMFC:
-            p->ramfc = val & (NV4_IS_NV10(nv4) ? 0x00fe01fc : 0x1fe);
+            p->ramfc = val & (NV4_IS_CELSIUS(nv4) ? 0x00fe01fc : 0x1fe);
             break;
         case PFIFO_RAMRO:
             p->ramro = val & 0x101fe;
@@ -1159,13 +1163,13 @@ nv4_pfifo_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             p->c1_dma_push = val & (DMA_PUSH_ACCESS | DMA_PUSH_SUSPENDED);
             break;
         case PFIFO_CACHE1_DMA_FETCH:
-            p->c1_dma_fetch = val & (NV4_IS_NV10(nv4) ? 0x001fe0f8 : 0x000fe0f8);
+            p->c1_dma_fetch = val & (NV4_IS_CELSIUS(nv4) ? 0x001fe0f8 : 0x000fe0f8);
             break;
         case PFIFO_CACHE1_DMA_STATE:
-            p->c1_dma_state = val & (NV4_IS_NV10(nv4) ? 0xdffcfffd : 0xdffcfffc);
+            p->c1_dma_state = val & (NV4_IS_CELSIUS(nv4) ? 0xdffcfffd : 0xdffcfffc);
             break;
         case PFIFO_CACHE1_REF:
-            if (NV4_IS_NV10(nv4))
+            if (NV4_IS_CELSIUS(nv4))
                 p->c1_ref = val;
             break;
         case PFIFO_CACHE1_DMA_INSTANCE:

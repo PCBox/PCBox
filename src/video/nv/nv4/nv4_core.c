@@ -6,7 +6,7 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          NVIDIA RIVA TNT / TNT2 / GeForce 256 -- device shell.
+ *          NVIDIA RIVA TNT / TNT2 / GeForce 256 / GeForce2 GTS and Pro.
  *
  *          PCI configuration space, the two BARs (16 MB of registers and
  *          the linear framebuffer), the expansion ROM, the dispatch that
@@ -225,7 +225,7 @@ nv4_reg_read32(nv4_t *nv4, uint32_t addr)
         return nv4_pfifo_read(nv4, addr);
     if (addr >= NV4_PRMIO_START && addr <= NV4_PRMIO_END)
         return nv4_prmio_read(nv4, addr);
-    if (NV4_IS_NV10(nv4) && (addr >= NV10_PVIDEO_START) && (addr <= NV10_PVIDEO_END))
+    if (NV4_IS_CELSIUS(nv4) && (addr >= NV10_PVIDEO_START) && (addr <= NV10_PVIDEO_END))
         return nv4_pvideo_read(nv4, addr);
     if (addr >= NV4_PTIMER_START && addr <= NV4_PTIMER_END)
         return nv4_ptimer_read(nv4, addr);
@@ -240,7 +240,7 @@ nv4_reg_read32(nv4_t *nv4, uint32_t addr)
     if (addr >= NV4_PCRTC_START && addr <= NV4_PCRTC_END)
         return nv4_pcrtc_read(nv4, addr);
     if (addr >= NV4_PVIDEO_START && addr <= NV4_PVIDEO_END)
-        return NV4_IS_NV10(nv4) ? nv4_pramdac_read(nv4, addr) : nv4_pvideo_read(nv4, addr);
+        return NV4_IS_CELSIUS(nv4) ? nv4_pramdac_read(nv4, addr) : nv4_pvideo_read(nv4, addr);
     if (addr >= NV4_PRAMDAC_START && addr <= NV4_PRAMDAC_END)
         return nv4_pramdac_read(nv4, addr);
     if (addr >= NV4_PRAMIN_START && addr <= NV4_PRAMIN_END)
@@ -263,7 +263,7 @@ nv4_reg_write32(nv4_t *nv4, uint32_t addr, uint32_t val)
         nv4_pfifo_write(nv4, addr, val);
     else if (addr >= NV4_PRMIO_START && addr <= NV4_PRMIO_END)
         nv4_prmio_write(nv4, addr, val);
-    else if (NV4_IS_NV10(nv4) && (addr >= NV10_PVIDEO_START) && (addr <= NV10_PVIDEO_END))
+    else if (NV4_IS_CELSIUS(nv4) && (addr >= NV10_PVIDEO_START) && (addr <= NV10_PVIDEO_END))
         nv4_pvideo_write(nv4, addr, val);
     else if (addr >= NV4_PTIMER_START && addr <= NV4_PTIMER_END)
         nv4_ptimer_write(nv4, addr, val);
@@ -278,7 +278,7 @@ nv4_reg_write32(nv4_t *nv4, uint32_t addr, uint32_t val)
     else if (addr >= NV4_PCRTC_START && addr <= NV4_PCRTC_END)
         nv4_pcrtc_write(nv4, addr, val);
     else if (addr >= NV4_PVIDEO_START && addr <= NV4_PVIDEO_END) {
-        if (NV4_IS_NV10(nv4))
+        if (NV4_IS_CELSIUS(nv4))
             nv4_pramdac_write(nv4, addr, val);
         else
             nv4_pvideo_write(nv4, addr, val);
@@ -558,7 +558,7 @@ nv4_agp_status(const nv4_t *nv4)
 
     /* The NV10's straps disable (active high) 4x (bit 9), sideband (10)
        and fast writes (11) */
-    if (NV4_IS_NV10(nv4)) {
+    if (NV4_IS_CELSIUS(nv4)) {
         straps = nv4_straps_now(nv4);
         return (0x1fu << 24) | ((straps & (1u << 10)) ? 0 : (1u << 9)) | ((straps & (1u << 11)) ? 0 : (1u << 4))
              | ((straps & (1u << 9)) ? 0x03 : 0x07);
@@ -777,7 +777,7 @@ nv4_pci_cfg_write(nv4_t *nv4, int addr, uint8_t val)
         case 0x4c:
             /* AGP command: DATA_RATE 2:0, FW_ENABLE 4 (NV10) */
             if (nv4->is_agp)
-                nv4->pci_regs[0x4c] = val & (NV4_IS_NV10(nv4) ? 0x17 : 0x07);
+                nv4->pci_regs[0x4c] = val & (NV4_IS_CELSIUS(nv4) ? 0x17 : 0x07);
             break;
         case 0x4d:
             /* SBA_ENABLE 9, AGP_ENABLE 8 */
@@ -886,10 +886,18 @@ nv4_init(const device_t *info)
     nv4_t *nv4 = calloc(1, sizeof(nv4_t));
     int    mb;
 
-    /* the chosen model, else the device's own board */
     nv4->board = nv4_board_find(device_get_config_bios("bios"));
-    if (nv4->board == NULL)
+    if (!nv4->board)
         nv4->board = (const nv4_board_t *) info->local;
+    if (!rom_present(nv4->board->rom_path)) {
+        /* A card with several BIOS options can start with any installed model. */
+        for (const device_config_bios_t *bios = info->config[0].bios; bios->files_no; bios++) {
+            if (rom_present(bios->files[0])) {
+                nv4->board = nv4_board_find(bios->internal_name);
+                break;
+            }
+        }
+    }
     pclog("nv4: %s, board %s (%s)\n", info->name, nv4->board->name, nv4->board->rom_path);
     nv4->chip   = nv4->board->chip;
     nv4->is_agp = !!(info->flags & DEVICE_AGP);
@@ -901,10 +909,12 @@ nv4_init(const device_t *info)
         mb = 16;
     if ((nv4->chip == NV4_CHIP_TNT2) && (mb > 32))
         mb = 32;
+    if ((nv4->chip == NV4_CHIP_NV15) && (mb < 32))
+        mb = 32;
     nv4->vram_size  = (uint32_t) mb << 20;
     nv4->vram_mask  = nv4->vram_size - 1;
     /* BAR1: 16 MB (TNT), 32 MB (TNT2), 128 MB (NV10, base 31:27) */
-    if (NV4_IS_NV10(nv4))
+    if (NV4_IS_CELSIUS(nv4))
         nv4->lfb_size = 0x08000000;
     else
         nv4->lfb_size = (nv4->chip == NV4_CHIP_TNT2) ? 0x02000000 : 0x01000000;
@@ -927,7 +937,7 @@ nv4_init(const device_t *info)
     nv4->ddc = ddc_init(i2c_gpio_get_bus(nv4->i2c));
     if (nv4->chip == NV4_CHIP_TNT2)
         nv4->i2c1 = i2c_gpio_init("i2c_nv5_sp1");
-    else if (NV4_IS_NV10(nv4))
+    else if (NV4_IS_CELSIUS(nv4))
         nv4->i2c1 = i2c_gpio_init("i2c_nv10_ddc0"); /* CR36/CR37: DDC0, nothing on it */
 
     mem_mapping_add(&nv4->mmio_mapping, 0, 0,
@@ -960,7 +970,7 @@ nv4_init(const device_t *info)
     if (getenv("NV4_GPU") && *getenv("NV4_GPU"))
         nv4->gpu_raster = atoi(getenv("NV4_GPU"));
     nv4_3d_init(nv4);
-    if (NV4_IS_NV10(nv4))
+    if (NV4_IS_CELSIUS(nv4))
         nv10_celsius_init(nv4);
     nv4_reset(nv4);
 
@@ -1035,9 +1045,31 @@ static const nv4_board_t board_nv5_vanta_lt_sparkle = { .name = "nv5_vanta_lt_sp
 /* The GeForce 256 boards (NV10, PCI revision 0x10: mask B1). Their
    BIOSes go in roms/video/nvidia/nv10. */
 static const nv4_board_t board_nv10_erazor_x = { .name = "nv10_erazor_x", .rom_path = "roms/video/nvidia/nv10/elsa-68c076dff1361896972312.rom", .device_id = NV10_PCI_DEVICE_SDR, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1 };
-static const nv4_board_t board_nv10_annihilator_pro = { .name = "nv10_annihilator_pro", .rom_path = "roms/video/nvidia/nv10/creative.rom", .device_id = NV10_PCI_DEVICE_DDR, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1, .ddr = 1 };
-static const nv4_board_t board_nv10_erazor_x2 = { .name = "nv10_erazor_x2", .rom_path = "roms/video/nvidia/nv10/elsa_erazor_x2.rom", .device_id = NV10_PCI_DEVICE_DDR, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1, .ddr = 1 };
-static const nv4_board_t board_nv10_gloria2 = { .name = "nv10_gloria2", .rom_path = "roms/video/nvidia/nv10/elsagloriaII.bin", .device_id = NV10_PCI_DEVICE_QUADRO, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1, .ddr = 1 };
+static const nv4_board_t board_nv10_annihilator_pro = { .name = "nv10_annihilator_pro", .rom_path = "roms/video/nvidia/nv10/creative.rom", .device_id = NV10_PCI_DEVICE_DDR, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1, .ramcfg = 1, .ddr = 1 };
+static const nv4_board_t board_nv10_erazor_x2 = { .name = "nv10_erazor_x2", .rom_path = "roms/video/nvidia/nv10/elsa_erazor_x2.rom", .device_id = NV10_PCI_DEVICE_DDR, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1, .ramcfg = 1, .ddr = 1 };
+static const nv4_board_t board_nv10_gloria2 = { .name = "nv10_gloria2", .rom_path = "roms/video/nvidia/nv10/elsagloriaII.bin", .device_id = NV10_PCI_DEVICE_QUADRO, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1, .ramcfg = 1, .ddr = 1 };
+
+/* NV15 A3 (PCI revision 02). Both retail variants use device ID 0150.
+   The memory straps select the 200 MHz core and the board's DDR timing
+   entry in its BMP memory initialization table (nv15mem.c). */
+#define NV15_GTS_INNO3D_ROM "roms/video/nvidia/nv15/gf2gtsinno3d.BIN"
+static const nv4_board_t board_nv15_gts_inno3d = {
+    .name = "nv15_gts_inno3d", .rom_path = NV15_GTS_INNO3D_ROM,
+    .device_id = NV15_PCI_DEVICE_GTS_PRO, .chip = NV4_CHIP_NV15, .revision = 0x02,
+    .crystal_14m = 1, .ramcfg = 11, .ddr = 1
+};
+#define NV15_GTS_HERCULES_ROM "roms/video/nvidia/nv15/hercules.bin"
+static const nv4_board_t board_nv15_gts_hercules = {
+    .name = "nv15_gts_hercules", .rom_path = NV15_GTS_HERCULES_ROM,
+    .device_id = NV15_PCI_DEVICE_GTS_PRO, .chip = NV4_CHIP_NV15, .revision = 0x02,
+    .crystal_14m = 1, .ramcfg = 11, .ddr = 1
+};
+#define NV15_PRO_ROM "roms/video/nvidia/nv15/BIOS.BIN"
+static const nv4_board_t board_nv15_pro = {
+    .name = "nv15_pro", .rom_path = NV15_PRO_ROM,
+    .device_id = NV15_PCI_DEVICE_GTS_PRO, .chip = NV4_CHIP_NV15, .revision = 0x02,
+    .crystal_14m = 1, .ramcfg = 8, .ddr = 1
+};
 
 static const nv4_board_t *const nv4_boards[] = {
     &board_nv4_erazor2_pci,
@@ -1065,6 +1097,9 @@ static const nv4_board_t *const nv4_boards[] = {
     &board_nv10_annihilator_pro,
     &board_nv10_erazor_x2,
     &board_nv10_gloria2,
+    &board_nv15_gts_inno3d,
+    &board_nv15_gts_hercules,
+    &board_nv15_pro,
     NULL
 };
 
@@ -1835,6 +1870,84 @@ const device_t nv10_quadro_agp_device = {
     .speed_changed = nv4_speed_changed,
     .force_redraw  = nv4_force_redraw,
     .config        = nv10_quadro_config
+};
+
+static const device_config_t nv15_gts_config[] = {
+    {
+        .name = "bios", .description = "Model", .type = CONFIG_BIOS,
+        .default_string = "nv15_gts_inno3d",
+        .bios = {
+            { .name = "Inno3D Tornado GeForce2 GTS", .internal_name = "nv15_gts_inno3d", .bios_type = BIOS_NORMAL,
+              .files_no = 1, .files = { NV15_GTS_INNO3D_ROM } },
+            { .name = "Hercules 3D Prophet II GTS", .internal_name = "nv15_gts_hercules", .bios_type = BIOS_NORMAL,
+              .files_no = 1, .files = { NV15_GTS_HERCULES_ROM } },
+            { .files_no = 0 }
+        }
+    },
+    {
+        .name = "memory", .description = "Memory size", .type = CONFIG_SELECTION,
+        .default_int = 32,
+        .selection = { { "32 MB", 32 }, { "64 MB", 64 }, { "" } }
+    },
+    {
+        .name = "render_threads", .description = "Render threads", .type = CONFIG_SELECTION,
+        .default_int = 2,
+        .selection = { { "1", 1 }, { "2", 2 }, { "3", 3 }, { "4", 4 }, { "6", 6 },
+                       { "8", 8 }, { "12", 12 }, { "16", 16 }, { "" } }
+    },
+    { .name = "gpu_raster", .description = "Draw 3D on the host GPU (Vulkan)", .type = CONFIG_BINARY },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
+const device_t nv15_geforce2_gts_agp_device = {
+    .name          = "nVIDIA GeForce2 GTS (NV15) AGP",
+    .internal_name = "nv15_geforce2_gts_agp",
+    .flags         = DEVICE_AGP,
+    .local         = (uintptr_t) &board_nv15_gts_inno3d,
+    .init          = nv4_init,
+    .close         = nv4_close,
+    .reset         = nv4_reset,
+    .speed_changed = nv4_speed_changed,
+    .force_redraw  = nv4_force_redraw,
+    .config        = nv15_gts_config
+};
+
+static const device_config_t nv15_pro_config[] = {
+    {
+        .name = "bios", .description = "Model", .type = CONFIG_BIOS,
+        .default_string = "nv15_pro",
+        .bios = {
+            { .name = "NVIDIA GeForce2 Pro", .internal_name = "nv15_pro", .bios_type = BIOS_NORMAL,
+              .files_no = 1, .files = { NV15_PRO_ROM } },
+            { .files_no = 0 }
+        }
+    },
+    {
+        .name = "memory", .description = "Memory size", .type = CONFIG_SELECTION,
+        .default_int = 64,
+        .selection = { { "32 MB", 32 }, { "64 MB", 64 }, { "" } }
+    },
+    {
+        .name = "render_threads", .description = "Render threads", .type = CONFIG_SELECTION,
+        .default_int = 2,
+        .selection = { { "1", 1 }, { "2", 2 }, { "3", 3 }, { "4", 4 }, { "6", 6 },
+                       { "8", 8 }, { "12", 12 }, { "16", 16 }, { "" } }
+    },
+    { .name = "gpu_raster", .description = "Draw 3D on the host GPU (Vulkan)", .type = CONFIG_BINARY },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
+const device_t nv15_geforce2_pro_agp_device = {
+    .name          = "nVIDIA GeForce2 Pro (NV15) AGP",
+    .internal_name = "nv15_geforce2_pro_agp",
+    .flags         = DEVICE_AGP,
+    .local         = (uintptr_t) &board_nv15_pro,
+    .init          = nv4_init,
+    .close         = nv4_close,
+    .reset         = nv4_reset,
+    .speed_changed = nv4_speed_changed,
+    .force_redraw  = nv4_force_redraw,
+    .config        = nv15_pro_config
 };
 
 /* clang-format on */

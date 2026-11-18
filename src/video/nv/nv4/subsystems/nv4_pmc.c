@@ -51,7 +51,9 @@ nv4_pmc_boot_0(const nv4_t *nv4)
     /* NV10: the chip id 0x10 in 27:20, the device id's low bits in
        17:16, the mask revision in 7:0 (B1: PCI revision 0x10). The
        resman's IsNV10MaskRevA0xorBetter() tests that byte. */
-    if (NV4_IS_NV10(nv4))
+    if (nv4->chip == NV4_CHIP_NV15)
+        return 0x015000a3;
+    if (nv4->chip == NV4_CHIP_NV10)
         return 0x01000000 | ((nv4->board->device_id & 3) << 16) | 0xb1;
 
     if (nv4->chip == NV4_CHIP_TNT2)

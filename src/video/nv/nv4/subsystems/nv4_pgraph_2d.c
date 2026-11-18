@@ -305,14 +305,14 @@ nv4_rop3(uint8_t rop, uint32_t p, uint32_t s, uint32_t d)
 static uint32_t
 nv4_offset_mask(const nv4_t *nv4)
 {
-    return NV4_IS_NV10(nv4) ? 0x07ffffff : (NV4_IS_NV5P(nv4) ? 0x01ffffff : 0x00ffffff);
+    return NV4_IS_CELSIUS(nv4) ? 0x07ffffff : (NV4_IS_NV5P(nv4) ? 0x01ffffff : 0x00ffffff);
 }
 
 /* Surface pitches: 13 bits on the TNT and TNT2, 16 on the NV10 */
 static uint32_t
 nv4_pitch_mask(const nv4_t *nv4)
 {
-    return NV4_IS_NV10(nv4) ? 0xfff0 : 0x1ff0;
+    return NV4_IS_CELSIUS(nv4) ? 0xfff0 : 0x1ff0;
 }
 
 static int
@@ -1042,7 +1042,7 @@ nv4_ctx_method(nv4_t *nv4, int bit, uint32_t inst)
 {
     uint32_t cls;
 
-    if (!NV4_IS_NV5P(nv4) || (!NV4_IS_NV10(nv4) && !(GR(NV4_PGRAPH_DEBUG_3) & (1u << 29))))
+    if (!NV4_IS_NV5P(nv4) || (!NV4_IS_CELSIUS(nv4) && !(GR(NV4_PGRAPH_DEBUG_3) & (1u << 29))))
         return NV4_GR_ILLEGAL;
     cls = inst ? (nv4_ramin_read32(nv4, inst << 4) & 0xfff) : 0x30;
     if (bit >= 0)
@@ -1070,7 +1070,7 @@ nv4_color_conv_method(nv4_t *nv4, uint32_t data)
 static int
 nv4_operation_method(nv4_t *nv4, uint32_t data)
 {
-    if (!NV4_IS_NV5P(nv4) || (!NV4_IS_NV10(nv4) && !(GR(NV4_PGRAPH_DEBUG_3) & (1u << 30))))
+    if (!NV4_IS_NV5P(nv4) || (!NV4_IS_CELSIUS(nv4) && !(GR(NV4_PGRAPH_DEBUG_3) & (1u << 30))))
         return NV4_GR_ILLEGAL;
     nv4_pgraph_set_grobj(nv4, 0, 15, 3, data);
     return NV4_GR_OK;
@@ -2064,7 +2064,7 @@ nv4_class_surf3d(nv4_t *nv4, uint32_t mthd, uint32_t data)
 
                 if ((data & 0xff) < 9)
                     nv4_set_surf_fmt(nv4, NV4_SURF_COLOR, fmts[data & 0xff]);
-                GR(NV4_PGRAPH_SURFACE)   = (data >> 8) & 3;
+                GR(NV4_PGRAPH_SURFACE)   = (GR(NV4_PGRAPH_SURFACE) & ~3u) | ((data >> 8) & 3);
                 GR(NV4_PGRAPH_BSWIZZLE2) = data & 0x0f0f0000;
             }
             return NV4_GR_OK;
@@ -3146,7 +3146,7 @@ nv4_pgraph_2d_method(nv4_t *nv4, nv4_gr_chan_t *ch, int cls, uint32_t mthd, uint
 {
     /* The NV10's classes are the TNT2's with a SYNC method (0x108, which
        orders nothing here) and wider surfaces */
-    if (NV4_IS_NV10(nv4)) {
+    if (NV4_IS_CELSIUS(nv4)) {
         switch (cls) {
             case 0x62:
                 cls = 0x42;
@@ -3158,9 +3158,8 @@ nv4_pgraph_2d_method(nv4_t *nv4, nv4_gr_chan_t *ch, int cls, uint32_t mthd, uint
                 cls = 0x53;
                 break;
             case 0x9f:
-                /* NV15 flip methods: not on the GeForce 256 */
-                if ((mthd >= 0x120) && (mthd < 0x138))
-                    return NV4_GR_OK;
+                if (nv4->chip != NV4_CHIP_NV15)
+                    return NV4_GR_ILLEGAL;
                 cls = 0x5f;
                 break;
             case 0x8a:

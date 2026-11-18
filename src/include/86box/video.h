@@ -727,6 +727,8 @@ extern const device_t nv5_vanta_agp_device;
 extern const device_t nv10_geforce256_agp_device;
 extern const device_t nv10_geforce256_ddr_agp_device;
 extern const device_t nv10_quadro_agp_device;
+extern const device_t nv15_geforce2_gts_agp_device;
+extern const device_t nv15_geforce2_pro_agp_device;
 
 #endif
 

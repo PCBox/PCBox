@@ -76,7 +76,7 @@
 #define NV4_CTXC_MASK 0x0303f0ffu
 #define NV5_CTXC_MASK 0x7f73f0ffu
 #define NV4_CTX2_MASK 0xffff3f03u
-/* NV10: CTX_SWITCH1 adds single step 23; the caches drop it */
+/* CTX_SWITCH1 adds single step at bit 23. NV15 also caches it. */
 #define NV10_CTXS_MASK 0x7fb3f0ffu
 #define NV10_CTXC_MASK 0x7f33f0ffu
 
@@ -84,7 +84,8 @@
    register file leaves unused */
 #define NV10_PGRAPH_CTX_SWITCH5    0x40015c /* the object's trap mask */
 #define NV10_PGRAPH_CTX_CACHE5     0x400200 /* 8 */
-#define NV10_PGRAPH_TRAPPED_DATA_H 0x40071c
+#define NV10_PGRAPH_TRAPPED_DATA_H 0x40071c /* internal slot for guest address 40070c */
+#define NV15_PGRAPH_INCREMENT      0x40071c /* guest address, decoded before translation */
 #define NV10_PGRAPH_FFINTFC_ST2_DH 0x40076c
 #define NV10_PGRAPH_PIPE_ADDRESS   0x400f50
 #define NV10_PGRAPH_PIPE_DATA      0x400f54
@@ -93,7 +94,9 @@
 static uint32_t
 nv4_ctxc_mask(const nv4_t *nv4)
 {
-    if (NV4_IS_NV10(nv4))
+    if (nv4->chip == NV4_CHIP_NV15)
+        return NV10_CTXS_MASK;
+    if (NV4_IS_CELSIUS(nv4))
         return NV10_CTXC_MASK;
     return NV4_IS_NV5P(nv4) ? NV5_CTXC_MASK : NV4_CTXC_MASK;
 }
@@ -101,14 +104,14 @@ nv4_ctxc_mask(const nv4_t *nv4)
 static uint32_t
 nv4_ctxs_mask(const nv4_t *nv4)
 {
-    return NV4_IS_NV10(nv4) ? NV10_CTXS_MASK : nv4_ctxc_mask(nv4);
+    return NV4_IS_CELSIUS(nv4) ? NV10_CTXS_MASK : nv4_ctxc_mask(nv4);
 }
 
 /* The channel CTX_USER names: 4 bits on the TNT, 5 on the NV10 */
 static uint32_t
 nv4_user_chid(const nv4_t *nv4, uint32_t user)
 {
-    return (user >> 24) & (NV4_IS_NV10(nv4) ? 0x1f : 0x0f);
+    return (user >> 24) & (NV4_IS_CELSIUS(nv4) ? 0x1f : 0x0f);
 }
 
 /* An NV10 register address to its word in the register file (the TNT's
@@ -179,11 +182,11 @@ nv4_pgraph_blowup(nv4_t *nv4, uint32_t nsource)
     if (nsource & 0x004c)
         nstatus |= 0x4000;
     GR(NV4_PGRAPH_NSOURCE) |= nsource;
-    GR(NV4_PGRAPH_NSTATUS) |= NV4_IS_NV10(nv4) ? (nstatus << 12) : nstatus;
+    GR(NV4_PGRAPH_NSTATUS) |= NV4_IS_CELSIUS(nv4) ? (nstatus << 12) : nstatus;
     nv4_log("NV4 PGRAPH: trap, nsource %08x, class %02x, method %04x\n", nsource,
             GR(NV4_PGRAPH_CTX_SWITCH1) & 0xff, GR(NV4_PGRAPH_TRAPPED_ADDR) & 0x1ffc);
     /* the NV10 reports errors apart from notifications */
-    if (NV4_IS_NV10(nv4) && (nsource & ~NV4_NSOURCE_NOTIFICATION))
+    if (NV4_IS_CELSIUS(nv4) && (nsource & ~NV4_NSOURCE_NOTIFICATION))
         nv4_pgraph_intr(nv4, NV10_PGRAPH_INTR_ERROR);
     else
         nv4_pgraph_intr(nv4, NV4_PGRAPH_INTR_NOTIFY);
@@ -195,7 +198,7 @@ nv4_pgraph_blowup(nv4_t *nv4, uint32_t nsource)
 static uint32_t
 nv4_pgraph_trapped_addr(const nv4_t *nv4, int chid, int subc, uint32_t mthd)
 {
-    if (NV4_IS_NV10(nv4))
+    if (NV4_IS_CELSIUS(nv4))
         return mthd | ((uint32_t) subc << 16) | ((uint32_t) chid << 20);
     return mthd | ((uint32_t) subc << 13) | ((uint32_t) chid << 24);
 }
@@ -277,7 +280,7 @@ nv4_pgraph_load_grobj(nv4_t *nv4, int subc, uint32_t inst)
     GR(NV4_PGRAPH_CTX_CACHE1 + subc * 4) = nv4_ramin_read32(nv4, base) & nv4_ctxc_mask(nv4);
     GR(NV4_PGRAPH_CTX_CACHE2 + subc * 4) = nv4_ramin_read32(nv4, base + 4) & NV4_CTX2_MASK;
     GR(NV4_PGRAPH_CTX_CACHE3 + subc * 4) = nv4_ramin_read32(nv4, base + 8);
-    if (NV4_IS_NV10(nv4))
+    if (NV4_IS_CELSIUS(nv4))
         GR(NV10_PGRAPH_CTX_CACHE5 + subc * 4) = nv4_ramin_read32(nv4, base + 12);
 }
 
@@ -303,6 +306,65 @@ nv4_gap(nv4_t *nv4, int cls, uint32_t mthd, const char *what)
     pclog("nv4: not modeled: class %02x method %04x: %s\n", cls, mthd, what);
 }
 
+/* PGRAPH_SURFACE has separate three-bit write, read and modulo fields
+   for blits (bits 8, 12, 16) and Celsius (20, 24, 28). The DAC resource
+   manager advances READ_3D through INCREMENT when a flip completes. */
+static void
+nv15_flip_increment(nv4_t *nv4, unsigned base, unsigned field)
+{
+    uint32_t surface = GR(NV4_PGRAPH_SURFACE);
+    unsigned modulo  = (surface >> (base + 8)) & 7;
+    unsigned next    = ((surface >> field) & 7) + 1;
+
+    if (next == modulo)
+        next = 0;
+    GR(NV4_PGRAPH_SURFACE) = (surface & ~(7u << field)) | ((next & 7u) << field);
+}
+
+static int
+nv15_flip_method(nv4_t *nv4, int cls, uint32_t mthd, uint32_t data)
+{
+    unsigned base = cls == 0x96 ? 20 : 8;
+    static const unsigned flip_fields[] = { 4, 0, 8 }; /* read, write, modulo */
+    unsigned field;
+    uint32_t surface = GR(NV4_PGRAPH_SURFACE);
+
+    switch (mthd) {
+        case 0x120: /* SYNC_SET_READ */
+        case 0x124: /* SYNC_SET_WRITE */
+        case 0x128: /* SYNC_SET_MODULO */
+            field = base + flip_fields[(mthd - 0x120) / 4];
+            GR(NV4_PGRAPH_SURFACE) = (surface & ~(7u << field)) | ((data & 7) << field);
+            break;
+        case 0x12c: /* SYNC_INCREMENT_WRITE */
+            nv15_flip_increment(nv4, base, base);
+            break;
+        case 0x130: /* SYNC_STALL: the target buffer is still on screen */
+            if (((surface >> base) & 7) == ((surface >> (base + 4)) & 7))
+                return NV4_GR_WAIT;
+            break;
+        case 0x134: /* NV09F_SYNC_INCREMENT_READ_RANGE */
+            if (cls != 0x9f || data != 0) /* NV15 has one head */
+                return NV4_GR_ILLEGAL;
+            {
+                unsigned line = nv4->svga.displine & 0x7ff;
+                unsigned start = nv4->raster_start & 0xffff;
+                unsigned stop = nv4->raster_stop;
+                int in_range = start <= stop ? (line >= start && line <= stop)
+                                             : (line >= start || line <= stop);
+                if (in_range != (int) (nv4->raster_start >> 31)) {
+                    nv4_pfifo_kick(nv4);
+                    return NV4_GR_WAIT;
+                }
+            }
+            nv15_flip_increment(nv4, base, base + 4);
+            break;
+        default:
+            return NV4_GR_ILLEGAL;
+    }
+    return NV4_GR_OK;
+}
+
 /* Methods every class has. Returns -1 for a class method. */
 static int
 nv4_pgraph_common_method(nv4_t *nv4, uint32_t mthd, uint32_t data)
@@ -312,7 +374,7 @@ nv4_pgraph_common_method(nv4_t *nv4, uint32_t mthd, uint32_t data)
             return NV4_GR_OK;
 
         case 0x108: /* SYNC, on the NV10's classes: nothing to wait for */
-            if (NV4_IS_NV10(nv4))
+            if (NV4_IS_CELSIUS(nv4))
                 return NV4_GR_OK;
             return -1;
 
@@ -413,10 +475,10 @@ nv4_pgraph_3d_kind(const nv4_t *nv4, int cls)
             return 1;
         case 0x94:
         case 0x95:
-            return NV4_IS_NV10(nv4) ? 1 : 0;
+            return NV4_IS_CELSIUS(nv4) ? 1 : 0;
         case 0x56:
         case 0x96:
-            return NV4_IS_NV10(nv4) ? 2 : 0;
+            return NV4_IS_CELSIUS(nv4) ? 2 : 0;
         default:
             return 0;
     }
@@ -455,6 +517,7 @@ nv4_pgraph_exec(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
                                | NV10_PGRAPH_INTR_ERROR))
         return NV4_MTHD_STALL;
 
+    GR(NV4_PGRAPH_STATUS) = 0;
     GR(NV4_PGRAPH_TRAPPED_ADDR) = nv4_pgraph_trapped_addr(nv4, chid, subc, mthd);
     GR(NV4_PGRAPH_TRAPPED_DATA) = data;
 
@@ -476,7 +539,7 @@ nv4_pgraph_exec(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
             GR(NV4_PGRAPH_CTX_SWITCH2) = GR(NV4_PGRAPH_CTX_CACHE2 + subc * 4);
             GR(NV4_PGRAPH_CTX_SWITCH3) = GR(NV4_PGRAPH_CTX_CACHE3 + subc * 4);
             GR(NV4_PGRAPH_CTX_SWITCH4) = GR(NV4_PGRAPH_CTX_CACHE4 + subc * 4);
-            if (NV4_IS_NV10(nv4))
+            if (NV4_IS_CELSIUS(nv4))
                 GR(NV10_PGRAPH_CTX_SWITCH5) = GR(NV10_PGRAPH_CTX_CACHE5 + subc * 4);
         }
     }
@@ -499,7 +562,12 @@ nv4_pgraph_exec(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
        (nv4_draw_begin): join the batch or wait for what reaches it. */
     if (mthd >= 0x180 && !nv4_pgraph_state_only(cls) && !nv4_pgraph_draws_only(cls))
         nv4_3d_sync(nv4, cls);
-    r = nv4_pgraph_common_method(nv4, mthd, data);
+    if ((cls == 0x96 || cls == 0x9f) && nv4->chip != NV4_CHIP_NV15)
+        r = NV4_GR_ILLEGAL;
+    else if ((cls == 0x96 || cls == 0x9f) && mthd >= 0x120 && mthd <= 0x134)
+        r = nv15_flip_method(nv4, cls, mthd, data);
+    else
+        r = nv4_pgraph_common_method(nv4, mthd, data);
     if (r < 0) {
         switch (nv4_pgraph_3d_kind(nv4, cls)) {
             case 1:
@@ -516,6 +584,9 @@ nv4_pgraph_exec(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
     }
 
     switch (r) {
+        case NV4_GR_WAIT:
+            GR(NV4_PGRAPH_STATUS) = 5; /* STATE busy, WAITCRTC busy */
+            return NV4_MTHD_STALL;
         case NV4_GR_ILLEGAL:
             nv4_pgraph_blowup(nv4, NV4_NSOURCE_ILLEGAL_MTHD);
             break;
@@ -544,7 +615,7 @@ nv4_pgraph_exec(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
 #define NV10_ST2_STATUS   (1u << 26)
 #define NV10_ST2_FIFOHOLD (1u << 29)
 
-static void
+void
 nv10_pgraph_st2_run(nv4_t *nv4)
 {
     uint32_t st2 = GR(NV4_PGRAPH_FFINTFC_ST2);
@@ -559,7 +630,7 @@ nv10_pgraph_st2_run(nv4_t *nv4)
 nv4_mthd_result_t
 nv4_pgraph_method(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
 {
-    if (NV4_IS_NV10(nv4) && (GR(NV4_PGRAPH_FFINTFC_ST2) & (NV10_ST2_STATUS | NV10_ST2_FIFOHOLD)))
+    if (NV4_IS_CELSIUS(nv4) && (GR(NV4_PGRAPH_FFINTFC_ST2) & (NV10_ST2_STATUS | NV10_ST2_FIFOHOLD)))
         return NV4_MTHD_STALL;
     return nv4_pgraph_exec(nv4, chid, subc, mthd, data);
 }
@@ -575,12 +646,12 @@ nv4_pgraph_reset(nv4_t *nv4)
         nv4_pgraph_2d_reset_chan(&nv4->gr_chan[i]);
     }
     nv4_3d_reset(nv4);
-    if (NV4_IS_NV10(nv4))
+    if (NV4_IS_CELSIUS(nv4))
         nv10_celsius_reset(nv4);
     /* 2D pixels still waiting to join the batch go with it */
     nv4->run2d.n = 0;
     /* no channel until the driver loads one */
-    GR(NV4_PGRAPH_CTX_USER) = NV4_IS_NV10(nv4) ? 0x1f000000 : 0x0f000000;
+    GR(NV4_PGRAPH_CTX_USER) = NV4_IS_CELSIUS(nv4) ? 0x1f000000 : 0x0f000000;
     /* Its reset values: FIFO access on, every surface invalid. */
     GR(NV4_PGRAPH_FIFO) = 1;
     for (int i = 0; i < 6; i++)
@@ -591,7 +662,9 @@ uint32_t
 nv4_pgraph_read(nv4_t *nv4, uint32_t addr)
 {
     addr &= ~3u;
-    if (NV4_IS_NV10(nv4)) {
+    if (NV4_IS_CELSIUS(nv4)) {
+        if (addr == NV15_PGRAPH_INCREMENT && nv4->chip == NV4_CHIP_NV15)
+            return 0; /* write-only trigger */
         if (addr == NV10_PGRAPH_PIPE_DATA)
             return nv10_celsius_pipe_read(nv4);
         addr = nv10_pgraph_xlat(addr);
@@ -599,7 +672,7 @@ nv4_pgraph_read(nv4_t *nv4, uint32_t addr)
     switch (addr) {
         case NV4_PGRAPH_STATUS:
             /* STATE: busy until the last method's time is up */
-            return nv4_pfifo_engine_busy(nv4) ? 0x00000001 : 0;
+            return GR(addr) | (nv4_pfifo_engine_busy(nv4) ? 1u : 0);
         default:
             return GR(addr);
     }
@@ -611,7 +684,15 @@ nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val)
     int resume = 0;
 
     addr &= ~3u;
-    if (NV4_IS_NV10(nv4)) {
+    if (NV4_IS_CELSIUS(nv4)) {
+        if (addr == NV15_PGRAPH_INCREMENT && nv4->chip == NV4_CHIP_NV15) {
+            if (val & 1)
+                nv15_flip_increment(nv4, 8, 12);
+            if (val & 2)
+                nv15_flip_increment(nv4, 20, 24);
+            nv4_pfifo_kick(nv4);
+            return;
+        }
         if (addr == NV10_PGRAPH_PIPE_DATA) {
             nv10_celsius_pipe_write(nv4, val);
             return;
@@ -627,7 +708,7 @@ nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val)
     switch (addr) {
         case NV4_PGRAPH_INTR:
             GR(addr) &= ~val;
-            if (val & (NV4_PGRAPH_INTR_NOTIFY | (NV4_IS_NV10(nv4) ? NV10_PGRAPH_INTR_ERROR : 0))) {
+            if (val & (NV4_PGRAPH_INTR_NOTIFY | (NV4_IS_CELSIUS(nv4) ? NV10_PGRAPH_INTR_ERROR : 0))) {
                 GR(NV4_PGRAPH_NSOURCE) = 0;
                 GR(NV4_PGRAPH_NSTATUS) = 0;
             }
@@ -635,7 +716,7 @@ nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             resume = 1;
             break;
         case NV4_PGRAPH_INTR_EN:
-            GR(addr) = val & (NV4_IS_NV10(nv4) ? 0x01113711 : 0x00011311);
+            GR(addr) = val & (NV4_IS_CELSIUS(nv4) ? 0x01113711 : 0x00011311);
             nv4_pmc_update_irq(nv4);
             break;
         case NV4_PGRAPH_NSOURCE:
@@ -658,10 +739,14 @@ nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             GR(addr) = val & 0x11010003;
             break;
         case NV4_PGRAPH_CTX_USER:
-            GR(addr) = val & (NV4_IS_NV10(nv4) ? 0x9f00e000 : 0x0f00e000);
+            GR(addr) = val & (NV4_IS_CELSIUS(nv4) ? 0x9f00e000 : 0x0f00e000);
             break;
         case NV10_PGRAPH_PIPE_ADDRESS:
             GR(addr) = val & 0x7ffc;
+            break;
+        case NV4_PGRAPH_SURFACE:
+            GR(addr) = val & (nv4->chip == NV4_CHIP_NV15 ? 0x77777703 : 3);
+            resume = nv4->chip == NV4_CHIP_NV15;
             break;
         case NV4_PGRAPH_ROP3:
             GR(addr) = val & 0xff;
@@ -681,7 +766,7 @@ nv4_pgraph_write(nv4_t *nv4, uint32_t addr, uint32_t val)
             break;
     }
 
-    if (NV4_IS_NV10(nv4) && ((addr == NV4_PGRAPH_FIFO) || (addr == NV4_PGRAPH_CTX_CONTROL) || (addr == NV4_PGRAPH_FFINTFC_ST2))) {
+    if (NV4_IS_CELSIUS(nv4) && ((addr == NV4_PGRAPH_FIFO) || (addr == NV4_PGRAPH_CTX_CONTROL) || (addr == NV4_PGRAPH_FFINTFC_ST2))) {
         nv10_pgraph_st2_run(nv4);
         if (addr == NV4_PGRAPH_FFINTFC_ST2)
             resume = 1; /* FIFOHOLD may have been let go */
