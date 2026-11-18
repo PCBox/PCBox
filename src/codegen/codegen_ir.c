@@ -134,10 +134,13 @@ codegen_sse_mxcsr_kind(const uop_t *uop)
         case UOP_MOV_IMM & UOP_MASK:
         case UOP_MOVSS & UOP_MASK:
         case UOP_MOVSD & UOP_MASK:
+        case UOP_SHUFPD & UOP_MASK:
+        case UOP_PSHUFD & UOP_MASK:
         case UOP_SHUFPS & UOP_MASK:
         case UOP_MOVHLPS & UOP_MASK:
         case UOP_MOVLHPS & UOP_MASK:
         case UOP_MOVMSKPS & UOP_MASK:
+        case UOP_MOVMSKPD & UOP_MASK:
         case UOP_ADD & UOP_MASK:
         case UOP_ADD_IMM & UOP_MASK:
         case UOP_SUB & UOP_MASK:

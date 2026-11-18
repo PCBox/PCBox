@@ -15,8 +15,20 @@ typedef struct {
     uint8_t bytes[32];
     unsigned length, cr0_bits, no_osfxsr, trap_p3, trap_p4, setup, only_p4;
 } opcode_case;
-enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP_ALL_WRAP, UNPACK_SS, SSE_CALLBACK, SSE2_MOVD, SSE2_MOVQ, SSE2_MOVDQ, SSE2_MOVDQA_FAULT };
+enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP_ALL_WRAP, UNPACK_SS, SSE_CALLBACK, SSE2_MOVD, SSE2_MOVQ, SSE2_MOVDQ, SSE2_MOVDQA_FAULT,
+       PSHUFD_REG, PSHUFD_SELF, PSHUFD_MEM, SHUFPD_REG, SHUFPD_SELF, SHUFPD_MEM, MOVMSKPD };
 static const opcode_case opcases[] = {
+    {"MOVMSKPD edx,xmm5", {0x66,0x0f,0x50,0xd5},4,0,0,6,0,MOVMSKPD,1},
+    {"MOVMSKPD memory", {0x66,0x0f,0x50,0x17},4,0,0,6,6,MOVMSKPD,1},
+    {"MOVMSKPD TS", {0x66,0x0f,0x50,0xd5},4,8,0,6,7,MOVMSKPD,1},
+    {"PSHUFD reverse", {0x66,0x0f,0x70,0xc1,0x1b},5,0,0,6,0,PSHUFD_REG,1},
+    {"PSHUFD self broadcast", {0x66,0x0f,0x70,0xc0,0xaa},5,0,0,6,0,PSHUFD_SELF,1},
+    {"PSHUFD a16 [bx+16]", {0x67,0x66,0x0f,0x70,0x47,16,0x8d},7,0,0,6,0,PSHUFD_MEM,1},
+    {"SHUFPD register", {0x66,0x0f,0xc6,0xc1,0xfd},5,0,0,6,0,SHUFPD_REG,1},
+    {"SHUFPD self swap", {0x66,0x0f,0xc6,0xc0,1},5,0,0,6,0,SHUFPD_SELF,1},
+    {"SHUFPD [ebx+16]", {0x66,0x0f,0xc6,0x43,16,0xfe},6,0,0,6,0,SHUFPD_MEM,1},
+    {"PSHUFD SS limit", {0x36,0x66,0x0f,0x70,0x07,0},6,0,0,6,12,UNPACK_SS,1},
+    {"SHUFPD SS limit", {0x36,0x66,0x0f,0xc6,0x07,0},6,0,0,6,12,UNPACK_SS,1},
     /* MOVD xmm0,ecx / [edi],xmm0 / xmm1,[edi] / edx,xmm1 */
     {"SSE2 MOVD round trip", {0x66,0x0f,0x6e,0xc1, 0x66,0x0f,0x7e,0x07,
                               0x66,0x0f,0x6e,0x0f, 0x66,0x0f,0x7e,0xca},16,0,0,6,0,SSE2_MOVD,1},
@@ -594,6 +606,20 @@ int main(int argc,char **argv) {
                 if (call & 64) cpu_cur_status |= CPU_STATUS_SSE_UNMASKED;
             }
             unsigned stack_fault = (call / 8) & 1;
+            if (probe->setup == MOVMSKPD) {
+                EDX = UINT32_MAX;
+                /* Set bit 31 in each qword to distinguish this from MOVMSKPS. */
+                cpu_state.XMM[5].q[0] = UINT64_C(0x7fffffffffffffff) | ((uint64_t)(call & 1) << 63);
+                cpu_state.XMM[5].q[1] = UINT64_C(0x80000000) | ((uint64_t)((call >> 1) & 1) << 63);
+            }
+            if (probe->setup >= PSHUFD_REG && probe->setup <= SHUFPD_MEM) {
+                EBX = 0x4000;
+                for (unsigned lane = 0; lane < 4; lane++) {
+                    cpu_state.XMM[0].l[lane] = call + lane;
+                    cpu_state.XMM[1].l[lane] = call + lane + 4;
+                    put32(EBX + 16 + lane * 4, call + lane + 8);
+                }
+            }
             if (probe->setup >= SSE2_MOVD && probe->setup <= SSE2_MOVDQA_FAULT) {
                 for (unsigned n = 0; n < 64; ++n)
                     ram[EDI + n] = (uint8_t)(n + call);
@@ -668,6 +694,20 @@ int main(int argc,char **argv) {
                 fprintf(stderr, "%s call %u: trap %u, expected %u\n", probe->name, call, get32(TRAP), expected);
                 return 1;
             }
+            if (probe->setup >= PSHUFD_REG && probe->setup <= SHUFPD_MEM) {
+                static const uint8_t lanes[][4] = {
+                    {7,6,5,4}, {2,2,2,2}, {9,11,8,10},
+                    {2,3,4,5}, {2,3,0,1}, {0,1,10,11},
+                };
+                for (unsigned lane = 0; lane < 4; lane++) {
+                    if (cpu_state.XMM[0].l[lane] != call + lanes[probe->setup - PSHUFD_REG][lane] ||
+                        cpu_state.XMM[1].l[lane] != call + lane + 4)
+                        fatal("%s: incorrect shuffle at lane %u", probe->name, lane);
+                }
+            }
+            if (probe->setup == MOVMSKPD &&
+                (EDX != (expected ? UINT32_MAX : (call & 3)) || (expected && get32(FAULT_PC) != BODY)))
+                fatal("%s: wrong destination or fault EIP", probe->name);
             if (probe->setup == SSE2_MOVD || probe->setup == SSE2_MOVQ) {
                 int dword = probe->setup == SSE2_MOVD;
                 unsigned width = dword ? 4 : 8;

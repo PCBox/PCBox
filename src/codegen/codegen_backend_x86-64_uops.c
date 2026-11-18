@@ -3586,7 +3586,7 @@ codegen_DIVSD(codeblock_t *block, uop_t *uop)
 }
 
 static int
-codegen_SHUFPS(codeblock_t *block, uop_t *uop)
+codegen_SHUF(codeblock_t *block, uop_t *uop)
 {
     int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
     int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
@@ -3596,13 +3596,20 @@ codegen_SHUFPS(codeblock_t *block, uop_t *uop)
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
     if (REG_IS_DQ(dest_size) && REG_IS_DQ(src_size_a) && REG_IS_DQ(src_size_b)) {
+        if (dest_reg == src_reg_b && dest_reg != src_reg_a) {
+            host_x86_MOVDQA_XREG_XREG(block, REG_XMM_TEMP, src_reg_b);
+            src_reg_b = REG_XMM_TEMP;
+        }
         if (dest_reg != src_reg_a)
             host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
-        host_x86_SHUFPS_XREG_XREG(block, dest_reg, src_reg_b, uop->imm_data);
+        if ((uop->type & UOP_MASK) == (UOP_SHUFPD & UOP_MASK))
+            host_x86_SHUFPD_XREG_XREG(block, dest_reg, src_reg_b, uop->imm_data);
+        else
+            host_x86_SHUFPS_XREG_XREG(block, dest_reg, src_reg_b, uop->imm_data);
     }
 #    ifdef RECOMPILER_DEBUG
     else
-        fatal("SHUFPS %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
+        fatal("SHUFPS/SHUFPD %02x %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real, uop->src_reg_b_real);
 #    endif
     return 0;
 }
@@ -3652,18 +3659,22 @@ codegen_MOVLHPS(codeblock_t *block, uop_t *uop)
 }
 
 static int
-codegen_MOVMSKPS(codeblock_t *block, uop_t *uop)
+codegen_MOVMSK(codeblock_t *block, uop_t *uop)
 {
     int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
     int src_reg   = HOST_REG_GET(uop->src_reg_a_real);
     int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
 
-    if (REG_IS_L(dest_size) && REG_IS_DQ(src_size))
-        host_x86_MOVMSKPS_REG_XREG(block, dest_reg, src_reg);
+    if (REG_IS_L(dest_size) && REG_IS_DQ(src_size)) {
+        if ((uop->type & UOP_MASK) == (UOP_MOVMSKPD & UOP_MASK))
+            host_x86_MOVMSKPD_REG_XREG(block, dest_reg, src_reg);
+        else
+            host_x86_MOVMSKPS_REG_XREG(block, dest_reg, src_reg);
+    }
 #    ifdef RECOMPILER_DEBUG
     else
-        fatal("MOVMSKPS %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
+        fatal("MOVMSKPS/MOVMSKPD %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
 #    endif
     return 0;
 }
@@ -4921,6 +4932,14 @@ static int
 codegen_PSADBW(codeblock_t *block, uop_t *uop)
 {
     return codegen_MMX_BINARY(block, uop, host_x86_PSADBW_XREG_XREG, "PSADBW");
+}
+
+static int
+codegen_PSHUFD(codeblock_t *block, uop_t *uop)
+{
+    host_x86_PSHUFD_XREG_XREG(block, HOST_REG_GET(uop->dest_reg_a_real),
+                              HOST_REG_GET(uop->src_reg_a_real), uop->imm_data);
+    return 0;
 }
 
 static int
@@ -6726,6 +6745,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_PSHUFW &
         UOP_MASK]
     = codegen_PSHUFW,
+    [UOP_PSHUFD & UOP_MASK] = codegen_PSHUFD,
     [UOP_PINSRW &
         UOP_MASK]
     = codegen_PINSRW,
@@ -6870,7 +6890,8 @@ const uOpFn uop_handlers[UOP_MAX] = {
 
     [UOP_SHUFPS &
         UOP_MASK]
-    = codegen_SHUFPS,
+    = codegen_SHUF,
+    [UOP_SHUFPD & UOP_MASK] = codegen_SHUF,
     [UOP_MOVHLPS &
         UOP_MASK]
     = codegen_MOVHLPS,
@@ -6879,7 +6900,8 @@ const uOpFn uop_handlers[UOP_MAX] = {
     = codegen_MOVLHPS,
     [UOP_MOVMSKPS &
         UOP_MASK]
-    = codegen_MOVMSKPS,
+    = codegen_MOVMSK,
+    [UOP_MOVMSKPD & UOP_MASK] = codegen_MOVMSK,
     [UOP_MINPS &
         UOP_MASK]
     = codegen_MINPS,

@@ -492,6 +492,12 @@ host_x86_MOVMSKPS_REG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 }
 
 void
+host_x86_MOVMSKPD_REG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    sse_op_reg_reg(block, 0x66, 0x50, dst_reg, src_reg); /*MOVMSKPD dst_reg, src_reg*/
+}
+
+void
 host_x86_MAXPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 {
     sse_op_reg_reg(block, 0, 0x5f, dst_reg, src_reg); /*MAXPS dst_reg, src_reg*/
@@ -904,9 +910,21 @@ host_x86_SQRTSS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 }
 
 void
+host_x86_SHUFPD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg, int imm)
+{
+    sse_op_reg_reg_imm(block, 0x66, 0xc6, dst_reg, src_reg, imm); /*SHUFPD dst_reg, src_reg, imm*/
+}
+
+void
 host_x86_SHUFPS_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg, int imm)
 {
     sse_op_reg_reg_imm(block, 0, 0xc6, dst_reg, src_reg, imm); /*SHUFPS dst_reg, src_reg, imm*/
+}
+
+void
+host_x86_PSHUFD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg, int imm)
+{
+    sse_op_reg_reg_imm(block, 0x66, 0x70, dst_reg, src_reg, imm); /*PSHUFD dst_reg, src_reg, imm*/
 }
 
 void

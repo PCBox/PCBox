@@ -135,13 +135,15 @@ ropMOVQ_q_r(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat
 }
 
 uint32_t
-ropPSHUFW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+ropPSHUFW(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int     dest_reg = (fetchdat >> 3) & 7;
     int     src_reg;
     uint8_t imm;
 
-    if (op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES))
+    if (op_sse_xmm) /* 66 0F 70 PSHUFD */
+        return ropSHUF_xmm(block, ir, opcode, fetchdat, op_32, op_pc);
+    if (block->flags & CODEBLOCK_NO_IMMEDIATES)
         return 0;
 
     REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);

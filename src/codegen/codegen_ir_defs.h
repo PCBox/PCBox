@@ -642,7 +642,10 @@ _Static_assert(!(UOP_TYPE_FLAGS_OR & 0xffff), "a UOP_TYPE_ flag overlaps the uop
   The routine reads and writes the guest registers in cpu_state, so the caller reloads them*/
 #define UOP_CALL_REP_STRING (UOP_TYPE_PARAMS_POINTER | UOP_TYPE_PARAMS_IMM | 0x122 | UOP_TYPE_ORDER_BARRIER)
 
-#define UOP_MAX     0x123
+#define UOP_PSHUFD (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x123)
+#define UOP_SHUFPD (UOP_TYPE_PARAMS_REGS | UOP_TYPE_PARAMS_IMM | 0x124)
+#define UOP_MOVMSKPD (UOP_TYPE_PARAMS_REGS | 0x125)
+#define UOP_MAX     0x126
 
 #define UOP_INVALID 0xffff
 
@@ -1546,9 +1549,11 @@ extern void codegen_fpu_record_pointers(ir_data_t *ir);
 #define uop_DIVSD(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_DIVSD, ir, dst_reg, src_reg_a, src_reg_b)
 
 #define uop_SHUFPS(ir, dst_reg, src_reg_a, src_reg_b, imm)               uop_gen_reg_dst_src2_imm(UOP_SHUFPS, ir, dst_reg, src_reg_a, src_reg_b, imm)
+#define uop_SHUFPD(ir, dst_reg, src_reg_a, src_reg_b, imm)               uop_gen_reg_dst_src2_imm(UOP_SHUFPD, ir, dst_reg, src_reg_a, src_reg_b, imm)
 #define uop_MOVHLPS(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_MOVHLPS, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_MOVLHPS(ir, dst_reg, src_reg_a, src_reg_b)                   uop_gen_reg_dst_src2(UOP_MOVLHPS, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_MOVMSKPS(ir, dst_reg, src_reg)                               uop_gen_reg_dst_src1(UOP_MOVMSKPS, ir, dst_reg, src_reg)
+#define uop_MOVMSKPD(ir, dst_reg, src_reg)                               uop_gen_reg_dst_src1(UOP_MOVMSKPD, ir, dst_reg, src_reg)
 #define uop_MINPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MINPS, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_MINSS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MINSS, ir, dst_reg, src_reg_a, src_reg_b)
 #define uop_MAXPS(ir, dst_reg, src_reg_a, src_reg_b)                     uop_gen_reg_dst_src2(UOP_MAXPS, ir, dst_reg, src_reg_a, src_reg_b)
@@ -1570,6 +1575,7 @@ extern void codegen_fpu_record_pointers(ir_data_t *ir);
 #define uop_CVTPS2PI(ir, dst_reg, src_reg)                               uop_gen_reg_dst_src1(UOP_CVTPS2PI, ir, dst_reg, src_reg)
 
 #define uop_PSHUFW(ir, dst_reg, src_reg, imm)                            uop_gen_reg_dst_src1_imm(UOP_PSHUFW, ir, dst_reg, src_reg, imm)
+#define uop_PSHUFD(ir, dst_reg, src_reg, imm)                            uop_gen_reg_dst_src1_imm(UOP_PSHUFD, ir, dst_reg, src_reg, imm)
 #define uop_PINSRW(ir, dst_reg, src_reg_a, src_reg_b, imm)               uop_gen_reg_dst_src2_imm(UOP_PINSRW, ir, dst_reg, src_reg_a, src_reg_b, imm)
 #define uop_PEXTRW(ir, dst_reg, src_reg, imm)                            uop_gen_reg_dst_src1_imm(UOP_PEXTRW, ir, dst_reg, src_reg, imm)
 #define uop_PMOVMSKB(ir, dst_reg, src_reg)                               uop_gen_reg_dst_src1(UOP_PMOVMSKB, ir, dst_reg, src_reg)
