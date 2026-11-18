@@ -453,7 +453,7 @@ ir_reg_has_readers(ir_reg_t ir_reg)
 {
     const reg_version_t *version = &reg_version[IREG_GET_REG(ir_reg.reg)][ir_reg.version];
 
-    return version->refcount || (version->flags & REG_FLAGS_PARTIAL_PARENT);
+    return version->refcount || (version->flags & REG_FLAGS_IMPLICIT_READ);
 }
 
 static inline host_reg_set_t *
@@ -1092,8 +1092,41 @@ codegen_reg_alloc_register(ir_reg_t dest_reg_a, ir_reg_t src_reg_a, ir_reg_t src
         alloc_dest_reg(dest_reg_a, dest_reference);
 }
 
-ir_host_reg_t
-codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_idx)
+/* One uop can need three integer inputs and a separate result. If all
+   legacy byte registers are locked, a word or dword operand can use a
+   wide slot for this instruction and return to memory before any byte use. */
+static int
+unlocked_slot(host_reg_set_t *reg_set, ir_reg_t reg, int *borrowed_slot)
+{
+    for (int c = 0; c < reg_set->nr_regs; c++) {
+        if (!(reg_set->locked & (1 << c)) && host_reg_can_hold(reg_set, c, reg))
+            return c;
+    }
+    if (borrowed_slot && *borrowed_slot == -1 && reg_set == &host_reg_set &&
+        (IREG_GET_SIZE(reg.reg) == IREG_SIZE_L || IREG_GET_SIZE(reg.reg) == IREG_SIZE_W)) {
+        for (int c = 0; c < reg_set->nr_regs; c++) {
+            if (!(reg_set->locked & (1 << c)) && (reg_set->reg_list[c].flags & HOST_REG_FLAG_NO_BYTE) &&
+                host_reg_supports_ir_reg(reg_set, c, reg)) {
+                *borrowed_slot = c;
+                return c;
+            }
+        }
+    }
+    fatal("No host register available for IR register %x\n", reg.reg);
+    return -1;
+}
+
+void
+codegen_reg_release_slot(codeblock_t *block, int slot)
+{
+    if (host_reg_set.dirty[slot])
+        codegen_reg_writeback(&host_reg_set, block, slot, 1);
+    host_reg_assign(&host_reg_set, slot, invalid_ir_reg);
+    host_reg_set.dirty[slot] = 0;
+}
+
+static ir_host_reg_t
+alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_idx, int *borrowed_slot)
 {
     host_reg_set_t *reg_set = get_reg_set(ir_reg);
     int             c;
@@ -1133,17 +1166,8 @@ codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_id
                     break;
             }
         }
-        if (c == reg_set->nr_regs) {
-            /*Search for any unlocked register*/
-            for (c = 0; c < reg_set->nr_regs; c++) {
-                if (!(reg_set->locked & (1 << c)) && host_reg_can_hold(reg_set, c, ir_reg))
-                    break;
-            }
-#ifndef RELEASE_BUILD
-            if (c == reg_set->nr_regs)
-                fatal("codegen_reg_alloc_read_reg - out of registers\n");
-#endif
-        }
+        if (c == reg_set->nr_regs)
+            c = unlocked_slot(reg_set, ir_reg, borrowed_slot);
         if (reg_set->dirty[c])
             codegen_reg_writeback(reg_set, block, c, 1);
         codegen_reg_load(reg_set, block, c, ir_reg);
@@ -1153,7 +1177,7 @@ codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_id
 
     reg_version[IREG_GET_REG(reg_set->regs[c].reg)][reg_set->regs[c].version].refcount--;
 #ifndef RELEASE_BUILD
-    if (reg_version[IREG_GET_REG(reg_set->regs[c].reg)][reg_set->regs[c].version].refcount == (uint8_t) -1)
+    if (reg_version[IREG_GET_REG(reg_set->regs[c].reg)][reg_set->regs[c].version].refcount == UINT16_MAX)
         fatal("codegen_reg_alloc_read_reg - refcount < 0\n");
 #endif
 
@@ -1163,7 +1187,13 @@ codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_id
 }
 
 ir_host_reg_t
-codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t ir_reg)
+codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *borrowed_slot)
+{
+    return alloc_read_reg(block, ir_reg, NULL, borrowed_slot);
+}
+
+ir_host_reg_t
+codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t ir_reg, int *borrowed_slot)
 {
     host_reg_set_t *reg_set = get_reg_set(ir_reg);
     int             c;
@@ -1172,11 +1202,11 @@ codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t ir_reg)
         /*Read in parent register so we can do partial accesses to it*/
         ir_reg_t parent_reg;
 
-        parent_reg.reg     = IREG_GET_REG(ir_reg.reg) | IREG_SIZE_L;
+        parent_reg.reg     = ir_reg.reg;
         parent_reg.version = ir_reg.version - 1;
         reg_version[IREG_GET_REG(ir_reg.reg)][ir_reg.version - 1].refcount++;
 
-        codegen_reg_alloc_read_reg(block, parent_reg, &c);
+        alloc_read_reg(block, parent_reg, &c, borrowed_slot);
 
 #ifndef RELEASE_BUILD
         if (IREG_GET_REG(reg_set->regs[c].reg) != IREG_GET_REG(ir_reg.reg) || reg_set->regs[c].version > ir_reg.version - 1)
@@ -1213,15 +1243,7 @@ codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t ir_reg)
         }
 
         if (c == reg_set->nr_regs) {
-            /*No unused registers. Search for an unlocked register*/
-            for (c = 0; c < reg_set->nr_regs; c++) {
-                if (!(reg_set->locked & (1 << c)) && host_reg_can_hold(reg_set, c, ir_reg))
-                    break;
-            }
-#ifndef RELEASE_BUILD
-            if (c == reg_set->nr_regs)
-                fatal("codegen_reg_alloc_write_reg - out of registers\n");
-#endif
+            c = unlocked_slot(reg_set, ir_reg, borrowed_slot);
             if (reg_set->dirty[c])
                 codegen_reg_writeback(reg_set, block, c, 1);
         }
@@ -1823,8 +1845,17 @@ codegen_reg_flush_invalidate(UNUSED(ir_data_t *ir), codeblock_t *block)
     }
 }
 
-/*Process dead register list, and optimise out register versions and uOPs where
-  possible*/
+static void
+remove_dead_read(ir_reg_t src)
+{
+    if (ir_reg_is_invalid(src))
+        return;
+    int reg = IREG_GET_REG(src.reg);
+    reg_version_t *regv = &reg_version[reg][src.version];
+    if (!--regv->refcount && (regv->flags & REG_FLAGS_OVERWRITTEN))
+        add_to_dead_list(regv, reg, src.version);
+}
+
 void
 codegen_reg_process_dead_list(ir_data_t *ir)
 {
@@ -1834,41 +1865,18 @@ codegen_reg_process_dead_list(ir_data_t *ir)
         reg_version_t *regv    = &reg_version[reg][version];
         uop_t         *uop     = &ir->uops[regv->parent_uop];
 
-        /*Barrier uOPs should be preserved, and so should those that update
-          the SSE status (MXCSR's sticky exception flags) whatever becomes of
-          their result*/
-        if (!(uop->type & (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER | UOP_TYPE_FP_STATUS))) {
-            uop->type = UOP_INVALID;
-            /*Adjust refcounts on source registers. If these drop to
-              zero then those registers can be considered for removal*/
-            if (uop->src_reg_a.reg != IREG_INVALID) {
-                reg_version_t *src_regv = &reg_version[IREG_GET_REG(uop->src_reg_a.reg)][uop->src_reg_a.version];
-                src_regv->refcount--;
-                if (!src_regv->refcount)
-                    add_to_dead_list(src_regv, IREG_GET_REG(uop->src_reg_a.reg), uop->src_reg_a.version);
-            }
-            if (uop->src_reg_b.reg != IREG_INVALID) {
-                reg_version_t *src_regv = &reg_version[IREG_GET_REG(uop->src_reg_b.reg)][uop->src_reg_b.version];
-                src_regv->refcount--;
-                if (!src_regv->refcount)
-                    add_to_dead_list(src_regv, IREG_GET_REG(uop->src_reg_b.reg), uop->src_reg_b.version);
-            }
-            if (uop->src_reg_c.reg != IREG_INVALID) {
-                reg_version_t *src_regv = &reg_version[IREG_GET_REG(uop->src_reg_c.reg)][uop->src_reg_c.version];
-                src_regv->refcount--;
-                if (!src_regv->refcount)
-                    add_to_dead_list(src_regv, IREG_GET_REG(uop->src_reg_c.reg), uop->src_reg_c.version);
-            }
-            regv->flags |= REG_FLAGS_DEAD;
-        }
-
         reg_dead_list = regv->next;
+        if (regv->flags & (REG_FLAGS_REQUIRED | REG_FLAGS_IMPLICIT_READ))
+            continue;
+        /* DIVMOD also produces the quotient and remainder in backend
+           scratch. SSE arithmetic can set sticky MXCSR exception flags. */
+        if ((uop->type & (UOP_TYPE_BARRIER | UOP_TYPE_ORDER_BARRIER | UOP_TYPE_FP_STATUS)) ||
+            (uop->type & UOP_MASK) == (UOP_DIVMOD & UOP_MASK))
+            continue;
+        uop->type = UOP_INVALID;
+        regv->flags |= REG_FLAGS_DEAD;
+        remove_dead_read(uop->src_reg_a);
+        remove_dead_read(uop->src_reg_b);
+        remove_dead_read(uop->src_reg_c);
     }
-}
-
-/* Before a jump's destination, on the way in: the pending immediates. */
-void
-codegen_reg_jump_dest(codeblock_t *block)
-{
-    codegen_reg_flush(NULL, block);
 }

@@ -443,7 +443,25 @@ static void initialize(void) {
     }
 }
 #ifndef AUDIT_OPCODE_NO_MAIN
-int test_register_allocation(void);
+#include "codegen_allocator.h"
+#include "codegen_backend.h"
+int test_register_allocation(codeblock_t *block);
+int test_ir(codeblock_t *block);
+
+static int run_codegen_test(int (*test)(codeblock_t *))
+{
+    block_current = 1;
+    codeblock_t *block = &codeblock[block_current];
+#ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+    codegen_block_link = 0;
+#endif
+    block->head_mem_block = codegen_allocator_allocate(NULL, block_current);
+    block->data = codeblock_allocator_get_ptr(block->head_mem_block);
+    int failed = test(block);
+    codegen_allocator_free(block->head_mem_block);
+    return failed;
+}
+
 int main(int argc,char **argv) {
     int p3=argc>1&&!strcmp(argv[1],"p3");
     engine=argc>2?atoi(argv[2]):0; fpu_softfloat=argc>3?atoi(argv[3]):0;
@@ -452,7 +470,9 @@ int main(int argc,char **argv) {
     fpu_type=FPU_INTERNAL; cpu_use_dynarec=engine;
     cpu_set(); codegen_init(); mem_size=16*1024; mem_init(); mem_reset();
     if (argc == 2 && !strcmp(argv[1], "allocator"))
-        return test_register_allocation();
+        return run_codegen_test(test_register_allocation);
+    if (argc == 2 && !strcmp(argv[1], "ir"))
+        return run_codegen_test(test_ir);
     mem_mapping_add(&sse_mapping, 0xd0000, 0x1000, NULL, NULL, sse_read,
                     NULL, NULL, sse_write, NULL, MEM_MAPPING_EXTERNAL, NULL);
     unsigned checked = 0;

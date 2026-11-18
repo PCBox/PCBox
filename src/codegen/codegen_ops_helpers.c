@@ -489,19 +489,14 @@ codegen_flags_known_use(ir_data_t *ir, int cf_kept)
         flags_known_full = 1;
 }
 
-/*Ready for one uop reading src_a and src_b (IREG_INVALID for none) in place
-  of an ordered C call that reads no register: room for its record and its
-  reads, which are left out of the counts that end the block and limit
-  unrolling, and the registers written after it marked as the call's barrier
-  marks them. 0, changing nothing, when there is no room or the backend has
-  no CMP_SET and TEST_SET: the call stays*/
+/* Reserve a flag-read site for the inline replacement of an ordered call.
+   Its reads do not count toward the block and unroll limits. Keep the
+   original call's barrier for subsequent register writes. */
 static int
 flags_read_begin(int src_a, int src_b)
 {
 #if defined __aarch64__ || defined _M_ARM64 || defined __amd64__ || defined _M_X64
     if (flags_read_nr == FLAGS_READ_MAX)
-        return 0;
-    if (((src_a != IREG_INVALID) && !codegen_reg_read_has_room(src_a)) || ((src_b != IREG_INVALID) && !codegen_reg_read_has_room(src_b)))
         return 0;
     if (src_a != IREG_INVALID)
         codegen_reg_read_uncounted(src_a);

@@ -76,19 +76,11 @@ test_captured_spill(codeblock_t *block)
 #endif
 
 int
-test_register_allocation(void)
+test_register_allocation(codeblock_t *block)
 {
-    block_current = 1;
-    codeblock_t *block = &codeblock[block_current];
-#ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
-    codegen_block_link = 0;
-#endif
-    block->head_mem_block = codegen_allocator_allocate(NULL, block_current);
-    block->data = codeblock_allocator_get_ptr(block->head_mem_block);
     int failed = test_partial_spill(block, 0) || test_partial_spill(block, 1);
 #ifdef CODEGEN_BACKEND_HAS_MEM_REGS
     failed |= test_captured_spill(block);
 #endif
-    codegen_allocator_free(block->head_mem_block);
     return failed;
 }

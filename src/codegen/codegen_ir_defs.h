@@ -692,6 +692,7 @@ typedef struct uop_t {
 } uop_t;
 
 #define UOP_NR_MAX 4096
+_Static_assert(3 * UOP_NR_MAX + 1 < UINT16_MAX, "register read counts must fit an unrolled block");
 
 typedef struct ir_data_t {
     uop_t               uops[UOP_NR_MAX];

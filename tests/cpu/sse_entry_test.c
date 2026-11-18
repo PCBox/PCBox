@@ -30,6 +30,8 @@ static uint32_t entry_pcs[32];
 static int entries, rechecks, arithmetic, full_flushes, order_flushes, patched_jumps;
 static int mxcsr_begins, mxcsr_ends;
 static int mmx_arithmetic, mmx_commits, mmx_entries;
+static codegen_flags_read_t flag_reads[32];
+static int nr_flag_reads;
 
 void fatal(const char *fmt, ...)
 {
@@ -62,7 +64,8 @@ void codegen_reg_write_imm(codeblock_t *block, ir_reg_t reg, uint32_t imm) { (vo
 void codegen_reg_rename(codeblock_t *block, ir_reg_t src, ir_reg_t dst) { (void)block; (void)src; (void)dst; }
 void codegen_reg_alloc_register(ir_reg_t dst, ir_reg_t a, ir_reg_t b, ir_reg_t c) { (void)dst; (void)a; (void)b; (void)c; }
 ir_host_reg_t codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t reg, int *idx) { (void)block; (void)reg; (void)idx; return 0; }
-ir_host_reg_t codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t reg) { (void)block; (void)reg; return 0; }
+ir_host_reg_t codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t reg, int *slot) { (void)block; (void)reg; (void)slot; return 0; }
+void codegen_reg_release_slot(codeblock_t *block, int slot) { (void)block; (void)slot; }
 
 /* The recording backend has no guest timing events or flag producers. */
 uint64_t ireg_permanent_mask[2];
@@ -71,7 +74,6 @@ codegen_lazy_list_t *codegen_lazy_site;
 static char exit_target, gp_target, ss_target;
 void *codegen_exit_rout = &exit_target, *codegen_gpf_rout = &gp_target, *codegen_ss_rout = &ss_target;
 void codegen_reg_drop_cycles(void) { }
-void codegen_reg_jump_dest(codeblock_t *block) { (void)block; }
 void codegen_reg_flush_lazy(ir_data_t *ir, codeblock_t *block) { (void)ir; (void)block; }
 int codegen_exit_cycles(int held) { (void)held; return 0; }
 void codegen_record_exit(int pos, int held) { (void)pos; (void)held; }
@@ -82,7 +84,7 @@ void codegen_accumulate_copy(ir_data_t *ir, int pos) { (void)ir; (void)pos; }
 int codegen_accumulate_unroll(ir_data_t *ir, int first, int start, int branch)
 { (void)ir; (void)first; (void)start; (void)branch; return 0; }
 int codegen_flags_inline_sites(const codegen_flags_inline_t **sites) { *sites = NULL; return 0; }
-int codegen_flags_read_sites(const codegen_flags_read_t **sites) { *sites = NULL; return 0; }
+int codegen_flags_read_sites(const codegen_flags_read_t **sites) { *sites = flag_reads; return nr_flag_reads; }
 int codegen_flags_is_rebuild_c(const void *p) { (void)p; return 0; }
 int codegen_flags_is_rebuild_zpna(const void *p) { (void)p; return 0; }
 void jit_flags_rebuild(void) { fatal("Unexpected flag rebuild"); }
@@ -140,6 +142,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_MMX_ENTER & UOP_MASK] = record_uop,
     [UOP_MMX_COMMIT & UOP_MASK] = record_uop,
     [UOP_PADDD & UOP_MASK] = record_uop,
+    [UOP_TEST_SET & UOP_MASK] = record_uop,
 };
 
 static ir_data_t *start_block(void)
@@ -147,6 +150,7 @@ static ir_data_t *start_block(void)
     entries = rechecks = arithmetic = full_flushes = order_flushes = patched_jumps = 0;
     mxcsr_begins = mxcsr_ends = 0;
     mmx_arithmetic = mmx_commits = mmx_entries = 0;
+    nr_flag_reads = 0;
     memset(reg_last_version, 0, sizeof(reg_last_version));
     memset(reg_version, 0, sizeof(reg_version));
     dirty_ir_regs[0] = dirty_ir_regs[1] = 0;
@@ -304,7 +308,7 @@ int main(void)
     codegen_ir_set_unroll(3, 0, 0);
     compile(ir);
     CHECK(mmx_entries == 1 && mmx_commits == 1 && mmx_arithmetic == 6);
-    CHECK(patched_jumps == 3 && full_flushes == 5); /* Entry, three calls, final writeback. */
+    CHECK(patched_jumps == 3 && full_flushes == 8); /* Entry, three calls, three joins, final writeback. */
 
     /* Even a redundant entry at a dominated join must patch the branch. */
     ir = start_block();
@@ -352,6 +356,20 @@ int main(void)
         CHECK(mmx_entries == 4 && mmx_commits == 4 && mmx_arithmetic == 12);
         CHECK(patched_jumps == 3);
     }
+
+    /* The unroll budget excludes inlined flag reads. All copies still
+       contribute a real read of the same source register version. */
+    ir = start_block();
+    for (int i = 0; i < 32; i++) {
+        flag_reads[nr_flag_reads++] = (codegen_flags_read_t) { .uop = ir->wr_pos, .read = Z_FLAG, .producer = -1 };
+        codegen_reg_read_uncounted(IREG_flags_res);
+        uop_TEST_SET(ir, (i & 1) ? IREG_EAX : IREG_EBX, IREG_flags_res, UOP_CC_Z);
+    }
+    codegen_ir_set_unroll(10, 0, 0);
+    compile(ir);
+    CHECK(reg_version[IREG_flags_res][0].refcount == 320);
+    CHECK(reg_version[IREG_flags_res][0].uncounted == 320);
+    CHECK(max_version_refcount == 160);
 
     puts("SIMD entry lowering tests passed");
     return 0;

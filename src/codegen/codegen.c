@@ -1852,7 +1852,7 @@ generate_call:
         /* With ES clear there is no such error and the call returns at
            once: it is made only with ES set, in a cold region that goes on
            with the registers as they were */
-        if (!fpu_softfloat && codegen_reg_read_has_room(IREG_NPXS)) {
+        if (!fpu_softfloat) {
             const int first = ir->wr_pos;
             int       jump_uop;
 

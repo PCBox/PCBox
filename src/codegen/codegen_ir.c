@@ -610,7 +610,8 @@ flags_site_remove(ir_data_t *ir, int s)
                 if (!ir_reg_is_invalid(u->src_reg_c) && (IREG_GET_REG(u->src_reg_c.reg) == IREG_GET_REG(uop->dest_reg_a.reg)) && (u->src_reg_c.version == uop->dest_reg_a.version))
                     reads++;
             }
-            if (reg_version[IREG_GET_REG(uop->dest_reg_a.reg)][uop->dest_reg_a.version].refcount != reads)
+            const reg_version_t *version = &reg_version[IREG_GET_REG(uop->dest_reg_a.reg)][uop->dest_reg_a.version];
+            if (version->refcount != reads || (version->flags & REG_FLAGS_IMPLICIT_READ))
                 return 0;
         }
     }
@@ -856,6 +857,16 @@ codegen_cold_drop_written(ir_data_t *ir, codeblock_t *block, int c)
 }
 #endif
 
+static void
+codegen_patch_jumps(ir_data_t *ir, codeblock_t *block, int first)
+{
+    while (first != -1) {
+        uop_t *branch = &ir->uops[first];
+        codegen_set_jump_dest(block, branch->p);
+        first = branch->jump_list_next;
+    }
+}
+
 void
 codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
 {
@@ -934,15 +945,6 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
         }
     }
 
-    /* Meet the state of all forward predecessors at a join. Back edges are
-       deliberately unchecked: a later iteration may have changed FPU state. */
-    for (c = 0; c < ir->wr_pos; c++)
-        mmx_incoming[c] = MMX_UNREACHABLE;
-    for (c = 0; c < ir->wr_pos; c++) {
-        const uop_t *uop = &ir->uops[c];
-        if ((uop->type & UOP_TYPE_JUMP) && uop->jump_dest_uop >= 0 && uop->jump_dest_uop <= c)
-            mmx_incoming[uop->jump_dest_uop] = MMX_UNCHECKED;
-    }
 #ifdef CODEGEN_CHAIN
     /* The block ends in a link: after any unrolling, so the copies end
        where the original did. */
@@ -952,6 +954,32 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
         uop_JMP_INDIRECT(ir);
     codegen_end_link_pending = 0;
 #endif
+
+    memset(mmx_incoming, MMX_UNREACHABLE, ir->wr_pos);
+    int last_branch = -1, furthest_join = -1;
+    for (c = 0; c < ir->wr_pos; c++) {
+        const uop_t *uop = &ir->uops[c];
+        ir_reg_t dst = uop->dest_reg_a;
+
+        /* A branch that skips a temporary's overwrite can still use its
+           preceding version at the join. Linear refcounts see only the
+           fallthrough version. Keep the earlier producer and spill it at
+           the branch, as for the implicit input to a partial write. */
+        if (c < furthest_join && !ir_reg_is_invalid(dst) && dst.version > 1 && !ireg_is_permanent(IREG_GET_REG(dst.reg))) {
+            reg_version_t *prev = &reg_version[IREG_GET_REG(dst.reg)][dst.version - 1];
+            if (prev->parent_uop < last_branch)
+                prev->flags |= REG_FLAGS_IMPLICIT_READ;
+        }
+        if ((uop->type & UOP_TYPE_JUMP) && uop->jump_dest_uop >= 0 && uop->jump_dest_uop < ir->wr_pos) {
+            if (uop->jump_dest_uop <= c)
+                mmx_incoming[uop->jump_dest_uop] = MMX_UNCHECKED;
+            else {
+                last_branch = c;
+                if (uop->jump_dest_uop > furthest_join)
+                    furthest_join = uop->jump_dest_uop;
+            }
+        }
+    }
 
     codegen_reg_mark_as_required();
     codegen_flags_dead_note_ops(ir);
@@ -1050,9 +1078,7 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
         }
 #endif
 
-        #ifdef CODEGEN_BACKEND_HAS_COLD_REGION
-        int at_cold = 0;
-#endif
+        int at_join = !!(uop->type & UOP_TYPE_JUMP_DEST);
 
         //                pclog("uOP %i : %08x\n", c, uop->type);
 
@@ -1072,12 +1098,9 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
 #    endif
                 codegen_reg_cold_restore();
             }
-            for (uop_t *uop_dest = uop; uop_dest->jump_list_next != -1;) {
-                uop_dest = &ir->uops[uop_dest->jump_list_next];
-                codegen_set_jump_dest(block, uop_dest->p);
-            }
+            codegen_patch_jumps(ir, block, uop->jump_list_next);
             cold_dest = -1;
-            at_cold   = 1;
+            at_join   = 0;
         }
 #endif
 
@@ -1100,44 +1123,19 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
         }
 #endif
 
-        /* Keep the IR barriers for fault-state liveness. Inline SSE checks
-           emit their writeback only on the exception path. Joins still flush
-           before the branch target so both paths use the backing state. */
-        if ((uop->type & UOP_TYPE_BARRIER)
+        /* Incoming branches already stored their state. Store the
+           fallthrough state before patching the target, then allocate
+           from memory because each edge may have used different slots. */
+        int barrier = !!(uop->type & UOP_TYPE_BARRIER);
 #ifdef CODEGEN_BACKEND_HAS_SSE_REGS
-            && ((uop->type & UOP_TYPE_JUMP_DEST)
-                || ((uop->type & UOP_MASK) != (UOP_SSE_ENTER & UOP_MASK)
-                    && (uop->type & UOP_MASK) != (UOP_CHECK_ALIGN & UOP_MASK)))
+        if (!(uop->type & UOP_TYPE_JUMP_DEST) && ((uop->type & UOP_MASK) == (UOP_SSE_ENTER & UOP_MASK)
+            || (uop->type & UOP_MASK) == (UOP_CHECK_ALIGN & UOP_MASK)))
+            barrier = 0; /* The inline check stores on its exception path. */
 #endif
-        )
+        if (at_join || barrier)
             codegen_reg_flush_invalidate(ir, block);
-#ifdef CODEGEN_BACKEND_HAS_LAZY_WRITEBACK
-        /*The jumps left memory current: what the path that falls through
-          holds back since then is stored on that path, before the join*/
-#    ifdef CODEGEN_BACKEND_HAS_COLD_REGION
-        else if ((uop->type & UOP_TYPE_JUMP_DEST) && !at_cold)
-#    else
-        else if (uop->type & UOP_TYPE_JUMP_DEST)
-#    endif
-            codegen_reg_flush(ir, block);
-#endif
-
-#ifdef CODEGEN_BACKEND_HAS_COLD_REGION
-        if ((uop->type & UOP_TYPE_JUMP_DEST) && !at_cold) {
-#else
-        if (uop->type & UOP_TYPE_JUMP_DEST) {
-#endif
-            uop_t *uop_dest = uop;
-
-#ifdef CODEGEN_BACKEND_SLOW_STORES
-            codegen_reg_jump_dest(block); /* the way in only: the jumps made theirs */
-#endif
-
-            while (uop_dest->jump_list_next != -1) {
-                uop_dest = &ir->uops[uop_dest->jump_list_next];
-                codegen_set_jump_dest(block, uop_dest->p);
-            }
-        }
+        if (at_join)
+            codegen_patch_jumps(ir, block, uop->jump_list_next);
 
         /* A redundant entry at a join still needs its register synchronization
            and branch fixups above. Only omit the runtime check itself. */
@@ -1181,16 +1179,17 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
             if (uop->type & UOP_TYPE_ORDER_BARRIER)
                 codegen_reg_flush(ir, block);
         } else {
+            int borrowed_slot = -1;
             if (uop->type & UOP_TYPE_PARAMS_REGS) {
                 codegen_reg_alloc_register(uop->dest_reg_a, uop->src_reg_a, uop->src_reg_b, uop->src_reg_c);
                 if (uop->src_reg_a.reg != IREG_INVALID) {
-                    uop->src_reg_a_real = codegen_reg_alloc_read_reg(block, uop->src_reg_a, NULL);
+                    uop->src_reg_a_real = codegen_reg_alloc_read_reg(block, uop->src_reg_a, &borrowed_slot);
                 }
                 if (uop->src_reg_b.reg != IREG_INVALID) {
-                    uop->src_reg_b_real = codegen_reg_alloc_read_reg(block, uop->src_reg_b, NULL);
+                    uop->src_reg_b_real = codegen_reg_alloc_read_reg(block, uop->src_reg_b, &borrowed_slot);
                 }
                 if (uop->src_reg_c.reg != IREG_INVALID) {
-                    uop->src_reg_c_real = codegen_reg_alloc_read_reg(block, uop->src_reg_c, NULL);
+                    uop->src_reg_c_real = codegen_reg_alloc_read_reg(block, uop->src_reg_c, &borrowed_slot);
                 }
             }
 
@@ -1219,7 +1218,7 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
 
             if (uop->type & UOP_TYPE_PARAMS_REGS) {
                 if (uop->dest_reg_a.reg != IREG_INVALID) {
-                    uop->dest_reg_a_real = codegen_reg_alloc_write_reg(block, uop->dest_reg_a);
+                    uop->dest_reg_a_real = codegen_reg_alloc_write_reg(block, uop->dest_reg_a, &borrowed_slot);
                 }
             }
 #ifndef RELEASE_BUILD
@@ -1227,6 +1226,8 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
                 fatal("!uop_handlers[uop->type & UOP_MASK] %08x\n", uop->type);
 #endif
             uop_handlers[uop->type & UOP_MASK](block, uop);
+            if (borrowed_slot != -1)
+                codegen_reg_release_slot(block, borrowed_slot);
 #ifdef CODEGEN_BACKEND_HAS_LAZY_WRITEBACK
             codegen_lazy_site = NULL;
 #endif
@@ -1255,26 +1256,16 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
             if (uop->jump_dest_uop > c && uop->jump_dest_uop < ir->wr_pos
                 && mmx_state < mmx_incoming[uop->jump_dest_uop])
                 mmx_incoming[uop->jump_dest_uop] = mmx_state;
-            if (uop->jump_dest_uop == ir->wr_pos) {
-                if (jump_target_at_end == -1)
-                    jump_target_at_end = c;
-                else {
-                    uop_t *uop_dest = &ir->uops[jump_target_at_end];
-
-                    while (uop_dest->jump_list_next != -1)
-                        uop_dest = &ir->uops[uop_dest->jump_list_next];
-
-                    uop_dest->jump_list_next = c;
-                }
-            } else {
-                uop_t *uop_dest = &ir->uops[uop->jump_dest_uop];
-
-                while (uop_dest->jump_list_next != -1)
-                    uop_dest = &ir->uops[uop_dest->jump_list_next];
-
-                uop_dest->jump_list_next = c;
-                ir->uops[uop->jump_dest_uop].type |= UOP_TYPE_JUMP_DEST;
+            /* This uop's incoming jumps have been patched. Its link can
+               now join the list for its own destination. */
+            int *head = &jump_target_at_end;
+            if (uop->jump_dest_uop != ir->wr_pos) {
+                uop_t *dest = &ir->uops[uop->jump_dest_uop];
+                dest->type |= UOP_TYPE_JUMP_DEST;
+                head = &dest->jump_list_next;
             }
+            uop->jump_list_next = *head;
+            *head = c;
         }
         if ((uop->type & UOP_MASK) == (UOP_JMP & UOP_MASK)
             || (uop->type & UOP_MASK) == (UOP_JMP_DEST & UOP_MASK))
@@ -1287,16 +1278,7 @@ codegen_ir_compile(ir_data_t *ir, codeblock_t *block)
 #endif
     codegen_reg_flush_invalidate(ir, block);
 
-    if (jump_target_at_end != -1) {
-        uop_t *uop_dest = &ir->uops[jump_target_at_end];
-
-        while (1) {
-            codegen_set_jump_dest(block, uop_dest->p);
-            if (uop_dest->jump_list_next == -1)
-                break;
-            uop_dest = &ir->uops[uop_dest->jump_list_next];
-        }
-    }
+    codegen_patch_jumps(ir, block, jump_target_at_end);
 
     codegen_backend_epilogue(block);
 #ifdef CODEGEN_BACKEND_HAS_MEM_STUBS

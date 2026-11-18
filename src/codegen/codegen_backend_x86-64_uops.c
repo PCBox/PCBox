@@ -1805,14 +1805,13 @@ codegen_CMP_Z(codeblock_t *block, uop_t *uop)
 }
 
 static int
-codegen_CMOV_Z(codeblock_t *block, uop_t *uop)
+codegen_cmov_integer(codeblock_t *block, uop_t *uop, int invert)
 {
     int dest = HOST_REG_GET(uop->dest_reg_a_real);
     int old = HOST_REG_GET(uop->src_reg_a_real);
     int src = HOST_REG_GET(uop->src_reg_b_real);
     int cond = HOST_REG_GET(uop->src_reg_c_real);
     int word = REG_IS_W(IREG_GET_SIZE(uop->dest_reg_a_real));
-    int invert = !!uop->imm_data;
 
     /* Test before touching dest, which can also hold the condition. */
     host_x86_TEST32_REG(block, cond, cond);
@@ -1834,6 +1833,12 @@ codegen_CMOV_Z(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_CMOV_Z(codeblock_t *block, uop_t *uop)
+{
+    return codegen_cmov_integer(block, uop, !!uop->imm_data);
+}
+
+static int
 codegen_CMOVNZ(codeblock_t *block, uop_t *uop)
 {
     int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
@@ -1848,17 +1853,9 @@ codegen_CMOVNZ(codeblock_t *block, uop_t *uop)
     if (!REG_IS_L(cond_size))
         fatal("CMOVNZ cond %02x\n", uop->src_reg_c_real);
 
-    if (REG_IS_L(dest_size) && REG_IS_L(old_size) && REG_IS_L(src_size)) {
-        if (dest_reg != old_reg)
-            host_x86_MOV32_REG_REG(block, dest_reg, old_reg);
-        host_x86_TEST32_REG(block, cond_reg, cond_reg);
-        host_x86_CMOVNZ32_REG_REG(block, dest_reg, src_reg);
-    } else if (REG_IS_W(dest_size) && REG_IS_W(old_size) && REG_IS_W(src_size)) {
-        if (dest_reg != old_reg)
-            host_x86_MOV16_REG_REG(block, dest_reg, old_reg);
-        host_x86_TEST32_REG(block, cond_reg, cond_reg);
-        host_x86_CMOVNZ16_REG_REG(block, dest_reg, src_reg);
-    } else if ((REG_IS_D(dest_size) && REG_IS_D(old_size) && REG_IS_D(src_size))
+    if ((REG_IS_L(dest_size) || REG_IS_W(dest_size)) && dest_size == old_size && dest_size == src_size)
+        return codegen_cmov_integer(block, uop, 1);
+    if ((REG_IS_D(dest_size) && REG_IS_D(old_size) && REG_IS_D(src_size))
                || (REG_IS_Q(dest_size) && REG_IS_Q(old_size) && REG_IS_Q(src_size))) {
         /*There is no SSE2 conditional move, so branch over the copy instead.
           MOVQ leaves the flags alone, so the TEST can be hoisted above it.*/

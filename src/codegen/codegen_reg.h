@@ -360,18 +360,21 @@ ireg_is_permanent(int reg)
 #define REG_FLAGS_REQUIRED (1 << 0)
 /*This register and the parent uOP have been optimised out.*/
 #define REG_FLAGS_DEAD (1 << 1)
-/*A partial write to this temporary's next version takes its untouched
-  bits from this version, even when it has no explicit readers left.*/
-#define REG_FLAGS_PARTIAL_PARENT (1 << 2)
+/*A partial write or a branch around an overwrite can use this temporary
+  version even when it has no explicit readers left.*/
+#define REG_FLAGS_IMPLICIT_READ (1 << 2)
+/*A full write supersedes this version. Once its last reader is removed
+  its producer is eligible for the dead list.*/
+#define REG_FLAGS_OVERWRITTEN (1 << 3)
 
 typedef struct {
     /*Refcount of pending reads on this register version*/
-    uint8_t refcount;
-    /*Flags*/
-    uint8_t flags;
+    uint16_t refcount;
     /*Reads in refcount made by uops standing in for a C call that reads
       nothing: left out where the count decides the block's end or unrolling*/
-    uint8_t uncounted;
+    uint16_t uncounted;
+    /*Flags*/
+    uint8_t flags;
     /*uOP that generated this register version*/
     uint16_t parent_uop;
     /*Pointer to next register version in dead register list*/
@@ -418,14 +421,12 @@ codegen_reg_read(int reg)
     ireg.reg       = reg;
     ireg.version   = reg_last_version[IREG_GET_REG(reg)];
     version        = &reg_version[IREG_GET_REG(ireg.reg)][ireg.version];
-    version->flags = 0;
     version->refcount++;
 #ifndef RELEASE_BUILD
     if (!version->refcount)
         fatal("codegen_reg_read - refcount overflow\n");
-    else
 #endif
-        if ((version->refcount - version->uncounted) > REG_REFCOUNT_MAX)
+    if ((version->refcount - version->uncounted) > REG_REFCOUNT_MAX)
         CPU_BLOCK_END();
     if ((version->refcount - version->uncounted) > max_version_refcount)
         max_version_refcount = version->refcount - version->uncounted;
@@ -433,14 +434,6 @@ codegen_reg_read(int reg)
     pclog("codegen_reg_read: %i %i %i\n", reg & IREG_REG_MASK, ireg.version, reg_version_refcount[IREG_GET_REG(ireg.reg)][ireg.version]);
 #endif
     return ireg;
-}
-
-/*Whether the version of reg the next read gets can take another read
-  without its 8-bit refcount wrapping*/
-static inline int
-codegen_reg_read_has_room(int reg)
-{
-    return reg_version[IREG_GET_REG(reg)][reg_last_version[IREG_GET_REG(reg)]].refcount < 254;
 }
 
 /*The next read of reg stands in for a C call that reads no register: it is
@@ -483,12 +476,16 @@ codegen_reg_write(int reg, int uop_nr)
     ireg.reg     = reg;
     ireg.version = last_version + 1;
 
-    if (last_version && !ireg_is_permanent(IREG_GET_REG(reg)) && !reg_is_native_size(ireg))
-        reg_version[IREG_GET_REG(reg)][last_version].flags |= REG_FLAGS_PARTIAL_PARENT;
-
-    if (IREG_GET_REG(reg) > IREG_EBX && last_version && !reg_version[IREG_GET_REG(reg)][last_version].refcount && !(reg_version[IREG_GET_REG(reg)][last_version].flags & REG_FLAGS_REQUIRED)) {
-        if (reg_is_native_size(ireg)) /*Non-native size registers have an implicit dependency on the previous version, so don't add to dead list*/
-            add_to_dead_list(&reg_version[IREG_GET_REG(reg)][last_version], IREG_GET_REG(reg), last_version);
+    if (last_version && IREG_GET_REG(reg) > IREG_EBX) {
+        reg_version_t *prev = &reg_version[IREG_GET_REG(reg)][last_version];
+        if (reg_is_native_size(ireg)) {
+            if (!(prev->flags & REG_FLAGS_REQUIRED)) {
+                prev->flags |= REG_FLAGS_OVERWRITTEN;
+                if (!prev->refcount)
+                    add_to_dead_list(prev, IREG_GET_REG(reg), last_version);
+            }
+        } else if (!ireg_is_permanent(IREG_GET_REG(reg)))
+            prev->flags |= REG_FLAGS_IMPLICIT_READ;
     }
 
     reg_last_version[IREG_GET_REG(reg)]++;
@@ -552,7 +549,6 @@ void codegen_reg_flush_slow(struct ir_data_t *ir, codeblock_t *block);
 void codegen_reg_emit_slow(codeblock_t *block);
 int  codegen_reg_slow_size(void);
 void codegen_reg_store_pending(codeblock_t *block);
-void codegen_reg_jump_dest(codeblock_t *block);
 extern int codegen_slow_open;
 #endif
 
@@ -642,8 +638,9 @@ int codegen_reg_cold_can_rejoin(void);
 void codegen_reg_cold_rejoin(codeblock_t *block);
 #endif
 
-ir_host_reg_t codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *host_reg_idx);
-ir_host_reg_t codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t ir_reg);
+ir_host_reg_t codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t ir_reg, int *borrowed_slot);
+ir_host_reg_t codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t ir_reg, int *borrowed_slot);
+void codegen_reg_release_slot(codeblock_t *block, int slot);
 
 void codegen_reg_rename(codeblock_t *block, ir_reg_t src, ir_reg_t dst);
 
