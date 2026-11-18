@@ -420,7 +420,7 @@ inb(uint16_t port)
     io_size = 1;
     io_write = 0;
 
-    if (cpu_dr_armed)
+    if (cpu_dr_io_armed)
         io_debug_check_addr(port);
 
     if ((pci_flags & FLAG_CONFIG_IO_ON) && (port >= pci_base) && (port < (pci_base + pci_size))) {
@@ -499,7 +499,7 @@ outb(uint16_t port, uint8_t val)
     io_write = 1;
     io_val  = val;
 
-    if (cpu_dr_armed)
+    if (cpu_dr_io_armed)
         io_debug_check_addr(port);
 
     if ((pci_flags & FLAG_CONFIG_IO_ON) && (port >= pci_base) && (port < (pci_base + pci_size))) {
@@ -565,7 +565,7 @@ inw(uint16_t port)
     io_size = 2;
     io_write = 0;
 
-    if (cpu_dr_armed)
+    if (cpu_dr_io_armed)
         io_debug_check_addr(port);
 
     if ((pci_flags & FLAG_CONFIG_IO_ON) && (port >= pci_base) && (port < (pci_base + pci_size))) {
@@ -663,7 +663,7 @@ outw(uint16_t port, uint16_t val)
     io_write = 1;
     io_val  = val;
 
-    if (cpu_dr_armed)
+    if (cpu_dr_io_armed)
         io_debug_check_addr(port);
 
     if ((pci_flags & FLAG_CONFIG_IO_ON) && (port >= pci_base) && (port < (pci_base + pci_size))) {
@@ -747,7 +747,7 @@ inl(uint16_t port)
     io_size = 4;
     io_write = 0;
 
-    if (cpu_dr_armed)
+    if (cpu_dr_io_armed)
         io_debug_check_addr(port);
 
     if ((pci_flags & FLAG_CONFIG_IO_ON) && (port >= pci_base) && (port < (pci_base + pci_size))) {
@@ -871,7 +871,7 @@ outl(uint16_t port, uint32_t val)
     io_write = 1;
     io_val  = val;
 
-    if (cpu_dr_armed)
+    if (cpu_dr_io_armed)
         io_debug_check_addr(port);
 
     if ((pci_flags & FLAG_CONFIG_IO_ON) && (port >= pci_base) && (port < (pci_base + pci_size))) {
