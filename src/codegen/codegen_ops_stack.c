@@ -49,18 +49,19 @@ ropPUSH_r32(UNUSED(codeblock_t *block), ir_data_t *ir, uint8_t opcode, UNUSED(ui
 uint32_t
 ropPOP_r16(UNUSED(codeblock_t *block), ir_data_t *ir, uint8_t opcode, UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+    int reg = opcode & 7;
+    int dest = (reg == REG_SP && stack32) ? IREG_temp0_W : IREG_16(reg);
 
-    if (stack32) {
-        CHECK_STACK_LIMITS(block, ir, IREG_ESP, 2, IREG_temp3);
-        uop_MEM_LOAD_REG(ir, IREG_16(opcode & 7), IREG_SS_base, IREG_ESP);
-    } else {
-        uop_MOVZX(ir, IREG_eaaddr, IREG_SP);
-        CHECK_STACK_LIMITS(block, ir, IREG_eaaddr, 2, IREG_temp3);
-        uop_MEM_LOAD_REG(ir, IREG_16(opcode & 7), IREG_SS_base, IREG_eaaddr);
-    }
-    if ((opcode & 7) != REG_SP)
+    uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+    int sp_reg = LOAD_SP(ir);
+    CHECK_STACK_LIMITS(block, ir, sp_reg, 2, IREG_temp3);
+    uop_MEM_LOAD_REG(ir, dest, IREG_SS_base, sp_reg);
+    if (reg != REG_SP || stack32)
         ADD_SP(ir, 2);
+    /* POP SP on a 32-bit stack replaces only the low word of the
+       incremented ESP. The increment may carry into its high word. */
+    if (dest == IREG_temp0_W)
+        uop_MOV(ir, IREG_SP, dest);
 
     return op_pc;
 }
@@ -151,50 +152,40 @@ ropPOP_W(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
     if (fetchdat & 0x38) /*8F /1-/7 are #UD*/
         return 0;
 
-    uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
-
     codegen_mark_code_present(block, cs + op_pc, 1);
-    if ((fetchdat & 0xc0) == 0xc0) {
-        if (stack32) {
-            CHECK_STACK_LIMITS(block, ir, IREG_ESP, 2, IREG_temp3);
-            uop_MEM_LOAD_REG(ir, IREG_16(fetchdat & 7), IREG_SS_base, IREG_ESP);
-        } else {
-            uop_MOVZX(ir, IREG_eaaddr, IREG_SP);
-            CHECK_STACK_LIMITS(block, ir, IREG_eaaddr, 2, IREG_temp3);
-            uop_MEM_LOAD_REG(ir, IREG_16(fetchdat & 7), IREG_SS_base, IREG_eaaddr);
-        }
+    if ((fetchdat & 0xc0) == 0xc0)
+        return ropPOP_r16(block, ir, fetchdat & 7, fetchdat, op_32, op_pc + 1);
+
+    uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+    x86seg *target_seg;
+
+    /*The interpreter pops before it fetches the displacement, whose #PF
+      leaves SP moved on: the read first, then the walk the EA's marks
+      would make, made with SP moved on for its exit. The value is kept
+      in temp1, as the EA can take temp0*/
+    if (stack32) {
+        CHECK_STACK_LIMITS(block, ir, IREG_ESP, 2, IREG_temp3);
+        uop_MEM_LOAD_REG(ir, IREG_temp1_W, IREG_SS_base, IREG_ESP);
     } else {
-        x86seg *target_seg;
-
-        /*The interpreter pops before it fetches the displacement, whose #PF
-          leaves SP moved on: the read first, then the walk the EA's marks
-          would make, made with SP moved on for its exit. The value is kept
-          in temp1, as the EA can take temp0*/
-        if (stack32) {
-            CHECK_STACK_LIMITS(block, ir, IREG_ESP, 2, IREG_temp3);
-            uop_MEM_LOAD_REG(ir, IREG_temp1_W, IREG_SS_base, IREG_ESP);
-        } else {
-            uop_MOVZX(ir, IREG_temp1, IREG_SP);
-            CHECK_STACK_LIMITS(block, ir, IREG_temp1, 2, IREG_temp3);
-            uop_MEM_LOAD_REG(ir, IREG_temp1_W, IREG_SS_base, IREG_temp1);
-        }
-        codegen_fetch_walk_defer    = 1;
-        codegen_fetch_walk_deferred = 0;
-        target_seg                  = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 2);
-        codegen_fetch_walk_defer    = 0;
-        if (codegen_fetch_walk_deferred) {
-            ADD_SP(ir, 2);
-            codegen_fetch_walk(codegen_fetch_walk_deferred & ~0xfff);
-            SUB_SP(ir, 2);
-        }
-        codegen_check_seg_write(block, ir, target_seg);
-        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 1);
-
-        uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp1_W);
+        uop_MOVZX(ir, IREG_temp1, IREG_SP);
+        CHECK_STACK_LIMITS(block, ir, IREG_temp1, 2, IREG_temp3);
+        uop_MEM_LOAD_REG(ir, IREG_temp1_W, IREG_SS_base, IREG_temp1);
     }
-
-    if ((fetchdat & 0xc7) != (0xc0 | REG_SP))
+    codegen_fetch_walk_defer    = 1;
+    codegen_fetch_walk_deferred = 0;
+    target_seg                  = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 2);
+    codegen_fetch_walk_defer    = 0;
+    if (codegen_fetch_walk_deferred) {
         ADD_SP(ir, 2);
+        codegen_fetch_walk(codegen_fetch_walk_deferred & ~0xfff);
+        SUB_SP(ir, 2);
+    }
+    codegen_check_seg_write(block, ir, target_seg);
+    CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 1);
+
+    uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp1_W);
+
+    ADD_SP(ir, 2);
 
     return op_pc + 1;
 }
@@ -378,13 +369,18 @@ ropLEAVE_32(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), U
 }
 
 uint32_t
-ropPUSHA_16(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
+ropPUSHA_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
     int sp_reg;
+
+    /* The interpreter preflights each wrapped slot on a limited 16-bit stack. */
+    if (!stack32 && !codegen_seg_is_flat(&cpu_state.seg_ss))
+        return 0;
 
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
     if (stack32) {
         sp_reg = LOAD_SP_WITH_OFFSET(ir, -16);
+        CHECK_STACK_LIMITS(block, ir, sp_reg, 16, IREG_temp3);
         uop_MEM_STORE_REG_OFFSET(ir, IREG_SS_base, sp_reg, 14, IREG_AX);
         uop_MEM_STORE_REG_OFFSET(ir, IREG_SS_base, sp_reg, 12, IREG_CX);
         uop_MEM_STORE_REG_OFFSET(ir, IREG_SS_base, sp_reg, 10, IREG_DX);
@@ -416,13 +412,18 @@ ropPUSHA_16(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), U
     return op_pc;
 }
 uint32_t
-ropPUSHA_32(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
+ropPUSHA_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
     int sp_reg;
+
+    /* The interpreter preflights each wrapped slot on a limited 16-bit stack. */
+    if (!stack32 && !codegen_seg_is_flat(&cpu_state.seg_ss))
+        return 0;
 
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
     if (stack32) {
         sp_reg = LOAD_SP_WITH_OFFSET(ir, -32);
+        CHECK_STACK_LIMITS(block, ir, sp_reg, 32, IREG_temp3);
         uop_MEM_STORE_REG_OFFSET(ir, IREG_SS_base, sp_reg, 28, IREG_EAX);
         uop_MEM_STORE_REG_OFFSET(ir, IREG_SS_base, sp_reg, 24, IREG_ECX);
         uop_MEM_STORE_REG_OFFSET(ir, IREG_SS_base, sp_reg, 20, IREG_EDX);
@@ -455,13 +456,18 @@ ropPUSHA_32(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), U
 }
 
 uint32_t
-ropPOPA_16(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
+ropPOPA_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
     int sp_reg;
+
+    /* The interpreter preflights each wrapped slot on a limited 16-bit stack. */
+    if (!stack32 && !codegen_seg_is_flat(&cpu_state.seg_ss))
+        return 0;
 
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
     if (stack32) {
         sp_reg = LOAD_SP(ir);
+        CHECK_STACK_LIMITS(block, ir, sp_reg, 16, IREG_temp3);
         uop_MEM_LOAD_REG(ir, IREG_DI, IREG_SS_base, sp_reg);
         uop_MEM_LOAD_REG_OFFSET(ir, IREG_SI, IREG_SS_base, sp_reg, 2);
         uop_MEM_LOAD_REG_OFFSET(ir, IREG_BP, IREG_SS_base, sp_reg, 4);
@@ -490,13 +496,18 @@ ropPOPA_16(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UN
     return op_pc;
 }
 uint32_t
-ropPOPA_32(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
+ropPOPA_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint32_t fetchdat), UNUSED(uint32_t op_32), uint32_t op_pc)
 {
     int sp_reg;
+
+    /* The interpreter preflights each wrapped slot on a limited 16-bit stack. */
+    if (!stack32 && !codegen_seg_is_flat(&cpu_state.seg_ss))
+        return 0;
 
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
     if (stack32) {
         sp_reg = LOAD_SP(ir);
+        CHECK_STACK_LIMITS(block, ir, sp_reg, 32, IREG_temp3);
         uop_MEM_LOAD_REG(ir, IREG_EDI, IREG_SS_base, sp_reg);
         uop_MEM_LOAD_REG_OFFSET(ir, IREG_ESI, IREG_SS_base, sp_reg, 4);
         uop_MEM_LOAD_REG_OFFSET(ir, IREG_EBP, IREG_SS_base, sp_reg, 8);

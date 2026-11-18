@@ -614,21 +614,7 @@ host_x86_LAHF(codeblock_t *block)
 void
 host_x86_LEA_REG_IMM(codeblock_t *block, int dst_reg, int src_reg, uint32_t offset)
 {
-    if (offset) {
-        codegen_alloc_bytes(block, 7);
-        add_rex_if_needed(block, 0, dst_reg, 0, src_reg);
-        codegen_addbyte2(block, 0x8d, 0x80 | ((dst_reg & 7) << 3) | (src_reg & 7)); /*LEA dst_reg, [offset+src_reg]*/
-        codegen_addlong(block, offset);
-    } else {
-        int displacement = (src_reg & 7) == REG_RBP;
-
-        /* RBP/R13 require a displacement even when it is zero. */
-        codegen_alloc_bytes(block, 3 + displacement);
-        add_rex_if_needed(block, 0, dst_reg, 0, src_reg);
-        codegen_addbyte2(block, 0x8d, (displacement ? 0x40 : 0) | ((dst_reg & 7) << 3) | (src_reg & 7)); /*LEA dst_reg, [src_reg]*/
-        if (displacement)
-            codegen_addbyte(block, 0);
-    }
+    emit_mem(block, 0, 0, 0, 1, 0x8d, dst_reg, src_reg, NO_INDEX, 0, offset, DISP_AUTO, 0, 0);
 }
 void
 host_x86_LEA_REG_REG(codeblock_t *block, int dst_reg, int src_reg_a, int src_reg_b)
@@ -856,25 +842,24 @@ host_x86_MOV8_REG_ABS(codeblock_t *block, int dst_reg, void *p)
     if (dst_reg & 8)
         fatal("host_x86_MOV8_REG_ABS reg & 8\n");
 #endif
-
-    if (offset >= -128 && offset <= 127) {
-        codegen_alloc_bytes(block, 3);
-        codegen_addbyte3(block, 0x8a, 0x45 | ((dst_reg & 7) << 3), offset); /*MOV dst_reg, offset[RBP]*/
-    } else if (offset >= INT32_MIN && offset <= INT32_MAX) {
-        codegen_alloc_bytes(block, 6);
-        codegen_addbyte2(block, 0x8a, 0x85 | ((dst_reg & 7) << 3)); /*MOV dst_reg, offset[RBP]*/
-        codegen_addlong(block, offset);
-    } else if ((ram_offset >= -2147483648LL) && (ram_offset <= 2147483647LL) && (block->flags & CODEBLOCK_NO_IMMEDIATES)) {
-        codegen_alloc_bytes(block, 8);
-        codegen_addbyte4(block, 0x41, 0x8a, 0x84 | ((dst_reg & 7) << 3), 0x24); /*MOV dst_reg, ram_offset[R12]*/
-        codegen_addlong(block, ram_offset);
-    } else {
-        codegen_alloc_bytes(block, 10);
-        codegen_addbyte2(block, 0x49, 0xb9); /*MOV R9, p*/
-        codegen_addquad(block, (uintptr_t) p);
-        codegen_alloc_bytes(block, 3);
-        codegen_addbyte3(block, 0x41, 0x8a, 0x01 | ((dst_reg & 7) << 3)); /*MOV dst_reg, [R9]*/
+    if (fits_disp32(offset)) {
+        emit_mem(block, 0, 0, 1, 1, 0x8a, dst_reg, REG_RBP, NO_INDEX, 0, offset, DISP_AUTO, 0, 0);
+        return;
     }
+
+    /* Both far addressing forms need REX. Swap AH through BH with their
+       low byte around the load so the other byte and flags survive. */
+    int load_reg = (dst_reg >= 4 && dst_reg < 8) ? dst_reg - 4 : dst_reg;
+    if (load_reg != dst_reg)
+        emit_rr(block, 0, 0, 1, 1, 0x86, dst_reg, load_reg);
+    if (fits_disp32(ram_offset) && (block->flags & CODEBLOCK_NO_IMMEDIATES)) {
+        emit_mem(block, 0, 0, 1, 1, 0x8a, load_reg, REG_R12, NO_INDEX, 0, ram_offset, DISP_AUTO, 0, 0);
+    } else {
+        host_x86_MOV64_REG_IMM(block, REG_R9, (uintptr_t) p);
+        emit_mem(block, 0, 0, 1, 1, 0x8a, load_reg, REG_R9, NO_INDEX, 0, 0, DISP_AUTO, 0, 0);
+    }
+    if (load_reg != dst_reg)
+        emit_rr(block, 0, 0, 1, 1, 0x86, dst_reg, load_reg);
 }
 void
 host_x86_MOV16_REG_ABS(codeblock_t *block, int dst_reg, void *p)

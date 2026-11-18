@@ -360,6 +360,9 @@ ireg_is_permanent(int reg)
 #define REG_FLAGS_REQUIRED (1 << 0)
 /*This register and the parent uOP have been optimised out.*/
 #define REG_FLAGS_DEAD (1 << 1)
+/*A partial write to this temporary's next version takes its untouched
+  bits from this version, even when it has no explicit readers left.*/
+#define REG_FLAGS_PARTIAL_PARENT (1 << 2)
 
 typedef struct {
     /*Refcount of pending reads on this register version*/
@@ -479,6 +482,9 @@ codegen_reg_write(int reg, int uop_nr)
     }
     ireg.reg     = reg;
     ireg.version = last_version + 1;
+
+    if (last_version && !ireg_is_permanent(IREG_GET_REG(reg)) && !reg_is_native_size(ireg))
+        reg_version[IREG_GET_REG(reg)][last_version].flags |= REG_FLAGS_PARTIAL_PARENT;
 
     if (IREG_GET_REG(reg) > IREG_EBX && last_version && !reg_version[IREG_GET_REG(reg)][last_version].refcount && !(reg_version[IREG_GET_REG(reg)][last_version].flags & REG_FLAGS_REQUIRED)) {
         if (reg_is_native_size(ireg)) /*Non-native size registers have an implicit dependency on the previous version, so don't add to dead list*/

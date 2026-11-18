@@ -15,8 +15,22 @@ typedef struct {
     uint8_t bytes[32];
     unsigned length, cr0_bits, no_osfxsr, trap_p3, trap_p4, setup, only_p4;
 } opcode_case;
-enum { BIT_WRITE = 28 };
+enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP_ALL_WRAP, UNPACK_SS, SSE_CALLBACK };
 static const opcode_case opcases[] = {
+    /* MOVAPS xmm2,xmm0; MOV edx,[edi] / MOV [edi],edx; MOVAPS xmm2,xmm1 */
+    {"SSE after scalar read callback", {0x0f,0x28,0xd0,0x8b,0x17,0x0f,0x28,0xd1},8,0,0,0,0,SSE_CALLBACK},
+    {"SSE after scalar write callback", {0x0f,0x28,0xd0,0x89,0x17,0x0f,0x28,0xd1},8,0,0,0,0,SSE_CALLBACK},
+    {"UNPCKLPS SS limit", {0x36,0x0f,0x14,0x07},4,0,0,12,12,UNPACK_SS},
+    {"UNPCKHPS SS limit", {0x36,0x0f,0x15,0x07},4,0,0,12,12,UNPACK_SS},
+    {"UNPCKLPD SS limit", {0x36,0x66,0x0f,0x14,0x07},5,0,0,12,12,UNPACK_SS,1},
+    {"UNPCKHPD SS limit", {0x36,0x66,0x0f,0x15,0x07},5,0,0,12,12,UNPACK_SS,1},
+    {"POP SP short encoding", {0x66,0x5c},2,0,0,0,0,POP_SP},
+    {"POP SP ModRM encoding", {0x66,0x8f,0xc4},3,0,0,0,0,POP_SP},
+    {"PUSHAD stack limit", {0x60},1,0,0,12,12,PUSH_ALL_LIMIT},
+    {"PUSHAD wrapped stack limit", {0x60},1,0,0,12,12,PUSH_ALL_WRAP},
+    {"POPA stack limit", {0x66,0x61},2,0,0,12,12,POP_ALL_LIMIT},
+    {"POPAD stack limit", {0x61},1,0,0,12,12,POP_ALL_LIMIT},
+    {"POPAD wrapped stack limit", {0x61},1,0,0,12,12,POP_ALL_WRAP},
     {"MOVNTPS register", {0x0f,0x2b,0xc1},3,0,0,6,6,18},
     {"MOVNTPD register", {0x66,0x0f,0x2b,0xc1},4,0,0,6,6,18,1},
     {"BTS word register offset", {0x66,0x0f,0xab,0x0f},4,0x80010000,0,14,14,BIT_WRITE},
@@ -353,6 +367,26 @@ static const opcode_case opcases[] = {
 static const opcode_case *probe;
 static uint32_t guest_body;
 static unsigned finished_compiled;
+static mem_mapping_t sse_mapping;
+static unsigned callback_trap, callback_count;
+
+static uint32_t sse_read(uint32_t addr, void *priv)
+{
+    (void)addr;
+    (void)priv;
+    callback_count++;
+    if (callback_trap == 7)
+        cr0 |= 8;
+    else if (callback_trap == 6)
+        cr4 &= ~CR4_OSFXSR;
+    return 0x12345678;
+}
+
+static void sse_write(uint32_t addr, uint32_t value, void *priv)
+{
+    (void)value;
+    sse_read(addr, priv);
+}
 void outl(uint16_t port, uint32_t value) {
     (void)value;
     if (port != 0xec) fatal("Unexpected audit port %x", port);
@@ -390,7 +424,11 @@ static void initialize(void) {
     }
     if (probe->setup==24) emit_pos=BODY+0x400;
     resume_pc=emit_pos;
-    b(0xc3);
+    if (probe->setup >= POP_SP && probe->setup <= POP_ALL_WRAP) {
+        /* Report directly so CALL/RET do not use the stack under test. */
+        b(0xe7); b(0xec); b(0xeb); b(0xfe);
+    } else
+        b(0xc3);
     exception_tables();
     if (probe->setup==1) cpu_state.seg_fs.limit=cpu_state.seg_fs.limit_high=0xfff;
     if (probe->setup==BIT_WRITE || probe->setup==2 || probe->setup==3 || probe->setup==11 || probe->setup==12 || probe->setup==19 || probe->setup==20 || probe->setup==21 || probe->setup==24) {
@@ -405,6 +443,7 @@ static void initialize(void) {
     }
 }
 #ifndef AUDIT_OPCODE_NO_MAIN
+int test_register_allocation(void);
 int main(int argc,char **argv) {
     int p3=argc>1&&!strcmp(argv[1],"p3");
     engine=argc>2?atoi(argv[2]):0; fpu_softfloat=argc>3?atoi(argv[3]):0;
@@ -412,6 +451,10 @@ int main(int argc,char **argv) {
     cpu_f=cpu_get_family(p3?"pentium3_katmai":"pentium4w"); cpu=p3?0:4;
     fpu_type=FPU_INTERNAL; cpu_use_dynarec=engine;
     cpu_set(); codegen_init(); mem_size=16*1024; mem_init(); mem_reset();
+    if (argc == 2 && !strcmp(argv[1], "allocator"))
+        return test_register_allocation();
+    mem_mapping_add(&sse_mapping, 0xd0000, 0x1000, NULL, NULL, sse_read,
+                    NULL, NULL, sse_write, NULL, MEM_MAPPING_EXTERNAL, NULL);
     unsigned checked = 0;
     for(unsigned i=0;i<sizeof(opcases)/sizeof(opcases[0]);i++) {
         probe=&opcases[i]; if(argc>4&&!strstr(probe->name,argv[4]))continue;
@@ -517,17 +560,91 @@ int main(int argc,char **argv) {
                 cpu_cur_status &= ~CPU_STATUS_SSE_UNMASKED;
                 if (call & 64) cpu_cur_status |= CPU_STATUS_SSE_UNMASKED;
             }
-            cpu_state.pc=DRIVER; done=0; cycles=cycles_main=0;
+            unsigned stack_fault = (call / 8) & 1;
+            if (probe->setup == SSE_CALLBACK) {
+                EDI = 0xd0000;
+                callback_count = 0;
+                callback_trap = (call / 8) % 3 == 0 ? 0 : (call / 8) % 3 == 1 ? 7 : 6;
+                memset(&cpu_state.XMM[2], 0x33, 16);
+            }
+            int wrapped_stack = probe->setup == POP_ALL_WRAP || probe->setup == PUSH_ALL_WRAP;
+            int push_all = probe->setup == PUSH_ALL_LIMIT || probe->setup == PUSH_ALL_WRAP;
+            if (probe->setup == POP_SP) {
+                ESP = (call & 1) ? 0x2fffe : 0x2fff0;
+                put32(ESP, 0x4321);
+            } else if (wrapped_stack) {
+                stack32 = 0;
+                cpu_cur_status &= ~CPU_STATUS_STACK32;
+                cpu_state.seg_ss.ar_high &= ~0x40;
+                cpu_state.seg_ss.base = 0x40000;
+                cpu_state.seg_ss.limit = cpu_state.seg_ss.limit_high = stack_fault ? 0xfff7 : 0xffff;
+                cpu_cur_status |= CPU_STATUS_NOTFLATSS | CPU_STATUS_NOTWIDESS;
+                ESP = push_all ? 0x14 : 0xfff0;
+            } else if (probe->setup == PUSH_ALL_LIMIT) {
+                cpu_state.seg_ss.limit_low = 0x40000;
+                cpu_cur_status |= CPU_STATUS_NOTFLATSS;
+                ESP = stack_fault ? 0x40010 : 0x40040;
+            } else if (probe->setup == POP_ALL_LIMIT) {
+                cpu_state.seg_ss.limit = cpu_state.seg_ss.limit_high = 0x4001e;
+                cpu_cur_status |= CPU_STATUS_NOTFLATSS | CPU_STATUS_NOTWIDESS;
+                ESP = stack_fault ? 0x40010 : 0x3ffe0;
+            } else if (probe->setup == UNPACK_SS) {
+                cpu_state.seg_ss.limit = cpu_state.seg_ss.limit_high = 0x6fffff;
+                cpu_cur_status |= CPU_STATUS_NOTFLATSS | CPU_STATUS_NOTWIDESS;
+                unsigned phase = (call / 8) % 3;
+                EDI = phase == 0 ? DATA : phase == 1 ? 0x6ffffa : DATA + 1;
+            }
+            uint32_t initial_sp = ESP;
+            uint32_t final_sp = push_all ? ESP - 32 : ESP + (probe->length == 2 ? 16 : 32);
+            if (wrapped_stack)
+                final_sp = (uint16_t) final_sp;
+            if (push_all)
+                put32(cpu_state.seg_ss.base + final_sp, 0xfeed1234);
+            if (probe->setup == POP_ALL_LIMIT || probe->setup == POP_ALL_WRAP)
+                put32(cpu_state.seg_ss.base + ESP, 0x12345678);
+            cpu_state.pc = (probe->setup >= POP_SP && probe->setup <= POP_ALL_WRAP) ? BODY : DRIVER; done=0; cycles=cycles_main=0;
             for(unsigned n=0;!done;n++) {
                 if(n>10000)fatal("Audit did not stop");
                 if(engine) exec386_dynarec(10000); else exec386(10000);
             }
             unsigned expected = p3 ? probe->trap_p3 : probe->trap_p4;
+            if (probe->setup == SSE_CALLBACK) {
+                expected = callback_trap;
+                if (callback_count != 1 || (expected && get32(FAULT_PC) != BODY + 5) ||
+                    memcmp(&cpu_state.XMM[2], &cpu_state.XMM[expected ? 0 : 1], 16))
+                    fatal("%s call %u: callbacks %u, trap %u, EIP %x, xmm2 %x",
+                          probe->name, call, callback_count, get32(TRAP), get32(FAULT_PC), cpu_state.XMM[2].l[0]);
+            }
             if (probe->setup==26) expected = (call & 64) && !(call & 128) ? 19 : 0;
             if ((probe->setup == BIT_WRITE || probe->setup == 12 || probe->setup == 19 || probe->setup == 20 || probe->setup == 21 || probe->setup == 9 || probe->setup == 27) && !((call / 8) & 1)) expected = 0;
+            if (probe->setup >= PUSH_ALL_LIMIT && probe->setup <= POP_ALL_WRAP && !stack_fault)
+                expected = 0;
+            if (probe->setup == UNPACK_SS) {
+                unsigned phase = (call / 8) % 3;
+                expected = phase == 0 ? 0 : phase == 1 ? 12 : 13;
+                if (expected && (get32(FAULT_PC) != BODY ||
+                                 cpu_state.XMM[0].q[0] != UINT64_C(0x1111111111111111) ||
+                                 cpu_state.XMM[0].q[1] != UINT64_C(0x1111111111111111)))
+                    fatal("%s: fault changed XMM0 or EIP", probe->name);
+            }
             if (get32(TRAP) != expected) {
                 fprintf(stderr, "%s call %u: trap %u, expected %u\n", probe->name, call, get32(TRAP), expected);
                 return 1;
+            }
+            if (probe->setup == POP_SP && ESP != (((initial_sp + 2) & 0xffff0000) | 0x4321))
+                fatal("%s: wrong ESP %x", probe->name, ESP);
+            if (probe->setup >= PUSH_ALL_LIMIT && probe->setup <= POP_ALL_WRAP) {
+                unsigned bytes = probe->length == 2 ? 16 : 32;
+                if (expected) {
+                    if (get32(FAULT_PC) != BODY || ESP != initial_sp || EDI != DATA + 0x800)
+                        fatal("%s: stack fault changed registers or EIP", probe->name);
+                    if (push_all && get32(cpu_state.seg_ss.base + final_sp) != 0xfeed1234)
+                        fatal("PUSHAD wrote beyond SS");
+                } else if (push_all) {
+                    if (ESP != final_sp || get32(cpu_state.seg_ss.base + ESP) != EDI)
+                        fatal("PUSHAD stack contents");
+                } else if (ESP != final_sp || EDI != (bytes == 16 ? 0x25678 : 0x12345678))
+                    fatal("%s: successful pop changed ESP or EDI incorrectly", probe->name);
             }
             if (strstr(probe->name, "MASKMOV")) {
                 if (expected && get32(FAULT_PC) != BODY + 6) fatal("Masked store fault EIP");

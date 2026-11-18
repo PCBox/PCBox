@@ -348,22 +348,34 @@ geteax_cr(uint32_t len)
 static __inline int
 stack_cr(uint32_t addr, uint32_t len)
 {
-    if ((addr < cpu_state.seg_ss.limit_low) || ((addr + (len - 1UL)) > cpu_state.seg_ss.limit_high)) {
+    if ((addr < cpu_state.seg_ss.limit_low) || ((uint64_t) addr + len - 1 > cpu_state.seg_ss.limit_high)) {
         x86ss(NULL, 0);
         return 1;
     }
     return 0;
 }
 
-/*stack_cr() for count pushes, or pops, of len bytes each, checked together
-  before any is made. A 16-bit SP wraps at 64k between slots, so checking the
-  first and last slot covers the ones in between.*/
+/* Check the whole frame before changing any register or memory. Slot
+   addresses wrap on a 16-bit stack, but bytes within a slot do not. */
+static __inline int
+stack_cr_slots(uint16_t first, uint32_t count, uint32_t len)
+{
+    if (first + (count - 1) * len <= UINT16_MAX)
+        return stack_cr(first, count * len);
+
+    for (uint32_t i = 0; i < count; i++) {
+        if (stack_cr((uint16_t) (first + i * len), len))
+            return 1;
+    }
+    return 0;
+}
+
 static __inline int
 stack_cr_push(uint32_t count, uint32_t len)
 {
     if (stack32)
         return stack_cr(ESP - (count * len), count * len);
-    return stack_cr((SP - len) & 0xffff, len) || stack_cr((SP - (count * len)) & 0xffff, len);
+    return stack_cr_slots((uint16_t) (SP - count * len), count, len);
 }
 
 static __inline int
@@ -371,7 +383,7 @@ stack_cr_pop(uint32_t count, uint32_t len)
 {
     if (stack32)
         return stack_cr(ESP, count * len);
-    return stack_cr(SP, len) || stack_cr((SP + ((count - 1) * len)) & 0xffff, len);
+    return stack_cr_slots(SP, count, len);
 }
 
 #define CHECK_STACK(addr, len) \

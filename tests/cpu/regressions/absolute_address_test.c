@@ -230,6 +230,62 @@ static void execute(int form, uint64_t *data)
     checks++;
 }
 
+static void check_lea_base(void)
+{
+    const int bases[] = { REG_RSP, REG_R12 };
+    const int offsets[] = { 0, 0x123456 };
+    current_case = "LEA stack base";
+    for (unsigned b = 0; b < 2; b++) {
+        for (unsigned d = 0; d < 2; d++) {
+            block_pos = 0;
+            host_x86_LEA_REG_IMM(&storage, REG_EAX, bases[b], offsets[d]);
+            const uint8_t *p = code_memory;
+            if (bases[b] == REG_R12)
+                CHECK(*p++ == 0x41);
+            CHECK(*p++ == 0x8d);
+            CHECK(*p++ == (offsets[d] ? 0x84 : 0x04));
+            CHECK(*p++ == 0x24);
+            if (offsets[d]) {
+                CHECK(read_integer(p, 4) == (unsigned) offsets[d]);
+                p += 4;
+            }
+            CHECK(p == code_memory + block_pos);
+            checks++;
+        }
+    }
+}
+
+static void execute_high_byte(int ram_relative)
+{
+    uint8_t value = 0xab;
+    current_case = "absolute load into DH";
+    block_pos = 0;
+    block_write_data = code_memory;
+    storage.flags = ram_relative ? CODEBLOCK_NO_IMMEDIATES : 0;
+    ram = &value;
+    host_x86_PUSH(&storage, REG_RBP);
+    host_x86_PUSH(&storage, REG_R12);
+    host_x86_PUSH(&storage, REG_RSI);
+    host_x86_MOV64_REG_IMM(&storage, REG_RBP, (uintptr_t) &cpu_state + 128);
+    host_x86_MOV64_REG_IMM(&storage, REG_R12, (uintptr_t) ram + UINT64_C(0x80000000));
+    host_x86_MOV32_REG_IMM(&storage, REG_EDX, 0x12345678);
+    emit(LOAD8, &value, 6); /* DH */
+    host_x86_MOV32_REG_REG(&storage, REG_EAX, REG_EDX);
+    host_x86_POP(&storage, REG_RSI);
+    host_x86_POP(&storage, REG_R12);
+    host_x86_POP(&storage, REG_RBP);
+    host_x86_RET(&storage);
+#ifdef _WIN32
+    CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, block_pos));
+#else
+    __builtin___clear_cache((char *) code_memory, (char *) code_memory + block_pos);
+#endif
+    CHECK(((uint32_t (*)(void)) code_memory)() == 0x1234ab78);
+    storage.flags = 0;
+    ram = NULL;
+    checks++;
+}
+
 static void execute_xmm(uint64_t *data)
 {
     const uint64_t expected[2] = { UINT64_C(0xfedcba9832547698), UINT64_C(0x0123456789abcdef) };
@@ -295,6 +351,9 @@ int main(void)
         if (form <= MXCSR) execute(form, target);
     }
     execute_xmm(target);
+    execute_high_byte(0);
+    execute_high_byte(1);
+    check_lea_base();
     /* Exercise real absolute disp32 instructions below and above 2 GB when
        these address ranges are available. Encoding coverage above is mandatory. */
     for (unsigned n = 0; n < 2; n++) {

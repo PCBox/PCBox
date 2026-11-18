@@ -2837,6 +2837,8 @@ codegen_mem_slow(codeblock_t *block, const mem_slow_t *slow)
     if (slow->misaligned_p)
         jump_here(slow->misaligned_p);
     jump_here(slow->miss_p);
+    if (slow->sse_invalidate)
+        host_x86_MOV32_BASE_OFFSET_IMM(block, REG_RSP, STACK_SSE_RECHECK, 1);
     host_x86_MOV32_REG_REG(block, REG_ESI, slow->store ? REG_EDI : REG_ECX);
     host_x86_CALL(block, slow->rout);
     host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
@@ -2876,6 +2878,7 @@ codegen_mem_slow_add(codeblock_t *block, uop_t *uop, uint32_t *misaligned_p, uin
     slow->dest_reg     = dest_reg;
     slow->store        = store;
     slow->add          = uop->imm_data2;
+    slow->sse_invalidate = !!(uop->type & UOP_TYPE_SSE_INVALIDATE);
     if (slow != &inline_slow) {
         slow->ret = &block_write_data[block_pos];
         return;
