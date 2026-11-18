@@ -256,9 +256,13 @@ ropMOVAPS_r_d(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 }
 
 uint32_t
-ropMOVAPS_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+ropMOVAPS_d_r(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int src_reg = (fetchdat >> 3) & 7;
+
+    /* MOVNTPS/MOVNTPD share this store path and require memory. */
+    if (opcode == 0x2b && (fetchdat & 0xc0) == 0xc0)
+        return 0;
 
     REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);

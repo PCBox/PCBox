@@ -1,8 +1,8 @@
 # Shared device-free production CPU/MMU/JIT build for execution fixtures.
 function(pcbox_full_cpu_target target)
     set(core "${CPU_SOURCE_ROOT}/src")
-    set(cpu_sources cpu.c cpu_table.c fpu.c x86.c 386.c 386_common.c
-        386_dynarec.c 386_dynarec_ops.c x86_ops_mmx.c x86seg_common.c
+    set(cpu_sources cpu.c cpu_lapic.c cache_as_ram.c cpu_table.c fpu.c x86.c 386.c 386_common.c
+        386_dynarec.c 386_dynarec_ops.c x86_ops_mmx.c x86_rep_host.c x87_ferr.c x86seg_common.c
         x86seg.c x86seg_2386.c x87.c x87_timings.c
         codegen_timing_486.c codegen_timing_686.c codegen_timing_common.c
         codegen_timing_k6.c codegen_timing_pentium.c codegen_timing_p6.c
@@ -12,7 +12,7 @@ function(pcbox_full_cpu_target target)
         list(APPEND cpu_sources "${core}/cpu/codegen_timing_p4.c")
     endif()
     file(GLOB jit_sources CONFIGURE_DEPENDS "${core}/codegen/*.c")
-    list(FILTER jit_sources EXCLUDE REGEX "codegen_backend_(arm64|loongarch64)")
+    list(FILTER jit_sources EXCLUDE REGEX "codegen_backend_(arm64|loongarch64)|_x87h[.]c$")
     # The main project defines softfloat3e later in src/cpu. Only a standalone
     # fixture build owns this target; the generator expression below also
     # accepts the main project's target once configuration has finished.
@@ -23,7 +23,8 @@ function(pcbox_full_cpu_target target)
     target_sources(${target} PRIVATE ${cpu_sources} ${jit_sources}
         "${CPU_SOURCE_ROOT}/tests/cpu/full_core_platform.c"
         $<TARGET_OBJECTS:softfloat3e> "${core}/mem/mem.c" "${core}/mem/mmu_2386.c"
-        "${core}/mem/smram.c")
+        "${core}/mem/smram.c" "${core}/lapic.c" "${core}/lapic_policy.c"
+        "${core}/apic_cpu_policy.c" "${core}/lapic_mmio.c" "${core}/lapic_delivery.c")
     set_target_properties(${target} PROPERTIES WIN32_EXECUTABLE FALSE MACOSX_BUNDLE FALSE)
     target_compile_definitions(${target} PRIVATE USE_DYNAREC USE_NEW_DYNAREC)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include/86box")

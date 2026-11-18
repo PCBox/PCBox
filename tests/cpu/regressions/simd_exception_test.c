@@ -14,7 +14,7 @@
 #include "x86seg.h"
 #include "codegen.h"
 
-extern int     inrecomp, x86_was_reset;
+extern int     inrecomp;
 extern int32_t cycles_main;
 enum { DRIVER   = 0x10000,
        BODY     = 0x11000,
@@ -301,7 +301,6 @@ run_case(void)
     completed = compiled_results = native_regions = 0;
     done                                          = 0;
     resetx86();
-    codegen_reset();
     cr0 = 1;
     cr4 = CR4_OSFXSR | (osxmm ? CR4_OSXMMEXCPT : 0);
     flat_segment(&cpu_state.seg_cs, 8, 0x9b);

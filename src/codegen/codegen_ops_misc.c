@@ -997,6 +997,9 @@ bit_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_32,
     int     is_reg     = (fetchdat & 0xc0) == 0xc0;
     uint8_t imm        = 0;
 
+    if (imm_form && (block->flags & CODEBLOCK_NO_IMMEDIATES))
+        return 0;
+
     codegen_mark_code_present(block, cs + op_pc, 1);
     if (!codegen_flags_rebuild_known(ir, 0))
         uop_CALL_FUNC(ir, jit_flags_rebuild);
@@ -1053,8 +1056,6 @@ bit_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_32,
         uop_SHR(ir, IREG_temp2, IREG_temp0, IREG_temp1);
     }
     uop_AND_IMM(ir, IREG_temp2, IREG_temp2, 1);
-    uop_AND_IMM(ir, IREG_flags, IREG_flags, ~C_FLAG);
-    uop_OR(ir, IREG_flags, IREG_flags, IREG_temp2_W);
 
     if (kind != BIT_TEST) {
         if (imm_form) {
@@ -1065,15 +1066,15 @@ bit_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_32,
             else
                 uop_XOR_IMM(ir, IREG_temp0, IREG_temp0, 1u << imm);
         } else {
-            uop_MOV_IMM(ir, IREG_temp2, 1);
-            uop_SHL(ir, IREG_temp2, IREG_temp2, IREG_temp1);
+            uop_MOV_IMM(ir, IREG_temp3, 1);
+            uop_SHL(ir, IREG_temp3, IREG_temp3, IREG_temp1);
             if (kind == BIT_SET)
-                uop_OR(ir, IREG_temp0, IREG_temp0, IREG_temp2);
+                uop_OR(ir, IREG_temp0, IREG_temp0, IREG_temp3);
             else if (kind == BIT_RESET) {
-                uop_XOR_IMM(ir, IREG_temp2, IREG_temp2, 0xffffffff);
-                uop_AND(ir, IREG_temp0, IREG_temp0, IREG_temp2);
+                uop_XOR_IMM(ir, IREG_temp3, IREG_temp3, 0xffffffff);
+                uop_AND(ir, IREG_temp0, IREG_temp0, IREG_temp3);
             } else
-                uop_XOR(ir, IREG_temp0, IREG_temp0, IREG_temp2);
+                uop_XOR(ir, IREG_temp0, IREG_temp0, IREG_temp3);
         }
 
         if (is_reg) {
@@ -1089,6 +1090,9 @@ bit_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_32,
         }
     }
 
+    /* A faulting write preserves the incoming carry. */
+    uop_AND_IMM(ir, IREG_flags, IREG_flags, ~C_FLAG);
+    uop_OR(ir, IREG_flags, IREG_flags, IREG_temp2_W);
     return op_pc + (imm_form ? 2 : 1);
 }
 

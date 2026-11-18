@@ -15,7 +15,13 @@ typedef struct {
     uint8_t bytes[32];
     unsigned length, cr0_bits, no_osfxsr, trap_p3, trap_p4, setup, only_p4;
 } opcode_case;
+enum { BIT_WRITE = 28 };
 static const opcode_case opcases[] = {
+    {"MOVNTPS register", {0x0f,0x2b,0xc1},3,0,0,6,6,18},
+    {"MOVNTPD register", {0x66,0x0f,0x2b,0xc1},4,0,0,6,6,18,1},
+    {"BTS word register offset", {0x66,0x0f,0xab,0x0f},4,0x80010000,0,14,14,BIT_WRITE},
+    {"BTR dword register offset", {0x0f,0xb3,0x0f},3,0x80010000,0,14,14,BIT_WRITE},
+    {"BTC dword immediate offset", {0x0f,0xba,0x3f,0x00},4,0x80010000,0,14,14,BIT_WRITE},
     {"CVTSD2SS denormal reg a32", {0xf2,0x0f,0x5a,0xc1},4,0,0,6,0,26,1},
     {"CVTSD2SS denormal reg a16", {0x67,0xf2,0x0f,0x5a,0xc1},5,0,0,6,0,26,1},
     {"CVTSD2SS denormal mem a32", {0xf2,0x0f,0x5a,0x00},4,0,0,6,0,26,1},
@@ -361,7 +367,7 @@ void timer_process(void) {
         fatal("Audit watchdog: %s", probe ? probe->name : "setup");
 }
 static void initialize(void) {
-    resetx86(); codegen_reset();
+    resetx86();
     cr0 = 1; cr4 = CR4_OSFXSR | CR4_OSXMMEXCPT;
     flat_segment(&cpu_state.seg_cs,8,0x9b);
     flat_segment(&cpu_state.seg_ds,16,0x93); flat_segment(&cpu_state.seg_es,16,0x93);
@@ -387,7 +393,7 @@ static void initialize(void) {
     b(0xc3);
     exception_tables();
     if (probe->setup==1) cpu_state.seg_fs.limit=cpu_state.seg_fs.limit_high=0xfff;
-    if (probe->setup==2 || probe->setup==3 || probe->setup==11 || probe->setup==12 || probe->setup==19 || probe->setup==20 || probe->setup==21 || probe->setup==24) {
+    if (probe->setup==BIT_WRITE || probe->setup==2 || probe->setup==3 || probe->setup==11 || probe->setup==12 || probe->setup==19 || probe->setup==20 || probe->setup==21 || probe->setup==24) {
         memset(ram+0x30000,0,0x5000);
         for (unsigned n=0;n<4;n++) {
             put32(0x30000+4*n,(0x31000+0x1000*n)|3);
@@ -474,6 +480,15 @@ int main(int argc,char **argv) {
                 EDI=EBX=0;EAX=0x12345678;cpu_state.flags_op=0;
                 cpu_state.flags=2 | (call&1) | ((call&2)<<1) | ((call&4)<<4) | ((call&8)<<4) | ((call&16)<<7);
             }
+            if (probe->setup == BIT_WRITE) {
+                EDI = 0x40000;
+                ECX = 0;
+                put32(EDI, call & 1);
+                put32(0x31000 + 4 * 0x40, ((call / 8) & 1) ? 0x40001 : 0x40003);
+                flushmmucache();
+                cpu_state.flags = 2 | ((call & 1) ^ 1);
+                cpu_state.flags_op = 0;
+            }
             uint32_t cmp_address = probe->setup==21 ? 0x40ffc : 0x40000;
             if (probe->setup==20 || probe->setup==21) {
                 if (probe->setup==21) put32(0x31000+4*0x40,0x40003);
@@ -509,7 +524,7 @@ int main(int argc,char **argv) {
             }
             unsigned expected = p3 ? probe->trap_p3 : probe->trap_p4;
             if (probe->setup==26) expected = (call & 64) && !(call & 128) ? 19 : 0;
-            if ((probe->setup == 12 || probe->setup == 19 || probe->setup == 20 || probe->setup == 21 || probe->setup == 9 || probe->setup == 27) && !((call / 8) & 1)) expected = 0;
+            if ((probe->setup == BIT_WRITE || probe->setup == 12 || probe->setup == 19 || probe->setup == 20 || probe->setup == 21 || probe->setup == 9 || probe->setup == 27) && !((call / 8) & 1)) expected = 0;
             if (get32(TRAP) != expected) {
                 fprintf(stderr, "%s call %u: trap %u, expected %u\n", probe->name, call, get32(TRAP), expected);
                 return 1;
@@ -580,6 +595,15 @@ int main(int argc,char **argv) {
                 unsigned selected=conditions[condition>>1] ^ (condition&1);
                 uint32_t value = !expected && selected ? (strstr(probe->name,"w16") ? 0x1234cdef : 0x89abcdef) : 0x12345678;
                 if(EAX!=value || (expected && get32(FAULT_PC)!=BODY)) fatal("CMOV result or fault EIP: %s",probe->name);
+            }
+            if (probe->setup == BIT_WRITE) {
+                unsigned original = call & 1;
+                unsigned updated = probe->bytes[0] == 0x66 ? 1 :
+                                   probe->bytes[1] == 0xb3 ? 0 : original ^ 1;
+                if ((cpu_state.flags & 1) != (expected ? original ^ 1 : original) ||
+                    get32(EDI) != (expected ? original : updated) ||
+                    (expected && get32(FAULT_PC) != BODY))
+                    fatal("%s changed carry, memory, or fault EIP", probe->name);
             }
             if (probe->setup==20 || probe->setup==21) {
                 unsigned width = strstr(probe->name,"w64") ? 64 : strstr(probe->name,"w32") ? 32 : strstr(probe->name,"w16") ? 16 : 8;

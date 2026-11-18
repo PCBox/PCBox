@@ -1372,8 +1372,8 @@ extern void codegen_fpu_record_pointers(ir_data_t *ir);
             } else                                                           \
                 codegen_fp_pending_check(ir);                                \
             uop_gen_imm2(UOP_MMX_ENTER, ir, cpu_state.oldpc, codegen_exit_cycles(EXIT_FAULT_HELD)); \
+            codegen_mmx_entered = 2;                                             \
         }                                                                    \
-        codegen_mmx_entered = 1;                                             \
         codegen_fpu_entered = 0;                                             \
     } while(0)
 

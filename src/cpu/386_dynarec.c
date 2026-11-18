@@ -812,7 +812,7 @@ exec386_dynarec_int_dbg(void)
     exec386_dynarec_int_common(1);
 }
 
-__inline void
+void
 exec386_dynarec_int(void)
 {
     if (UNLIKELY(cpu_debug_regs_486))

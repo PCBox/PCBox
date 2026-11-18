@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "../../../src/cpu/codegen_timing_p6.c"
 cpu_state_t cpu_state;
+int cpu_has_feature(int feature) { return feature == CPU_FEATURE_MMX; }
 static CPU model = {.cpu_type=CPU_PENTIUM3};
 CPU *cpu_s = &model;
 int codegen_block_cycles;

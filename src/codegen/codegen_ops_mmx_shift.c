@@ -24,18 +24,13 @@ ropPSxxW_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
     if ((fetchdat & 0xc0) != 0xc0 || (op != 0x10 && op != 0x20 && op != 0x30))
         return 0;
 
+    if (op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES))
+        return 0;
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+
     int shift = fastreadb(cs + op_pc + 1);
     if (cpu_state.abrt)
         return 0;
-
-    if ((fetchdat & 0xc0) != 0xc0) /*a memory form is #UD*/
-        return 0;
-
-    if(op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES) || ((fetchdat & 0xc0) != 0xc0))
-        return 0;
-
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
-    shift = fastreadb(cs + op_pc + 1);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     switch (op) {
@@ -63,18 +58,13 @@ ropPSxxD_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
     if ((fetchdat & 0xc0) != 0xc0 || (op != 0x10 && op != 0x20 && op != 0x30))
         return 0;
 
+    if (op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES))
+        return 0;
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+
     int shift = fastreadb(cs + op_pc + 1);
     if (cpu_state.abrt)
         return 0;
-
-    if ((fetchdat & 0xc0) != 0xc0) /*a memory form is #UD*/
-        return 0;
-
-    if(op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES) || ((fetchdat & 0xc0) != 0xc0))
-        return 0;
-
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
-    shift = fastreadb(cs + op_pc + 1);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     switch (op) {
@@ -102,18 +92,13 @@ ropPSxxQ_imm(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
     if ((fetchdat & 0xc0) != 0xc0 || (op != 0x10 && op != 0x30))
         return 0;
 
+    if (op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES))
+        return 0;
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+
     int shift = fastreadb(cs + op_pc + 1);
     if (cpu_state.abrt)
         return 0;
-
-    if ((fetchdat & 0xc0) != 0xc0) /*a memory form is #UD*/
-        return 0;
-
-    if(op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES) || ((fetchdat & 0xc0) != 0xc0))
-        return 0;
-
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
-    shift = fastreadb(cs + op_pc + 1);
     uop_MMX_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     switch (op) {

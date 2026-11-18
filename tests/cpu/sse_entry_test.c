@@ -19,7 +19,7 @@ int cpu_block_end;
 uint8_t *block_write_data;
 int block_pos;
 ir_reg_t invalid_ir_reg = { IREG_INVALID, 0 };
-uint8_t reg_last_version[IREG_COUNT];
+uint8_t reg_last_version[IREG_COUNT_GROUPS];
 uint64_t dirty_ir_regs[2];
 reg_version_t reg_version[IREG_COUNT][256];
 uint16_t reg_dead_list;
@@ -63,6 +63,35 @@ void codegen_reg_rename(codeblock_t *block, ir_reg_t src, ir_reg_t dst) { (void)
 void codegen_reg_alloc_register(ir_reg_t dst, ir_reg_t a, ir_reg_t b, ir_reg_t c) { (void)dst; (void)a; (void)b; (void)c; }
 ir_host_reg_t codegen_reg_alloc_read_reg(codeblock_t *block, ir_reg_t reg, int *idx) { (void)block; (void)reg; (void)idx; return 0; }
 ir_host_reg_t codegen_reg_alloc_write_reg(codeblock_t *block, ir_reg_t reg) { (void)block; (void)reg; return 0; }
+
+/* The recording backend has no guest timing events or flag producers. */
+uint64_t ireg_permanent_mask[2];
+uint8_t codegen_fpu_tag_valid, codegen_fpu_tag_empty;
+codegen_lazy_list_t *codegen_lazy_site;
+static char exit_target, gp_target, ss_target;
+void *codegen_exit_rout = &exit_target, *codegen_gpf_rout = &gp_target, *codegen_ss_rout = &ss_target;
+void codegen_reg_drop_cycles(void) { }
+void codegen_reg_jump_dest(codeblock_t *block) { (void)block; }
+void codegen_reg_flush_lazy(ir_data_t *ir, codeblock_t *block) { (void)ir; (void)block; }
+int codegen_exit_cycles(int held) { (void)held; return 0; }
+void codegen_record_exit(int pos, int held) { (void)pos; (void)held; }
+void codegen_record_route(int pos, void *p) { (void)pos; (void)p; }
+int codegen_get_loop_timing(int first) { (void)first; return 0; }
+void codegen_accumulate_begin(void) { }
+void codegen_accumulate_copy(ir_data_t *ir, int pos) { (void)ir; (void)pos; }
+int codegen_accumulate_unroll(ir_data_t *ir, int first, int start, int branch)
+{ (void)ir; (void)first; (void)start; (void)branch; return 0; }
+int codegen_flags_inline_sites(const codegen_flags_inline_t **sites) { *sites = NULL; return 0; }
+int codegen_flags_read_sites(const codegen_flags_read_t **sites) { *sites = NULL; return 0; }
+int codegen_flags_is_rebuild_c(const void *p) { (void)p; return 0; }
+int codegen_flags_is_rebuild_zpna(const void *p) { (void)p; return 0; }
+void jit_flags_rebuild(void) { fatal("Unexpected flag rebuild"); }
+void jit_flags_rebuild_v(void) { fatal("Unexpected flag rebuild"); }
+int jit_CF_SET(void) { fatal("Unexpected CF read"); return 0; }
+int jit_NF_SET(void) { fatal("Unexpected NF read"); return 0; }
+int jit_PF_SET(void) { fatal("Unexpected PF read"); return 0; }
+int jit_VF_SET(void) { fatal("Unexpected VF read"); return 0; }
+int jit_ZF_SET(void) { fatal("Unexpected ZF read"); return 0; }
 
 /* The real hook appends register setup, which does not end an SSE region. */
 void codegen_set_loop_start(ir_data_t *ir, int first_instruction)
@@ -247,8 +276,8 @@ int main(void)
     CHECK(entry_pcs[1] == 0x200 && entry_pcs[2] == 0x200);
     CHECK(arithmetic == 7);
 
-    /* Delayed MMX entry must retain its first arithmetic result in a host
-       register, including after a faultable load, without an extra spill. */
+    /* Every retained MMX commit orders register writes before updating the
+       x87 tags. A faultable load also requires rechecking the next entry. */
     for (int memory = 0; memory < 2; memory++) {
         ir = start_block();
         uop_gen_imm(UOP_MMX_ENTER, ir, 0x100);
@@ -260,7 +289,7 @@ int main(void)
         compile(ir);
         CHECK(mmx_commits == (memory ? 3 : 1) && mmx_arithmetic == 6);
         CHECK(mmx_entries == (memory ? 3 : 1));
-        CHECK(full_flushes == (memory ? 4 : 2) && order_flushes == 0);
+        CHECK(full_flushes == (memory ? 4 : 2) && order_flushes == mmx_commits);
     }
 
     /* Match a real DEC/JNZ unrolled loop: the carry helper remains a full

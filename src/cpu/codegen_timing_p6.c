@@ -1800,8 +1800,6 @@ decode_instruction(const macro_op_t *ins, uint64_t deps, uint32_t fetchdat, int 
         if (regmask_modified & (1 << c))
             reg_available_timestamp[c] = decode_buffer.nr_uops ? -1 : last_uop_timestamp;
     }
-    for (uint32_t mask = regmask_modified & 0xff; mask; mask &= mask - 1)
-        reg_available_timestamp[__builtin_ctz(mask)] = last_complete_timestamp;
 
     if (!(deps & (FPU_POP | FPU_POP2 | FPU_PUSH | FPU_WRITE_ST0 | FPU_WRITE_ST1 | FPU_WRITE_STREG)))
         return;
