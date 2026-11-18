@@ -18,18 +18,50 @@
 add_library(utils OBJECT
     # Core
     cJSON.c
+    civil_time.c
     crc.c
     crc32.c
     fifo.c
     fifo8.c
+    fs_name.c
     ini.c
     log.c
+    media_archive.c
     random.c
 
 
     # Video helpers (NV3)
     video/video_rop.c
 )
+
+# Media mounted from archives are read through the system libarchive.
+find_package(PkgConfig REQUIRED)
+if(LibArchive_ROOT)
+    # Homebrew's libarchive is keg-only.
+    list(APPEND CMAKE_PREFIX_PATH "${LibArchive_ROOT}")
+endif()
+pkg_check_modules(LIBARCHIVE REQUIRED IMPORTED_TARGET libarchive)
+target_link_libraries(utils PkgConfig::LIBARCHIVE)
+target_link_libraries(PCBox PkgConfig::LIBARCHIVE)
+# Names that macOS gives decomposed are composed again through CoreFoundation.
+if(APPLE)
+    target_link_libraries(PCBox "-framework CoreFoundation")
+endif()
+
+# Names in Shift-JIS for Japanese machines and languages go through iconv; Windows has its own code pages.
+if(NOT WIN32)
+    find_package(Iconv)
+    if(Iconv_FOUND)
+        target_compile_definitions(utils PRIVATE USE_ICONV)
+        target_link_libraries(PCBox Iconv::Iconv)
+    endif()
+endif()
+
+if(WIN32 AND STATIC_BUILD)
+    # MSYS2
+    target_compile_definitions(utils PRIVATE LIBARCHIVE_STATIC)
+    target_link_libraries(PCBox -static ${LIBARCHIVE_STATIC_LIBRARIES})
+endif()
 
 add_library(mdsx_dll OBJECT
     # MDSX DLL Core

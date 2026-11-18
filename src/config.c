@@ -14,6 +14,7 @@
  *          Overdoze,
  *          David Hrdlička, <hrdlickadavid@outlook.com>
  *          Jasmine Iwanek, <jriwanek@gmail.com>
+ *          Marcos Alves
  *
  *          Copyright 2008-2019 Sarah Walker.
  *          Copyright 2016-2019 Miran Grca.
@@ -21,6 +22,7 @@
  *          Copyright 2018-2019 David Hrdlička.
  *          Copyright 2021      Andreas J. Reichel.
  *          Copyright 2021-2025 Jasmine Iwanek.
+ *          Copyright 2026      Marcos Alves.
  *
  * NOTE:    Forcing config files to be in Unicode encoding breaks
  *          it on Windows XP, and possibly also Vista. Use the
@@ -56,7 +58,7 @@
 #include <86box/isamem.h>
 #include <86box/isarom.h>
 #include <86box/isartc.h>
-#include <86box/ibm_5161.h>
+#include <86box/pcmcia.h>
 #include <86box/lpt.h>
 #include <86box/serial.h>
 #include <86box/hdd.h>
@@ -73,6 +75,7 @@
 #include <86box/mouse.h>
 #include <86box/mem.h>
 #include <86box/usb.h>
+#include <86box/fat_image.h>
 #include <86box/thread.h>
 #include <86box/network.h>
 #include <86box/scsi.h>
@@ -3015,8 +3018,39 @@ load_other_peripherals(void)
     if (!strcmp(p, "none"))
         ini_section_delete_var(cat, temp);
 
-    p                  = ini_section_get_string(cat, "isa_expansion", "none");
-    isa_expansion_type = isa_expansion_get_from_internal_name(p);
+    /* The PC Card controller and the card in each socket. */
+    {
+        ini_section_t pc = ini_find_section(config, "PCMCIA");
+        pcmcia_enabled   = !!ini_section_get_int(pc, "controller", 0);
+        for (int s = 0; s < PCMCIA_SOCKETS; s++) {
+            char key[32];
+            sprintf(key, "socket_%c", 'a' + s);
+            pcmcia_card_type[s] = pcmcia_card_get_from_internal_name(ini_section_get_string(pc, key, "none"));
+            sprintf(key, "socket_%c_net_type", 'a' + s);
+            const char *t      = ini_section_get_string(pc, key, "slirp");
+            pcmcia_net_type[s] = !strcmp(t, "pcap") ? NET_TYPE_PCAP : (!strcmp(t, "none") ? NET_TYPE_NONE : NET_TYPE_SLIRP);
+            sprintf(key, "socket_%c_net_host", 'a' + s);
+            snprintf(pcmcia_net_host[s], sizeof(pcmcia_net_host[s]), "%s", ini_section_get_string(pc, key, ""));
+            sprintf(key, "socket_%c_cf_wp", 'a' + s);
+            const int wp = ini_section_get_int(pc, key, 0);
+            sprintf(key, "socket_%c_cf_image", 'a' + s);
+            const char *fn = ini_section_get_string(pc, key, "");
+            if (pcmcia_card_is_cf(pcmcia_card_type[s]) && (strlen(fn) < MAX_IMAGE_PATH_LEN))
+                pcmcia_cf_set_image(s, fn, wp);
+            sprintf(key, "socket_%c_net_link", 'a' + s);
+            net_cards_conf[NET_CARD_MAX + s].link_state = ini_section_get_int(pc, key,
+                                                                              (NET_LINK_10_HD | NET_LINK_10_FD |
+                                                                               NET_LINK_100_HD | NET_LINK_100_FD |
+                                                                               NET_LINK_1000_HD | NET_LINK_1000_FD));
+        }
+        for (int i = 0; i < MAX_PREV_IMAGES; i++) {
+            char key[32];
+            sprintf(key, "cf_image_history_%02i", i + 1);
+            const char *fn = ini_section_get_string(pc, key, "");
+            if (strlen(fn) < MAX_IMAGE_PATH_LEN)
+                pcmcia_cf_history_set(i, fn);
+        }
+    }
 
 #ifdef USE_VFIO
     /* VFIO passthrough devices: a space-separated device list, with
@@ -3205,6 +3239,7 @@ config_load(void)
     memset(cdrom_ioctl, 0, sizeof(cdrom_ioctl_t) * CDROM_NUM);
 #endif
     memset(rdisk_drives, 0, sizeof(rdisk_drive_t));
+    pcmcia_cf_config_init();
 
     for (int i = 0; i < 768; i++)
         scancode_config_map[i] = i;
@@ -4463,7 +4498,8 @@ save_usb_flash_drives(void)
     uint8_t       wp;
 
     for (int c = 0; c < USB_PORTS_MAX; c++) {
-        if (usb_flash_cfg_get(c, label, fn, &wp)) {
+        /* A stick built from a folder or an archive isn't kept, as on the other drives. */
+        if (usb_flash_cfg_get(c, label, fn, &wp) && !fat_image_is_source(fn)) {
             sprintf(temp, "usb_flash_%02i_port", c + 1);
             ini_section_set_string(cat, temp, label);
             sprintf(temp, "usb_flash_%02i_fn", c + 1);
@@ -4714,10 +4750,65 @@ save_other_peripherals(void)
         ini_section_set_string(cat, "isartc_type",
                                isartc_get_internal_name(isartc_type));
 
-    if (isa_expansion_type == 0)
-        ini_section_delete_var(cat, "isa_expansion");
-    else
-        ini_section_set_string(cat, "isa_expansion", isa_expansion_get_internal_name(isa_expansion_type));
+    {
+        ini_section_t pc = ini_find_or_create_section(config, "PCMCIA");
+        if (pcmcia_enabled)
+            ini_section_set_int(pc, "controller", 1);
+        else
+            ini_section_delete_var(pc, "controller");
+        for (int s = 0; s < PCMCIA_SOCKETS; s++) {
+            char           key[32], key_type[32], key_host[32], key_link[32];
+            const uint32_t link = net_cards_conf[NET_CARD_MAX + s].link_state;
+            sprintf(key, "socket_%c", 'a' + s);
+            sprintf(key_type, "socket_%c_net_type", 'a' + s);
+            sprintf(key_host, "socket_%c_net_host", 'a' + s);
+            sprintf(key_link, "socket_%c_net_link", 'a' + s);
+            if (pcmcia_card_type[s] > 0)
+                ini_section_set_string(pc, key, (char *) pcmcia_card_get_internal_name(pcmcia_card_type[s]));
+            else
+                ini_section_delete_var(pc, key);
+            if (pcmcia_card_is_network(pcmcia_card_type[s])) {
+                ini_section_set_string(pc, key_type, (pcmcia_net_type[s] == NET_TYPE_PCAP) ? "pcap" :
+                                                     ((pcmcia_net_type[s] == NET_TYPE_NONE) ? "none" : "slirp"));
+                if ((pcmcia_net_type[s] == NET_TYPE_PCAP) && pcmcia_net_host[s][0])
+                    ini_section_set_string(pc, key_host, pcmcia_net_host[s]);
+                else
+                    ini_section_delete_var(pc, key_host);
+                if (link == (NET_LINK_10_HD | NET_LINK_10_FD | NET_LINK_100_HD | NET_LINK_100_FD |
+                             NET_LINK_1000_HD | NET_LINK_1000_FD))
+                    ini_section_delete_var(pc, key_link);
+                else
+                    ini_section_set_int(pc, key_link, link);
+            } else {
+                ini_section_delete_var(pc, key_type);
+                ini_section_delete_var(pc, key_host);
+                ini_section_delete_var(pc, key_link);
+            }
+            char fn[MAX_IMAGE_PATH_LEN];
+            int  wp;
+            const int have_cf = pcmcia_card_is_cf(pcmcia_card_type[s]) &&
+                                pcmcia_cf_get_image(s, fn, sizeof(fn), &wp);
+            sprintf(key, "socket_%c_cf_image", 'a' + s);
+            if (have_cf)
+                ini_section_set_string(pc, key, fn);
+            else
+                ini_section_delete_var(pc, key);
+            sprintf(key, "socket_%c_cf_wp", 'a' + s);
+            if (have_cf && wp)
+                ini_section_set_int(pc, key, 1);
+            else
+                ini_section_delete_var(pc, key);
+        }
+        for (int i = 0; i < MAX_PREV_IMAGES; i++) {
+            char key[32], fn[MAX_IMAGE_PATH_LEN];
+            sprintf(key, "cf_image_history_%02i", i + 1);
+            if (pcmcia_cf_history_get(i, fn, sizeof(fn)))
+                ini_section_set_string(pc, key, fn);
+            else
+                ini_section_delete_var(pc, key);
+        }
+        ini_delete_section_if_empty(config, pc);
+    }
 
     ini_delete_section_if_empty(config, cat);
 
@@ -5230,7 +5321,7 @@ save_other_removable_devices(void)
             ini_section_set_string(cat, temp, hdd_lpt_bridge_get_internal_name(rdisk_drives[c].lpt_bridge));
 
         sprintf(temp, "rdisk_%02i_image_path", c + 1);
-        if ((rdisk_drives[c].bus_type == 0) || (strlen(rdisk_drives[c].image_path) == 0))
+        if ((rdisk_drives[c].bus_type == 0) || (strlen(rdisk_drives[c].image_path) == 0) || rdisk_drives[c].folder_image)
             ini_section_delete_var(cat, temp);
         else
             save_image_file(cat, temp, rdisk_drives[c].image_path);
@@ -5285,7 +5376,7 @@ save_other_removable_devices(void)
         }
 
         sprintf(temp, "mo_%02i_image_path", c + 1);
-        if ((mo_drives[c].bus_type == 0) || (strlen(mo_drives[c].image_path) == 0))
+        if ((mo_drives[c].bus_type == 0) || (strlen(mo_drives[c].image_path) == 0) || mo_drives[c].folder_image)
             ini_section_delete_var(cat, temp);
         else
             save_image_file(cat, temp, mo_drives[c].image_path);
