@@ -423,13 +423,6 @@ static codegen_link_slot_t *link_from = NULL;
 extern int codegen_record_faulted; /* 386_common.c */
 
 int
-codegen_mmx_enter(void)
-{
-    MMX_ENTER();
-    return 0;
-}
-
-int
 codegen_sse_enter(void)
 {
     SSE_ENTER();
@@ -474,7 +467,10 @@ codegen_femms(void)
 void
 codegen_mmx_unavailable(void)
 {
-    x86_int((cr0 & 0x4) ? 6 : 7);
+    if (cr0 & 0x4)
+        x86illegal();
+    else
+        x86_int(7);
 }
 
 void
@@ -486,36 +482,11 @@ codegen_sse_unavailable(void)
         x86_int(7);
 }
 
-/* Before the compiled MMX_ENTER: a pending x87 exception is taken ahead of
-   an MMX instruction (SDM 1999, 11.5.1). #UD and #NM come first, from
-   the MMX_ENTER uop. */
-int
-codegen_mmx_fpu_pending(void)
-{
-    if (cr0 & 0xc)
-        return 0;
-    if (fpu_softfloat) {
-        FPU_check_pending_exceptions();
-    } else
-        return x87_legacy_pending();
-    return 0;
-}
-
-
 int
 codegen_fp_enter(void)
 {
     FP_ENTER();
     return 0;
-}
-
-/* A waiting legacy x87 instruction, compiled: the pending exception the
-   interpreter takes before it (x87_legacy_pending_entry). Called only with
-   ES set (codegen_fp_pending_check). */
-int
-codegen_fp_pending(void)
-{
-    return x87_legacy_pending_entry();
 }
 
 /* x87_dyn_fdiv with an extended-denormal register operand (TAG_DENORMAL):

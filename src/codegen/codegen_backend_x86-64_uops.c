@@ -2186,22 +2186,11 @@ codegen_MMX_ENTER(codeblock_t *block, uop_t *uop)
     uint32_t *branch_offset;
 
     host_x86_MOV32_REG_ABS(block, REG_ECX, &cr0);
-    host_x86_TEST32_REG_IMM(block, REG_ECX, 0x4);
+    host_x86_TEST32_REG_IMM(block, REG_ECX, 0xc);
     branch_offset = host_x86_JZ_long(block);
     host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
-    host_x86_CALL(block, x86illegal);
-    host_x86_JMP(block, codegen_exit_rout);
-    *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
-    
-    host_x86_TEST32_REG_IMM(block, REG_ECX, 0x8);
-    branch_offset = host_x86_JZ_long(block);
-    host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
-    /*As codegen_FP_ENTER (the uop is a full barrier)*/
-    if (uop->imm_data2) {
-        host_x86_MOV32_REG_ABS(block, REG_ECX, &cpu_state._cycles);
-        host_x86_ADD32_REG_IMM(block, REG_ECX, uop->imm_data2);
-        host_x86_MOV32_ABS_REG(block, &cpu_state._cycles, REG_ECX);
-    }
+    if (uop->imm_data2)
+        codegen_exit_add(block, uop->imm_data2);
     host_x86_CALL(block, codegen_mmx_unavailable);
     host_x86_JMP(block, codegen_exit_rout);
     *branch_offset = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) branch_offset) - 4;
@@ -2219,6 +2208,8 @@ codegen_MMX_ENTER(codeblock_t *block, uop_t *uop)
     *native_exception = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) native_exception) - 4;
     codegen_reg_flush_conditional(block, invalid_ir_reg);
     host_x86_MOV32_ABS_IMM(block, &cpu_state.oldpc, uop->imm_data);
+    if (uop->imm_data2)
+        codegen_exit_add(block, uop->imm_data2);
     host_x86_CALL(block, codegen_mmx_check);
     host_x86_JMP(block, codegen_exit_rout);
     *no_pending = (uint32_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) no_pending) - 4;

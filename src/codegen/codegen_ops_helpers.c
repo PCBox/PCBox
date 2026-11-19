@@ -1145,7 +1145,6 @@ codegen_can_unroll_full(codeblock_t *block, ir_data_t *ir, UNUSED(uint32_t next_
     int TOP = -1;
     int head_fpu_entered;
     int head_fpu_es_check;
-    int head_mmx_entered;
     uint8_t head_tag_valid;
     uint8_t head_tag_empty;
     int flags_op = FLAGS_UNKNOWN;
@@ -1167,18 +1166,10 @@ codegen_can_unroll_full(codeblock_t *block, ir_data_t *ir, UNUSED(uint32_t next_
     if (TOP != cpu_state.TOP)
         return 0;
 
-    /*An x87 or MMX instruction compiled after the block has entered the FPU
-      or MMX leaves out its entry check (and MMX's, its setting of every tag
-      valid), and the copies run the loop's first instruction again after its
-      last. So an entry in force when the loop's first instruction was
-      compiled must still be in force at the branch: an x87 instruction ends
-      the MMX one, an MMX instruction the x87 one, and EMMS, FEMMS, LMSW and an
-      interpreted x87 or 0F instruction both. A pending exception check left
-      out there must be one the branch can leave out too: not after a compiled
-      instruction that can set ES and go on (codegen_fpu_es_check). Not found,
-      first_instruction is this instruction, whose state is the current one*/
-    codegen_get_instruction_entered(first_instruction, &head_fpu_entered, &head_fpu_es_check, &head_mmx_entered);
-    if ((head_mmx_entered && !codegen_mmx_entered) || (head_fpu_entered && !codegen_fpu_entered))
+    /* An x87 instruction can omit its entry and pending exception checks.
+       An unrolled copy needs the same guarantees at the loop back edge. */
+    codegen_get_instruction_entered(first_instruction, &head_fpu_entered, &head_fpu_es_check);
+    if (head_fpu_entered && !codegen_fpu_entered)
         return 0;
     if (head_fpu_entered && !head_fpu_es_check && codegen_fpu_es_check)
         return 0;

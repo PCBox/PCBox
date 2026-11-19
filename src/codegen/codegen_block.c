@@ -40,7 +40,6 @@ int      mmx_ebx_ecx_loaded;
 int      codegen_flags_changed = 0;
 int      codegen_fpu_entered   = 0;
 int      codegen_fpu_es_check  = 0;
-int      codegen_mmx_entered   = 0;
 uint8_t  codegen_fpu_tag_valid = 0;
 uint8_t  codegen_fpu_tag_empty = 0;
 int      codegen_fpu_loaded_iq[8];
@@ -1112,7 +1111,6 @@ codegen_block_start_recompile(codeblock_t *block)
     codegen_flags_known_reset();
     codegen_fpu_entered   = 0;
     codegen_fpu_es_check  = 0;
-    codegen_mmx_entered   = 0;
     codegen_fpu_class_dirty = 0;
 
     codegen_fpu_loaded_iq[0] = codegen_fpu_loaded_iq[1] = codegen_fpu_loaded_iq[2] = codegen_fpu_loaded_iq[3] = codegen_fpu_loaded_iq[4] = codegen_fpu_loaded_iq[5] = codegen_fpu_loaded_iq[6] = codegen_fpu_loaded_iq[7] = 0;

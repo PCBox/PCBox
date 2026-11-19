@@ -799,7 +799,6 @@ ropEMMS(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSE
     uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_femms);
     uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_exit_rout);
 
-    codegen_mmx_entered = 0;
     codegen_fpu_entered = 0;
     return op_pc;
 }
@@ -811,7 +810,6 @@ ropFEMMS(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUS
     uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_femms);
     uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_exit_rout);
 
-    codegen_mmx_entered = 0;
     codegen_fpu_entered = 0;
     return op_pc;
 }
@@ -1424,7 +1422,6 @@ rop0F01_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op
         }
         uop_CALL_FUNC(ir, dynarec_lmsw);
         codegen_fpu_entered = 0;
-        codegen_mmx_entered = 0;
         if (!(cr0 & 1))
             CPU_BLOCK_END();
         return op_pc + 1;
@@ -1573,7 +1570,6 @@ rop0F22(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
             uop_CALL_FUNC_RESULT(ir, IREG_temp0, dynarec_mov_cr0);
             uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_gpf_rout);
             codegen_fpu_entered = 0;
-            codegen_mmx_entered = 0;
             CPU_BLOCK_END();
             break;
         case 0x10:

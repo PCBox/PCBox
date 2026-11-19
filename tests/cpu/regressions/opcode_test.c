@@ -18,7 +18,8 @@ typedef struct {
 } opcode_case;
 enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP_ALL_WRAP, UNPACK_SS, SSE_CALLBACK, SSE2_MOVD, SSE2_MOVQ, SSE2_MOVDQ, SSE2_MOVDQA_FAULT,
        PSHUFD_REG, PSHUFD_SELF, PSHUFD_MEM, SHUFPD_REG, SHUFPD_SELF, SHUFPD_MEM, MOVMSKPD, MOVQ2DQ, MOVDQ2Q, SHIFT_LEFT, SHIFT_RIGHT, SHIFT_ARITH, PACKED_ARITH, MMX_PMULUDQ,
-       XMM_LANES, EXTRACT_WORD, BYTE_MASK, STREAM_DQ, STREAM_DWORD, MASK_PAGE, CMOV_REG };
+       XMM_LANES, EXTRACT_WORD, BYTE_MASK, STREAM_DQ, STREAM_DWORD, MASK_PAGE, CMOV_REG,
+       SSE_MMX_CONVERT, MMX_CALLBACK };
 /* Each lane shift takes an imm8, XMM register or aligned memory count. */
 #define SHIFT_CASES(name, kind, width, group, ext, opcode) \
     {#name " packed shift imm", {0x66,0x0f,group,0xc0 | ((ext) << 3),5},5,0,0,6,0,kind,1,width}, \
@@ -33,6 +34,18 @@ enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP
     {#name " register", {0x39,0xca,0x9c,0x5d, 0x39,0xca, 0x0f,op,0xc3, \
                          0x66,0x0f,(op)^1,0xfb, 0x9c,0x5e},15,0,0,0,0,CMOV_REG}
 static const opcode_case opcases[] = {
+    {"CVTPI2PS OSFXSR register", {0x0f,0x2a,0xc1},3,0,0,0,0,SSE_MMX_CONVERT},
+    {"CVTPI2PS OSFXSR memory", {0x0f,0x2a,0x07},3,0,0,0,0,SSE_MMX_CONVERT},
+    {"CVTTPS2PI OSFXSR register", {0x0f,0x2c,0xc1},3,0,0,0,0,SSE_MMX_CONVERT},
+    {"CVTTPS2PI OSFXSR memory", {0x0f,0x2c,0x07},3,0,0,0,0,SSE_MMX_CONVERT},
+    {"CVTPS2PI OSFXSR register", {0x0f,0x2d,0xc1},3,0,0,0,0,SSE_MMX_CONVERT},
+    {"CVTPS2PI OSFXSR memory", {0x0f,0x2d,0x07},3,0,0,0,0,SSE_MMX_CONVERT},
+    {"CVTPI2PD pending x87 register", {0x66,0x0f,0x2a,0xc1},4,0,0,0,0,SSE_MMX_CONVERT,1},
+    {"CVTPI2PD pending x87 memory", {0x66,0x0f,0x2a,0x07},4,0,0,0,0,SSE_MMX_CONVERT,1},
+    {"CVTPI2PD pending x87 memory a16", {0x67,0x66,0x0f,0x2a,0x07},5,0,0,0,0,SSE_MMX_CONVERT,1},
+    {"CVTPI2PS pending x87 memory a16", {0x67,0x0f,0x2a,0x07},4,0,0,0,0,SSE_MMX_CONVERT},
+    {"MMX after scalar read callback", {0x0f,0x6f,0xd0,0x8b,0x17,0x0f,0x6f,0xd1},8,0,0,0,0,MMX_CALLBACK},
+    {"MMX PMAXUB after scalar write callback", {0x0f,0x6f,0xd0,0x89,0x17,0x0f,0xde,0xd1},8,0,0,0,0,MMX_CALLBACK},
     ARITH_CASES(PMINUB,  0xda),
     ARITH_CASES(PMAXUB,  0xde),
     ARITH_CASES(PAVGB,   0xe0),
@@ -489,8 +502,14 @@ static uint32_t sse_read(uint32_t addr, void *priv)
     callback_count++;
     if (callback_trap == 7)
         cr0 |= 8;
+    else if (callback_trap == 6 && probe->setup == MMX_CALLBACK)
+        cr0 |= 4;
     else if (callback_trap == 6)
         cr4 &= ~CR4_OSFXSR;
+    else if (callback_trap == 16) {
+        cpu_state.npxc = fpu_state.cwd = 0x37e;
+        cpu_state.npxs = fpu_state.swd = 0x8081;
+    }
     return 0x12345678;
 }
 
@@ -864,11 +883,36 @@ int main(int argc,char **argv) {
                 for (unsigned n = 0; n < 64; ++n)
                     ram[EDI + n] = (uint8_t)(n + call);
             }
-            if (probe->setup == SSE_CALLBACK) {
+            if (probe->setup == SSE_MMX_CONVERT) {
+                unsigned phase = (call / 8) % 4;
+                if (phase & 1)
+                    cr4 &= ~CR4_OSFXSR;
+                if (phase >= 2) {
+                    cr0 |= 0x20; /* Report a pending x87 exception as #MF. */
+                    cpu_state.npxc = fpu_state.cwd = 0x37e;
+                    cpu_state.npxs = fpu_state.swd = 0x8081;
+                }
+                if (phase == 3)
+                    cr0 |= 8;
+                EBX = EDI = 0x4800;
+                MMP[1]->q = UINT64_C(0xfffffffe00000003);
+                cpu_state.XMM[1].q[0] = UINT64_C(0xc000000040400000); /* 3, -2 */
+                uint64_t input = probe->bytes[probe->length - 2] == 0x2a ? MMP[1]->q : cpu_state.XMM[1].q[0];
+                memcpy(ram + EDI, &input, sizeof(input));
+            }
+            if (probe->setup == SSE_CALLBACK || probe->setup == MMX_CALLBACK) {
                 EDI = 0xd0000;
                 callback_count = 0;
                 callback_trap = (call / 8) % 3 == 0 ? 0 : (call / 8) % 3 == 1 ? 7 : 6;
                 memset(&cpu_state.XMM[2], 0x33, 16);
+                if (probe->setup == MMX_CALLBACK) {
+                    /* Start in MMX mode so the two operations share a block. */
+                    static const unsigned traps[] = {0, 7, 6, 16};
+                    callback_trap = traps[(call / 8) % 4];
+                    cr0 |= 0x20;
+                    x87_set_mmx();
+                    MMP[2]->q = 0;
+                }
             }
             int wrapped_stack = probe->setup == POP_ALL_WRAP || probe->setup == PUSH_ALL_WRAP;
             int push_all = probe->setup == PUSH_ALL_LIMIT || probe->setup == PUSH_ALL_WRAP;
@@ -911,6 +955,34 @@ int main(int argc,char **argv) {
                 if(engine) exec386_dynarec(10000); else exec386(10000);
             }
             unsigned expected = p3 ? probe->trap_p3 : probe->trap_p4;
+            if (probe->setup == SSE_MMX_CONVERT) {
+                unsigned phase = (call / 8) % 4;
+                int to_xmm = probe->bytes[probe->length - 2] == 0x2a;
+                int uses_mmx = !to_xmm || probe->bytes[probe->length - 1] == 0xc1;
+                expected = (phase & 1) ? 6 : (phase == 2 && uses_mmx ? 16 : 0);
+                int entered_mmx = !expected && uses_mmx;
+                int packed_double = probe->length >= 4 && probe->bytes[probe->length - 4] == 0x66;
+                uint64_t initial = UINT64_C(0x1111111111111111);
+                uint64_t low = packed_double ? UINT64_C(0x4008000000000000) : UINT64_C(0xc000000040400000);
+                uint64_t high = packed_double ? UINT64_C(0xc000000000000000) : initial;
+                unsigned top = fpu_softfloat ? fpu_state.tos : cpu_state.TOP;
+                unsigned tag = fpu_softfloat ? fpu_state.tag : x87_gettag();
+                if (get32(TRAP) == expected &&
+                    (cpu_state.XMM[0].q[0] != (!expected && to_xmm ? low : initial) ||
+                     cpu_state.XMM[0].q[1] != (!expected && to_xmm ? high : initial) ||
+                     MMP[0]->q != (!expected && !to_xmm ? MMP[1]->q : initial) ||
+                     !!cpu_state.ismmx != entered_mmx || top != (entered_mmx ? 0 : 3) ||
+                     tag != (entered_mmx ? 0 : 0xffff) ||
+                     (expected && get32(FAULT_PC) != BODY)))
+                    fatal("%s call %u: incorrect conversion state", probe->name, call);
+            }
+            if (probe->setup == MMX_CALLBACK) {
+                expected = callback_trap;
+                if (callback_count != 1 || MMP[2]->q != MMP[expected ? 0 : 1]->q ||
+                    (expected && get32(FAULT_PC) != BODY + 5))
+                    fatal("%s call %u: callbacks %u, trap %u, EIP %x", probe->name, call,
+                          callback_count, get32(TRAP), get32(FAULT_PC));
+            }
             if (probe->setup == SSE_CALLBACK) {
                 expected = callback_trap;
                 if (callback_count != 1 || (expected && get32(FAULT_PC) != BODY + 5) ||
