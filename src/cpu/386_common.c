@@ -2880,3 +2880,20 @@ cpu_check_instruction_length(void)
             return 1;
     return 0;
 }
+
+/* Masked-off bytes must never touch guest memory, including MMIO. Snapshot
+   the data before the first write and stop on the first faulting byte. */
+int
+x86_maskmovdqu_store(uint32_t addr, uint32_t modrm)
+{
+    SSE_REG data = cpu_state.XMM[(modrm >> 3) & 7];
+    SSE_REG mask = cpu_state.XMM[modrm & 7];
+    for (unsigned byte = 0; byte < 16; byte++) {
+        if (mask.b[byte] & 0x80) {
+            writemembl(addr + byte, data.b[byte]);
+            if (cpu_state.abrt)
+                return 1;
+        }
+    }
+    return 0;
+}

@@ -136,11 +136,36 @@ codegen_sse_mxcsr_kind(const uop_t *uop)
         case UOP_MOVSD & UOP_MASK:
         case UOP_SHUFPD & UOP_MASK:
         case UOP_PSHUFD & UOP_MASK:
+        case UOP_PSHUFW & UOP_MASK:
+        case UOP_PSHUFHW & UOP_MASK:
+        case UOP_PINSRW & UOP_MASK:
+        case UOP_PEXTRW & UOP_MASK:
+        case UOP_PMOVMSKB & UOP_MASK:
         case UOP_SHUFPS & UOP_MASK:
         case UOP_MOVHLPS & UOP_MASK:
         case UOP_MOVLHPS & UOP_MASK:
         case UOP_MOVMSKPS & UOP_MASK:
         case UOP_MOVMSKPD & UOP_MASK:
+        case UOP_PAVGUSB & UOP_MASK:
+        case UOP_PAVGW & UOP_MASK:
+        case UOP_PMINUB & UOP_MASK:
+        case UOP_PMAXUB & UOP_MASK:
+        case UOP_PMINSW & UOP_MASK:
+        case UOP_PMAXSW & UOP_MASK:
+        case UOP_PMULHUW & UOP_MASK:
+        case UOP_PMULUDQ & UOP_MASK:
+        case UOP_PSADBW & UOP_MASK:
+        case UOP_PSHIFT_XMM & UOP_MASK:
+        case UOP_PSLLW_IMM & UOP_MASK:
+        case UOP_PSLLD_IMM & UOP_MASK:
+        case UOP_PSLLQ_IMM & UOP_MASK:
+        case UOP_PSLLDQ_IMM & UOP_MASK:
+        case UOP_PSRLW_IMM & UOP_MASK:
+        case UOP_PSRLD_IMM & UOP_MASK:
+        case UOP_PSRLQ_IMM & UOP_MASK:
+        case UOP_PSRLDQ_IMM & UOP_MASK:
+        case UOP_PSRAW_IMM & UOP_MASK:
+        case UOP_PSRAD_IMM & UOP_MASK:
         case UOP_ADD & UOP_MASK:
         case UOP_ADD_IMM & UOP_MASK:
         case UOP_SUB & UOP_MASK:

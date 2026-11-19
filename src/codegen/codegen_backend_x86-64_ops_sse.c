@@ -734,8 +734,28 @@ host_x86_PMULHUW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
 {
     sse_op_reg_reg(block, 0x66, 0xe4, dst_reg, src_reg); /*PMULHUW dst_reg, src_reg*/
 }
+void
+host_x86_PMULUDQ_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg)
+{
+    sse_op_reg_reg(block, 0x66, 0xf4, dst_reg, src_reg); /*PMULUDQ dst_reg, src_reg*/
+}
 
 /*Shift by immediate - the ModRM reg field holds the opcode extension*/
+void
+host_x86_PSHIFT_XREG_XREG(codeblock_t *block, uint8_t opcode, int dst_reg, int count_reg)
+{
+    sse_op_reg_reg(block, 0x66, opcode, dst_reg, count_reg);
+}
+void
+host_x86_PSLLDQ_XREG_IMM(codeblock_t *block, int dst_reg, int shift)
+{
+    sse_op_reg_reg_imm(block, 0x66, 0x73, 7, dst_reg, shift);
+}
+void
+host_x86_PSRLDQ_XREG_IMM(codeblock_t *block, int dst_reg, int shift)
+{
+    sse_op_reg_reg_imm(block, 0x66, 0x73, 3, dst_reg, shift);
+}
 void
 host_x86_PSLLW_XREG_IMM(codeblock_t *block, int dst_reg, int shift)
 {
@@ -928,9 +948,15 @@ host_x86_PSHUFD_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg, int imm)
 }
 
 void
-host_x86_PSHUFW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg, int imm)
+host_x86_PSHUFLW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg, int imm)
 {
     sse_op_reg_reg_imm(block, 0xf2, 0x70, dst_reg, src_reg, imm); /*PSHUFLW dst_reg, src_reg, imm*/
+}
+
+void
+host_x86_PSHUFHW_XREG_XREG(codeblock_t *block, int dst_reg, int src_reg, int imm)
+{
+    sse_op_reg_reg_imm(block, 0xf3, 0x70, dst_reg, src_reg, imm); /*PSHUFHW dst_reg, src_reg, imm*/
 }
 
 void

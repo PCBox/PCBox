@@ -1008,6 +1008,8 @@ seteaq(uint64_t v)
     ((uint16_t) (fetchdat >> 8)); \
     cpu_state.pc += 2
 
+int x86_maskmovdqu_store(uint32_t addr, uint32_t modrm);
+
 /* Shared by the decoder and the rare long-prefix length check. */
 extern const uint8_t x86_opcode_modrm[256], x86_opcode_0f_modrm[256];
 extern const uint8_t x86_opcode_0f_38_modrm[256], x86_opcode_0f_3a_modrm[256];

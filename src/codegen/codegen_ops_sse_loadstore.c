@@ -234,10 +234,12 @@ ropMOVSD_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
 }
 
 uint32_t
-ropUNPCKLPS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+ropUNPCKLPS(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    if (opcode == 0x6c && !op_sse_xmm)
+        return 0;
     REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
@@ -266,10 +268,12 @@ ropUNPCKLPS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
 }
 
 uint32_t
-ropUNPCKHPS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+ropUNPCKHPS(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
+    if (opcode == 0x6d && !op_sse_xmm)
+        return 0;
     REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
@@ -331,8 +335,10 @@ ropMOVAPS_d_r(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchd
 {
     int src_reg = (fetchdat >> 3) & 7;
 
-    /* MOVNTPS/MOVNTPD share this store path and require memory. */
-    if (opcode == 0x2b && (fetchdat & 0xc0) == 0xc0)
+    /* 0F E7 without 66 is the MMX MOVNTQ. */
+    if (opcode == 0xe7 && !op_sse_xmm)
+        return 0;
+    if ((opcode == 0x2b || opcode == 0xe7) && (fetchdat & 0xc0) == 0xc0)
         return 0;
 
     REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
@@ -346,11 +352,11 @@ ropMOVAPS_d_r(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchd
 
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
-        if (opcode == 0x7f) /* MOVDQA */
+        if (opcode == 0x7f || opcode == 0xe7) /* MOVDQA / MOVNTDQ */
             codegen_check_sse_align(ir, target_seg);
         codegen_check_seg_write(block, ir, target_seg);
         CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 15);
-        if (opcode != 0x7f)
+        if (opcode != 0x7f && opcode != 0xe7)
             codegen_check_sse_align(ir, target_seg);
         uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_XMM(src_reg));
     }
@@ -363,10 +369,10 @@ ropMOVLPS_r_q(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
-    if (op_sse_xmm)
+    if (op_sse_xmm && (fetchdat & 0xc0) == 0xc0)
         return 0;
 
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -392,10 +398,10 @@ ropMOVLPS_q_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
     int     src_reg = (fetchdat >> 3) & 7;
     x86seg *target_seg;
 
-    if (op_sse_xmm || (fetchdat & 0xc0) == 0xc0)
+    if ((fetchdat & 0xc0) == 0xc0)
         return 0;
 
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
@@ -412,10 +418,10 @@ ropMOVHPS_r_q(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
 {
     int dest_reg = (fetchdat >> 3) & 7;
 
-    if (op_sse_xmm)
+    if (op_sse_xmm && (fetchdat & 0xc0) == 0xc0)
         return 0;
 
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
@@ -441,10 +447,10 @@ ropMOVHPS_q_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_
     int     src_reg = (fetchdat >> 3) & 7;
     x86seg *target_seg;
 
-    if (op_sse_xmm || (fetchdat & 0xc0) == 0xc0)
+    if ((fetchdat & 0xc0) == 0xc0)
         return 0;
 
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
@@ -475,21 +481,28 @@ ropMOVMSKPS(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t 
     return op_pc + 1;
 }
 
-uint32_t
-ropSHUF_xmm(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+static uint32_t
+rop_shuffle(codeblock_t *block, ir_data_t *ir, uint32_t operation, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int dest = IREG_XMM((fetchdat >> 3) & 7);
     int src = IREG_XMM(fetchdat & 7);
+    x86seg *seg = NULL;
+    int word_shuffle = operation == UOP_PSHUFW || operation == UOP_PSHUFHW;
 
     if (block->flags & CODEBLOCK_NO_IMMEDIATES)
         return 0;
 
-    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
+    REQUIRE_GUEST_FEATURE(operation == UOP_SHUFPS ? CPU_FEATURE_SSE : CPU_FEATURE_SSE2);
     uop_SSE_ENTER(ir);
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) != 0xc0) {
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
-        x86seg *seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+        seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+    }
+    /* PSHUFLW/PSHUFHW fetch the selector before accessing the memory operand. */
+    if (word_shuffle)
+        codegen_mark_code_present(block, cs + op_pc + 1, 1);
+    if (seg) {
         codegen_check_seg_read(block, ir, seg);
         CHECK_SEG_LIMITS(block, ir, seg, IREG_eaaddr, 15);
         codegen_check_sse_align(ir, seg);
@@ -498,13 +511,56 @@ ropSHUF_xmm(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat
     }
 
     uint8_t imm = fastreadb(cs + op_pc + 1);
-    codegen_mark_code_present(block, cs + op_pc + 1, 1);
-    if (opcode == 0x70)
-        uop_PSHUFD(ir, dest, src, imm);
-    else if (op_sse_xmm)
-        uop_SHUFPD(ir, dest, dest, src, imm);
+    if (!word_shuffle)
+        codegen_mark_code_present(block, cs + op_pc + 1, 1);
+    if (operation == UOP_SHUFPS || operation == UOP_SHUFPD)
+        uop_gen_reg_dst_src2_imm(operation, ir, dest, dest, src, imm);
     else
-        uop_SHUFPS(ir, dest, dest, src, imm);
-
+        uop_gen_reg_dst_src1_imm(operation, ir, dest, src, imm);
     return op_pc + 2;
+}
+
+uint32_t
+ropSHUF_xmm(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    uint32_t operation = opcode == 0x70 ? UOP_PSHUFD : (op_sse_xmm ? UOP_SHUFPD : UOP_SHUFPS);
+    return rop_shuffle(block, ir, operation, fetchdat, op_32, op_pc);
+}
+
+uint32_t
+ropPSHUFLW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    return rop_shuffle(block, ir, UOP_PSHUFW, fetchdat, op_32, op_pc);
+}
+
+uint32_t
+ropPSHUFHW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    return rop_shuffle(block, ir, UOP_PSHUFHW, fetchdat, op_32, op_pc);
+}
+
+uint32_t
+ropMASKMOVDQU(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    if (!op_sse_xmm || (fetchdat & 0xc0) != 0xc0)
+        return 0;
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE2);
+    uop_SSE_ENTER(ir);
+    codegen_mark_code_present(block, cs + op_pc, 1);
+    uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+    if (op_32 & 0x200)
+        uop_MOV(ir, IREG_eaaddr, IREG_EDI);
+    else
+        uop_MOVZX(ir, IREG_eaaddr, IREG_DI);
+    codegen_check_seg_write(block, ir, op_ea_seg);
+    CHECK_SEG_LIMITS(block, ir, op_ea_seg, IREG_eaaddr, 15);
+    uop_PMOVMSKB(ir, IREG_temp1, IREG_XMM(fetchdat & 7));
+    int empty = uop_CMP_IMM_JZ_DEST(ir, IREG_temp1, 0);
+    uop_ADD(ir, IREG_temp0, ireg_seg_base(op_ea_seg), IREG_eaaddr);
+    uop_LOAD_FUNC_ARG_REG(ir, 0, IREG_temp0);
+    uop_LOAD_FUNC_ARG_IMM(ir, 1, fetchdat & 0xff);
+    uop_CALL_FUNC_RESULT(ir, IREG_temp0, x86_maskmovdqu_store);
+    codegen_exit_on_one(ir, IREG_temp0);
+    uop_set_jump_dest(ir, empty);
+    return op_pc + 1;
 }

@@ -1008,100 +1008,24 @@ opMOVNTDQ_a32(uint32_t fetchdat)
 }
 
 static int
+maskmovdqu(uint32_t modrm, uint32_t offset)
+{
+    x86seg *seg = cpu_state.ea_seg;
+    ILLEGAL_ON(cpu_mod != 3);
+    SEG_CHECK_WRITE(seg);
+    CHECK_WRITE(seg, offset, offset + 15);
+    if (x86_maskmovdqu_store(seg->base + offset, modrm))
+        return 1;
+    CLOCK_CYCLES(1);
+    return 0;
+}
+
+static int
 opMASKMOVDQU_a16(uint32_t fetchdat)
 {
     SSE_ENTER();
     fetch_ea_16(fetchdat);
-    ILLEGAL_ON(cpu_mod != 3);
-    if (cpu_mod == 3) {
-        SEG_CHECK_WRITE(cpu_state.ea_seg);
-        CHECK_WRITE(cpu_state.ea_seg, DI, DI + 15);
-        SSE_REG src, dst;
-        dst = cpu_state.XMM[cpu_reg];
-        src = cpu_state.XMM[cpu_rm];
-        if (src.b[0] & (1 << 7)) {
-            writememb(easeg, DI, dst.b[0]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[1] & (1 << 7)) {
-            writememb(easeg, DI + 1, dst.b[1]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[2] & (1 << 7)) {
-            writememb(easeg, DI + 2, dst.b[2]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[3] & (1 << 7)) {
-            writememb(easeg, DI + 3, dst.b[3]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[4] & (1 << 7)) {
-            writememb(easeg, DI + 4, dst.b[4]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[5] & (1 << 7)) {
-            writememb(easeg, DI + 5, dst.b[5]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[6] & (1 << 7)) {
-            writememb(easeg, DI + 6, dst.b[6]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[7] & (1 << 7)) {
-            writememb(easeg, DI + 7, dst.b[7]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[8] & (1 << 7)) {
-            writememb(easeg, DI + 8, dst.b[8]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[9] & (1 << 7)) {
-            writememb(easeg, DI + 9, dst.b[9]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[10] & (1 << 7)) {
-            writememb(easeg, DI + 10, dst.b[10]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[11] & (1 << 7)) {
-            writememb(easeg, DI + 11, dst.b[11]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[12] & (1 << 7)) {
-            writememb(easeg, DI + 12, dst.b[12]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[13] & (1 << 7)) {
-            writememb(easeg, DI + 13, dst.b[13]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[14] & (1 << 7)) {
-            writememb(easeg, DI + 14, dst.b[14]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[15] & (1 << 7)) {
-            writememb(easeg, DI + 15, dst.b[15]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        CLOCK_CYCLES(1);
-    }
-    return 0;
+    return maskmovdqu(fetchdat, DI);
 }
 
 static int
@@ -1109,94 +1033,5 @@ opMASKMOVDQU_a32(uint32_t fetchdat)
 {
     SSE_ENTER();
     fetch_ea_32(fetchdat);
-    ILLEGAL_ON(cpu_mod != 3);
-    if (cpu_mod == 3) {
-        SSE_REG src, dst;
-        dst = cpu_state.XMM[cpu_reg];
-        src = cpu_state.XMM[cpu_rm];
-        SEG_CHECK_WRITE(cpu_state.ea_seg);
-        CHECK_WRITE(cpu_state.ea_seg, EDI, EDI + 15);
-        if (src.b[0] & (1 << 7)) {
-            writememb(easeg, EDI, dst.b[0]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[1] & (1 << 7)) {
-            writememb(easeg, EDI + 1, dst.b[1]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[2] & (1 << 7)) {
-            writememb(easeg, EDI + 2, dst.b[2]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[3] & (1 << 7)) {
-            writememb(easeg, EDI + 3, dst.b[3]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[4] & (1 << 7)) {
-            writememb(easeg, EDI + 4, dst.b[4]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[5] & (1 << 7)) {
-            writememb(easeg, EDI + 5, dst.b[5]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[6] & (1 << 7)) {
-            writememb(easeg, EDI + 6, dst.b[6]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[7] & (1 << 7)) {
-            writememb(easeg, EDI + 7, dst.b[7]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[8] & (1 << 7)) {
-            writememb(easeg, EDI + 8, dst.b[8]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[9] & (1 << 7)) {
-            writememb(easeg, EDI + 9, dst.b[9]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[10] & (1 << 7)) {
-            writememb(easeg, EDI + 10, dst.b[10]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[11] & (1 << 7)) {
-            writememb(easeg, EDI + 11, dst.b[11]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[12] & (1 << 7)) {
-            writememb(easeg, EDI + 12, dst.b[12]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[13] & (1 << 7)) {
-            writememb(easeg, EDI + 13, dst.b[13]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[14] & (1 << 7)) {
-            writememb(easeg, EDI + 14, dst.b[14]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        if (src.b[15] & (1 << 7)) {
-            writememb(easeg, EDI + 15, dst.b[15]);
-            if (cpu_state.abrt)
-                return 1;
-        }
-        CLOCK_CYCLES(1);
-    }
-    return 0;
+    return maskmovdqu(fetchdat, EDI);
 }

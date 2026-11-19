@@ -13,14 +13,84 @@
 typedef struct {
     const char *name;
     uint8_t bytes[32];
-    unsigned length, cr0_bits, no_osfxsr, trap_p3, trap_p4, setup, only_p4;
+    unsigned length, cr0_bits, no_osfxsr, trap_p3, trap_p4, setup, only_p4, shift_width;
+    uint8_t lanes[8]; /* Expected word indices for XMM_LANES. */
 } opcode_case;
 enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP_ALL_WRAP, UNPACK_SS, SSE_CALLBACK, SSE2_MOVD, SSE2_MOVQ, SSE2_MOVDQ, SSE2_MOVDQA_FAULT,
-       PSHUFD_REG, PSHUFD_SELF, PSHUFD_MEM, SHUFPD_REG, SHUFPD_SELF, SHUFPD_MEM, MOVMSKPD, MOVQ2DQ, MOVDQ2Q };
+       PSHUFD_REG, PSHUFD_SELF, PSHUFD_MEM, SHUFPD_REG, SHUFPD_SELF, SHUFPD_MEM, MOVMSKPD, MOVQ2DQ, MOVDQ2Q, SHIFT_LEFT, SHIFT_RIGHT, SHIFT_ARITH, PACKED_ARITH, MMX_PMULUDQ,
+       XMM_LANES, EXTRACT_WORD, BYTE_MASK, STREAM_DQ, STREAM_DWORD, MASK_PAGE };
+/* Each lane shift takes an imm8, XMM register or aligned memory count. */
+#define SHIFT_CASES(name, kind, width, group, ext, opcode) \
+    {#name " packed shift imm", {0x66,0x0f,group,0xc0 | ((ext) << 3),5},5,0,0,6,0,kind,1,width}, \
+    {#name " packed shift reg", {0x66,0x0f,opcode,0xc1},4,0,0,6,0,kind,1,width}, \
+    {#name " packed shift mem a16", {0x67,0x66,0x0f,opcode,0x47,16},6,0,0,6,0,kind,1,width}
+#define ARITH_CASES(name, opcode) \
+    {#name " packed arithmetic reg", {0x66,0x0f,opcode,0xc1},4,0,0,6,0,PACKED_ARITH,1}, \
+    {#name " packed arithmetic mem", {0x67,0x66,0x0f,opcode,0x47,16},6,0,0,6,0,PACKED_ARITH,1}
 static const opcode_case opcases[] = {
+    ARITH_CASES(PMINUB,  0xda),
+    ARITH_CASES(PMAXUB,  0xde),
+    ARITH_CASES(PAVGB,   0xe0),
+    ARITH_CASES(PAVGW,   0xe3),
+    ARITH_CASES(PMULHUW, 0xe4),
+    ARITH_CASES(PMINSW,  0xea),
+    ARITH_CASES(PMAXSW,  0xee),
+    ARITH_CASES(PMULUDQ, 0xf4),
+    ARITH_CASES(PSADBW,  0xf6),
+    {"PMULUDQ packed arithmetic self", {0x66,0x0f,0xf4,0xc0},4,0,0,6,0,PACKED_ARITH,1},
+    {"PMULUDQ packed arithmetic MMX", {0x0f,0xf4,0xc1},3,0,0,6,0,MMX_PMULUDQ,1},
+    {"PMULUDQ packed arithmetic MMX unaligned", {0x0f,0xf4,0x47,1},4,0,0,6,0,MMX_PMULUDQ,1},
+    {"PMULUDQ packed arithmetic SS limit", {0x36,0x66,0x0f,0xf4,0x07},5,0,0,6,12,UNPACK_SS,1},
+    {"PAVGW packed arithmetic SS limit", {0x36,0x66,0x0f,0xe3,0x07},5,0,0,6,13,UNPACK_SS,1},
+    SHIFT_CASES(PSLLW, SHIFT_LEFT, 16, 0x71, 6, 0xf1),
+    SHIFT_CASES(PSLLD, SHIFT_LEFT, 32, 0x72, 6, 0xf2),
+    SHIFT_CASES(PSLLQ, SHIFT_LEFT, 64, 0x73, 6, 0xf3),
+    SHIFT_CASES(PSRLW, SHIFT_RIGHT, 16, 0x71, 2, 0xd1),
+    SHIFT_CASES(PSRLD, SHIFT_RIGHT, 32, 0x72, 2, 0xd2),
+    SHIFT_CASES(PSRLQ, SHIFT_RIGHT, 64, 0x73, 2, 0xd3),
+    SHIFT_CASES(PSRAW, SHIFT_ARITH, 16, 0x71, 4, 0xe1),
+    SHIFT_CASES(PSRAD, SHIFT_ARITH, 32, 0x72, 4, 0xe2),
+    {"PSLLDQ packed shift bytes", {0x66,0x0f,0x73,0xf8,5},5,0,0,6,0,SHIFT_LEFT,1,128},
+    {"PSRLDQ packed shift bytes", {0x66,0x0f,0x73,0xd8,9},5,0,0,6,0,SHIFT_RIGHT,1,128},
+    {"PSLLDQ packed shift by zero", {0x66,0x0f,0x73,0xf8,0},5,0,0,6,0,SHIFT_LEFT,1,128},
+    {"PSRLDQ packed shift by 15", {0x66,0x0f,0x73,0xd8,15},5,0,0,6,0,SHIFT_RIGHT,1,128},
+    {"PSLLDQ packed shift by 16", {0x66,0x0f,0x73,0xf8,16},5,0,0,6,0,SHIFT_LEFT,1,128},
+    {"PSRLDQ packed shift by 255", {0x66,0x0f,0x73,0xd8,255},5,0,0,6,0,SHIFT_RIGHT,1,128},
+    {"PSLLD packed shift self", {0x66,0x0f,0xf2,0xc0},4,0,0,6,0,SHIFT_LEFT,1,32},
+    {"PSRAD packed shift by 255", {0x66,0x0f,0x72,0xe0,255},5,0,0,6,0,SHIFT_ARITH,1,32},
+    {"PSRLW packed shift SS limit", {0x36,0x66,0x0f,0xd1,0x07},5,0,0,6,12,UNPACK_SS,1},
+    {"PSLLDQ invalid memory destination", {0x66,0x0f,0x73,0x3f,1},5,0,0,6,6,0,1},
     {"MOVMSKPD edx,xmm5", {0x66,0x0f,0x50,0xd5},4,0,0,6,0,MOVMSKPD,1},
     {"MOVMSKPD memory", {0x66,0x0f,0x50,0x17},4,0,0,6,6,MOVMSKPD,1},
     {"MOVMSKPD TS", {0x66,0x0f,0x50,0xd5},4,8,0,6,7,MOVMSKPD,1},
+    /* Words 0..7 come from xmm0, 8..15 from xmm1, 16..23 from memory, and 24 from CX. */
+    {"PSHUFLW reverse", {0xf2,0x0f,0x70,0xc1,0x1b},5,0,0,6,0,XMM_LANES,1,0,{11,10,9,8,12,13,14,15}},
+    {"PSHUFLW a16 memory", {0x67,0xf2,0x0f,0x70,0x47,16,0xaa},7,0,0,6,0,XMM_LANES,1,0,{18,18,18,18,20,21,22,23}},
+    {"PSHUFHW reverse self", {0xf3,0x0f,0x70,0xc0,0x1b},5,0,0,6,0,XMM_LANES,1,0,{0,1,2,3,7,6,5,4}},
+    {"PSHUFHW memory", {0xf3,0x0f,0x70,0x43,16,0x8d},6,0,0,6,0,XMM_LANES,1,0,{16,17,18,19,21,23,20,22}},
+    {"PSHUFHW SS limit", {0x36,0xf3,0x0f,0x70,0x07,0xe4},6,0,0,6,12,UNPACK_SS,1},
+    {"PUNPCKLQDQ register", {0x66,0x0f,0x6c,0xc1},4,0,0,6,0,XMM_LANES,1,0,{0,1,2,3,8,9,10,11}},
+    {"PUNPCKLQDQ self", {0x66,0x0f,0x6c,0xc0},4,0,0,6,0,XMM_LANES,1,0,{0,1,2,3,0,1,2,3}},
+    {"PUNPCKHQDQ a16 memory", {0x67,0x66,0x0f,0x6d,0x47,16},6,0,0,6,0,XMM_LANES,1,0,{4,5,6,7,20,21,22,23}},
+    {"PUNPCKHQDQ SS limit", {0x36,0x66,0x0f,0x6d,0x07},5,0,0,6,12,UNPACK_SS,1},
+    {"MOVLPD load", {0x66,0x0f,0x12,0x43,18},5,0,0,6,0,XMM_LANES,1,0,{17,18,19,20,4,5,6,7}},
+    {"MOVHPD load a16", {0x67,0x66,0x0f,0x16,0x47,18},6,0,0,6,0,XMM_LANES,1,0,{0,1,2,3,17,18,19,20}},
+    {"MOVLPD load register", {0x66,0x0f,0x12,0xc1},4,0,0,6,6,0,1},
+    {"MOVHPD load register", {0x66,0x0f,0x16,0xc1},4,0,0,6,6,0,1},
+    {"PINSRW XMM register", {0x66,0x0f,0xc4,0xc1,0xfe},5,0,0,6,0,XMM_LANES,1,0,{0,1,2,3,4,5,24,7}},
+    {"PINSRW XMM memory", {0x66,0x0f,0xc4,0x43,18,0xff},6,0,0,6,0,XMM_LANES,1,0,{0,1,2,3,4,5,6,17}},
+    {"PEXTRW edx,xmm5", {0x66,0x0f,0xc5,0xd5,0xfe},5,0,0,6,0,EXTRACT_WORD,1},
+    {"PEXTRW invalid memory", {0x66,0x0f,0xc5,0x17,0},5,0,0,6,6,0,1},
+    {"PMOVMSKB invalid memory", {0x66,0x0f,0xd7,0x17},4,0,0,6,6,0,1},
+    {"PMOVMSKB edx,xmm5", {0x66,0x0f,0xd7,0xd5},4,0,0,6,0,BYTE_MASK,1},
+    {"MOVNTDQ aligned", {0x66,0x0f,0xe7,0x0f},4,0,0,6,0,STREAM_DQ,1},
+    {"MOVNTDQ misaligned", {0x66,0x0f,0xe7,0x4f,1},5,0,0,6,13,SSE2_MOVDQA_FAULT,1},
+    {"MOVNTDQ invalid register", {0x66,0x0f,0xe7,0xc1},4,0,0,6,6,0,1},
+    {"MOVNTI unaligned with TS and OSFXSR clear", {0x0f,0xc3,0x4f,1},4,8,1,6,0,STREAM_DWORD},
+    {"MOVNTI invalid register", {0x0f,0xc3,0xc1},3,0,0,6,6},
+    /* Both masked-store inputs are produced in the block, then DI + 4 falls on an unmapped page. */
+    {"MASKMOVDQU a16 FS page crossing", {0x0f,0x28,0xc2, 0x0f,0x28,0xcb,
+                                        0x64,0x67,0x66,0x0f,0xf7,0xc1},12,0x80010000,0,6,14,MASK_PAGE,1},
     {"PSHUFD reverse", {0x66,0x0f,0x70,0xc1,0x1b},5,0,0,6,0,PSHUFD_REG,1},
     {"PSHUFD self broadcast", {0x66,0x0f,0x70,0xc0,0xaa},5,0,0,6,0,PSHUFD_SELF,1},
     {"PSHUFD a16 [bx+16]", {0x67,0x66,0x0f,0x70,0x47,16,0x8d},7,0,0,6,0,PSHUFD_MEM,1},
@@ -460,7 +530,7 @@ static void initialize(void) {
         b(0xc3);
     exception_tables();
     if (probe->setup==1) cpu_state.seg_fs.limit=cpu_state.seg_fs.limit_high=0xfff;
-    if (probe->setup==BIT_WRITE || probe->setup==2 || probe->setup==3 || probe->setup==11 || probe->setup==12 || probe->setup==19 || probe->setup==20 || probe->setup==21 || probe->setup==24) {
+    if (probe->setup==MASK_PAGE || probe->setup==BIT_WRITE || probe->setup==2 || probe->setup==3 || probe->setup==11 || probe->setup==12 || probe->setup==19 || probe->setup==20 || probe->setup==21 || probe->setup==24) {
         memset(ram+0x30000,0,0x5000);
         for (unsigned n=0;n<4;n++) {
             put32(0x30000+4*n,(0x31000+0x1000*n)|3);
@@ -476,6 +546,53 @@ static void initialize(void) {
 #include "codegen_backend.h"
 int test_register_allocation(codeblock_t *block);
 int test_ir(codeblock_t *block);
+
+/* Select the source bit independently for every result bit, including sign
+   extension. This also covers shifts across the middle of a 128-bit value. */
+static SSE_REG
+expected_shift(SSE_REG data, int width, unsigned kind, uint64_t count)
+{
+    SSE_REG result = {0};
+    if (width == 128)
+        count *= 8; /* The whole-register forms have an immediate byte count. */
+    int distance = count < (uint64_t)width ? (int)count : width;
+    for (int bit = 0; bit < 128; bit++) {
+        int lane = bit / width * width;
+        int source = bit + (kind == SHIFT_LEFT ? -distance : distance);
+        if (kind == SHIFT_ARITH && source >= lane + width)
+            source = lane + width - 1;
+        if (source >= lane && source < lane + width)
+            result.b[bit / 8] |= ((data.b[source / 8] >> (source % 8)) & 1) << (bit % 8);
+    }
+    return result;
+}
+
+static SSE_REG
+expected_packed_arith(uint8_t opcode, SSE_REG a, SSE_REG b)
+{
+    SSE_REG result = {0};
+    for (int i = 0; i < 16; i++) {
+        switch (opcode) {
+            case 0xda: result.b[i] = a.b[i] < b.b[i] ? a.b[i] : b.b[i]; break;
+            case 0xde: result.b[i] = a.b[i] > b.b[i] ? a.b[i] : b.b[i]; break;
+            case 0xe0: result.b[i] = (a.b[i] + b.b[i] + 1) >> 1; break;
+            case 0xf6: result.q[i / 8] += abs(a.b[i] - b.b[i]); break;
+        }
+    }
+    for (int i = 0; i < 8; i++) {
+        switch (opcode) {
+            case 0xe3: result.w[i] = (a.w[i] + b.w[i] + 1) >> 1; break;
+            case 0xe4: result.w[i] = ((uint32_t)a.w[i] * b.w[i]) >> 16; break;
+            case 0xea: result.sw[i] = a.sw[i] < b.sw[i] ? a.sw[i] : b.sw[i]; break;
+            case 0xee: result.sw[i] = a.sw[i] > b.sw[i] ? a.sw[i] : b.sw[i]; break;
+        }
+    }
+    if (opcode == 0xf4) {
+        result.q[0] = (uint64_t)a.l[0] * b.l[0];
+        result.q[1] = (uint64_t)a.l[2] * b.l[2];
+    }
+    return result;
+}
 
 static int run_codegen_test(int (*test)(codeblock_t *))
 {
@@ -530,7 +647,7 @@ int main(int argc,char **argv) {
                 *MMEP[0] = 0x1234;
             }
             unsigned mask = (call / 8) % 3;
-            if (strstr(probe->name, "MASKMOV")) {
+            if (probe->setup != MASK_PAGE && strstr(probe->name, "MASKMOV")) {
                 for (unsigned n = 0; n < 16; n++) cpu_state.XMM[1].b[n] = mask == 0 ? 0 : mask == 1 ? 0x80 : (n & 1) * 0x80;
                 for (unsigned n = 0; n < 8; n++) MMP[1]->b[n] = cpu_state.XMM[1].b[n];
                 memset(MMP[0], 0x11, 8);
@@ -618,11 +735,86 @@ int main(int argc,char **argv) {
                 if (call & 64) cpu_cur_status |= CPU_STATUS_SSE_UNMASKED;
             }
             unsigned stack_fault = (call / 8) & 1;
+            SSE_REG arith_result;
+            if (probe->setup == PACKED_ARITH || probe->setup == MMX_PMULUDQ) {
+                SSE_REG a, b;
+                for (int i = 0; i < 16; i++) {
+                    a.b[i] = (uint8_t)(0xff - 39 * i + call);
+                    b.b[i] = (uint8_t)(0x80 + 17 * i + call / 2);
+                }
+                if (probe->setup == PACKED_ARITH) {
+                    const uint8_t *op = probe->bytes + (probe->bytes[0] == 0x67 ? 3 : 2);
+                    cpu_state.XMM[0] = a;
+                    cpu_state.XMM[1] = b;
+                    EBX = 0x4000;
+                    memcpy(ram + EBX + 16, &b, 16);
+                    arith_result = expected_packed_arith(op[0], a, op[1] == 0xc0 ? a : b);
+                } else {
+                    MMP[0]->q = a.q[0];
+                    MMP[1]->q = b.q[0];
+                    *MMEP[0] = 0x1234;
+                    memcpy(ram + EDI + 1, &b, 8);
+                    arith_result = expected_packed_arith(0xf4, a, b);
+                }
+            }
+            SSE_REG shift_result;
+            if (probe->shift_width) {
+                uint64_t counts[] = {0, 1, probe->shift_width - 1, probe->shift_width,
+                                     probe->shift_width + 1, 255, UINT64_C(1) << 32, UINT64_MAX};
+                uint64_t count = counts[call % 8];
+                for (unsigned i = 0; i < 16; i++)
+                    cpu_state.XMM[0].b[i] = (uint8_t)(call + 37 * i + 0x42);
+                cpu_state.XMM[1].q[0] = count;
+                cpu_state.XMM[1].q[1] = UINT64_MAX;
+                EBX = 0x4000;
+                memcpy(ram + EBX + 16, &cpu_state.XMM[1], 16);
+                const uint8_t *op = probe->bytes + (probe->bytes[0] == 0x67 ? 3 : 2);
+                if (op[0] >= 0x71 && op[0] <= 0x73)
+                    count = op[2]; /* imm8 */
+                else if (op[1] == 0xc0)
+                    cpu_state.XMM[0].q[0] = count; /* self shift */
+                shift_result = expected_shift(cpu_state.XMM[0], probe->shift_width, probe->setup, count);
+            }
             if (probe->setup == MOVMSKPD) {
                 EDX = UINT32_MAX;
                 /* Set bit 31 in each qword to distinguish this from MOVMSKPS. */
                 cpu_state.XMM[5].q[0] = UINT64_C(0x7fffffffffffffff) | ((uint64_t)(call & 1) << 63);
                 cpu_state.XMM[5].q[1] = UINT64_C(0x80000000) | ((uint64_t)((call >> 1) & 1) << 63);
+            }
+            uint16_t lane_base = 0x8100 + call;
+            uint16_t byte_mask = 0xa391 ^ (call * 0x421);
+            if (probe->setup == XMM_LANES) {
+                EBX = 0x4000;
+                ECX = 0xabcd0000u | (lane_base + 24);
+                for (unsigned n = 0; n < 8; n++) {
+                    cpu_state.XMM[0].w[n] = lane_base + n;
+                    cpu_state.XMM[1].w[n] = lane_base + 8 + n;
+                    uint16_t word = lane_base + 16 + n;
+                    memcpy(ram + EBX + 16 + 2 * n, &word, sizeof(word));
+                }
+            }
+            if (probe->setup == EXTRACT_WORD || probe->setup == BYTE_MASK) {
+                EDX = UINT32_MAX;
+                for (unsigned n = 0; n < 16; n++)
+                    cpu_state.XMM[5].b[n] = n | (((byte_mask >> n) & 1) << 7);
+                if (probe->setup == EXTRACT_WORD)
+                    cpu_state.XMM[5].w[6] = lane_base;
+            }
+            if (probe->setup == STREAM_DQ || probe->setup == STREAM_DWORD) {
+                memset(ram + EDI - 1, 0x5a, 18);
+                for (unsigned n = 0; n < 16; n++)
+                    cpu_state.XMM[1].b[n] = call + n;
+            }
+            if (probe->setup == MASK_PAGE) {
+                cpu_state.seg_fs.base = 0x30000;
+                EDI = 0xdeadfffd;
+                memset(ram + 0x3fffd, 0x5a, 16);
+                memset(&cpu_state.XMM[3], 0x7f, 16);
+                cpu_state.XMM[3].b[0] = cpu_state.XMM[3].b[2] = 0x80;
+                if ((call / 8) & 1)
+                    cpu_state.XMM[3].b[4] = 0xff;
+                for (unsigned n = 0; n < 16; n++)
+                    cpu_state.XMM[2].b[n] = call + n;
             }
             if (probe->setup >= PSHUFD_REG && probe->setup <= SHUFPD_MEM) {
                 EBX = 0x4000;
@@ -697,15 +889,42 @@ int main(int argc,char **argv) {
                 expected = 0;
             if (probe->setup == UNPACK_SS) {
                 unsigned phase = (call / 8) % 3;
-                expected = phase == 0 ? 0 : phase == 1 ? 12 : 13;
+                expected = phase == 0 ? 0 : phase == 1 ? probe->trap_p4 : 13;
                 if (expected && (get32(FAULT_PC) != BODY ||
                                  cpu_state.XMM[0].q[0] != UINT64_C(0x1111111111111111) ||
                                  cpu_state.XMM[0].q[1] != UINT64_C(0x1111111111111111)))
                     fatal("%s: fault changed XMM0 or EIP", probe->name);
             }
+            if (probe->setup == MASK_PAGE && !((call / 8) & 1))
+                expected = 0;
             if (get32(TRAP) != expected) {
                 fprintf(stderr, "%s call %u: trap %u, expected %u\n", probe->name, call, get32(TRAP), expected);
                 return 1;
+            }
+            if (probe->setup == XMM_LANES) {
+                for (unsigned n = 0; n < 8; n++) {
+                    if (cpu_state.XMM[0].w[n] != lane_base + probe->lanes[n] ||
+                        cpu_state.XMM[1].w[n] != lane_base + 8 + n || cpu_state.ismmx)
+                        fatal("%s: incorrect word %u", probe->name, n);
+                }
+            }
+            if ((probe->setup == EXTRACT_WORD && EDX != lane_base) ||
+                (probe->setup == BYTE_MASK && EDX != byte_mask))
+                fatal("%s: incorrect extracted value %x", probe->name, EDX);
+            if (probe->setup == STREAM_DQ || (probe->setup == STREAM_DWORD && !expected)) {
+                unsigned start = probe->setup == STREAM_DQ ? 0 : 1;
+                unsigned count = probe->setup == STREAM_DQ ? 16 : 4;
+                const uint8_t *bytes = probe->setup == STREAM_DQ ? cpu_state.XMM[1].b : (uint8_t *)&ECX;
+                if (memcmp(ram + EDI + start, bytes, count) ||
+                    ram[EDI + start - 1] != 0x5a || ram[EDI + start + count] != 0x5a)
+                    fatal("%s: wrong store width or contents", probe->name);
+            }
+            if (probe->setup == MASK_PAGE) {
+                for (unsigned n = 0; n < 16; n++)
+                    if (ram[0x3fffd + n] != (n == 0 || n == 2 ? call + n : 0x5a))
+                        fatal("%s call %u: wrong byte %u (%x)", probe->name, call, n, ram[0x3fffd + n]);
+                if (expected && (cr2 != 0x40001 || get32(FAULT_PC) != BODY + 6))
+                    fatal("%s: wrong page fault address or EIP", probe->name);
             }
             if (probe->setup >= PSHUFD_REG && probe->setup <= SHUFPD_MEM) {
                 static const uint8_t lanes[][4] = {
@@ -732,6 +951,13 @@ int main(int argc,char **argv) {
                     !!cpu_state.ismmx != !expected || (expected && get32(FAULT_PC) != BODY))
                     fatal("%s: incorrect transfer, MMX state or fault EIP", probe->name);
             }
+            if (probe->setup == PACKED_ARITH && (memcmp(&cpu_state.XMM[0], &arith_result, 16) || cpu_state.ismmx))
+                fatal("%s call %u: incorrect XMM result or MMX state", probe->name, call);
+            if (probe->setup == MMX_PMULUDQ &&
+                (MMP[0]->q != arith_result.q[0] || *MMEP[0] != 0xffff || !cpu_state.ismmx))
+                fatal("%s call %u: incorrect MMX result or x87 state", probe->name, call);
+            if (probe->shift_width && (memcmp(&cpu_state.XMM[0], &shift_result, 16) || cpu_state.ismmx))
+                fatal("%s call %u: wrong shift result or MMX state", probe->name, call);
             if (probe->setup == MOVMSKPD &&
                 (EDX != (expected ? UINT32_MAX : (call & 3)) || (expected && get32(FAULT_PC) != BODY)))
                 fatal("%s: wrong destination or fault EIP", probe->name);
@@ -775,7 +1001,7 @@ int main(int argc,char **argv) {
                 } else if (ESP != final_sp || EDI != (bytes == 16 ? 0x25678 : 0x12345678))
                     fatal("%s: successful pop changed ESP or EDI incorrectly", probe->name);
             }
-            if (strstr(probe->name, "MASKMOV")) {
+            if (probe->setup != MASK_PAGE && strstr(probe->name, "MASKMOV")) {
                 if (expected && get32(FAULT_PC) != BODY + 6) fatal("Masked store fault EIP");
                 unsigned width = strstr(probe->name, "DQU") ? 16 : 8;
                 unsigned address = DATA + (expected ? 0x1800 : 0x800);

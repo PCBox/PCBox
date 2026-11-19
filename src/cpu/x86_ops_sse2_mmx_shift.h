@@ -3,6 +3,7 @@ static int
 opPSxxW_xmm_imm(uint32_t fetchdat)
 {
     SSE_ENTER();
+    ILLEGAL_ON((fetchdat & 0xc0) != 0xc0);
     int      reg   = fetchdat & 7;
     int      op    = fetchdat & 0x38;
     int      shift = (fetchdat >> 8) & 0xff;
@@ -66,6 +67,7 @@ static int
 opPSxxD_xmm_imm(uint32_t fetchdat)
 {
     SSE_ENTER();
+    ILLEGAL_ON((fetchdat & 0xc0) != 0xc0);
     int      reg   = fetchdat & 7;
     int      op    = fetchdat & 0x38;
     int      shift = (fetchdat >> 8) & 0xff;
@@ -117,6 +119,7 @@ static int
 opPSxxQ_xmm_imm(uint32_t fetchdat)
 {
     SSE_ENTER();
+    ILLEGAL_ON((fetchdat & 0xc0) != 0xc0);
     int      reg   = fetchdat & 7;
     int      op    = fetchdat & 0x38;
     int      shift = (fetchdat >> 8) & 0xff;

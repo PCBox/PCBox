@@ -4851,7 +4851,7 @@ codegen_PMULLW(codeblock_t *block, uop_t *uop)
 }
 
 static int
-codegen_MMX_BINARY(codeblock_t *block, uop_t *uop, void (*host_func)(codeblock_t *, int, int), UNUSED(const char *name))
+codegen_packed_commutative(codeblock_t *block, uop_t *uop, void (*host_func)(codeblock_t *, int, int), UNUSED(const char *name))
 {
     int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
     int src_reg_a  = HOST_REG_GET(uop->src_reg_a_real);
@@ -4860,13 +4860,13 @@ codegen_MMX_BINARY(codeblock_t *block, uop_t *uop, void (*host_func)(codeblock_t
     int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_Q(src_size_b)) {
+    if ((REG_IS_Q(dest_size) || REG_IS_DQ(dest_size)) && dest_size == src_size_a && dest_size == src_size_b) {
         if (dest_reg == src_reg_a)
             host_func(block, dest_reg, src_reg_b);
         else if (dest_reg == src_reg_b)
             host_func(block, dest_reg, src_reg_a);
         else {
-            host_x86_MOVQ_XREG_XREG(block, dest_reg, src_reg_a);
+            host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
             host_func(block, dest_reg, src_reg_b);
         }
     }
@@ -4880,49 +4880,55 @@ codegen_MMX_BINARY(codeblock_t *block, uop_t *uop, void (*host_func)(codeblock_t
 static int
 codegen_PAVGUSB(codeblock_t *block, uop_t *uop)
 {
-    return codegen_MMX_BINARY(block, uop, host_x86_PAVGB_XREG_XREG, "PAVGUSB");
+    return codegen_packed_commutative(block, uop, host_x86_PAVGB_XREG_XREG, "PAVGUSB");
 }
 
 static int
 codegen_PAVGW(codeblock_t *block, uop_t *uop)
 {
-    return codegen_MMX_BINARY(block, uop, host_x86_PAVGW_XREG_XREG, "PAVGW");
+    return codegen_packed_commutative(block, uop, host_x86_PAVGW_XREG_XREG, "PAVGW");
 }
 
 static int
 codegen_PMINUB(codeblock_t *block, uop_t *uop)
 {
-    return codegen_MMX_BINARY(block, uop, host_x86_PMINUB_XREG_XREG, "PMINUB");
+    return codegen_packed_commutative(block, uop, host_x86_PMINUB_XREG_XREG, "PMINUB");
 }
 
 static int
 codegen_PMAXUB(codeblock_t *block, uop_t *uop)
 {
-    return codegen_MMX_BINARY(block, uop, host_x86_PMAXUB_XREG_XREG, "PMAXUB");
+    return codegen_packed_commutative(block, uop, host_x86_PMAXUB_XREG_XREG, "PMAXUB");
 }
 
 static int
 codegen_PMULHUW(codeblock_t *block, uop_t *uop)
 {
-    return codegen_MMX_BINARY(block, uop, host_x86_PMULHUW_XREG_XREG, "PMULHUW");
+    return codegen_packed_commutative(block, uop, host_x86_PMULHUW_XREG_XREG, "PMULHUW");
 }
 
 static int
 codegen_PMINSW(codeblock_t *block, uop_t *uop)
 {
-    return codegen_MMX_BINARY(block, uop, host_x86_PMINSW_XREG_XREG, "PMINSW");
+    return codegen_packed_commutative(block, uop, host_x86_PMINSW_XREG_XREG, "PMINSW");
 }
 
 static int
 codegen_PMAXSW(codeblock_t *block, uop_t *uop)
 {
-    return codegen_MMX_BINARY(block, uop, host_x86_PMAXSW_XREG_XREG, "PMAXSW");
+    return codegen_packed_commutative(block, uop, host_x86_PMAXSW_XREG_XREG, "PMAXSW");
 }
 
 static int
 codegen_PSADBW(codeblock_t *block, uop_t *uop)
 {
-    return codegen_MMX_BINARY(block, uop, host_x86_PSADBW_XREG_XREG, "PSADBW");
+    return codegen_packed_commutative(block, uop, host_x86_PSADBW_XREG_XREG, "PSADBW");
+}
+
+static int
+codegen_PMULUDQ(codeblock_t *block, uop_t *uop)
+{
+    return codegen_packed_commutative(block, uop, host_x86_PMULUDQ_XREG_XREG, "PMULUDQ");
 }
 
 static int
@@ -4941,8 +4947,12 @@ codegen_PSHUFW(codeblock_t *block, uop_t *uop)
     int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size))
-        host_x86_PSHUFW_XREG_XREG(block, dest_reg, src_reg, uop->imm_data);
+    if (dest_size == src_size && (REG_IS_Q(src_size) || REG_IS_DQ(src_size))) {
+        if ((uop->type & UOP_MASK) == (UOP_PSHUFHW & UOP_MASK))
+            host_x86_PSHUFHW_XREG_XREG(block, dest_reg, src_reg, uop->imm_data);
+        else
+            host_x86_PSHUFLW_XREG_XREG(block, dest_reg, src_reg, uop->imm_data);
+    }
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("PSHUFW %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
@@ -4960,10 +4970,10 @@ codegen_PINSRW(codeblock_t *block, uop_t *uop)
     int src_size_a = IREG_GET_SIZE(uop->src_reg_a_real);
     int src_size_b = IREG_GET_SIZE(uop->src_reg_b_real);
 
-    if (REG_IS_Q(dest_size) && REG_IS_Q(src_size_a) && REG_IS_W(src_size_b)) {
+    if (dest_size == src_size_a && (REG_IS_Q(dest_size) || REG_IS_DQ(dest_size)) && REG_IS_W(src_size_b)) {
         if (dest_reg != src_reg_a)
-            host_x86_MOVQ_XREG_XREG(block, dest_reg, src_reg_a);
-        host_x86_PINSRW_XREG_REG(block, dest_reg, src_reg_b, uop->imm_data & 3);
+            host_x86_MOVDQA_XREG_XREG(block, dest_reg, src_reg_a);
+        host_x86_PINSRW_XREG_REG(block, dest_reg, src_reg_b, uop->imm_data);
     }
 #    ifdef RECOMPILER_DEBUG
     else
@@ -4980,8 +4990,8 @@ codegen_PEXTRW(codeblock_t *block, uop_t *uop)
     int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
 
-    if (REG_IS_L(dest_size) && REG_IS_Q(src_size))
-        host_x86_PEXTRW_REG_XREG(block, dest_reg, src_reg, uop->imm_data & 3);
+    if (REG_IS_L(dest_size) && (REG_IS_Q(src_size) || REG_IS_DQ(src_size)))
+        host_x86_PEXTRW_REG_XREG(block, dest_reg, src_reg, uop->imm_data);
 #    ifdef RECOMPILER_DEBUG
     else
         fatal("PEXTRW %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
@@ -4997,9 +5007,10 @@ codegen_PMOVMSKB(codeblock_t *block, uop_t *uop)
     int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
     int src_size  = IREG_GET_SIZE(uop->src_reg_a_real);
 
-    if (REG_IS_L(dest_size) && REG_IS_Q(src_size)) {
+    if (REG_IS_L(dest_size) && (REG_IS_Q(src_size) || REG_IS_DQ(src_size))) {
         host_x86_PMOVMSKB_REG_XREG(block, dest_reg, src_reg);
-        host_x86_AND32_REG_IMM(block, dest_reg, 0xff);
+        if (REG_IS_Q(src_size))
+            host_x86_AND32_REG_IMM(block, dest_reg, 0xff);
     }
 #    ifdef RECOMPILER_DEBUG
     else
@@ -5009,125 +5020,44 @@ codegen_PMOVMSKB(codeblock_t *block, uop_t *uop)
 }
 
 static int
-codegen_PSLLW_IMM(codeblock_t *block, uop_t *uop)
+codegen_PSHIFT_XMM(codeblock_t *block, uop_t *uop)
 {
-    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
-    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
-
-    if ((REG_IS_Q(dest_size)) || (REG_IS_DQ(dest_size))) {
-        host_x86_PSLLW_XREG_IMM(block, dest_reg, uop->imm_data);
+    int dest = HOST_REG_GET(uop->dest_reg_a_real);
+    int data = HOST_REG_GET(uop->src_reg_a_real);
+    int count = HOST_REG_GET(uop->src_reg_b_real);
+    if (dest != data) {
+        if (dest == count) {
+            host_x86_MOVQ_XREG_XREG(block, REG_XMM_TEMP, count);
+            count = REG_XMM_TEMP;
+        }
+        host_x86_MOVDQA_XREG_XREG(block, dest, data);
     }
-#    ifdef RECOMPILER_DEBUG
-    else
-        fatal("PSLLW_IMM %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
-#    endif
+    host_x86_PSHIFT_XREG_XREG(block, uop->imm_data, dest, count);
     return 0;
 }
-static int
-codegen_PSLLD_IMM(codeblock_t *block, uop_t *uop)
-{
-    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
-    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
 
-    if ((REG_IS_Q(dest_size)) || (REG_IS_DQ(dest_size))) {
-        host_x86_PSLLD_XREG_IMM(block, dest_reg, uop->imm_data);
+#define PACKED_SHIFT_IMM(name)                                                    \
+    static int codegen_##name##_IMM(codeblock_t *block, uop_t *uop)               \
+    {                                                                             \
+        int dest = HOST_REG_GET(uop->dest_reg_a_real);                            \
+        int src = HOST_REG_GET(uop->src_reg_a_real);                              \
+        if (dest != src)                                                          \
+            host_x86_MOVDQA_XREG_XREG(block, dest, src);                          \
+        host_x86_##name##_XREG_IMM(block, dest, uop->imm_data);                   \
+        return 0;                                                                 \
     }
-#    ifdef RECOMPILER_DEBUG
-    else
-        fatal("PSLLD_IMM %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
-#    endif
-    return 0;
-}
-static int
-codegen_PSLLQ_IMM(codeblock_t *block, uop_t *uop)
-{
-    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
-    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
 
-    if ((REG_IS_Q(dest_size)) || (REG_IS_DQ(dest_size))) {
-        host_x86_PSLLQ_XREG_IMM(block, dest_reg, uop->imm_data);
-    }
-#    ifdef RECOMPILER_DEBUG
-    else
-        fatal("PSLLQ_IMM %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
-#    endif
-    return 0;
-}
-static int
-codegen_PSRAW_IMM(codeblock_t *block, uop_t *uop)
-{
-    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
-    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
-
-    if ((REG_IS_Q(dest_size)) || (REG_IS_DQ(dest_size))) {
-        host_x86_PSRAW_XREG_IMM(block, dest_reg, uop->imm_data);
-    }
-#    ifdef RECOMPILER_DEBUG
-    else
-        fatal("PSRAW_IMM %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
-#    endif
-    return 0;
-}
-static int
-codegen_PSRAD_IMM(codeblock_t *block, uop_t *uop)
-{
-    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
-    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
-
-    if ((REG_IS_Q(dest_size)) || (REG_IS_DQ(dest_size))) {
-        host_x86_PSRAD_XREG_IMM(block, dest_reg, uop->imm_data);
-    }
-#    ifdef RECOMPILER_DEBUG
-    else
-        fatal("PSRAD_IMM %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
-#    endif
-    return 0;
-}
-static int
-codegen_PSRLW_IMM(codeblock_t *block, uop_t *uop)
-{
-    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
-    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
-
-    if ((REG_IS_Q(dest_size)) || (REG_IS_DQ(dest_size))) {
-        host_x86_PSRLW_XREG_IMM(block, dest_reg, uop->imm_data);
-    }
-#    ifdef RECOMPILER_DEBUG
-    else
-        fatal("PSRLW_IMM %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
-#    endif
-    return 0;
-}
-static int
-codegen_PSRLD_IMM(codeblock_t *block, uop_t *uop)
-{
-    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
-    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
-
-    if ((REG_IS_Q(dest_size)) || (REG_IS_DQ(dest_size))) {
-        host_x86_PSRLD_XREG_IMM(block, dest_reg, uop->imm_data);
-    }
-#    ifdef RECOMPILER_DEBUG
-    else
-        fatal("PSRLD_IMM %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
-#    endif
-    return 0;
-}
-static int
-codegen_PSRLQ_IMM(codeblock_t *block, uop_t *uop)
-{
-    int dest_reg  = HOST_REG_GET(uop->dest_reg_a_real);
-    int dest_size = IREG_GET_SIZE(uop->dest_reg_a_real);
-
-    if ((REG_IS_Q(dest_size)) || (REG_IS_DQ(dest_size))) {
-        host_x86_PSRLQ_XREG_IMM(block, dest_reg, uop->imm_data);
-    }
-#    ifdef RECOMPILER_DEBUG
-    else
-        fatal("PSRLQ_IMM %02x %02x\n", uop->dest_reg_a_real, uop->src_reg_a_real);
-#    endif
-    return 0;
-}
+PACKED_SHIFT_IMM(PSLLW)
+PACKED_SHIFT_IMM(PSLLD)
+PACKED_SHIFT_IMM(PSLLQ)
+PACKED_SHIFT_IMM(PSLLDQ)
+PACKED_SHIFT_IMM(PSRAW)
+PACKED_SHIFT_IMM(PSRAD)
+PACKED_SHIFT_IMM(PSRLW)
+PACKED_SHIFT_IMM(PSRLD)
+PACKED_SHIFT_IMM(PSRLQ)
+PACKED_SHIFT_IMM(PSRLDQ)
+#undef PACKED_SHIFT_IMM
 
 static int
 codegen_PSUBB(codeblock_t *block, uop_t *uop)
@@ -6732,6 +6662,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_PMULHUW &
         UOP_MASK]
     = codegen_PMULHUW,
+    [UOP_PMULUDQ & UOP_MASK] = codegen_PMULUDQ,
     [UOP_PMINSW &
         UOP_MASK]
     = codegen_PMINSW,
@@ -6744,6 +6675,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_PSHUFW &
         UOP_MASK]
     = codegen_PSHUFW,
+    [UOP_PSHUFHW & UOP_MASK] = codegen_PSHUFW,
     [UOP_PSHUFD & UOP_MASK] = codegen_PSHUFD,
     [UOP_PINSRW &
         UOP_MASK]
@@ -6755,6 +6687,9 @@ const uOpFn uop_handlers[UOP_MAX] = {
         UOP_MASK]
     = codegen_PMOVMSKB,
 
+    [UOP_PSHIFT_XMM & UOP_MASK] = codegen_PSHIFT_XMM,
+    [UOP_PSLLDQ_IMM & UOP_MASK] = codegen_PSLLDQ_IMM,
+    [UOP_PSRLDQ_IMM & UOP_MASK] = codegen_PSRLDQ_IMM,
     [UOP_PSLLW_IMM &
         UOP_MASK]
     = codegen_PSLLW_IMM,

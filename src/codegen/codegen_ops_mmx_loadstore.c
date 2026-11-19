@@ -172,64 +172,76 @@ ropPSHUFW(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, 
 uint32_t
 ropPINSRW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
-    int     dest_reg = (fetchdat >> 3) & 7;
-    int     src_reg;
-    uint8_t imm;
+    int reg = (fetchdat >> 3) & 7;
+    int dest = op_sse_xmm ? IREG_XMM(reg) : IREG_MM(reg);
+    int src = IREG_16(fetchdat & 7);
+    x86seg *seg = NULL;
 
-    if (op_sse_xmm || (block->flags & CODEBLOCK_NO_IMMEDIATES))
+    if (block->flags & CODEBLOCK_NO_IMMEDIATES)
         return 0;
-
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
-    uop_MMX_ENTER(ir);
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
+    if (!op_sse_xmm)
+        REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
     codegen_mark_code_present(block, cs + op_pc, 1);
-    if ((fetchdat & 0xc0) == 0xc0) {
-        src_reg = IREG_16(fetchdat & 7);
-    } else {
-        x86seg *target_seg;
-
+    if ((fetchdat & 0xc0) != 0xc0) {
         uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
-        target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
-        codegen_check_seg_read(block, ir, target_seg);
-        CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 1);
-        uop_MEM_LOAD_REG(ir, IREG_temp0_W, ireg_seg_base(target_seg), IREG_eaaddr);
-        src_reg = IREG_temp0_W;
+        seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
     }
-
-    imm = fastreadb(cs + op_pc + 1) & 3;
-    uop_PINSRW(ir, IREG_MM(dest_reg), IREG_MM(dest_reg), src_reg, imm);
+    uint8_t imm = fastreadb(cs + op_pc + 1) & (op_sse_xmm ? 7 : 3);
     codegen_mark_code_present(block, cs + op_pc + 1, 1);
+    if (seg) {
+        codegen_check_seg_read(block, ir, seg);
+        CHECK_SEG_LIMITS(block, ir, seg, IREG_eaaddr, 1);
+    }
+    if (op_sse_xmm)
+        uop_SSE_ENTER(ir);
+    else
+        uop_MMX_ENTER(ir);
+    if (seg) {
+        src = IREG_temp0_W;
+        uop_MEM_LOAD_REG(ir, src, ireg_seg_base(seg), IREG_eaaddr);
+    }
+    uop_PINSRW(ir, dest, dest, src, imm);
+    if (!op_sse_xmm)
+        uop_STORE_PTR_IMM_16(ir, MMEP[reg], 0xffff);
     return op_pc + 2;
 }
 
 uint32_t
 ropPEXTRW(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    uint8_t imm;
-
-    if (op_sse_xmm || ((fetchdat & 0xc0) != 0xc0) || (block->flags & CODEBLOCK_NO_IMMEDIATES))
+    if ((fetchdat & 0xc0) != 0xc0 || (block->flags & CODEBLOCK_NO_IMMEDIATES))
         return 0;
 
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
-    uop_MMX_ENTER(ir);
-    codegen_mark_code_present(block, cs + op_pc, 1);
-    imm = fastreadb(cs + op_pc + 1) & 3;
-    uop_PEXTRW(ir, IREG_32((fetchdat >> 3) & 7), IREG_MM(fetchdat & 7), imm);
-    codegen_mark_code_present(block, cs + op_pc + 1, 1);
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
+    if (!op_sse_xmm)
+        REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+    uint8_t imm = fastreadb(cs + op_pc + 1) & (op_sse_xmm ? 7 : 3);
+    codegen_mark_code_present(block, cs + op_pc, 2);
+    if (op_sse_xmm)
+        uop_SSE_ENTER(ir);
+    else
+        uop_MMX_ENTER(ir);
+    int src = fetchdat & 7;
+    uop_PEXTRW(ir, IREG_32((fetchdat >> 3) & 7), op_sse_xmm ? IREG_XMM(src) : IREG_MM(src), imm);
     return op_pc + 2;
 }
 
 uint32_t
 ropPMOVMSKB(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, UNUSED(uint32_t op_32), uint32_t op_pc)
 {
-    if (op_sse_xmm || (fetchdat & 0xc0) != 0xc0)
+    if ((fetchdat & 0xc0) != 0xc0)
         return 0;
 
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
-    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE);
-    uop_MMX_ENTER(ir);
+    REQUIRE_GUEST_FEATURE(op_sse_xmm ? CPU_FEATURE_SSE2 : CPU_FEATURE_SSE);
+    if (op_sse_xmm)
+        uop_SSE_ENTER(ir);
+    else {
+        REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+        uop_MMX_ENTER(ir);
+    }
     codegen_mark_code_present(block, cs + op_pc, 1);
-    uop_PMOVMSKB(ir, IREG_32((fetchdat >> 3) & 7), IREG_MM(fetchdat & 7));
+    int src = fetchdat & 7;
+    uop_PMOVMSKB(ir, IREG_32((fetchdat >> 3) & 7), op_sse_xmm ? IREG_XMM(src) : IREG_MM(src));
     return op_pc + 1;
 }

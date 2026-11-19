@@ -117,6 +117,15 @@ ropMOV_l_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t f
     return op_pc + 1;
 }
 uint32_t
+ropMOVNTI(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE2);
+    if ((fetchdat & 0xc0) == 0xc0)
+        return 0;
+    return ropMOV_l_r(block, ir, opcode, fetchdat, op_32, op_pc);
+}
+
+uint32_t
 ropMOV_r_b(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     int dest_reg = (fetchdat >> 3) & 7;
