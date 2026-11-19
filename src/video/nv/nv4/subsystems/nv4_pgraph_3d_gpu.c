@@ -241,7 +241,7 @@ typedef struct nv4_gpu_s {
     uint64_t      row_bytes;
     uint64_t      ts_ns[3];  /* uploads, kernel, download */
     int           prof_left; /* flushes left to log one by one (NV4_GPU_PROFILE=n) */
-    VkBufferCopy  up[GPU_UPLOADS];
+    VkBufferCopy  host_ranges[GPU_UPLOADS];
 
     gpu_run_t     runs[GPU_RUNS];
     int           nruns;
@@ -679,6 +679,35 @@ gpu_pack_state(nv4_gpu_state_t *o, const nv4_3d_state_t *s)
     o->swz_hl    = s->swz_hl;
 }
 
+/* Return the parts of lo..hi whose staging bytes are not owned by a
+   pending batch newer than after. Each of the pending ranges can add
+   at most one piece, as accounted for by GPU_UPLOADS. */
+static int
+gpu_host_ranges(const nv4_gpu_t *g, uint64_t after, uint32_t lo, uint32_t hi, VkBufferCopy *out)
+{
+    for (int s = 0; s < g->vk.nslots; s++) {
+        const gpu_slot_t *sl = &g->slot[s];
+
+        if (!sl->pending || sl->seq <= after)
+            continue;
+        for (int i = 0; i < sl->pndown; i++) {
+            uint32_t plo = (uint32_t) sl->pdown[i].srcOffset;
+            uint32_t phi = plo + (uint32_t) sl->pdown[i].size - 1;
+            int      count = 0;
+
+            if (plo > hi || phi < lo)
+                continue;
+            if (plo > lo)
+                count = gpu_host_ranges(g, after, lo, plo - 1, out);
+            if (phi < hi)
+                count += gpu_host_ranges(g, after, phi + 1, hi, out + count);
+            return count;
+        }
+    }
+    *out = (VkBufferCopy) { lo, lo, hi - lo + 1 };
+    return 1;
+}
+
 /* Wait for one batch in flight and copy its rows back into VRAM. */
 static void
 gpu_complete(nv4_gpu_t *g, nv4_t *nv4, gpu_slot_t *sl)
@@ -706,8 +735,16 @@ gpu_complete(nv4_gpu_t *g, nv4_t *nv4, gpu_slot_t *sl)
         }
     }
     for (int i = 0; i < sl->pndown; i++) {
-        if (!g->vk.vram_import) /* else the GPU wrote VRAM itself */
-            memcpy(nv4->svga.vram + sl->pdown[i].srcOffset, stage + sl->pdown[i].srcOffset, sl->pdown[i].size);
+        if (!g->vk.vram_import) {
+            /* This fence only covers this submission. A later download
+               to the same staging bytes will publish them when it retires. */
+            uint32_t lo = (uint32_t) sl->pdown[i].srcOffset;
+            int count = gpu_host_ranges(g, sl->seq, lo, lo + (uint32_t) sl->pdown[i].size - 1, g->host_ranges);
+            for (int j = 0; j < count; j++) {
+                const VkBufferCopy *r = &g->host_ranges[j];
+                memcpy(nv4->svga.vram + r->dstOffset, stage + r->srcOffset, r->size);
+            }
+        }
         g->row_bytes += sl->pdown[i].size;
     }
     for (int i = 0; i < sl->pndown; i++)
@@ -751,40 +788,6 @@ nv4_gpu_pending_overlaps(struct nv4_gpu_s *g, uint32_t lo, uint32_t hi)
                 return 1;
     }
     return 0;
-}
-
-/* Upload the bytes lo..hi of VRAM to the GPU's mirror, except those a
-   batch in flight owns (the mirror's are newer). */
-static void
-gpu_upload_range(nv4_gpu_t *g, nv4_t *nv4, uint32_t lo, uint32_t hi, VkBufferCopy *up, int *nup, int max)
-{
-    uint8_t *stage = (uint8_t *) g->vk.b[NV_GPU_B_VSTAGE].map;
-
-    for (int s = 0; s < g->vk.nslots; s++) {
-        const gpu_slot_t *sl = &g->slot[s];
-
-        for (int i = 0; sl->pending && (i < sl->pndown); i++) {
-            uint32_t plo = (uint32_t) sl->pdown[i].srcOffset;
-            uint32_t phi = plo + (uint32_t) sl->pdown[i].size - 1;
-
-            if ((plo > hi) || (phi < lo))
-                continue;
-            /* the parts either side */
-            if (plo > lo)
-                gpu_upload_range(g, nv4, lo, plo - 1, up, nup, max);
-            if (phi < hi)
-                gpu_upload_range(g, nv4, phi + 1, hi, up, nup, max);
-            return;
-        }
-    }
-    /* GPU_UPLOADS: <max> is never reached */
-    if (*nup >= max)
-        return;
-    if (!g->vk.vram_import) /* else the GPU reads VRAM itself */
-        memcpy(stage + lo, nv4->svga.vram + lo, hi - lo + 1);
-    up[*nup].srcOffset = up[*nup].dstOffset = lo;
-    up[*nup].size                           = hi - lo + 1;
-    (*nup)++;
 }
 
 /* ---- runs and variants (#5) ---- */
@@ -1163,9 +1166,17 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
 
     /* rows in and out */
     for (int i = 0; i < ndown; i++) {
-        gpu_upload_range(g, nv4, dlo[i], dhi[i], g->up, &nup, GPU_UPLOADS);
+        nup += gpu_host_ranges(g, 0, dlo[i], dhi[i], g->host_ranges + nup);
         down[i].srcOffset = down[i].dstOffset = dlo[i];
         down[i].size                          = dhi[i] - dlo[i] + 1;
+    }
+
+    if (!g->vk.vram_import) {
+        uint8_t *stage = g->vk.b[NV_GPU_B_VSTAGE].map;
+        for (int i = 0; i < nup; i++) {
+            const VkBufferCopy *r = &g->host_ranges[i];
+            memcpy(stage + r->srcOffset, nv4->svga.vram + r->srcOffset, r->size);
+        }
     }
 
     t2 = nv_gpu_now_us();
@@ -1182,7 +1193,7 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
             g->vk.vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, sl->vk->qpool, 0);
         }
         if (nup)
-            g->vk.vkCmdCopyBuffer(cb, g->vk.b[NV_GPU_B_VSTAGE].buf, g->vk.b[NV_GPU_B_VRAM].buf, nup, g->up);
+            g->vk.vkCmdCopyBuffer(cb, g->vk.b[NV_GPU_B_VSTAGE].buf, g->vk.b[NV_GPU_B_VRAM].buf, nup, g->host_ranges);
         {
             /* the records, read many times per pixel, to device memory */
             VkBufferCopy rc[4] = {
@@ -1242,8 +1253,11 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
         g->vk.vkCmdCopyBuffer(cb, g->vk.b[NV_GPU_B_VRAM].buf, g->vk.b[NV_GPU_B_VSTAGE].buf, ndown, down);
         if (sl->vk->qpool)
             g->vk.vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, sl->vk->qpool, 3);
-        nv_gpu_vk_barrier(&g->vk, cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_HOST_BIT,
-                    VK_ACCESS_HOST_READ_BIT);
+        /* The next submission can copy the same VRAM rows while this
+           submission is still in flight, including with imported VRAM. */
+        nv_gpu_vk_barrier(&g->vk, cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                          VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_ACCESS_HOST_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT);
         g->vk.vkEndCommandBuffer(cb);
         si.commandBufferCount = 1;
         si.pCommandBuffers    = &cb;

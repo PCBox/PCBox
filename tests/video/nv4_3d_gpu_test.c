@@ -7,11 +7,10 @@
  *          This file is part of the 86Box distribution.
  *
  *          Tests of the TNT and GeForce GPU lane (nv4_pgraph_3d_gpu.c) against
- *          the CPU: every batch is shaded by the lane and again by the
- *          CPU (NV4_3D_VERIFY), and no byte may differ -- a batch of
- *          states running different kernel variants, ROP fills joining
- *          a batch, and a swizzled target (rows that alias: one
- *          workgroup in order). Skipped without a Vulkan device.
+ *          the CPU. Most cases compare every batch with NV4_3D_VERIFY.
+ *          The asynchronous Celsius test compares VRAM after the guest
+ *          waits for several overlapping batches. Skipped without a
+ *          Vulkan device.
  *
  *          The 3D code is included as C, as in nv4_3d_swizzle_test.c,
  *          whose stand-ins for the rest of the card this repeats; the
@@ -26,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <86box/plat_unused.h>
 
 #include "../../src/video/nv/nv4/subsystems/nv4_pgraph_3d.c"
 
@@ -151,6 +151,18 @@ void
 nv4_pgraph_2d_flush_run(nv4_t *nv4)
 {
     (void) nv4;
+}
+
+void
+nv4_gap(UNUSED(nv4_t *card), UNUSED(int cls), UNUSED(uint32_t method), UNUSED(const char *what))
+{
+    CHECK(0);
+}
+
+void
+nv4_pgraph_dma_surf(UNUSED(nv4_t *card), UNUSED(int which), UNUSED(uint32_t inst))
+{
+    CHECK(0);
 }
 
 void
@@ -690,11 +702,59 @@ test_celsius(void)
     CHECK(batches == seen_batches && fallbacks == 1 && !nv4->batch3d->vbad);
 }
 
+/* A game can submit several draws to the same back buffer before the
+   next guest readback. Verify the accumulated result with fences still
+   outstanding between submissions (NV4_3D_VERIFY normally waits). */
+static void
+test_celsius_in_flight(int cls)
+{
+    nv4_3d_batch_t *b = nv4->batch3d;
+    nv4_3d_state_t s = { .celsius = 1, .col_base = COL_BASE, .col_pitch = 256,
+                         .col_lim = COL_BASE + 0xffff, .col_fmt = 12, .bpp = 4, .z_bpp = 2,
+                         .cx1 = 64, .cy1 = 32, .zclip1 = 65535, .wr_r = 1, .wr_g = 1,
+                         .wr_b = 1, .wr_a = 1, .rc_n = 1, .rc_f0 = 1, .rc_f1 = 0x1100,
+                         .ablend = 1, .sblend = 1, .dblend = 1, .beq = 2 };
+    uint8_t *expected = malloc(VRAM_SIZE);
+    uint32_t shared = COL_BASE + 16 * s.col_pitch;
+    uint8_t initial;
+
+    nv10_celsius_init(nv4);
+    b->verify = 0;
+    for (int gpu = 0; gpu <= 1; gpu++) {
+        fill_vram();
+        initial = nv4->svga.vram[shared];
+        b->parallel = gpu;
+        for (int i = 0; i < 12; i++) {
+            s.col_base = COL_BASE + (i % 3) * 8 * s.col_pitch;
+            s.rc_k[0] = 0x01020304u + i;
+            celsius_tri(&s);
+            /* Leave the last GPU draw queued in the emulator as well. */
+            if (!gpu || i < 11)
+                nv4_3d_flush(nv4);
+        }
+        if (!gpu)
+            memcpy(expected, nv4->svga.vram, VRAM_SIZE);
+    }
+    CHECK(b->nspans && nv4_gpu_pending_overlaps(b->gpu, shared, shared));
+    CHECK(expected[shared] != initial);
+    /* A newer submission still owns this staging byte after ring wrap. */
+    if (getenv("NV_GPU_NO_IMPORT"))
+        CHECK(nv4->svga.vram[shared] == initial);
+    CHECK(nv10_celsius_method(nv4, 0, cls, 0x110, 0) == NV4_GR_OK);
+    CHECK(!b->nspans && !nv4_gpu_pending_overlaps(b->gpu, 0, UINT32_MAX));
+    CHECK(!memcmp(expected, nv4->svga.vram, VRAM_SIZE));
+    check_gpu(12, "Celsius back-to-back submissions");
+    free(expected);
+    b->verify = 1;
+    nv10_celsius_close(nv4);
+}
+
 int
 main(void)
 {
     putenv("NV4_3D_VERIFY=1");
     putenv("NV4_GPU_RUN_MIN=1"); /* a run per state change: several variants in a batch */
+    putenv("NV_GPU_SLOTS=4");
     if (!card_new(NV4_CHIP_TNT)) {
         printf("no Vulkan device: GPU tests skipped\n");
         card_free();
@@ -710,11 +770,14 @@ main(void)
     seen_batches = 0;
     if (!card_new(NV4_CHIP_NV10))
         return 1;
+    test_celsius_in_flight(0x56);
     test_celsius();
     card_free();
     seen_batches = 0;
+    putenv("NV_GPU_NO_IMPORT=1");
     if (!card_new(NV4_CHIP_NV15))
         return 1;
+    test_celsius_in_flight(0x96);
     test_celsius();
     card_free();
     if (failures)

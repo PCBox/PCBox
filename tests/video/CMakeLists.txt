@@ -227,6 +227,7 @@ if(BUILD_TESTING)
         add_test(NAME NV3.SealedTextures COMMAND nv3_3d_snapshot_tests)
 
         add_executable(nv4_3d_gpu_tests nv4_3d_gpu_test.c
+            ${PROJECT_SOURCE_DIR}/src/video/nv/nv4/subsystems/nv10_celsius.c
             ${PROJECT_SOURCE_DIR}/src/video/nv/nv4/subsystems/nv4_pgraph_3d_gpu.c
             ${PROJECT_SOURCE_DIR}/src/video/nv/nv_gpu_vk.c)
         target_compile_definitions(nv4_3d_gpu_tests PRIVATE NV4_GPU_HAVE_VULKAN)
@@ -237,6 +238,7 @@ if(BUILD_TESTING)
         )
         target_link_libraries(nv4_3d_gpu_tests PRIVATE m)
         add_test(NAME NV4.Gpu3D COMMAND nv4_3d_gpu_tests)
+        set_tests_properties(NV4.Gpu3D PROPERTIES FAIL_REGULAR_EXPRESSION "SYNC-HAZARD-")
 
         # Recorded batches (NV4_3D_REPLAY_DIR) through the CPU and the lane
         add_executable(nv4_3d_replay_tests nv4_3d_replay_test.c
