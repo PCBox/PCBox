@@ -779,8 +779,6 @@ block_ended:
         cpu_state.oldpc = cpu_state.pc;
         x86_int(1);
     }
-
-    cpu_end_block_after_ins = 0;
 }
 
 /* The copy with the debug register handling is kept out of line, so that the
@@ -794,6 +792,9 @@ exec386_dynarec_int_dbg(void)
 void
 exec386_dynarec_int(void)
 {
+#    ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+    link_from = NULL;
+#    endif
     if (UNLIKELY(cpu_debug_regs_486))
         exec386_dynarec_int_dbg();
     else
@@ -1163,11 +1164,9 @@ exec386_dynarec_dyn(const int dbg)
             }
 #    ifdef CODEGEN_CHAIN
             /* The end is a link when the instruction ended the block itself
-               (a branch), or ended it evenly: for its size, where STI's
-               shadow ends -- an interrupt waiting then broke the chain
-               (codegen_chain_sti), and the link's signal test sees it -- or
-               for INIT, SMI, NMI or an interrupt, which the link's signal
-               test sees each time one comes. An instruction that falls
+               (a branch), or ended it evenly: for its size, at the end of
+               STI's shadow, or for INIT, SMI, NMI or an interrupt, which
+               the link's signal test sees each time one comes. An instruction that falls
                through links only on an even end. An FPU error or a trap
                keeps the end for the loop. */
             if (codegen_end_link_ok == 3)
@@ -1178,8 +1177,6 @@ exec386_dynarec_dyn(const int dbg)
                 codegen_end_link_ok = 0;
 #    endif
         }
-
-        cpu_end_block_after_ins = 0;
 
         /* #MF can interrupt the interpret-while-compiling pass. The block
            was marked recompiled at entry, but its host code was never
@@ -1314,8 +1311,6 @@ exec386_dynarec_dyn(const int dbg)
             }
         }
 
-        cpu_end_block_after_ins = 0;
-
         if (new_ne && (!cpu_state.abrt || (cpu_state.abrt & ABRT_EXPECTED)) && !x86_was_reset && !cpu_fetch_device && !record_discarded)
             codegen_block_remove();
         else if ((!cpu_state.abrt || (cpu_state.abrt & ABRT_EXPECTED)) && !new_ne && !x86_was_reset && !record_discarded &&
@@ -1431,11 +1426,8 @@ exec386_dynarec_common(int32_t cycs, const int dbg)
             cycles_old       = cycles;
             oldtsc           = tsc;
             tsc_old          = tsc;
-            if (cpu_force_interpreter || cpu_override_dynarec || cpu_flush_pending || (!CACHE_ON_DBG(dbg))) /*Interpret block*/
+            if (cpu_force_interpreter || cpu_override_dynarec || cpu_end_block_after_ins || cpu_flush_pending || (!CACHE_ON_DBG(dbg))) /*Interpret block*/
             {
-#    ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
-                link_from = NULL;
-#    endif
                 exec386_dynarec_int();
             } else {
                 exec386_dynarec_dyn(dbg);
@@ -1539,7 +1531,7 @@ exec386_dynarec_common(int32_t cycs, const int dbg)
 #    else
                         nmi = 0;
 #    endif
-                    } else if ((cpu_state.flags & I_FLAG) && x86_external_interrupt_pending()) {
+                    } else if ((cpu_state.flags & I_FLAG) && !cpu_end_block_after_ins && x86_external_interrupt_pending()) {
                         vector = x86_external_interrupt_vector();
                         if (vector != -1) {
                             /* An interrupt that came after the HLT looked: past the

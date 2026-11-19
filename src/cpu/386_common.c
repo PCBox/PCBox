@@ -1527,6 +1527,7 @@ enter_smm(int in_hlt)
     if (!is_am486 && !is_pentium && !is_k5 && !is_k6 && !is_p6 && !is_cxsmm && !is_athlon)
         return;
 
+    cpu_end_block_after_ins = 0;
     if (smm_rsm_restart) {
         cpu_state.pc++;
         in_hlt          = 1;
@@ -1966,6 +1967,7 @@ x86_int(int num)
        delivers, the EFLAGS image the handler gets has RF set */
     const int fault = !x86_int_external && ((num == 0) || (num == 5) || (num == 6) || (num == 7) || (num == 16));
 
+    cpu_end_block_after_ins = 0;
     /* A fault did not retire the instruction being stepped. Drop its
        pending debug trap before entering the handler; a task switch may
        establish a new task-switch trap during delivery. */
@@ -2518,7 +2520,7 @@ sysret(UNUSED(uint32_t fetchdat))
     cpu_state.flags |= I_FLAG;
     /* First instruction after SYSRET will always execute, regardless of whether
        there is a pending interrupt, following the STI logic */
-    cpu_end_block_after_ins = 2;
+    cpu_end_block_after_ins = inrecomp ? 1 : 2;
 
     oldcs = CS;
     cpu_state.oldpc = cpu_state.pc;

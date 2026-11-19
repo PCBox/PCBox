@@ -76,21 +76,18 @@ opSTI(UNUSED(uint32_t fetchdat))
             x86gpf(NULL, 0);
             return 1;
         }
-    } else {
+    } else if (!(cpu_state.flags & I_FLAG)) {
         cpu_state.flags |= I_FLAG;
-        /* An interrupt waiting: a chain leaves, as for POPF. A compiled STI
-           does this itself; one with a REP prefix is not compiled. */
+        /* The interpreting loop counts STI itself. A compiled handler
+           returns directly to the dispatcher with one instruction to go. */
+        cpu_end_block_after_ins = inrecomp ? 1 : 2;
         if (x86_external_interrupt_pending())
             mem_chain_break();
     }
 
-    /*First instruction after STI will always execute, regardless of whether
-      there is a pending interrupt*/
-    cpu_end_block_after_ins = 2;
-
     CLOCK_CYCLES(2);
     PREFETCH_RUN(2, 1, -1, 0, 0, 0, 0, 0);
-    return 0;
+    return inrecomp && cpu_end_block_after_ins;
 }
 
 static int

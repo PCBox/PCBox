@@ -250,6 +250,7 @@ x86_doabrt_2386(int x86_abrt)
 x86_doabrt(int x86_abrt)
 #endif
 {
+    cpu_end_block_after_ins = 0;
     cpu_state.pc             = cpu_state.oldpc;
     cpu_state.seg_cs.access  = (oldcpl << 5) | 0x80;
     cpu_state.seg_cs.ar_high = 0x10;

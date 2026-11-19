@@ -816,10 +816,10 @@ ropFEMMS(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUS
 
 /* Blocks are keyed on protected mode but not on CPL or IOPL, so outside
    real mode the privilege check has to run with the block. CPL > IOPL takes
-   the interpreter's CLI/STI, which raises #GP(0) or updates VIF under
+   the interpreter's CLI, which raises #GP(0) or updates VIF under
    VME/PVI; Windows relies on that fault to virtualize IF. */
-static uint32_t
-ropCLI_STI(ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc, int set)
+uint32_t
+ropCLI(UNUSED(codeblock_t *block), ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     if (cpu_cur_status & CPU_STATUS_PMODE) {
         int jump_uop;
@@ -843,23 +843,8 @@ ropCLI_STI(ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uin
         uop_set_jump_dest(ir, jump_uop);
     }
 
-    if (set)
-        uop_OR_IMM(ir, IREG_flags, IREG_flags, I_FLAG);
-    else
-        uop_AND_IMM(ir, IREG_flags, IREG_flags, ~I_FLAG);
-
+    uop_AND_IMM(ir, IREG_flags, IREG_flags, ~I_FLAG);
     return op_pc;
-}
-
-uint32_t
-ropCLI(UNUSED(codeblock_t *block), ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
-{
-    return ropCLI_STI(ir, opcode, fetchdat, op_32, op_pc, 0);
-}
-uint32_t
-ropSTI(UNUSED(codeblock_t *block), ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
-{
-    return ropCLI_STI(ir, opcode, fetchdat, op_32, op_pc, 1);
 }
 
 uint32_t

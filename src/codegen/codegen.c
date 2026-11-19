@@ -1262,8 +1262,9 @@ codegen_peekb(uint32_t addr)
 
 /* The instructions whose interpreter op can end the block on success, with
    a nonzero answer that leaves the block right after its call: a taken Jcc,
-   LOOP or JCXZ, INT3, INT n, INTO and INT1, POP SS and MOV SS (they run the
-   next instruction too), SYSENTER, SYSEXIT, and SYSCALL and SYSRET (0F 05 and
+   LOOP or JCXZ, INT3, INT n, INTO and INT1, STI when it enables interrupts,
+   POP SS and MOV SS (they run the next instruction too), SYSENTER, SYSEXIT,
+   and SYSCALL and SYSRET (0F 05 and
    0F 07 in the K6 table; 0F 07 is LOADALL386 in the 386 and 486 ones), and the
    Cyrix SMINT (0F 7E on the Cyrix CPUs without MMX, 0F 3E on the 6x86MX). Ops
    that answer nonzero only on a fault are not here (LSS is compiled; its
@@ -1277,7 +1278,7 @@ static int
 codegen_op_ends_block(const OpFn *op_table, uint8_t opcode, uint32_t fetchdat)
 {
     if (op_table == x86_dynarec_opcodes)
-        return ((opcode & 0xf0) == 0x70) || ((opcode & 0xfc) == 0xe0) || ((opcode >= 0xcc) && (opcode <= 0xce)) || (opcode == 0xf1) ||
+        return ((opcode & 0xf0) == 0x70) || ((opcode & 0xfc) == 0xe0) || ((opcode >= 0xcc) && (opcode <= 0xce)) || (opcode == 0xf1) || (opcode == 0xfb) ||
                (opcode == 0x17) || ((opcode == 0x8e) && ((fetchdat & 0x38) == 0x10));
     if (op_table == x86_dynarec_opcodes_0f)
         return ((opcode & 0xf0) == 0x80) || (opcode == 0x34) || (opcode == 0x35) ||
