@@ -2716,19 +2716,9 @@ codegen_FCOM_CHKCOP(codeblock_t *block, uop_t *uop)
 /*Guest memory accesses. The common case - the page is in the running
   processor's lookup table and the access doesn't cross a size boundary - is
   done inline, the same way the load/store routines start. Anything else
-  calls the routine, which looks the page up again and takes its slow path.
+  calls the shared routine. Scalar stores enter with the lookup already in RSI.
   In: ESI = address (and for stores ECX or XMM_TEMP = data). Clobbers RCX,
   RSI, RDI and R8.*/
-enum {
-    MEM_B,
-    MEM_W,
-    MEM_L,
-    MEM_Q,
-    MEM_SINGLE,
-    MEM_DOUBLE,
-    MEM_DQ
-};
-
 static inline int
 mem_access_size(int kind)
 {
@@ -2836,7 +2826,8 @@ codegen_mem_slow(codeblock_t *block, const mem_slow_t *slow)
     jump_here(slow->miss_p);
     if (slow->sse_invalidate)
         host_x86_MOV32_BASE_OFFSET_IMM(block, REG_RSP, STACK_SSE_RECHECK, 1);
-    host_x86_MOV32_REG_REG(block, REG_ESI, slow->store ? REG_EDI : REG_ECX);
+    if (!slow->store)
+        host_x86_MOV32_REG_REG(block, REG_ESI, REG_ECX);
     host_x86_CALL(block, slow->rout);
     host_x86_TEST32_REG(block, REG_ESI, REG_ESI);
     codegen_exit_Jcc_add(block, slow->add, codegen_exit_rout, host_x86_JNZ_long, host_x86_JZ_long);
@@ -2996,7 +2987,7 @@ codegen_mem_load(codeblock_t *block, uop_t *uop, int kind, int dest_reg, void *r
 }
 
 static void
-codegen_mem_store(codeblock_t *block, uop_t *uop, int kind, void *rout)
+codegen_mem_store(codeblock_t *block, uop_t *uop, int kind)
 {
     uint32_t *misaligned_p = NULL;
     uint32_t *miss_p;
@@ -3027,7 +3018,7 @@ codegen_mem_store(codeblock_t *block, uop_t *uop, int kind, void *rout)
             host_x86_MOVQ_BASE_INDEX_XREG(block, REG_RSI, REG_RDI, REG_XMM_TEMP);
             break;
     }
-    codegen_mem_slow_add(block, uop, misaligned_p, miss_p, kind, -1, 1, rout);
+    codegen_mem_slow_add(block, uop, misaligned_p, miss_p, kind, -1, 1, codegen_mem_store_after_lookup[kind]);
 }
 
 static int
@@ -3160,13 +3151,13 @@ codegen_MEM_STORE_ABS(codeblock_t *block, uop_t *uop)
     host_x86_LEA_REG_IMM(block, REG_ESI, seg_reg, uop->imm_data);
     if (REG_IS_B(src_size)) {
         host_x86_MOV8_REG_REG(block, REG_ECX, src_reg);
-        codegen_mem_store(block, uop, MEM_B, codegen_mem_store_byte);
+        codegen_mem_store(block, uop, MEM_B);
     } else if (REG_IS_W(src_size)) {
         host_x86_MOV16_REG_REG(block, REG_ECX, src_reg);
-        codegen_mem_store(block, uop, MEM_W, codegen_mem_store_word);
+        codegen_mem_store(block, uop, MEM_W);
     } else if (REG_IS_L(src_size)) {
         host_x86_MOV32_REG_REG(block, REG_ECX, src_reg);
-        codegen_mem_store(block, uop, MEM_L, codegen_mem_store_long);
+        codegen_mem_store(block, uop, MEM_L);
     }
 #    ifdef RECOMPILER_DEBUG
     else
@@ -3183,7 +3174,7 @@ codegen_MEM_STORE_IMM_8(codeblock_t *block, uop_t *uop)
 
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     host_x86_MOV8_REG_IMM(block, REG_ECX, uop->imm_data);
-    codegen_mem_store(block, uop, MEM_B, codegen_mem_store_byte);
+    codegen_mem_store(block, uop, MEM_B);
 
     return 0;
 }
@@ -3195,7 +3186,7 @@ codegen_MEM_STORE_IMM_16(codeblock_t *block, uop_t *uop)
 
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     host_x86_MOV32_REG_IMM(block, REG_ECX, uop->imm_data & 0xffff); /*only CX is stored*/
-    codegen_mem_store(block, uop, MEM_W, codegen_mem_store_word);
+    codegen_mem_store(block, uop, MEM_W);
 
     return 0;
 }
@@ -3207,7 +3198,7 @@ codegen_MEM_STORE_IMM_32(codeblock_t *block, uop_t *uop)
 
     host_x86_LEA_REG_REG(block, REG_ESI, seg_reg, addr_reg);
     host_x86_MOV32_REG_IMM(block, REG_ECX, uop->imm_data);
-    codegen_mem_store(block, uop, MEM_L, codegen_mem_store_long);
+    codegen_mem_store(block, uop, MEM_L);
 
     return 0;
 }
@@ -3233,16 +3224,16 @@ codegen_MEM_STORE_REG(codeblock_t *block, uop_t *uop)
     }
     if (REG_IS_B(src_size)) {
         host_x86_MOV8_REG_REG(block, REG_ECX, src_reg);
-        codegen_mem_store(block, uop, MEM_B, codegen_mem_store_byte);
+        codegen_mem_store(block, uop, MEM_B);
     } else if (REG_IS_W(src_size)) {
         host_x86_MOV16_REG_REG(block, REG_ECX, src_reg);
-        codegen_mem_store(block, uop, MEM_W, codegen_mem_store_word);
+        codegen_mem_store(block, uop, MEM_W);
     } else if (REG_IS_L(src_size)) {
         host_x86_MOV32_REG_REG(block, REG_ECX, src_reg);
-        codegen_mem_store(block, uop, MEM_L, codegen_mem_store_long);
+        codegen_mem_store(block, uop, MEM_L);
     } else if (REG_IS_Q(src_size)) {
         host_x86_MOVQ_XREG_XREG(block, REG_XMM_TEMP, src_reg);
-        codegen_mem_store(block, uop, MEM_Q, codegen_mem_store_quad);
+        codegen_mem_store(block, uop, MEM_Q);
     }
 #    ifdef RECOMPILER_DEBUG
     else
@@ -3275,7 +3266,7 @@ codegen_MEM_STORE_SINGLE(codeblock_t *block, uop_t *uop)
     if (uop->imm_data)
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
     host_x86_CVTSD2SS_XREG_XREG(block, REG_XMM_TEMP, src_reg);
-    codegen_mem_store(block, uop, MEM_SINGLE, codegen_mem_store_single);
+    codegen_mem_store(block, uop, MEM_SINGLE);
 
     return 0;
 }
@@ -3295,7 +3286,7 @@ codegen_MEM_STORE_DOUBLE(codeblock_t *block, uop_t *uop)
     if (uop->imm_data)
         host_x86_ADD32_REG_IMM(block, REG_ESI, uop->imm_data);
     host_x86_MOVQ_XREG_XREG(block, REG_XMM_TEMP, src_reg);
-    codegen_mem_store(block, uop, MEM_DOUBLE, codegen_mem_store_double);
+    codegen_mem_store(block, uop, MEM_DOUBLE);
 
     return 0;
 }

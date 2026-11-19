@@ -53,6 +53,7 @@ void *codegen_mem_load_long_ea;
 void *codegen_mem_store_quad;
 void *codegen_mem_store_single;
 void *codegen_mem_store_double;
+void *codegen_mem_store_after_lookup[MEM_DQ];
 
 void *codegen_gpf_rout;
 void *codegen_ss_rout;
@@ -452,16 +453,52 @@ build_store_tracked(codeblock_t *block, int size, uint32_t **to_c)
 
     return nr_to_c;
 }
+
+/*EDI is the linear address, RSI its write lookup, and ECX or XMM_TEMP
+  still holds the value. An in-page RAM hit can use the aligned store after
+  reproducing writemem*l's bookkeeping. Misses (including tracked pages),
+  crossings and data breakpoints need the full memory helper.*/
+static void
+build_store_misaligned(codeblock_t *block, int size, void *store, void *c_path)
+{
+    uint32_t *skip_charge = NULL;
+
+    host_x86_CMP64_REG_IMM(block, REG_RSI, (uint32_t) -1);
+    host_x86_JZ(block, c_path);
+    host_x86_MOV32_REG_REG(block, REG_R8, REG_EDI);
+    host_x86_AND32_REG_IMM(block, REG_R8, 0xfff);
+    host_x86_CMP32_REG_IMM(block, REG_R8, 0x1000 - size);
+    uint32_t *cross = host_x86_JA_long(block);
+    *cross = (uintptr_t) c_path - ((uintptr_t) cross + 4);
+    host_x86_MOV32_REG_ABS(block, REG_R8, &cpu_dr_armed);
+    host_x86_TEST32_REG(block, REG_R8, REG_R8);
+    host_x86_JNZ(block, c_path);
+
+    host_x86_MOV32_ABS_REG(block, &mem_logical_addr, REG_EDI);
+    host_x86_MOV8_ABS_IMM(block, &high_page, 0);
+    if (size < 8) {
+        host_x86_MOV32_REG_ABS(block, REG_R8, &cpu_cyrix_alignment);
+        host_x86_TEST32_REG(block, REG_R8, REG_R8);
+        uint32_t *charge = host_x86_JZ_long(block);
+        host_x86_MOV32_REG_REG(block, REG_R8, REG_EDI);
+        host_x86_AND32_REG_IMM(block, REG_R8, 7);
+        host_x86_CMP32_REG_IMM(block, REG_R8, 8 - size);
+        skip_charge = host_x86_JBE_long(block);
+        jump_long_here(charge);
+    }
+    host_x86_MOV32_REG_ABS(block, REG_R8, &timing_misaligned);
+    host_x86_SUB32_ABS_REG(block, &cpu_state._cycles, REG_R8);
+    if (skip_charge)
+        jump_long_here(skip_charge);
+    host_x86_JMP(block, store);
+}
 #    endif
 
-static void
+static void *
 build_store_routine(codeblock_t *block, int size, int is_float)
 {
     uint8_t  *branch_offset;
-    uint8_t  *misaligned_offset = NULL;
-#    if !defined(USE_GDBSTUB)
-    uint32_t *misaligned_long = NULL;
-#    endif
+    uint32_t *misaligned = NULL;
 
     /*In - ECX = data, ESI = address
       Out - ESI = abrt
@@ -488,18 +525,16 @@ build_store_routine(codeblock_t *block, int size, int is_float)
     host_x86_SHR32_IMM(block, REG_ESI, 12);
     host_x86_MOV64_REG_IMM(block, REG_R8, (uint64_t) (uintptr_t) writelookup2);
     host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RSI, REG_R8, REG_RSI, 3);
+    void *after_lookup = &block_write_data[block_pos];
     if (size != 1) {
         host_x86_TEST32_REG_IMM(block, REG_EDI, size - 1);
-#    if !defined(USE_GDBSTUB)
-        /*The tracked path lies between this jump and the C path*/
-        if (size <= 4 && !is_float)
-            misaligned_long = host_x86_JNZ_long(block);
-        else
-#    endif
-            misaligned_offset = host_x86_JNZ_short(block);
+        misaligned = host_x86_JNZ_long(block);
     }
     host_x86_CMP64_REG_IMM(block, REG_RSI, (uint32_t) -1);
     branch_offset = host_x86_JZ_short(block);
+#    if !defined(USE_GDBSTUB)
+    uint8_t *store = &block_write_data[block_pos];
+#    endif
     if (size == 1 && !is_float)
         host_x86_MOV8_BASE_INDEX_REG(block, REG_RSI, REG_RDI, REG_ECX);
     else if (size == 2 && !is_float)
@@ -523,12 +558,12 @@ build_store_routine(codeblock_t *block, int size, int is_float)
 
         for (int c = 0; c < nr_to_c; c++)
             jump_long_here(to_c[c]);
-        if (size != 1)
-            jump_long_here(misaligned_long);
-    } else
+    }
+    uint8_t *c_path = &block_write_data[block_pos];
+#    else
+    if (misaligned)
+        *misaligned = (uintptr_t) &block_write_data[block_pos] - ((uintptr_t) misaligned + 4);
 #    endif
-    if (size != 1)
-        *misaligned_offset = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) misaligned_offset) - 1;
     host_x86_PUSH(block, REG_RAX);
     host_x86_PUSH(block, REG_RDX);
 #    if _WIN64
@@ -567,6 +602,14 @@ build_store_routine(codeblock_t *block, int size, int is_float)
     host_x86_POP(block, REG_RAX);
     host_x86_MOVZX_REG_ABS_32_8(block, REG_ESI, &cpu_state.abrt);
     host_x86_RET(block);
+
+#    if !defined(USE_GDBSTUB)
+    if (misaligned) {
+        jump_long_here(misaligned);
+        build_store_misaligned(block, size, store, c_path);
+    }
+#    endif
+    return after_lookup;
 }
 
 /*The routines span more than one code chunk. Each routine starts in a chunk
@@ -603,17 +646,17 @@ build_loadstore_routines(codeblock_t *block)
     build_load_routine(block, 4, 0, 1);
 
     codegen_mem_store_byte = routine_start(block, 0x80);
-    build_store_routine(block, 1, 0);
+    codegen_mem_store_after_lookup[MEM_B] = build_store_routine(block, 1, 0);
     codegen_mem_store_word = routine_start(block, 0x80);
-    build_store_routine(block, 2, 0);
+    codegen_mem_store_after_lookup[MEM_W] = build_store_routine(block, 2, 0);
     codegen_mem_store_long = routine_start(block, 0x80);
-    build_store_routine(block, 4, 0);
+    codegen_mem_store_after_lookup[MEM_L] = build_store_routine(block, 4, 0);
     codegen_mem_store_quad = routine_start(block, 0x80);
-    build_store_routine(block, 8, 0);
+    codegen_mem_store_after_lookup[MEM_Q] = build_store_routine(block, 8, 0);
     codegen_mem_store_single = routine_start(block, 0x80);
-    build_store_routine(block, 4, 1);
+    codegen_mem_store_after_lookup[MEM_SINGLE] = build_store_routine(block, 4, 1);
     codegen_mem_store_double = routine_start(block, 0x80);
-    build_store_routine(block, 8, 1);
+    codegen_mem_store_after_lookup[MEM_DOUBLE] = build_store_routine(block, 8, 1);
 }
 
 /*The REP routines need most of the host registers, R8-R15 included, which

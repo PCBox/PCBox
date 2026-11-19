@@ -1,3 +1,6 @@
+#ifndef CODEGEN_BACKEND_X86_64_DEFS_H
+#define CODEGEN_BACKEND_X86_64_DEFS_H
+
 /*RBP = cpu_state + 128
   R12 = ram + 2147483648 (if block->flags & CODEBLOCK_NO_IMMEDIATES)*/
 #define REG_AX               0
@@ -77,9 +80,20 @@ extern void *codegen_mem_store_double;
 /* C fallback entries after the shared helpers' RAM lookup. Inputs are ECX
    (load address) or EDI (store address), with the usual store data ABI. */
 extern void *codegen_mem_load_slow[2][4];
-extern void *codegen_mem_store_slow[2][4];
 extern void *codegen_mem_load_callback[4];
 extern void *codegen_mem_store_callback[4];
+
+enum {
+    MEM_B,
+    MEM_W,
+    MEM_L,
+    MEM_Q,
+    MEM_SINGLE,
+    MEM_DOUBLE,
+    MEM_DQ
+};
+/* Scalar store entries with EDI = address and RSI = writelookup2 entry. */
+extern void *codegen_mem_store_after_lookup[MEM_DQ];
 
 extern void *codegen_gpf_rout;
 extern void *codegen_ss_rout;
@@ -97,3 +111,5 @@ void codegen_fault_stubs_reset(void);
 void codegen_fault_stubs_emit(codeblock_t *block);
 /*REP MOVS/STOS routines, indexed by [STOS][log2 element size][32-bit addressing]*/
 extern void *codegen_rep_rout[2][3][2];
+
+#endif

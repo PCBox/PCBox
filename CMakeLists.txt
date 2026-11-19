@@ -169,6 +169,8 @@ if(BUILD_BENCHMARKS)
 endif()
 if(BUILD_TESTING OR BUILD_BENCHMARKS)
     add_subdirectory(tests)
+else()
+    add_subdirectory(tests/cpu) # cpu_microbench is an explicit build target.
 endif()
 
 # Fast dynarec sacrifices timing accuracy for speed, as an optional runtime
