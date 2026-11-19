@@ -5,65 +5,52 @@ compiler, register allocator, instruction emitters and memory-helper ABI. It
 does not boot a VM, need ROMs, or access guest disks. The executable has no
 Google Test or Google Benchmark dependency.
 
-## Run in CLion
+## Build and run
 
-1. Reload the CMake project after pulling the changes.
-2. Select **CPU microbenchmarks** and **Run**, using the existing
-   **MSYS2 RelWithDebInfo** CMake profile. If your profile has a different name,
-   select it in the run configuration; the target is `cpu_microbench`.
-3. Results appear in the console and in `build/cpu-microbench.csv`.
+Use an optimized x86-64 GCC or Clang configuration. The target is available
+in a normal emulator build with both `BUILD_TESTING` and `BUILD_BENCHMARKS` off.
+Run these commands from the repository root on Linux.
 
-The shared configuration builds the target first and runs 21 samples per
-case, targeting 75 ms per sample after 100 ms of warmup. The suite contains
-379 cases; allow roughly 10–15 minutes per full run. Each run replaces that CSV, so copy a result you want to keep before
-running again. Use Run, without attaching a debugger, for timing comparisons.
-
-The target is available without enabling `BUILD_TESTING` or `BUILD_BENCHMARKS`.
-It is excluded from the default build. GNU/Clang on x86-64 are supported by the
-fixture; Windows/MinGW is the validated configuration. Use the same optimized
-CMake profile for both the emulator and the benchmark.
-
-From the repository root with the MinGW tools on PATH:
-
-```powershell
-cmake --preset windows-mingw64
-cmake --build build/windows-mingw64 --target cpu_microbench -j 4
-& ./build/windows-mingw64/tests/cpu/cpu_microbench.exe --csv build/before.csv
+```sh
+cmake -S . -B build/jit -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build/jit --target cpu_microbench
+build/jit/tests/cpu/cpu_microbench --quick
+build/jit/tests/cpu/cpu_microbench --csv build/before.csv
 ```
+
+With Windows/MinGW use the same CMake commands and run
+`./build/jit/tests/cpu/cpu_microbench.exe`. In CLion select the
+`cpu_microbench` target in an optimized CMake profile. The default full run
+measures 379 cases with 21 samples per case, 75 ms per sample and 100 ms
+of warmup. Use `--quick` for a correctness smoke run. With `BUILD_TESTING=ON`,
+CTest also runs execution and compile-mode smoke tests.
 
 ## Compare changes
 
 Save a baseline, change/build the code, then run:
 
 ```powershell
-& ./build/windows-mingw64/tests/cpu/cpu_microbench.exe --baseline build/before.csv --csv build/after.csv
+& ./build/jit/tests/cpu/cpu_microbench.exe --baseline build/before.csv --csv build/after.csv
 ```
 
-In CLion, set the program arguments to:
-
-```text
---samples 21 --sample-ms 75 --baseline before.csv --csv after.csv
-```
-
-The configuration's working directory is `build`, so those filenames refer to
-`build/before.csv` and `build/after.csv`. **Positive delta means slower**:
-`+7%` means nanoseconds per operation increased by 7%. Missing baseline cases
-show `--`. Different block sizes are rejected. Keep host, build flags and sample
+The baseline and output paths are relative to the working directory.
+A delta of `+7%` means nanoseconds per operation increased by 7%. Missing
+baseline cases show `--`. Different block sizes are rejected. Keep host, build flags and sample
 settings the same. Repeat the baseline and candidate if the difference is small;
 turbo, thermal changes, scheduling and other applications can move the results.
 
 For a reproducible branch comparison on Windows/MinGW, use the paired runner:
 
 ```powershell
-./tests/cpu/build_microbench_compare.ps1 -BaselineRef codex/cpu-microbench-baseline -OutputDirectory build/comparison -Compiler C:/msys64/mingw64/bin/gcc.exe
+./tests/cpu/build_microbench_compare.ps1 -BaselineRef HEAD -OutputDirectory build/comparison -Compiler C:/msys64/mingw64/bin/gcc.exe
 python tests/cpu/compare_microbench.py --baseline build/comparison/baseline.exe --current build/comparison/current.exe --output build/comparison/results --cpu 4
 ```
 
 The build script exports the baseline revision into the output directory and
-backports only the current C fixture into that snapshot. It builds both versions
-with the same compiler and optimization flags, without changing either branch.
+copies the current benchmark fixture and its support file into that snapshot. Both builds use the same compiler and optimization flags.
 `build.json` records revisions, source changes, flags and hashes. Choose a logical
-CPU that exists on your machine; `--cpu` uses Windows process affinity.
+CPU available to your process. The runner also accepts Linux benchmark binaries
+and pins them with the same `--cpu` option.
 
 The runner randomizes case order with a recorded seed and uses paired AB/BA
 order across two rounds. Defaults are 11 samples of approximately 75 ms per
@@ -103,7 +90,7 @@ Useful arguments:
 --block-ops 64                              amortize that overhead over more work
 --quick                                    3 short samples; validation/smoke run
 --case loop/jmp8/integer/body-1              one exact case (no substring matches)
---cpu 4                                    pin the process to logical CPU 4 (Windows)
+--cpu 4                                    pin the process to logical CPU 4 (Windows/Linux)
 --warmup-ms 250                             extra untimed warmup per case
 ```
 
@@ -137,7 +124,9 @@ and wraparound. `cycles-live` adds two guest-cycle updates per block. Arithmetic
 register allocation/spills and block entry/exit are part of the measurements.
 MOVS cases count one complete copy instruction as one operation, including its
 index updates. Each block resets ESI/EDI before a burst in two fixed RAM pages;
-that setup is included in timing. Segments are valid, and REP is not measured.
+that setup is included in timing. For long bursts the register allocator can
+end the block early. `body_ops` records the number of MOVS instructions
+compiled and execution times use that count. Segments are valid, and REP is not measured.
 Pressure cases keep modified values live across the accesses and verify their
 preservation. Their setup/writeback cost is included and amortized per memory
 access. SSE check cases also cover joins and helper calls with live SIMD values.
@@ -205,9 +194,10 @@ shared helper creation, OS allocation, instruction-cache flushing, execution,
 validation and state resets are outside timing. The first and last generated
 blocks are executed and validated. This measures backend block construction,
 not the complete guest decoder, dispatcher, cache eviction or an OS startup.
-`ops_per_block` is 1 in compilation CSVs, `body_ops` retains the requested block
+`ops_per_block` is 1 in compilation CSVs, `body_ops` records the compiled body
 length, and `measure` identifies the units. Keep compilation and execution
 results in separate directories. The executable's `--baseline` option is for
 execution only; use the paired runner for compilation comparisons.
 `slow_sites` and `slow_stubs` report the captured memory sites and distinct
-helper stubs (or -1 for revisions predating deferred stubs).
+helper stubs when the backend exposes those counters. A value of -1 means
+the counter is unavailable.

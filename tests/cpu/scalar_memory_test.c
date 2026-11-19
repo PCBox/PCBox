@@ -23,20 +23,10 @@
 cpu_state_t cpu_state;
 uintptr_t readlookup2[2097152], writelookup2[1048576];
 uint8_t *ram, *block_write_data;
-int block_pos, cpu_block_end;
+int block_pos, cpu_block_end, codegen_block_link;
 int timing_misaligned, cpu_cyrix_alignment;
 static codeblock_t test_block;
 codeblock_t *codeblock = &test_block;
-
-/* Register allocation is exercised separately by ram_register_test. */
-int codegen_reg_get_dirty_host_reg(int reg) { (void)reg; return -1; }
-void codegen_reg_flush_conditional(codeblock_t *block, ir_reg_t reg) { (void)block; (void)reg; }
-void codegen_reg_reload_mem(codeblock_t *block, ir_reg_t reg) { (void)block; (void)reg; }
-void codegen_reg_capture_mem(codegen_mem_reg_state_t *state, ir_reg_t reg)
-{ (void)reg; memset(state, 0, sizeof(*state)); }
-void codegen_reg_sync_mem(codeblock_t *block, const codegen_mem_reg_state_t *state, int reload, int stack_offset)
-{ (void)block; (void)state; (void)reload; (void)stack_offset; }
-
 
 enum { CODE_SIZE = 65536, CHUNK_SIZE = 4096 };
 enum { FORM_REG, FORM_ABS, FORM_IMM, FORM_SINGLE, FORM_DOUBLE };
@@ -94,7 +84,9 @@ static void capture(int vector, int reg)
 static void build_helper(int store, int size, int form, int fault)
 {
     uint8_t *entry = start_code();
-    /* Private helper ABI: ESI address, ECX/XMM0 data, ESI abort result. */
+    /* Scalar store slow paths retain EDI = address and RSI = lookup. */
+    if (store)
+        host_x86_MOV32_REG_REG(&test_block, REG_ESI, REG_EDI);
     host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &helper_address);
     host_x86_MOV32_BASE_OFFSET_REG(&test_block, REG_RDI, 0, REG_ESI);
     host_x86_MOV64_REG_IMM(&test_block, REG_RDI, (uintptr_t) &helper_calls);
@@ -135,8 +127,8 @@ static void build_helper(int store, int size, int form, int fault)
     host_x86_RET(&test_block);
     codegen_mem_load_byte = codegen_mem_load_word = codegen_mem_load_long = entry;
     codegen_mem_load_quad = codegen_mem_load_single = codegen_mem_load_double = entry;
-    codegen_mem_store_byte = codegen_mem_store_word = codegen_mem_store_long = entry;
-    codegen_mem_store_quad = codegen_mem_store_single = codegen_mem_store_double = entry;
+    for (int kind = MEM_B; kind < MEM_DQ; kind++)
+        codegen_mem_store_after_lookup[kind] = entry;
 }
 
 static void run_case(int store, int size, int form, int high_byte, int reg,
@@ -150,7 +142,7 @@ static void run_case(int store, int size, int form, int high_byte, int reg,
         linear &= 0xffff;
     unsigned index = linear & (sizeof(memory) - 1);
     CHECK(index + size <= sizeof(memory));
-    int expect_helper = !mapped || (linear & 0xfff) > 0x1000u - size;
+    int expect_helper = !mapped || (linear & (size - 1));
     CHECK(!fault || expect_helper);
 
     memset(memory, 0xa5, sizeof(memory));
@@ -222,7 +214,6 @@ static void run_case(int store, int size, int form, int high_byte, int reg,
 
     uint8_t *entry = start_code();
     codegen_backend_prologue(&test_block);
-    codegen_backend_mem_begin();
     for (unsigned i = 0; i < 5; i++)
         host_x86_MOV64_REG_IMM(&test_block, gprs[i], initial_data);
     host_x86_MOV32_REG_IMM(&test_block, REG_EAX, segment);
@@ -269,7 +260,6 @@ static void run_case(int store, int size, int form, int high_byte, int reg,
     }
     capture(vector, reg);
     codegen_backend_epilogue(&test_block);
-    codegen_backend_mem_finish(&test_block);
 #ifdef _WIN32
     CHECK(FlushInstructionCache(GetCurrentProcess(), code_memory, CODE_SIZE));
 #else

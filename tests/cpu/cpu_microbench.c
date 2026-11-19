@@ -1,6 +1,12 @@
 /* Standalone x86-64 dynarec benchmarks. Compile real IR and execute the real
    allocator/emitter/helper ABI; supply only RAM callbacks and executable memory.
    Execution is measured by default; --measure compile times block creation. */
+#ifdef __linux__
+#    ifndef _GNU_SOURCE
+#        define _GNU_SOURCE
+#    endif
+#    include <sched.h>
+#endif
 #include <errno.h>
 #include <math.h>
 #include <stdarg.h>
@@ -24,11 +30,12 @@
 #    undef REG_DWORD
 #    undef REG_QWORD
 #endif
-#include "../../src/codegen/codegen_reg.c"
-extern const uOpFn uop_handlers[];
-#include "../../src/codegen/codegen_ir.c"
+#include "../../src/codegen/codegen_ir.h"
+
 #include "../../src/codegen/codegen_ops_jump.h"
 #include "../../src/codegen/codegen_ops_mov.h"
+
+void microbench_init_frontend(void);
 
 #ifndef CPU_BENCH_BUILD
 #    define CPU_BENCH_BUILD "standalone"
@@ -56,7 +63,6 @@ uintptr_t readlookup2[2097152], writelookup2[1048576];
 uint8_t *ram;
 int cpu_block_end;
 static codeblock_t bench_block;
-codeblock_t *codeblock = &bench_block;
 
 struct mem_block_t { uint8_t *data; };
 static struct mem_block_t chunks[CODE_SIZE / CHUNK_SIZE];
@@ -88,51 +94,9 @@ void fatal(const char *fmt, ...)
 }
 #define CHECK(c) do { if (!(c)) fatal("line %d: %s\n", __LINE__, #c); } while (0)
 
-/* MOVS cases use valid segments and the production instruction translator;
-   the surrounding instruction decoder is outside this fixture. */
-void codegen_check_seg_read(codeblock_t *block, ir_data_t *ir, x86seg *seg)
-{
-    (void) block; (void) ir; (void) seg;
-    CHECK(!(cr0 & 1));
-}
-void codegen_check_seg_write(codeblock_t *block, ir_data_t *ir, x86seg *seg, int addr_reg, int size)
-{
-    (void) addr_reg; (void) size;
-    codegen_check_seg_read(block, ir, seg);
-}
-void codegen_check_seg_write_abs(codeblock_t *block, ir_data_t *ir, x86seg *seg, uint32_t addr, int size)
-{
-    (void) addr; (void) size;
-    codegen_check_seg_read(block, ir, seg);
-}
-x86seg *codegen_generate_ea(ir_data_t *ir, x86seg *seg, uint32_t fetchdat, int ssegs,
-                          uint32_t *pc, uint32_t op32, int offset)
-{
-    (void) ir; (void) seg; (void) fetchdat; (void) ssegs;
-    (void) pc; (void) op32; (void) offset;
-    fatal("unexpected generic effective-address decoder call\n");
-    return NULL;
-}
-
 void x86illegal(void) { fatal("unexpected #UD\n"); }
 void x86_int(int vector) { fatal("unexpected exception %d\n", vector); }
 void x86gpf(char *message, uint16_t error) { (void) message; (void) error; fatal("unexpected #GP\n"); }
-void codegen_set_loop_start(ir_data_t *ir, int first)
-{
-    CHECK(first == 0);
-    /* Same context restoration as codegen.c, using this fixture's metadata. */
-    uop_MOV_IMM(ir, IREG_op32, 0x100);
-    uop_MOV_PTR(ir, IREG_ea_seg, &cpu_state.seg_ds);
-    uop_MOV_IMM(ir, IREG_ssegs, 0);
-    uop_MOV_IMM(ir, IREG_sse_xmm, 0);
-}
-int codegen_get_instruction_uop(codeblock_t *block, uint32_t addr, int *first, int *top)
-{
-    (void) block;
-    *first = 0;
-    *top = 0;
-    return addr == 0x100 ? 0 : -1;
-}
 uint8_t *getpccache(uint32_t addr) { (void) addr; return instruction_bytes; }
 
 struct mem_block_t *codegen_allocator_allocate(struct mem_block_t *parent, int nr)
@@ -163,7 +127,9 @@ static uint64_t access_memory(uint32_t addr, uint64_t value, unsigned size, int 
         helper_calls++;
         CHECK(addr <= RAM_SIZE - size);
     }
-    if (addr & (size - 1))
+    high_page = 0;
+    mem_logical_addr = addr;
+    if ((addr & (size - 1)) && (!cpu_cyrix_alignment || (addr & 7) > 8 - size))
         cycles = (int32_t) ((uint32_t) cycles - timing_misaligned);
     if (store)
         memcpy(memory + addr, &value, size);
@@ -190,13 +156,18 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_ADD_IMM & UOP_MASK] = codegen_ADD_IMM,
     [UOP_XOR_IMM & UOP_MASK] = codegen_XOR_IMM,
     [UOP_IMUL_IMM & UOP_MASK] = codegen_IMUL_IMM,
+    [UOP_ADD & UOP_MASK] = codegen_ADD,
+    [UOP_SUB & UOP_MASK] = codegen_SUB,
+    [UOP_MOVZX & UOP_MASK] = codegen_MOVZX,
+    [UOP_CMP_JNWITHIN & UOP_MASK] = codegen_CMP_JNWITHIN,
+    [UOP_SHR_IMM & UOP_MASK] = codegen_SHR_IMM,
     [UOP_SHL_IMM & UOP_MASK] = codegen_SHL_IMM,
     [UOP_AND_IMM & UOP_MASK] = codegen_AND_IMM,
     [UOP_PADDD & UOP_MASK] = codegen_PADDD,
     [UOP_ADDPS & UOP_MASK] = codegen_ADDPS,
     [UOP_MULPS & UOP_MASK] = codegen_MULPS,
     [UOP_ADDSS & UOP_MASK] = codegen_ADDSS,
-    [UOP_SHUFPS & UOP_MASK] = codegen_SHUFPS,
+    [UOP_SHUFPS & UOP_MASK] = codegen_SHUF,
     [UOP_CMP_IMM_JNZ_DEST & UOP_MASK] = codegen_CMP_IMM_JNZ_DEST,
     [UOP_JMP & UOP_MASK] = codegen_JMP,
     [UOP_SSE_ENTER & UOP_MASK] = codegen_SSE_ENTER,
@@ -427,6 +398,7 @@ static void emit_memory(ir_data_t *ir, const bench_case_t *c)
 
 static void prepare_codegen(void)
 {
+    codeblock = &bench_block;
     next_chunk = 0;
     memset(&bench_block, 0, sizeof(bench_block));
     start_code();
@@ -450,8 +422,11 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
     next_chunk = first_codegen_chunk;
     memset(&bench_block, 0, sizeof(bench_block));
     uint8_t *entry = start_code();
+    cpu_block_end = 0;
     codegen_reg_reset();
+    codegen_flags_known_reset();
     ir_data_t *ir = codegen_ir_init();
+    ir->block = &bench_block;
     bench_block.flags = CODEBLOCK_HAS_FPU | (c->dynamic_top ? 0 : CODEBLOCK_STATIC_TOP);
     bench_block.TOP = cpu_state.TOP;
     for (int r = 0; r < c->gpr_pressure; r++)
@@ -485,10 +460,13 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
             }
             case MOVS: {
                 uint32_t op32 = c->address32 ? 0x200 : 0;
-                uint32_t pc = c->size == 1 ? ropMOVS_b(&bench_block, ir, 0xa4, 0, op32, 0x101)
-                            : c->size == 2 ? ropMOVS_w(&bench_block, ir, 0xa5, 0, op32, 0x101)
-                                           : ropMOVS_l(&bench_block, ir, 0xa5, 0, op32 | 0x100, 0x101);
+                uint32_t pc = ropMOVS(&bench_block, ir, c->size == 1 ? 0xa4 : 0xa5, 0,
+                                      op32 | (c->size == 4 ? 0x100 : 0), 0x101);
                 CHECK(pc == 0x101);
+                /* The real decoder ends the block before another instruction
+                   can overflow the allocator's per-register version table. */
+                if (cpu_block_end)
+                    body_ops = i + 1;
                 break;
             }
             case INTEGER_ADD: uop_ADD_IMM(ir, IREG_32(r), IREG_32(r), 3); break;
@@ -536,7 +514,7 @@ static void (*compile_case(const bench_case_t *c, unsigned *jit_bytes, unsigned 
         CHECK(target == 0x100);
         uop_MOV_IMM(ir, IREG_pc, target);
     }
-    *copies = codegen_unroll_count ? codegen_unroll_count : 1;
+    *copies = codegen_ir_unrolling() ? codegen_ir_unrolling() : 1;
     *work_ops = c->kind == EMPTY ? 1 : body_ops * *copies;
     codegen_ir_compile(ir, &bench_block);
     /* Allocated payload, including unused tails, excludes the shared helpers. */
@@ -548,6 +526,8 @@ static void reset_state(const bench_case_t *c, int timed)
 {
     memset(&cpu_state, 0, sizeof(cpu_state));
     cr4 = CR4_OSFXSR;
+    cpu_state.mxcsr = 0x1f80;
+    cpu_state.seg_ds.limit_high = cpu_state.seg_es.limit_high = 0xffff;
     cpu_state.old_fp_control = 0x1f80;
     cpu_state.new_fp_control = 0x1f80;
     cycles = 1000000000;
@@ -560,7 +540,7 @@ static void reset_state(const bench_case_t *c, int timed)
     }
     if (c->kind == MEMORY) {
         EAX = c->address;
-        EBX = 0x12345678;
+        EBX = c->form == IMM_FORM ? 0 : 0x12345678;
         cpu_state.ST[cpu_state.TOP] = 2.25;
     }
     if (c->kind == MOVS) {
@@ -574,6 +554,35 @@ static void reset_state(const bench_case_t *c, int timed)
         for (int lane = 0; lane < 4; lane++)
             cpu_state.XMM[7].f2[lane] = c->kind == SSE_MUL ? (timed ? 1.0f : 2.0f) : (timed ? 0.0f : 0.25f);
     }
+}
+
+/* Exercise the misaligned store path with Cyrix timing and with hardware
+   breakpoints armed. Both configurations can change between block calls. */
+static void validate_unaligned_store(const bench_case_t *c, void (*entry)(void), const uint8_t *value)
+{
+    enum { RAM_HIT, DEBUG_BREAKPOINT, LOOKUP_MISS };
+    uintptr_t *lookup = &writelookup2[c->address >> 12];
+    uintptr_t saved_lookup = *lookup;
+    for (int path = RAM_HIT; path <= LOOKUP_MISS; path++) {
+        reset_state(c, 0);
+        memset(memory + c->address, 0, c->size);
+        cpu_cyrix_alignment = 1;
+        cpu_dr_armed = path == DEBUG_BREAKPOINT;
+        *lookup = path == LOOKUP_MISS ? (uintptr_t) -1 : saved_lookup;
+        high_page = 1;
+        mem_logical_addr = UINT32_MAX;
+        helper_calls = 0;
+        verifying = 1;
+        entry();
+        verifying = 0;
+        unsigned penalty = (c->address & 7) > 8 - c->size ? block_ops * timing_misaligned : 0;
+        CHECK(!cpu_state.abrt && cycles == 1000000000 - (int) penalty - c->cached_cycles * 2);
+        CHECK(mem_logical_addr == c->address && high_page == 0);
+        CHECK(memcmp(memory + c->address, value, c->size) == 0);
+        if (path != RAM_HIT) CHECK(helper_calls == block_ops);
+    }
+    *lookup = saved_lookup;
+    cpu_dr_armed = cpu_cyrix_alignment = 0;
 }
 
 static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned work_ops)
@@ -595,6 +604,9 @@ static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned wo
         if (c->form == SINGLE_FORM) {
             float f = 2.25f;
             memcpy(expected_value, &f, 4);
+        } else if (c->form == IMM_FORM) {
+            uint32_t imm = 0x12345678;
+            memcpy(expected_value, &imm, sizeof(imm));
         } else if (c->form == DOUBLE_FORM)
             memcpy(expected_value, &expected.ST[expected.TOP], 8);
         else if (c->size == 16)
@@ -617,6 +629,8 @@ static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned wo
         for (int lane = 0; lane < 4; lane++)
             CHECK(cpu_state.XMM[r].l[lane] == expected.XMM[r].l[lane] * 4);
     if (c->kind == MEMORY) {
+        if (c->size < 16 && (c->lookup_miss || (c->address & 0xfff) > 4096 - c->size))
+            CHECK(helper_calls == block_ops);
         if (c->store) {
             for (unsigned i = 0; i < (c->working_set ? block_ops : 1); i++)
                 CHECK(memcmp(memory + (c->working_set ? (i * c->stride) & (c->working_set - 1) : c->address),
@@ -630,8 +644,14 @@ static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned wo
         else
             CHECK(EBX == (c->size == 4 ? 0xa5a5a5a5 : c->size == 2 ? 0x1234a5a5 : 0x123456a5));
         if (c->working_set) CHECK(EAX == ((block_ops * c->stride) & (c->working_set - 1)));
-        unsigned penalty = c->size == 16 ? (helper_calls && (c->address & 7) ? helper_calls * 3 : 0)
-                         : (c->address & (c->size - 1)) ? block_ops * 3 : 0;
+        /* A split XMM access takes two qword paths. Either can charge an
+           unaligned access in generated code without calling C. */
+        unsigned penalty = 0;
+        if (c->size == 16) {
+            if ((c->lookup_miss || (c->address & 0xfff) > 0xff0) && (c->address & 7))
+                penalty = 2 * block_ops * timing_misaligned;
+        } else if (c->address & (c->size - 1))
+            penalty = block_ops * timing_misaligned;
         CHECK(cycles == 1000000000 - (int) penalty - c->cached_cycles * 2);
         if (c->working_set) {
             /* Also check the wraparound which long timed streams will reach. */
@@ -718,7 +738,11 @@ static unsigned validate(const bench_case_t *c, void (*entry)(void), unsigned wo
         if ((c->kind >= SSE_INTEGER && c->kind <= SSE_MUL) || c->kind == SSE_SCALAR_ADD || c->kind == SSE_SHUFFLE)
             CHECK(memcmp(cpu_state.XMM, expected.XMM, sizeof(expected.XMM)) == 0);
     }
-    return helper_calls;
+    unsigned calls = helper_calls;
+    if (c->kind == MEMORY && c->store && c->size <= 8 && (c->address & (c->size - 1)) &&
+        !c->lookup_miss && (c->address & 0xfff) <= 4096 - c->size)
+        validate_unaligned_store(c, entry, expected_value);
+    return calls;
 }
 
 static double now_ns(void)
@@ -771,17 +795,19 @@ static void load_baseline(const char *path)
     FILE *f = fopen(path, "r");
     if (!f) fatal("cannot open baseline %s: %s\n", path, strerror(errno));
     char line[8192], name[128];
-    unsigned ops, iterations, samples, matched = 0;
+    unsigned ops, iterations, samples, requested_ops = 0, matched = 0;
     double median;
     while (fgets(line, sizeof(line), f)) {
         if (line[0] == '#' && strstr(line, "measure=compile"))
             fatal("cannot use a compilation baseline for execution timings\n");
+        if (sscanf(line, "# block_ops=%u", &requested_ops) == 1) continue;
         if (line[0] == '#' || !strncmp(line, "case,", 5)) continue;
         if (sscanf(line, "%127[^,],%u,%u,%u,%lf", name, &ops, &iterations, &samples, &median) != 5 ||
             !isfinite(median) || median <= 0) fatal("invalid baseline row\n");
         for (unsigned i = 0; i < case_count; i++) {
             if (strcmp(name, cases[i].name)) continue;
-            if (cases[i].kind != JMP_LOOP && ops != (cases[i].kind == EMPTY ? 1 : block_ops))
+            unsigned baseline_ops = cases[i].kind == MOVS && requested_ops ? requested_ops : ops;
+            if (cases[i].kind != JMP_LOOP && baseline_ops != (cases[i].kind == EMPTY ? 1 : block_ops))
                 fatal("baseline block size differs for %s\n", name);
             if (baseline[i]) fatal("duplicate baseline row for %s\n", name);
             baseline[i] = median;
@@ -820,7 +846,7 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "--help")) {
             puts("cpu_microbench [--filter substring] [--samples 3..99] [--sample-ms 1..1000]\n"
                  "               [--block-ops 1..64] [--csv result.csv] [--baseline old.csv]\n"
-                 "               [--case exact-name] [--warmup-ms 0..5000] [--cpu 0..63 (Windows)]\n"
+                 "               [--case exact-name] [--warmup-ms 0..5000] [--cpu logical-CPU (Windows/Linux)]\n"
                  "               [--list] [--quick]\n"
                  "               [--measure execute|compile] (compile: ns/block; compile/ cases accept up to 192 ops)\n"
                  "Lower ns/op is better. Positive baseline delta means slower.\n"
@@ -836,7 +862,13 @@ int main(int argc, char **argv)
             else if (!strcmp(option, "--samples")) samples = number(argv[i], 3, MAX_SAMPLES);
             else if (!strcmp(option, "--sample-ms")) sample_ms = number(argv[i], 1, 1000);
             else if (!strcmp(option, "--warmup-ms")) warmup_ms = number(argv[i], 0, 5000);
-            else if (!strcmp(option, "--cpu")) affinity_cpu = number(argv[i], 0, 63);
+            else if (!strcmp(option, "--cpu")) {
+#ifdef __linux__
+                affinity_cpu = number(argv[i], 0, CPU_SETSIZE - 1);
+#else
+                affinity_cpu = number(argv[i], 0, 63);
+#endif
+            }
             else if (!strcmp(option, "--block-ops")) block_ops = number(argv[i], 1, 192);
             else if (!strcmp(option, "--csv")) csv_path = argv[i];
             else if (!strcmp(option, "--baseline")) baseline_path = argv[i];
@@ -876,8 +908,14 @@ int main(int argc, char **argv)
     if (affinity_cpu >= 0) {
 #ifdef _WIN32
         CHECK(SetProcessAffinityMask(GetCurrentProcess(), (DWORD_PTR) 1 << affinity_cpu));
+#elif defined(__linux__)
+        cpu_set_t set;
+        CPU_ZERO(&set);
+        CPU_SET(affinity_cpu, &set);
+        if (sched_setaffinity(0, sizeof(set), &set))
+            fatal("cannot pin to CPU %d: %s\n", affinity_cpu, strerror(errno));
 #else
-        fatal("--cpu is supported on Windows; use taskset on Linux\n");
+        fatal("--cpu is supported on Windows and Linux\n");
 #endif
     }
     if (csv_path && baseline_path && !strcmp(csv_path, baseline_path)) fatal("use different output and baseline paths\n");
@@ -894,6 +932,12 @@ int main(int argc, char **argv)
     code_memory = mmap(NULL, CODE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     CHECK(code_memory != MAP_FAILED);
 #endif
+    /* Each timed call runs one block and returns directly to the harness. */
+#ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+    codegen_block_link = 0;
+#endif
+    microbench_init_frontend();
+    codegen_check_regs();
     memset(readlookup2, 0xff, sizeof(readlookup2));
     memset(writelookup2, 0xff, sizeof(writelookup2));
     for (unsigned i = 0; i < RAM_SIZE / 4096; i++) readlookup2[i] = writelookup2[i] = (uintptr_t) memory;
@@ -931,7 +975,8 @@ int main(int argc, char **argv)
 #endif
         /* Warm the code/data and calibrate enough work to amortize the timer.
            Reset state outside timing; floating-point timing inputs stay finite. */
-        unsigned iterations = 1024;
+        unsigned min_iterations = measure_compile ? 1 : 1024;
+        unsigned iterations = min_iterations;
         double elapsed;
         do {
             reset_state(c, 1);
@@ -940,7 +985,7 @@ int main(int argc, char **argv)
             iterations *= 2;
         } while (1);
         double estimate = ceil(iterations * sample_ms * 1e6 / elapsed);
-        iterations = estimate > (1u << 28) ? (1u << 28) : estimate < 1024 ? 1024 : (unsigned) estimate;
+        iterations = estimate > (1u << 28) ? (1u << 28) : estimate < min_iterations ? min_iterations : (unsigned) estimate;
         double warm_end = now_ns() + warmup_ms * 1e6;
         do {
             reset_state(c, 1);
@@ -978,7 +1023,7 @@ int main(int argc, char **argv)
             fprintf(csv, "%s,%u,%u,%u,%.9f,%.9f,%.9f,%u,%u", c->name, divisor, iterations, samples,
                     median, sorted[0], p95, calls, jit_bytes);
             fprintf(csv, ",%.9f,%.9f,%.6f,%.9f,%.9f,%u,%u,%.3f,%s,%d,%d", mean, stddev, stddev / mean * 100,
-                    mad, sorted[samples - 1], c->body_ops ? c->body_ops : block_ops, copies, measured_ms,
+                    mad, sorted[samples - 1], c->kind == EMPTY ? block_ops : ops / copies, copies, measured_ms,
                     measure_compile ? "compile" : "execute", slow_sites, slow_stubs);
             for (unsigned s = 0; s < samples; s++) fprintf(csv, ",%.9f", values[s]);
             fputc('\n', csv);
