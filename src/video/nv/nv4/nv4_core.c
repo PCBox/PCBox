@@ -174,6 +174,9 @@ nv4_mmio_byte_wide(uint32_t addr)
     return ((addr >= NV4_PRMVGA_START) && (addr <= NV4_PRMVIO_END))
         || ((addr >= NV4_PRMCIO_START) && (addr <= NV4_PRMCIO_END))
         || ((addr >= NV4_PRMDIO_START) && (addr <= NV4_PRMDIO_END))
+        || ((addr >= 0x0c2300) && (addr <= 0x0c23ff))
+        || ((addr >= 0x603300) && (addr <= 0x6033ff))
+        || ((addr >= 0x683300) && (addr <= 0x6833ff))
         || ((addr >= NV4_PROM_START) && (addr <= NV4_PROM_END))
         || ((addr >= NV4_PBUS_PCI_START) && (addr <= NV4_PBUS_PCI_END));
 }
@@ -181,6 +184,8 @@ nv4_mmio_byte_wide(uint32_t addr)
 static uint8_t
 nv4_mmio_read8_bytewide(nv4_t *nv4, uint32_t addr)
 {
+        if (((addr >= 0x0c2300) && (addr <= 0x0c23ff)) || ((addr >= 0x603300) && (addr <= 0x6033ff)) || ((addr >= 0x683300) && (addr <= 0x6833ff)))
+        return 0x00;
     if (addr >= NV4_PRMVGA_START && addr <= NV4_PRMVGA_END) {
         nv4_vga_mem_access(nv4, addr - NV4_PRMVGA_START + 0xa0000, 1, 0);
         return svga_read(addr - NV4_PRMVGA_START + 0xa0000, &nv4->svga);
@@ -199,6 +204,8 @@ nv4_mmio_read8_bytewide(nv4_t *nv4, uint32_t addr)
 static void
 nv4_mmio_write8_bytewide(nv4_t *nv4, uint32_t addr, uint8_t val)
 {
+    if (((addr >= 0x0c2300) && (addr <= 0x0c23ff)) || ((addr >= 0x603300) && (addr <= 0x6033ff)) || ((addr >= 0x683300) && (addr <= 0x6833ff)))
+    return;
     if (addr >= NV4_PRMVGA_START && addr <= NV4_PRMVGA_END) {
         nv4_vga_mem_access(nv4, addr - NV4_PRMVGA_START + 0xa0000, 1, 1);
         svga_write(addr - NV4_PRMVGA_START + 0xa0000, val, &nv4->svga);
@@ -247,6 +254,8 @@ nv4_reg_read32(nv4_t *nv4, uint32_t addr)
         return nv4_ramin_read32(nv4, addr - NV4_PRAMIN_START);
     if (addr >= NV4_USER_START)
         return nv4_user_read(nv4, addr);
+    if ((addr >= 0x602000 && addr <= 0x602fff) || (addr >= 0x682000 && addr <= 0x682fff))
+        return 0x30000000;
 
     nv4_log("NV4: read from unmapped register %06x\n", addr);
     return 0;
@@ -289,6 +298,8 @@ nv4_reg_write32(nv4_t *nv4, uint32_t addr, uint32_t val)
         nv4_ramin_write32(nv4, addr - NV4_PRAMIN_START, val);
     else if (addr >= NV4_USER_START)
         nv4_user_write(nv4, addr, val);
+    else if ((addr >= 0x602000 && addr <= 0x602fff) || (addr >= 0x682000 && addr <= 0x682fff))
+        return;
     else
         nv4_log("NV4: write to unmapped register %06x = %08x\n", addr, val);
 }
@@ -637,7 +648,7 @@ nv4_pci_cfg_read(nv4_t *nv4, int addr)
         case 0x33:
             return nv4->pci_regs[0x33];
         case 0x34:
-            return NV4_CAP_PM;
+            return (nv4->chip == NV4_CHIP_NV11) ? (nv4->is_agp ? NV4_CAP_AGP : 0x00) : NV4_CAP_PM;
         case 0x3c:
             return nv4->pci_regs[0x3c];
         case 0x3d:
@@ -1048,6 +1059,8 @@ static const nv4_board_t board_nv10_erazor_x = { .name = "nv10_erazor_x", .rom_p
 static const nv4_board_t board_nv10_annihilator_pro = { .name = "nv10_annihilator_pro", .rom_path = "roms/video/nvidia/nv10/creative.rom", .device_id = NV10_PCI_DEVICE_DDR, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1, .ramcfg = 1, .ddr = 1 };
 static const nv4_board_t board_nv10_erazor_x2 = { .name = "nv10_erazor_x2", .rom_path = "roms/video/nvidia/nv10/elsa_erazor_x2.rom", .device_id = NV10_PCI_DEVICE_DDR, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1, .ramcfg = 1, .ddr = 1 };
 static const nv4_board_t board_nv10_gloria2 = { .name = "nv10_gloria2", .rom_path = "roms/video/nvidia/nv10/elsagloriaII.bin", .device_id = NV10_PCI_DEVICE_QUADRO, .chip = NV4_CHIP_NV10, .revision = 0x10, .crystal_14m = 1, .ramcfg = 1, .ddr = 1 };
+/* GeForce2 MX (NV11, PCI revision 0xa1) */
+static const nv4_board_t board_nv11_gf2mx = { .name = "nv11_gf2mx", .rom_path = "roms/video/nvidia/nv11/gf2mx.rom", .device_id = NV11_PCI_DEVICE_MX, .chip = NV4_CHIP_NV11, .revision = 0xa1, .crystal_14m = 1, .ddr = 1 };
 
 /* NV15 A3 (PCI revision 02). Both retail variants use device ID 0150.
    The memory straps select the 200 MHz core and the board's DDR timing
@@ -1097,6 +1110,7 @@ static const nv4_board_t *const nv4_boards[] = {
     &board_nv10_annihilator_pro,
     &board_nv10_erazor_x2,
     &board_nv10_gloria2,
+    &board_nv11_gf2mx,
     &board_nv15_gts_inno3d,
     &board_nv15_gts_hercules,
     &board_nv15_pro,
@@ -1121,6 +1135,12 @@ static int
 nv10_quadro_available(void)
 {
     return rom_present(board_nv10_gloria2.rom_path);
+}
+
+static int
+nv11_mx_available(void)
+{
+    return rom_present(board_nv11_gf2mx.rom_path);
 }
 
 const nv4_board_t *
@@ -1870,6 +1890,87 @@ const device_t nv10_quadro_agp_device = {
     .speed_changed = nv4_speed_changed,
     .force_redraw  = nv4_force_redraw,
     .config        = nv10_quadro_config
+};
+static const device_config_t nv11_mx_config[] = {
+    {
+        .name           = "bios",
+        .description    = "Model",
+        .type           = CONFIG_BIOS,
+        .default_string = "nv11_gf2mx",
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = {
+            { .name = "NVIDIA GeForce2 MX (32 MB)", .internal_name = "nv11_gf2mx", .bios_type = BIOS_NORMAL,
+              .files_no = 1, .local = 0, .size = 0, .files = { "roms/video/nvidia/nv11/gf2mx.rom", "" } },
+            { .files_no = 0 }
+        }
+    },
+    {
+        .name           = "memory",
+        .description    = "Memory size",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 32,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "16 MB", .value = 16 },
+            { .description = "32 MB", .value = 32 },
+            { .description = "64 MB", .value = 64 },
+            { .description = "" }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "render_threads",
+        .description    = "Render threads",
+        .type           = CONFIG_SELECTION,
+        .default_string = NULL,
+        .default_int    = 2,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = {
+            { .description = "1", .value = 1 },
+            { .description = "2", .value = 2 },
+            { .description = "3", .value = 3 },
+            { .description = "4", .value = 4 },
+            { .description = "6", .value = 6 },
+            { .description = "8", .value = 8 },
+            { .description = "12", .value = 12 },
+            { .description = "16", .value = 16 },
+            { .description = "" }
+        },
+        .bios           = { { 0 } }
+    },
+    {
+        .name           = "gpu_raster",
+        .description    = "Draw 3D on the host GPU (Vulkan)",
+        .type           = CONFIG_BINARY,
+        .default_string = NULL,
+        .default_int    = 0,
+        .file_filter    = NULL,
+        .spinner        = { 0 },
+        .selection      = { { 0 } },
+        .bios           = { { 0 } }
+    },
+    { .name = "", .description = "", .type = CONFIG_END }
+};
+
+
+const device_t nv11_geforce2_mx_agp_device = {
+    .name          = "nVIDIA GeForce2 MX (NV11) AGP",
+    .internal_name = "nv11_geforce2_mx_agp",
+    .flags         = DEVICE_AGP,
+    .local         = (uintptr_t) &board_nv11_gf2mx,
+    .init          = nv4_init,
+    .close         = nv4_close,
+    .reset         = nv4_reset,
+    .available     = nv11_mx_available,
+    .speed_changed = nv4_speed_changed,
+    .force_redraw  = nv4_force_redraw,
+    .config        = nv11_mx_config
 };
 
 static const device_config_t nv15_gts_config[] = {
