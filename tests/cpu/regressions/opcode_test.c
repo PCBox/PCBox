@@ -16,7 +16,7 @@ typedef struct {
     unsigned length, cr0_bits, no_osfxsr, trap_p3, trap_p4, setup, only_p4;
 } opcode_case;
 enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP_ALL_WRAP, UNPACK_SS, SSE_CALLBACK, SSE2_MOVD, SSE2_MOVQ, SSE2_MOVDQ, SSE2_MOVDQA_FAULT,
-       PSHUFD_REG, PSHUFD_SELF, PSHUFD_MEM, SHUFPD_REG, SHUFPD_SELF, SHUFPD_MEM, MOVMSKPD };
+       PSHUFD_REG, PSHUFD_SELF, PSHUFD_MEM, SHUFPD_REG, SHUFPD_SELF, SHUFPD_MEM, MOVMSKPD, MOVQ2DQ, MOVDQ2Q };
 static const opcode_case opcases[] = {
     {"MOVMSKPD edx,xmm5", {0x66,0x0f,0x50,0xd5},4,0,0,6,0,MOVMSKPD,1},
     {"MOVMSKPD memory", {0x66,0x0f,0x50,0x17},4,0,0,6,6,MOVMSKPD,1},
@@ -347,22 +347,26 @@ static const opcode_case opcases[] = {
     {"MMX fault PINSRW", {0xf,0xc4,0x7,0x0},4,0x80010000,0,14,14,12},
     {"MMX fault MOVQ store", {0xf,0x7f,0x7},3,0x80010000,0,14,14,12},
     {"MMX fault MOVD store", {0xf,0x7e,0x7},3,0x80010000,0,14,14,12},
-    {"MOVQ2DQ normal a32", {0xf3,0xf,0xd6,0xc1},4,0,0,6,0,0,1},
-    {"MOVQ2DQ TS a32", {0xf3,0xf,0xd6,0xc1},4,8,0,6,7,0,1},
-    {"MOVQ2DQ EM a32", {0xf3,0xf,0xd6,0xc1},4,4,0,6,6,0,1},
-    {"MOVQ2DQ OSFXSR off a32", {0xf3,0xf,0xd6,0xc1},4,0,1,6,6,0,1},
-    {"MOVQ2DQ normal a16", {0x67,0xf3,0xf,0xd6,0xc1},5,0,0,6,0,0,1},
-    {"MOVQ2DQ TS a16", {0x67,0xf3,0xf,0xd6,0xc1},5,8,0,6,7,0,1},
-    {"MOVQ2DQ EM a16", {0x67,0xf3,0xf,0xd6,0xc1},5,4,0,6,6,0,1},
-    {"MOVQ2DQ OSFXSR off a16", {0x67,0xf3,0xf,0xd6,0xc1},5,0,1,6,6,0,1},
-    {"MOVDQ2Q normal a32", {0xf2,0xf,0xd6,0xc1},4,0,0,6,0,0,1},
-    {"MOVDQ2Q TS a32", {0xf2,0xf,0xd6,0xc1},4,8,0,6,7,0,1},
-    {"MOVDQ2Q EM a32", {0xf2,0xf,0xd6,0xc1},4,4,0,6,6,0,1},
-    {"MOVDQ2Q OSFXSR off a32", {0xf2,0xf,0xd6,0xc1},4,0,1,6,6,0,1},
-    {"MOVDQ2Q normal a16", {0x67,0xf2,0xf,0xd6,0xc1},5,0,0,6,0,0,1},
-    {"MOVDQ2Q TS a16", {0x67,0xf2,0xf,0xd6,0xc1},5,8,0,6,7,0,1},
-    {"MOVDQ2Q EM a16", {0x67,0xf2,0xf,0xd6,0xc1},5,4,0,6,6,0,1},
-    {"MOVDQ2Q OSFXSR off a16", {0x67,0xf2,0xf,0xd6,0xc1},5,0,1,6,6,0,1},
+    {"MOVQ2DQ memory", {0xf3,0xf,0xd6,0x07},4,0,0,6,6,MOVQ2DQ,1},
+    {"MOVQ2DQ pending x87", {0xf3,0xf,0xd6,0xc1},4,0x20,0,6,16,MOVQ2DQ,1},
+    {"MOVQ2DQ normal a32", {0xf3,0xf,0xd6,0xc1},4,0,0,6,0,MOVQ2DQ,1},
+    {"MOVQ2DQ TS a32", {0xf3,0xf,0xd6,0xc1},4,8,0,6,7,MOVQ2DQ,1},
+    {"MOVQ2DQ EM a32", {0xf3,0xf,0xd6,0xc1},4,4,0,6,6,MOVQ2DQ,1},
+    {"MOVQ2DQ OSFXSR off a32", {0xf3,0xf,0xd6,0xc1},4,0,1,6,6,MOVQ2DQ,1},
+    {"MOVQ2DQ normal a16", {0x67,0xf3,0xf,0xd6,0xc1},5,0,0,6,0,MOVQ2DQ,1},
+    {"MOVQ2DQ TS a16", {0x67,0xf3,0xf,0xd6,0xc1},5,8,0,6,7,MOVQ2DQ,1},
+    {"MOVQ2DQ EM a16", {0x67,0xf3,0xf,0xd6,0xc1},5,4,0,6,6,MOVQ2DQ,1},
+    {"MOVQ2DQ OSFXSR off a16", {0x67,0xf3,0xf,0xd6,0xc1},5,0,1,6,6,MOVQ2DQ,1},
+    {"MOVDQ2Q memory", {0xf2,0xf,0xd6,0x07},4,0,0,6,6,MOVDQ2Q,1},
+    {"MOVDQ2Q pending x87", {0xf2,0xf,0xd6,0xc1},4,0x20,0,6,16,MOVDQ2Q,1},
+    {"MOVDQ2Q normal a32", {0xf2,0xf,0xd6,0xc1},4,0,0,6,0,MOVDQ2Q,1},
+    {"MOVDQ2Q TS a32", {0xf2,0xf,0xd6,0xc1},4,8,0,6,7,MOVDQ2Q,1},
+    {"MOVDQ2Q EM a32", {0xf2,0xf,0xd6,0xc1},4,4,0,6,6,MOVDQ2Q,1},
+    {"MOVDQ2Q OSFXSR off a32", {0xf2,0xf,0xd6,0xc1},4,0,1,6,6,MOVDQ2Q,1},
+    {"MOVDQ2Q normal a16", {0x67,0xf2,0xf,0xd6,0xc1},5,0,0,6,0,MOVDQ2Q,1},
+    {"MOVDQ2Q TS a16", {0x67,0xf2,0xf,0xd6,0xc1},5,8,0,6,7,MOVDQ2Q,1},
+    {"MOVDQ2Q EM a16", {0x67,0xf2,0xf,0xd6,0xc1},5,4,0,6,6,MOVDQ2Q,1},
+    {"MOVDQ2Q OSFXSR off a16", {0x67,0xf2,0xf,0xd6,0xc1},5,0,1,6,6,MOVDQ2Q,1},
     {"CVTPI2PD normal a32", {0x66,0xf,0x2a,0xc1},4,0,0,6,0,0,1},
     {"CVTPI2PD TS a32", {0x66,0xf,0x2a,0xc1},4,8,0,6,7,0,1},
     {"CVTPI2PD EM a32", {0x66,0xf,0x2a,0xc1},4,4,0,6,6,0,1},
@@ -517,6 +521,14 @@ int main(int argc,char **argv) {
             memset(&cpu_state.XMM[0],0x11,16); memset(&cpu_state.XMM[1],0x80,16);
             MMP[0]->q=UINT64_C(0x1111111111111111); MMP[1]->q=UINT64_C(0x8080808080808080);
             cpu_state.MM[0].q=UINT64_C(0x1111111111111111); cpu_state.MM[1].q=UINT64_C(0x8080808080808080);
+            int mmx_xmm_move = probe->setup == MOVQ2DQ || probe->setup == MOVDQ2Q;
+            uint64_t mm_src = UINT64_C(0xfedcba9876543210) + call;
+            uint64_t xmm_src = UINT64_C(0x0123456789abcdef) - call;
+            if (mmx_xmm_move) {
+                MMP[1]->q = mm_src;
+                cpu_state.XMM[1].q[0] = xmm_src;
+                *MMEP[0] = 0x1234;
+            }
             unsigned mask = (call / 8) % 3;
             if (strstr(probe->name, "MASKMOV")) {
                 for (unsigned n = 0; n < 16; n++) cpu_state.XMM[1].b[n] = mask == 0 ? 0 : mask == 1 ? 0x80 : (n & 1) * 0x80;
@@ -549,7 +561,7 @@ int main(int argc,char **argv) {
                 }
                 if(probe->setup==5){put32(0x4000+400,0x54474553);memset(ram+0x4000+404,1,9);}
             }
-            if (probe->setup==9 || probe->setup==27) {
+            if (probe->setup==9 || probe->setup==27 || (mmx_xmm_move && probe->trap_p4 == 16)) {
                 cpu_state.npxc=fpu_state.cwd=0x37e;cpu_state.npxs=fpu_state.swd=((call / 8) & 1) ? 0x8081 : 0;
             }
             if (probe->setup==27) {
@@ -678,6 +690,7 @@ int main(int argc,char **argv) {
                     fatal("%s call %u: callbacks %u, trap %u, EIP %x, xmm2 %x",
                           probe->name, call, callback_count, get32(TRAP), get32(FAULT_PC), cpu_state.XMM[2].l[0]);
             }
+            if (mmx_xmm_move && probe->trap_p4 == 16 && !((call / 8) & 1)) expected = 0;
             if (probe->setup==26) expected = (call & 64) && !(call & 128) ? 19 : 0;
             if ((probe->setup == BIT_WRITE || probe->setup == 12 || probe->setup == 19 || probe->setup == 20 || probe->setup == 21 || probe->setup == 9 || probe->setup == 27) && !((call / 8) & 1)) expected = 0;
             if (probe->setup >= PUSH_ALL_LIMIT && probe->setup <= POP_ALL_WRAP && !stack_fault)
@@ -704,6 +717,20 @@ int main(int argc,char **argv) {
                         cpu_state.XMM[1].l[lane] != call + lane + 4)
                         fatal("%s: incorrect shuffle at lane %u", probe->name, lane);
                 }
+            }
+            if (mmx_xmm_move) {
+                unsigned top = fpu_softfloat ? fpu_state.tos : cpu_state.TOP;
+                unsigned tag = fpu_softfloat ? fpu_state.tag : x87_gettag();
+                int wrote_xmm = !expected && probe->setup == MOVQ2DQ;
+                int wrote_mm = !expected && probe->setup == MOVDQ2Q;
+                uint64_t initial = UINT64_C(0x1111111111111111);
+                if (cpu_state.XMM[0].q[0] != (wrote_xmm ? mm_src : initial) ||
+                    cpu_state.XMM[0].q[1] != (wrote_xmm ? 0 : initial) ||
+                    MMP[0]->q != (wrote_mm ? xmm_src : initial) ||
+                    *MMEP[0] != (wrote_mm ? 0xffff : 0x1234) ||
+                    top != (expected ? 3 : 0) || tag != (expected ? 0xffff : 0) ||
+                    !!cpu_state.ismmx != !expected || (expected && get32(FAULT_PC) != BODY))
+                    fatal("%s: incorrect transfer, MMX state or fault EIP", probe->name);
             }
             if (probe->setup == MOVMSKPD &&
                 (EDX != (expected ? UINT32_MAX : (call & 3)) || (expected && get32(FAULT_PC) != BODY)))

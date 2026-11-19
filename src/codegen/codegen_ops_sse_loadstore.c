@@ -115,6 +115,41 @@ ropMOVSS_d_r(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t
     return op_pc + 1;
 }
 
+/* F3/F2 0F D6 transfer between the MMX and XMM register files. */
+static uint32_t
+rop_mmx_xmm_move(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op_pc, int to_xmm)
+{
+    int dest = (fetchdat >> 3) & 7;
+    int src = fetchdat & 7;
+
+    if ((fetchdat & 0xc0) != 0xc0)
+        return 0;
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_SSE2);
+    REQUIRE_GUEST_FEATURE(CPU_FEATURE_MMX);
+    uop_SSE_ENTER(ir);
+    uop_MMX_ENTER(ir);
+    codegen_mark_code_present(block, cs + op_pc, 1);
+    if (to_xmm) {
+        uop_MOVZX(ir, IREG_XMM(dest), IREG_MM(src));
+    } else {
+        uop_MOV(ir, IREG_MM(dest), IREG_XMM_Q(src));
+        uop_STORE_PTR_IMM_16(ir, MMEP[dest], 0xffff);
+    }
+    return op_pc + 1;
+}
+
+uint32_t
+ropMOVQ2DQ(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, UNUSED(uint32_t op_32), uint32_t op_pc)
+{
+    return rop_mmx_xmm_move(block, ir, fetchdat, op_pc, 1);
+}
+
+uint32_t
+ropMOVDQ2Q(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetchdat, UNUSED(uint32_t op_32), uint32_t op_pc)
+{
+    return rop_mmx_xmm_move(block, ir, fetchdat, op_pc, 0);
+}
+
 /* F3 0F 7E loads the low qword, 66 0F D6 stores it. Both register
    forms clear the high qword, including moves to the same register. */
 uint32_t

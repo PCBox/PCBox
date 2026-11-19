@@ -308,6 +308,7 @@ RecompOpFn recomp_opcodes_REPE_0f[512] = {
     [0x07e] = ropMOVQ_xmm,
     [0x07f] = ropMOVUPS_d_r, /* MOVDQU */
     [0x0c2] = ropCMPSS,
+    [0x0d6] = ropMOVQ2DQ,
     [0x110] = ropMOVSS_r_d,
     [0x111] = ropMOVSS_d_r,
     [0x12a] = ropCVTSI2SS,
@@ -326,6 +327,7 @@ RecompOpFn recomp_opcodes_REPE_0f[512] = {
     [0x17e] = ropMOVQ_xmm,
     [0x17f] = ropMOVUPS_d_r, /* MOVDQU */
     [0x1c2] = ropCMPSS,
+    [0x1d6] = ropMOVQ2DQ,
 #endif
 // clang-format on
 };
@@ -339,12 +341,14 @@ RecompOpFn recomp_opcodes_REPNE_0f[512] = {
     [0x059] = ropMULSD,
     [0x05c] = ropSUBSD,
     [0x05e] = ropDIVSD,
+    [0x0d6] = ropMOVDQ2Q,
     [0x110] = ropMOVSD_r_d,
     [0x111] = ropMOVSD_d_r,
     [0x158] = ropADDSD,
     [0x159] = ropMULSD,
     [0x15c] = ropSUBSD,
     [0x15e] = ropDIVSD,
+    [0x1d6] = ropMOVDQ2Q,
 #endif
 // clang-format on
 };

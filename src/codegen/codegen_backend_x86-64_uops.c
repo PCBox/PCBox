@@ -5766,6 +5766,13 @@ codegen_STORE_PTR_IMM_8(codeblock_t *block, uop_t *uop)
 }
 
 static int
+codegen_STORE_PTR_IMM_16(codeblock_t *block, uop_t *uop)
+{
+    host_x86_MOV16_ABS_IMM(block, uop->p, uop->imm_data);
+    return 0;
+}
+
+static int
 codegen_SUB(codeblock_t *block, uop_t *uop)
 {
     int dest_reg   = HOST_REG_GET(uop->dest_reg_a_real);
@@ -6273,6 +6280,7 @@ const uOpFn uop_handlers[UOP_MAX] = {
     [UOP_STORE_P_IMM_8 &
         UOP_MASK]
     = codegen_STORE_PTR_IMM_8,
+    [UOP_STORE_P_IMM_16 & UOP_MASK] = codegen_STORE_PTR_IMM_16,
 
     [UOP_MEM_LOAD_ABS &
         UOP_MASK]
