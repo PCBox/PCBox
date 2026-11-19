@@ -20,12 +20,12 @@
 extern "C" {
 #include <86box/86box.h>
 #include <86box/timer.h>
-#include <86box/hdd.h>
 #include <86box/scsi_device.h>
 #include <86box/mo.h>
 #include <86box/hdd.h>
 #include <86box/rdisk.h>
 #include <86box/scsi_tape.h>
+#include <86box/md.h>
 }
 
 #include "qt_settings_completer.hpp"
@@ -52,6 +52,23 @@ rdiskDriveTypeName(int i)
 }
 
 static QString
+mdDriveTypeName(int i)
+{
+    return QString("%1 %2 %3").arg(md_drive_types[i].vendor, md_drive_types[i].model, md_drive_types[i].revision);
+}
+
+static void
+setMDType(QAbstractItemModel *model, const QModelIndex &idx, uint32_t type)
+{
+    auto i = idx.siblingAtColumn(1);
+    if (idx.siblingAtColumn(0).data(Qt::UserRole).toUInt() == MD_BUS_DISABLED)
+        model->setData(i, QCoreApplication::translate("", "None"));
+    else
+        model->setData(i, mdDriveTypeName(type));
+    model->setData(i, type, Qt::UserRole);
+}
+
+static QString
 tapeDriveTypeName(int i)
 {
     return QString("%1 %2 %3").arg(tape_drive_types[i].vendor, tape_drive_types[i].model, tape_drive_types[i].revision);
@@ -62,9 +79,6 @@ tapeTypeBusCompatible(int bus, uint32_t type)
 {
     if (type >= KNOWN_TAPE_DRIVE_TYPES)
         return false;
-
-    if (bus == HDD_BUS_DISCONNECTED)
-        return true;
 
     switch (tape_drive_types[type].drive_type) {
         case TAPE_DRIVE_TYPE_SCSI_ATAPI:
@@ -233,7 +247,6 @@ SettingsOtherRemovable::setMOBus(QAbstractItemModel *model, const QModelIndex &i
         case MO_BUS_DISABLED:
             icon = mo_disabled_icon;
             break;
-        case HDD_BUS_DISCONNECTED:
         case MO_BUS_ATAPI:
         case MO_BUS_SCSI:
             icon = mo_icon;
@@ -248,6 +261,16 @@ SettingsOtherRemovable::setMOBus(QAbstractItemModel *model, const QModelIndex &i
     model->setData(i, bus, Qt::UserRole);
     model->setData(i, channel, Qt::UserRole + 1);
     model->setData(i, icon, Qt::DecorationRole);
+}
+
+void
+SettingsOtherRemovable::setMDBus(QAbstractItemModel *model, const QModelIndex &idx, uint8_t bus, uint8_t channel)
+{
+    auto i = idx.siblingAtColumn(0);
+    model->setData(i, Harddrives::BusChannelName(bus, channel));
+    model->setData(i, bus, Qt::UserRole);
+    model->setData(i, channel, Qt::UserRole + 1);
+    model->setData(i, (bus == MD_BUS_DISABLED) ? md_disabled_icon : md_icon, Qt::DecorationRole);
 }
 
 void
@@ -284,7 +307,6 @@ SettingsOtherRemovable::setTapeBus(QAbstractItemModel *model, const QModelIndex 
         case TAPE_BUS_DISABLED:
             icon = tape_disabled_icon;
             break;
-        case HDD_BUS_DISCONNECTED:
         case TAPE_BUS_ATAPI:
         case TAPE_BUS_SCSI:
         case TAPE_BUS_FDC:
@@ -390,7 +412,7 @@ SettingsOtherRemovable::SettingsOtherRemovable(QWidget *parent)
     model->insertRows(0, MO_NUM);
     for (int i = 0; i < MO_NUM; i++) {
         auto idx = model->index(i, 0);
-        setMOBus(model, idx, Harddrives::configuredBus(mo_drives[i], MO_BUS_ATAPI), Harddrives::configuredChannel(mo_drives[i], mo_drives[i].res));
+        setMOBus(model, idx, mo_drives[i].bus_type, mo_drives[i].res);
         setMOType(model, idx.siblingAtColumn(1), mo_drives[i].type);
         Harddrives::busTrackClass->device_track(1, DEV_MO, mo_drives[i].bus_type, mo_drives[i].bus_type == MO_BUS_ATAPI ? mo_drives[i].ide_channel : mo_drives[i].scsi_device_id);
     }
@@ -475,7 +497,7 @@ SettingsOtherRemovable::SettingsOtherRemovable(QWidget *parent)
     model->insertRows(0, TAPE_NUM);
     for (int i = 0; i < TAPE_NUM; i++) {
         auto idx = model->index(i, 0);
-        setTapeBus(model, idx, Harddrives::configuredBus(tape_drives[i], TAPE_BUS_SCSI), Harddrives::configuredChannel(tape_drives[i], tape_drives[i].res));
+        setTapeBus(model, idx, tape_drives[i].bus_type, tape_drives[i].res);
         setTapeType(model, idx.siblingAtColumn(1), tape_drives[i].type);
         Harddrives::busTrackClass->device_track(1, DEV_TAPE, tape_drives[i].bus_type, tape_drives[i].res);
     }
@@ -485,6 +507,46 @@ SettingsOtherRemovable::SettingsOtherRemovable(QWidget *parent)
 
     connect(ui->treeViewTape->selectionModel(), &QItemSelectionModel::currentRowChanged, this, &SettingsOtherRemovable::onTapeRowChanged);
     ui->treeViewTape->setCurrentIndex(model->index(0, 0));
+
+    /* MD DATA drives are SCSI only. */
+    Harddrives::widenPopup(ui->comboBoxMDChannel);
+
+    md_disabled_icon = QIcon(":/settings/qt/icons/mo_disabled.ico");
+    md_icon          = QIcon(":/settings/qt/icons/mo.ico");
+
+    Harddrives::populateRemovableBuses(ui->comboBoxMDBus->model());
+    {
+        auto *busModel = ui->comboBoxMDBus->model();
+        for (int row = busModel->rowCount() - 1; row >= 0; row--) {
+            const uint bus = busModel->index(row, 0).data(Qt::UserRole).toUInt();
+            if ((bus != MD_BUS_DISABLED) && (bus != MD_BUS_SCSI))
+                busModel->removeRows(row, 1);
+        }
+    }
+    model = ui->comboBoxMDType->model();
+    {
+        Models::Batch typeRows(model);
+        for (uint32_t i = 0; i < KNOWN_MD_DRIVE_TYPES; i++)
+            typeRows.add(mdDriveTypeName(i), i);
+    }
+
+    model = new QStandardItemModel(0, 2, this);
+    ui->treeViewMD->setModel(model);
+    model->setHeaderData(0, Qt::Horizontal, tr("Bus"));
+    model->setHeaderData(1, Qt::Horizontal, tr("Type"));
+    model->insertRows(0, MD_NUM);
+    for (int i = 0; i < MD_NUM; i++) {
+        auto idx = model->index(i, 0);
+        setMDBus(model, idx, md_drives[i].bus_type, md_drives[i].scsi_device_id);
+        setMDType(model, idx.siblingAtColumn(1), md_drives[i].type);
+        Harddrives::busTrackClass->device_track(1, DEV_MD, md_drives[i].bus_type, md_drives[i].scsi_device_id);
+    }
+
+    for (int i = 0; i < model->columnCount(); i++)
+        ui->treeViewMD->resizeColumnToContents(i);
+
+    connect(ui->treeViewMD->selectionModel(), &QItemSelectionModel::currentRowChanged, this, &SettingsOtherRemovable::onMDRowChanged);
+    ui->treeViewMD->setCurrentIndex(model->index(0, 0));
 }
 
 SettingsOtherRemovable::~SettingsOtherRemovable()
@@ -504,8 +566,8 @@ SettingsOtherRemovable::changed()
 
     const auto *model = ui->treeViewMO->model();
     for (uint8_t i = 0; i < MO_NUM; i++) {
-        has_changed |= (Harddrives::configuredBus(mo_drives[i], MO_BUS_ATAPI) != model->index(i, 0).data(Qt::UserRole).toUInt());
-        has_changed |= (Harddrives::configuredChannel(mo_drives[i], mo_drives[i].res) != model->index(i, 0).data(Qt::UserRole + 1).toUInt());
+        has_changed |= (mo_drives[i].bus_type != model->index(i, 0).data(Qt::UserRole).toUInt());
+        has_changed |= (mo_drives[i].res      != model->index(i, 0).data(Qt::UserRole + 1).toUInt());
         has_changed |= (mo_drives[i].type     != model->index(i, 1).data(Qt::UserRole).toUInt());
     }
 
@@ -518,9 +580,16 @@ SettingsOtherRemovable::changed()
 
     model = ui->treeViewTape->model();
     for (uint8_t i = 0; i < TAPE_NUM; i++) {
-        has_changed |= (Harddrives::configuredBus(tape_drives[i], TAPE_BUS_SCSI) != model->index(i, 0).data(Qt::UserRole).toUInt());
-        has_changed |= (Harddrives::configuredChannel(tape_drives[i], tape_drives[i].res) != model->index(i, 0).data(Qt::UserRole + 1).toUInt());
+        has_changed |= (tape_drives[i].bus_type != model->index(i, 0).data(Qt::UserRole).toUInt());
+        has_changed |= (tape_drives[i].res      != model->index(i, 0).data(Qt::UserRole + 1).toUInt());
         has_changed |= (tape_drives[i].type     != model->index(i, 1).data(Qt::UserRole).toUInt());
+    }
+
+    model = ui->treeViewMD->model();
+    for (uint8_t i = 0; i < MD_NUM; i++) {
+        has_changed |= (md_drives[i].bus_type       != model->index(i, 0).data(Qt::UserRole).toUInt());
+        has_changed |= (md_drives[i].scsi_device_id != model->index(i, 0).data(Qt::UserRole + 1).toUInt());
+        has_changed |= (md_drives[i].type           != model->index(i, 1).data(Qt::UserRole).toUInt());
     }
 
     return has_changed ? (SETTINGS_CHANGED | SETTINGS_REQUIRE_HARD_RESET) : 0;
@@ -541,7 +610,7 @@ SettingsOtherRemovable::save(int soft)
     for (uint8_t i = 0; i < MO_NUM; i++) {
         mo_drives[i].fp       = NULL;
         mo_drives[i].priv     = NULL;
-        Harddrives::storeConnection(mo_drives[i], model->index(i, 0).data(Qt::UserRole).toUInt(), model->index(i, 0).data(Qt::UserRole + 1).toUInt());
+        mo_drives[i].bus_type = model->index(i, 0).data(Qt::UserRole).toUInt();
         mo_drives[i].res      = model->index(i, 0).data(Qt::UserRole + 1).toUInt();
         mo_drives[i].type     = model->index(i, 1).data(Qt::UserRole).toUInt();
     }
@@ -550,7 +619,7 @@ SettingsOtherRemovable::save(int soft)
     for (uint8_t i = 0; i < RDISK_NUM; i++) {
         rdisk_drives[i].fp       = NULL;
         rdisk_drives[i].priv     = NULL;
-        Harddrives::storeConnection(rdisk_drives[i], model->index(i, 0).data(Qt::UserRole).toUInt(), model->index(i, 0).data(Qt::UserRole + 1).toUInt());
+        rdisk_drives[i].bus_type = model->index(i, 0).data(Qt::UserRole).toUInt();
         rdisk_drives[i].res      = model->index(i, 0).data(Qt::UserRole + 1).toUInt();
         rdisk_drives[i].type     = model->index(i, 1).data(Qt::UserRole).toUInt();
         rdisk_drives[i].lpt_bridge = HDD_LPT_EPAT;
@@ -565,9 +634,18 @@ SettingsOtherRemovable::save(int soft)
     for (uint8_t i = 0; i < TAPE_NUM; i++) {
         tape_drives[i].fp       = NULL;
         tape_drives[i].priv     = NULL;
-        Harddrives::storeConnection(tape_drives[i], model->index(i, 0).data(Qt::UserRole).toUInt(), model->index(i, 0).data(Qt::UserRole + 1).toUInt());
+        tape_drives[i].bus_type = model->index(i, 0).data(Qt::UserRole).toUInt();
         tape_drives[i].res      = model->index(i, 0).data(Qt::UserRole + 1).toUInt();
         tape_drives[i].type     = model->index(i, 1).data(Qt::UserRole).toUInt();
+    }
+
+    model = ui->treeViewMD->model();
+    for (uint8_t i = 0; i < MD_NUM; i++) {
+        md_drives[i].fp             = NULL;
+        md_drives[i].priv           = NULL;
+        md_drives[i].bus_type       = model->index(i, 0).data(Qt::UserRole).toUInt();
+        md_drives[i].scsi_device_id = model->index(i, 0).data(Qt::UserRole + 1).toUInt();
+        md_drives[i].type           = model->index(i, 1).data(Qt::UserRole).toUInt();
     }
 }
 
@@ -620,13 +698,6 @@ SettingsOtherRemovable::onRDiskRowChanged(const QModelIndex &current)
 void
 SettingsOtherRemovable::showEvent(QShowEvent *event)
 {
-    refreshChannelNames();
-    QWidget::showEvent(event);
-}
-
-void
-SettingsOtherRemovable::refreshChannelNames()
-{
     Harddrives::refreshBusNames(ui->treeViewMO->model());
     /* As Harddrives::refreshBusNames(), with the bridge of a drive on LPT. */
     auto *model = ui->treeViewRDisk->model();
@@ -639,23 +710,26 @@ SettingsOtherRemovable::refreshChannelNames()
     Harddrives::refreshBusNames(ui->treeViewTape->model());
     reloadBusChannels_MO();
     reloadBusChannels_RDisk();
+    Harddrives::refreshBusNames(ui->treeViewMD->model());
     reloadBusChannels_Tape();
+    reloadBusChannels_MD();
+    QWidget::showEvent(event);
 }
 
 void
 SettingsOtherRemovable::reloadBusChannels_MO()
 {
-    auto selected = ui->comboBoxMOChannel->currentData().toInt();
+    auto selected = ui->comboBoxMOChannel->currentIndex();
     Harddrives::populateBusChannels(ui->comboBoxMOChannel->model(),
                                     ui->comboBoxMOBus->currentData().toInt(), Harddrives::busTrackClass);
-    ui->comboBoxMOChannel->setCurrentIndex(ui->comboBoxMOChannel->findData(selected));
+    ui->comboBoxMOChannel->setCurrentIndex(selected);
     enableCurrentlySelectedChannel_MO();
 }
 
 void
 SettingsOtherRemovable::reloadBusChannels_RDisk()
 {
-    auto selected = ui->comboBoxRDiskChannel->currentData().toInt();
+    auto selected = ui->comboBoxRDiskChannel->currentIndex();
     Harddrives::populateBusChannels(ui->comboBoxRDiskChannel->model(),
                                     ui->comboBoxRDiskBus->currentData().toInt(), Harddrives::busTrackClass,
                                     Harddrives::LptBridgesHdd);
@@ -710,10 +784,8 @@ SettingsOtherRemovable::on_comboBoxMOBus_activated(int)
 {
     auto i = ui->treeViewMO->selectionModel()->currentIndex().siblingAtColumn(0);
     Harddrives::busTrackClass->device_track(0, DEV_MO, ui->treeViewMO->model()->data(i, Qt::UserRole).toInt(), ui->treeViewMO->model()->data(i, Qt::UserRole + 1).toInt());
-    ui->comboBoxMOChannel->setCurrentIndex(ui->comboBoxMOChannel->findData(ui->comboBoxMOBus->currentData().toUInt() == MO_BUS_ATAPI ? Harddrives::busTrackClass->next_free_ide_channel() : Harddrives::busTrackClass->next_free_scsi_id()));
+    ui->comboBoxMOChannel->setCurrentIndex(ui->comboBoxMOBus->currentData().toUInt() == MO_BUS_ATAPI ? Harddrives::busTrackClass->next_free_ide_channel() : Harddrives::busTrackClass->next_free_scsi_id());
     ui->treeViewMO->model()->data(i, Qt::UserRole + 1);
-    if (ui->treeViewMO->currentIndex().siblingAtColumn(0).data(Qt::UserRole + 1).toUInt() == CHANNEL_NONE)
-        ui->comboBoxMOChannel->setCurrentIndex(ui->comboBoxMOChannel->findData(CHANNEL_NONE));
     setMOBus(ui->treeViewMO->model(),
              ui->treeViewMO->selectionModel()->currentIndex(),
              ui->comboBoxMOBus->currentData().toUInt(),
@@ -869,10 +941,10 @@ SettingsOtherRemovable::onTapeRowChanged(const QModelIndex &current)
 void
 SettingsOtherRemovable::reloadBusChannels_Tape()
 {
-    auto selected = ui->comboBoxTapeChannel->currentData().toInt();
+    auto selected = ui->comboBoxTapeChannel->currentIndex();
     Harddrives::populateBusChannels(ui->comboBoxTapeChannel->model(),
                                     ui->comboBoxTapeBus->currentData().toInt(), Harddrives::busTrackClass);
-    ui->comboBoxTapeChannel->setCurrentIndex(ui->comboBoxTapeChannel->findData(selected));
+    ui->comboBoxTapeChannel->setCurrentIndex(selected);
     enableCurrentlySelectedChannel_Tape();
 }
 
@@ -925,7 +997,7 @@ SettingsOtherRemovable::on_comboBoxTapeBus_activated(int)
     auto i = ui->treeViewTape->selectionModel()->currentIndex().siblingAtColumn(0);
     Harddrives::busTrackClass->device_track(0, DEV_TAPE, ui->treeViewTape->model()->data(i, Qt::UserRole).toInt(), ui->treeViewTape->model()->data(i, Qt::UserRole + 1).toInt());
     uint8_t next_free = nextFreeTapeChannel(Harddrives::busTrackClass, ui->comboBoxTapeBus->currentData().toInt());
-    ui->comboBoxTapeChannel->setCurrentIndex(ui->comboBoxTapeChannel->findData(next_free));
+    ui->comboBoxTapeChannel->setCurrentIndex(next_free == CHANNEL_NONE ? -1 : next_free);
     ui->treeViewTape->model()->data(i, Qt::UserRole + 1);
 
     uint32_t type = ui->comboBoxTapeType->currentData().toUInt();
@@ -933,8 +1005,6 @@ SettingsOtherRemovable::on_comboBoxTapeBus_activated(int)
         type = firstCompatibleTapeType(ui->comboBoxTapeBus->currentData().toInt());
     ui->comboBoxTapeType->setCurrentIndex(type);
 
-    if (ui->treeViewTape->currentIndex().siblingAtColumn(0).data(Qt::UserRole + 1).toUInt() == CHANNEL_NONE)
-        ui->comboBoxTapeChannel->setCurrentIndex(ui->comboBoxTapeChannel->findData(CHANNEL_NONE));
     setTapeBus(ui->treeViewTape->model(),
                ui->treeViewTape->selectionModel()->currentIndex(),
                ui->comboBoxTapeBus->currentData().toUInt(),
@@ -980,77 +1050,96 @@ SettingsOtherRemovable::on_comboBoxTapeType_activated(int)
     ui->treeViewTape->resizeColumnToContents(1);
 }
 
-SettingsOtherRemovable::KindControls
-SettingsOtherRemovable::controlsOf(int kind) const
+void
+SettingsOtherRemovable::onMDRowChanged(const QModelIndex &current)
 {
-    switch (kind) {
-        case KIND_MO:
-            return { ui->treeViewMO, ui->comboBoxMOBus, ui->comboBoxMOChannel, &SettingsOtherRemovable::on_comboBoxMOBus_activated,
-                     &SettingsOtherRemovable::on_comboBoxMOChannel_activated };
-        case KIND_RDISK:
-            return { ui->treeViewRDisk, ui->comboBoxRDiskBus, ui->comboBoxRDiskChannel, &SettingsOtherRemovable::on_comboBoxRDiskBus_activated,
-                     &SettingsOtherRemovable::on_comboBoxRDiskChannel_activated };
-        default:
-            return { ui->treeViewTape, ui->comboBoxTapeBus, ui->comboBoxTapeChannel, &SettingsOtherRemovable::on_comboBoxTapeBus_activated,
-                     &SettingsOtherRemovable::on_comboBoxTapeChannel_activated };
-    }
-}
+    uint8_t bus     = current.siblingAtColumn(0).data(Qt::UserRole).toUInt();
+    uint8_t channel = current.siblingAtColumn(0).data(Qt::UserRole + 1).toUInt();
+    uint8_t type    = current.siblingAtColumn(1).data(Qt::UserRole).toUInt();
 
-/* A drive of the list set to a bus and channel, as choosing them does. */
-static void
-chooseIn(QComboBox *cbox, int value)
-{
-    const int row = cbox->findData(value);
-    if (row >= 0)
-        cbox->setCurrentIndex(row);
-}
+    ui->comboBoxMDBus->setCurrentIndex(-1);
+    const auto *model = ui->comboBoxMDBus->model();
+    auto        match = model->match(model->index(0, 0), Qt::UserRole, bus);
+    if (!match.isEmpty())
+        ui->comboBoxMDBus->setCurrentIndex(match.first().row());
 
-bool
-SettingsOtherRemovable::addDrive(int kind, int bus, int channel)
-{
-    const auto c     = controlsOf(kind);
-    auto      *model = c.view->model();
-
-    for (int row = 0; row < model->rowCount(); row++) {
-        const auto idx = model->index(row, 0);
-        if (model->data(idx, Qt::UserRole).toInt() != 0)
-            continue;
-
-        c.view->setCurrentIndex(idx);
-        chooseIn(c.bus, bus);
-        (this->*c.busActivated)(c.bus->currentIndex());
-        chooseIn(c.channel, channel);
-        (this->*c.channelActivated)(c.channel->currentIndex());
-        return true;
-    }
-
-    return false;
-}
-
-bool
-SettingsOtherRemovable::selectDrive(int kind, int bus, int channel)
-{
-    const auto c     = controlsOf(kind);
-    auto      *model = c.view->model();
-
-    for (int row = 0; row < model->rowCount(); row++) {
-        const auto idx = model->index(row, 0);
-        if ((model->data(idx, Qt::UserRole).toInt() == bus) && (model->data(idx, Qt::UserRole + 1).toInt() == channel)) {
-            c.view->setCurrentIndex(idx);
-            return true;
-        }
-    }
-
-    return false;
+    model = ui->comboBoxMDChannel->model();
+    match = model->match(model->index(0, 0), Qt::UserRole, channel);
+    if (!match.isEmpty())
+        ui->comboBoxMDChannel->setCurrentIndex(match.first().row());
+    ui->comboBoxMDType->setCurrentIndex(type);
+    enableCurrentlySelectedChannel_MD();
 }
 
 void
-SettingsOtherRemovable::removeDrive(int kind, int bus, int channel)
+SettingsOtherRemovable::reloadBusChannels_MD()
 {
-    if (!selectDrive(kind, bus, channel))
-        return;
+    auto selected = ui->comboBoxMDChannel->currentIndex();
+    Harddrives::populateBusChannels(ui->comboBoxMDChannel->model(),
+                                    ui->comboBoxMDBus->currentData().toInt(), Harddrives::busTrackClass);
+    ui->comboBoxMDChannel->setCurrentIndex(selected);
+    enableCurrentlySelectedChannel_MD();
+}
 
-    const auto c = controlsOf(kind);
-    chooseIn(c.bus, 0);
-    (this->*c.busActivated)(c.bus->currentIndex());
+void
+SettingsOtherRemovable::on_comboBoxMDBus_currentIndexChanged(int index)
+{
+    if (index >= 0) {
+        int  bus     = ui->comboBoxMDBus->currentData().toInt();
+        bool enabled = (bus != MD_BUS_DISABLED);
+        ui->comboBoxMDChannel->setEnabled(enabled);
+        ui->comboBoxMDType->setEnabled(enabled);
+        Harddrives::populateBusChannels(ui->comboBoxMDChannel->model(), bus, Harddrives::busTrackClass);
+    }
+}
+
+void
+SettingsOtherRemovable::on_comboBoxMDBus_activated(int)
+{
+    auto i = ui->treeViewMD->selectionModel()->currentIndex().siblingAtColumn(0);
+    Harddrives::busTrackClass->device_track(0, DEV_MD, ui->treeViewMD->model()->data(i, Qt::UserRole).toInt(), ui->treeViewMD->model()->data(i, Qt::UserRole + 1).toInt());
+    ui->comboBoxMDChannel->setCurrentIndex(Harddrives::busTrackClass->next_free_scsi_id());
+    setMDBus(ui->treeViewMD->model(),
+             ui->treeViewMD->selectionModel()->currentIndex(),
+             ui->comboBoxMDBus->currentData().toUInt(),
+             ui->comboBoxMDChannel->currentData().toUInt());
+    setMDType(ui->treeViewMD->model(),
+              ui->treeViewMD->selectionModel()->currentIndex(),
+              ui->comboBoxMDType->currentData().toUInt());
+    ui->treeViewMD->resizeColumnToContents(0);
+    Harddrives::busTrackClass->device_track(1, DEV_MD, ui->treeViewMD->model()->data(i, Qt::UserRole).toInt(), ui->treeViewMD->model()->data(i, Qt::UserRole + 1).toInt());
+    emit mdChannelChanged();
+}
+
+void
+SettingsOtherRemovable::on_comboBoxMDChannel_activated(int)
+{
+    auto i = ui->treeViewMD->selectionModel()->currentIndex().siblingAtColumn(0);
+    Harddrives::busTrackClass->device_track(0, DEV_MD, ui->treeViewMD->model()->data(i, Qt::UserRole).toInt(), ui->treeViewMD->model()->data(i, Qt::UserRole + 1).toInt());
+    setMDBus(ui->treeViewMD->model(),
+             ui->treeViewMD->selectionModel()->currentIndex(),
+             ui->comboBoxMDBus->currentData().toUInt(),
+             ui->comboBoxMDChannel->currentData().toUInt());
+    Harddrives::busTrackClass->device_track(1, DEV_MD, ui->treeViewMD->model()->data(i, Qt::UserRole).toInt(), ui->treeViewMD->model()->data(i, Qt::UserRole + 1).toInt());
+    ui->treeViewMD->resizeColumnToContents(0);
+    emit mdChannelChanged();
+}
+
+void
+SettingsOtherRemovable::on_comboBoxMDType_activated(int)
+{
+    setMDType(ui->treeViewMD->model(),
+              ui->treeViewMD->selectionModel()->currentIndex(),
+              ui->comboBoxMDType->currentData().toUInt());
+    ui->treeViewMD->resizeColumnToContents(0);
+}
+
+void
+SettingsOtherRemovable::enableCurrentlySelectedChannel_MD()
+{
+    const auto *item_model = qobject_cast<QStandardItemModel *>(ui->comboBoxMDChannel->model());
+    const auto  index      = ui->comboBoxMDChannel->currentIndex();
+    auto       *item       = item_model->item(index);
+    if (item)
+        item->setEnabled(true);
 }

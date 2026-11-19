@@ -149,6 +149,7 @@ target_link_libraries(PCBox
     cdrom
     rdisk
     mo
+    md
     hdd
     net
     print
