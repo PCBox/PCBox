@@ -478,7 +478,7 @@ flags_known_count(ir_data_t *ir, int op)
 }
 
 /*A compile-time use of the known flags op other than an inline rebuild: a
-  Jcc, SETcc or LOOPcc compiled for that op, a rebuild left out because the
+  Jcc, SETcc, CMOVcc or LOOPcc compiled for that op, a rebuild left out because the
   op needs none, or (cf_kept) an INC or DEC that keeps the flags register's
   CF because the op left it there. An unrolled loop must not repeat it after
   its own flag changes, so it is recorded for codegen_can_unroll_full()*/
@@ -989,7 +989,7 @@ codegen_flags_rebuild_known(ir_data_t *ir, int carry_only)
 /*CF_SET() as 0 or 1 into dest_reg, for ADC and SBB, when the flags op is
   known here and CF follows from flags_res, flags_op1 and flags_op2 alone:
   none after a ZN operation, op1 below op2 after a SUB, the result below op1
-  after an ADD, as SETB works it out (setcc_value). Returns 0, emitting
+  after an ADD, as SETB works it out (condition_value). Returns 0, emitting
   nothing, otherwise. It writes dest_reg once, as the call it replaces does.*/
 int
 codegen_cf_inline(ir_data_t *ir, int dest_reg)

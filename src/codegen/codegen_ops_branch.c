@@ -1242,12 +1242,10 @@ ropLOOPNE(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), UNUSED(uint
     return op_pc + 1;
 }
 
-/*SETcc. The condition is worked out the way the Jcc above work it out, but
-  into IREG_temp0 as 0 or 1 instead of into a jump, so nothing is flushed
-  unless the flags have to come from a function call anyway. cc is the low
-  nibble of the opcode; odd codes are the opposite of the even one below.*/
+/* SETcc and CMOVcc share the low condition nibble. Write its 0/1 result
+   to temp0, using temp1 and temp2 as scratch. */
 static void
-setcc_value(ir_data_t *ir, int cc)
+condition_value(ir_data_t *ir, int cc)
 {
     int neg     = cc & 1;
     int flags_op = codegen_flags_changed ? cpu_state.flags_op : FLAGS_UNKNOWN;
@@ -1431,9 +1429,9 @@ setcc_value(ir_data_t *ir, int cc)
                     /*Z, or N != V*/
                     uop_CALL_FUNC_RESULT(ir, IREG_temp1, NF_SET_01);
                     uop_CALL_FUNC_RESULT(ir, IREG_temp2, VF_SET_01);
-                    uop_CALL_FUNC_RESULT(ir, IREG_temp3, jit_ZF_SET);
                     uop_XOR(ir, IREG_temp1, IREG_temp1, IREG_temp2);
-                    uop_OR(ir, IREG_temp1, IREG_temp1, IREG_temp3);
+                    uop_CALL_FUNC_RESULT(ir, IREG_temp2, jit_ZF_SET);
+                    uop_OR(ir, IREG_temp1, IREG_temp1, IREG_temp2);
                     uop_TEST_SET(ir, IREG_temp0, IREG_temp1, UOP_CC_NZ ^ neg);
                     return;
             }
@@ -1448,7 +1446,7 @@ ropSETcc(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, u
 #endif
     codegen_mark_code_present(block, cs + op_pc, 1);
     if ((fetchdat & 0xc0) == 0xc0) {
-        setcc_value(ir, opcode & 0xf);
+        condition_value(ir, opcode & 0xf);
         uop_MOV(ir, IREG_8(fetchdat & 7), IREG_temp0_B);
     } else {
         x86seg *target_seg;
@@ -1457,9 +1455,37 @@ ropSETcc(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, u
         target_seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
         codegen_check_seg_write(block, ir, target_seg);
         CHECK_SEG_LIMITS(block, ir, target_seg, IREG_eaaddr, 0);
-        setcc_value(ir, opcode & 0xf);
+        condition_value(ir, opcode & 0xf);
         uop_MEM_STORE_REG(ir, ireg_seg_base(target_seg), IREG_eaaddr, IREG_temp0_B);
     }
 
+    return op_pc + 1;
+}
+
+uint32_t
+ropCMOVcc(codeblock_t *block, ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
+{
+#ifndef CODEGEN_BACKEND_HAS_INT_UOPS
+    return 0;
+#endif
+    int dword = op_32 & 0x100;
+    int reg = (fetchdat >> 3) & 7;
+    int rm = fetchdat & 7;
+    int dest = dword ? IREG_32(reg) : IREG_16(reg);
+    int src = dword ? IREG_32(rm) : IREG_16(rm);
+
+    codegen_mark_code_present(block, cs + op_pc, 1);
+    if ((fetchdat & 0xc0) != 0xc0) {
+        /* A false condition still reads the source and can fault. */
+        uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
+        x86seg *seg = codegen_generate_ea(ir, op_ea_seg, fetchdat, op_ssegs, &op_pc, op_32, 0);
+        codegen_check_seg_read(block, ir, seg);
+        CHECK_SEG_LIMITS(block, ir, seg, IREG_eaaddr, dword ? 3 : 1);
+        src = dword ? IREG_temp3 : IREG_temp3_W;
+        uop_MEM_LOAD_REG(ir, src, ireg_seg_base(seg), IREG_eaaddr);
+    }
+
+    condition_value(ir, opcode & 0xf);
+    uop_CMOVNZ(ir, dest, dest, src, IREG_temp0);
     return op_pc + 1;
 }

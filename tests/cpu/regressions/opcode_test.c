@@ -18,7 +18,7 @@ typedef struct {
 } opcode_case;
 enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP_ALL_WRAP, UNPACK_SS, SSE_CALLBACK, SSE2_MOVD, SSE2_MOVQ, SSE2_MOVDQ, SSE2_MOVDQA_FAULT,
        PSHUFD_REG, PSHUFD_SELF, PSHUFD_MEM, SHUFPD_REG, SHUFPD_SELF, SHUFPD_MEM, MOVMSKPD, MOVQ2DQ, MOVDQ2Q, SHIFT_LEFT, SHIFT_RIGHT, SHIFT_ARITH, PACKED_ARITH, MMX_PMULUDQ,
-       XMM_LANES, EXTRACT_WORD, BYTE_MASK, STREAM_DQ, STREAM_DWORD, MASK_PAGE };
+       XMM_LANES, EXTRACT_WORD, BYTE_MASK, STREAM_DQ, STREAM_DWORD, MASK_PAGE, CMOV_REG };
 /* Each lane shift takes an imm8, XMM register or aligned memory count. */
 #define SHIFT_CASES(name, kind, width, group, ext, opcode) \
     {#name " packed shift imm", {0x66,0x0f,group,0xc0 | ((ext) << 3),5},5,0,0,6,0,kind,1,width}, \
@@ -27,6 +27,11 @@ enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP
 #define ARITH_CASES(name, opcode) \
     {#name " packed arithmetic reg", {0x66,0x0f,opcode,0xc1},4,0,0,6,0,PACKED_ARITH,1}, \
     {#name " packed arithmetic mem", {0x67,0x66,0x0f,opcode,0x47,16},6,0,0,6,0,PACKED_ARITH,1}
+/* Save reference flags, repeat CMP for a lazy flag producer, then select
+   EAX and DI on opposite conditions and save the resulting flags. */
+#define CMOV_REG_CASE(name, op) \
+    {#name " register", {0x39,0xca,0x9c,0x5d, 0x39,0xca, 0x0f,op,0xc3, \
+                         0x66,0x0f,(op)^1,0xfb, 0x9c,0x5e},15,0,0,0,0,CMOV_REG}
 static const opcode_case opcases[] = {
     ARITH_CASES(PMINUB,  0xda),
     ARITH_CASES(PMAXUB,  0xde),
@@ -280,6 +285,14 @@ static const opcode_case opcases[] = {
     {"CMPXCHG w64 a32 lock0 cross1", {0x64,0xf,0xc7,0xf,0x9c,0x5e},6,0x80010000,0,14,14,21},
     {"CMPXCHG w64 a32 lock1 cross0", {0xf0,0x64,0xf,0xc7,0xf,0x9c,0x5e},7,0x80010000,0,14,14,20},
     {"CMPXCHG w64 a32 lock1 cross1", {0xf0,0x64,0xf,0xc7,0xf,0x9c,0x5e},7,0x80010000,0,14,14,21},
+    CMOV_REG_CASE(CMOVO,  0x40), CMOV_REG_CASE(CMOVNO, 0x41),
+    CMOV_REG_CASE(CMOVB,  0x42), CMOV_REG_CASE(CMOVAE, 0x43),
+    CMOV_REG_CASE(CMOVE,  0x44), CMOV_REG_CASE(CMOVNE, 0x45),
+    CMOV_REG_CASE(CMOVBE, 0x46), CMOV_REG_CASE(CMOVA,  0x47),
+    CMOV_REG_CASE(CMOVS,  0x48), CMOV_REG_CASE(CMOVNS, 0x49),
+    CMOV_REG_CASE(CMOVP,  0x4a), CMOV_REG_CASE(CMOVNP, 0x4b),
+    CMOV_REG_CASE(CMOVL,  0x4c), CMOV_REG_CASE(CMOVGE, 0x4d),
+    CMOV_REG_CASE(CMOVLE, 0x4e), CMOV_REG_CASE(CMOVG,  0x4f),
     {"CMOV 0 a16 w16", {0x64,0x67,0x66,0xf,0x40,0x7},6,0x80010000,0,14,14,19},
     {"CMOV 0 a16 w32", {0x64,0x67,0xf,0x40,0x7},5,0x80010000,0,14,14,19},
     {"CMOV 0 a32 w16", {0x64,0x66,0xf,0x40,0x7},5,0x80010000,0,14,14,19},
@@ -547,6 +560,17 @@ static void initialize(void) {
 int test_register_allocation(codeblock_t *block);
 int test_ir(codeblock_t *block);
 
+static int
+cmov_taken(unsigned opcode, uint16_t flags)
+{
+    int z = !!(flags & Z_FLAG);
+    int c = !!(flags & C_FLAG);
+    int sign = !!(flags & N_FLAG);
+    int o = !!(flags & V_FLAG);
+    int conditions[8] = {o, c, z, c || z, sign, !!(flags & P_FLAG), sign != o, z || (sign != o)};
+    return conditions[(opcode & 15) >> 1] ^ (opcode & 1);
+}
+
 /* Select the source bit independently for every result bit, including sign
    extension. This also covers shifts across the middle of a 128-bit value. */
 static SSE_REG
@@ -693,9 +717,21 @@ int main(int argc,char **argv) {
                 flushmmucache();
             }
             if (probe->setup == 1) EDI = DATA + 0x1800;
+            uint16_t cmov_flags = 0;
+            if (probe->setup == CMOV_REG) {
+                static const uint32_t inputs[8] = {
+                    0, 1, 2, 0x7fffffff, 0x80000000, 0x80000001, 0xfffffffe, 0xffffffff
+                };
+                EDX = inputs[call & 7];
+                ECX = inputs[call >> 3];
+                EAX = 0x11223344;
+                EBX = 0x88776655;
+                EDI = 0xaabbccdd;
+            }
             if (probe->setup==19) {
                 EDI=EBX=0;EAX=0x12345678;cpu_state.flags_op=0;
-                cpu_state.flags=2 | (call&1) | ((call&2)<<1) | ((call&4)<<4) | ((call&8)<<4) | ((call&16)<<7);
+                cmov_flags = 2 | (call&1) | ((call&2)<<1) | ((call&4)<<4) | ((call&8)<<4) | ((call&16)<<7);
+                cpu_state.flags = cmov_flags;
             }
             if (probe->setup == BIT_WRITE) {
                 EDI = 0x40000;
@@ -1060,11 +1096,14 @@ int main(int argc,char **argv) {
                 for(unsigned n=0;n<16;n++) if(cpu_state.XMM[1].b[n]!=0x80) fatal("Invalid store changed register");
                 if(get32(FAULT_PC)!=BODY) fatal("Invalid store fault EIP");
             }
+            if (probe->setup == CMOV_REG) {
+                int taken = cmov_taken(probe->bytes[7], EBP);
+                if (EAX != (taken ? 0x88776655u : 0x11223344u) ||
+                    EDI != (taken ? 0xaabbccddu : 0xaabb6655u) || ESI != EBP)
+                    fatal("%s call %u: EAX %x, EDI %x, flags %x (before %x)", probe->name, call, EAX, EDI, ESI, EBP);
+            }
             if (probe->setup==19) {
-                unsigned condition=probe->bytes[probe->length-2]&15;
-                unsigned c=!!(call&1),p=!!(call&2),z=!!(call&4),sign=!!(call&8),o=!!(call&16);
-                unsigned conditions[8]={o,c,z,c|z,sign,p,sign^o,z|(sign^o)};
-                unsigned selected=conditions[condition>>1] ^ (condition&1);
+                int selected = cmov_taken(probe->bytes[probe->length - 2], cmov_flags);
                 uint32_t value = !expected && selected ? (strstr(probe->name,"w16") ? 0x1234cdef : 0x89abcdef) : 0x12345678;
                 if(EAX!=value || (expected && get32(FAULT_PC)!=BODY)) fatal("CMOV result or fault EIP: %s",probe->name);
             }
