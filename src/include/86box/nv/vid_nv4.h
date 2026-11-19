@@ -38,12 +38,14 @@
 #define NV10_PCI_DEVICE_SDR      0x0100 /* GeForce 256 (NV10, SDR) */
 #define NV10_PCI_DEVICE_DDR      0x0101 /* GeForce 256 DDR (NV10) */
 #define NV10_PCI_DEVICE_QUADRO   0x0103 /* Quadro (NV10GL) */
+#define NV11_PCI_DEVICE_MX       0x0110
 #define NV15_PCI_DEVICE_GTS_PRO  0x0150 /* GeForce2 GTS / Pro */
 
 typedef enum nv4_chip_e {
     NV4_CHIP_TNT  = 4, /* NV4 */
     NV4_CHIP_TNT2 = 5, /* NV5 and its 64-bit variants */
     NV4_CHIP_NV10 = 10, /* GeForce 256 */
+    NV4_CHIP_NV11 = 11, /* GeForce2 MX */
     NV4_CHIP_NV15 = 15  /* GeForce2 GTS / Pro */
 } nv4_chip_t;
 
