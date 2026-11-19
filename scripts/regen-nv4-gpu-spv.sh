@@ -1,6 +1,6 @@
 #!/bin/sh
-# Regenerate the embedded SPIR-V of the RIVA TNT GPU lane
-# (src/video/nv/nv4/subsystems/nv4_pgraph_3d_gpu.comp) into
+# Regenerate the embedded SPIR-V of the TNT and GeForce span shaders
+# (nv4_pgraph_3d_gpu.comp and its Celsius include) into
 # src/include/86box/nv/nv4_3d_gpu_spv.h. The header is committed, so
 # glslc (shaderc) is only needed when the kernel changes.
 set -e

@@ -105,6 +105,13 @@ nv4_dma_page_left(nv4_t *nv4, uint32_t inst, uint32_t offset)
     return dma_fixture ? 4096 - ((offset + 7) & 4095) : 4096;
 }
 
+int
+nv4_dma_read(nv4_t *nv4, uint32_t inst, uint32_t offset, uint8_t *buf, uint32_t len)
+{
+    /* These ROP fixtures do not bind a palette. */
+    return NV4_DMA_FAULT;
+}
+
 void
 nv4_pgraph_2d_flush_run(nv4_t *nv4)
 {

@@ -112,8 +112,8 @@ gpu_tel_close(void)
 
 static const char *const gpu_fb_name[NV_GPU_FB_COUNT] = {
     "no rows", "rows past VRAM", "arena full", "no spans", "submit failed", "odd texture address",
-    "rows alias: serial kernel not ready", "rows alias: too many pieces or past VRAM",
-    "rows alias: a texture reads its pixels", "rows alias: color meets depth"
+    "compute kernel not ready", "rows alias: too many pieces or past VRAM",
+    "rows alias: a texture reads its pixels", "rows alias: color meets depth", "texture outside DMA window"
 };
 
 void

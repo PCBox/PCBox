@@ -187,7 +187,7 @@ static const rpiece_t *
 piece_at(uint32_t inst, uint32_t offset)
 {
     for (int i = 0; i < npieces; i++)
-        if ((pieces[i].dma == inst) && (offset >= pieces[i].off) && (offset < pieces[i].off + pieces[i].left))
+        if ((pieces[i].dma == inst) && (offset >= pieces[i].off) && (offset - pieces[i].off < pieces[i].len))
             return &pieces[i];
     return NULL;
 }
@@ -221,6 +221,19 @@ mem_readb_phys(uint32_t addr)
     return (ram && (addr < mem_size * 1024)) ? ram[addr] : 0xff;
 }
 
+int
+nv4_dma_read(nv4_t *card, uint32_t inst, uint32_t offset, uint8_t *buf, uint32_t len)
+{
+    for (uint32_t i = 0; i < len; i++) {
+        uint32_t addr;
+        int target;
+        if (nv4_dma_translate(card, inst, offset + i, 0, &addr, &target) != NV4_DMA_OK)
+            return NV4_DMA_FAULT;
+        buf[i] = target ? mem_readb_phys(addr) : card->svga.vram[addr & card->vram_mask];
+    }
+    return NV4_DMA_OK;
+}
+
 uint16_t
 mem_readw_phys(uint32_t addr)
 {
@@ -249,6 +262,7 @@ static void
 card_new(uint32_t vram_size)
 {
     nv4                      = calloc(1, sizeof(nv4_t));
+    nv4->chip                = NV4_CHIP_NV15; /* supports both legacy and Celsius batches */
     nv4->vram_size           = vram_size;
     nv4->vram_mask           = vram_size - 1;
     nv4->svga.vram           = calloc(1, vram_size + 4096); /* as svga_init: the lane moves it */
@@ -292,7 +306,7 @@ replay(const char *path)
     nv4_3d_batch_t *b;
     uint8_t        *init = NULL, *cpu = NULL;
     uint32_t        vsize, sz[4];
-    int             ok = 1, n[4], serial, parallel;
+    int             ok = 1, n[4], serial, parallel, has_ext = 0;
     uint32_t        tex_lo, tex_hi;
 
     if (!f)
@@ -316,9 +330,14 @@ replay(const char *path)
     parallel = (int) get32(f, &ok);
     tex_lo   = get32(f, &ok);
     tex_hi   = get32(f, &ok);
-    if (!ok || (vsize & (vsize - 1)) || (n[0] > B3D_STATES) || (n[1] > B3D_TRIS) || (n[2] > B3D_SPANS) || (n[3] > B3D_REGIONS)) {
+    if (!ok || !vsize || (vsize & (vsize - 1)) || n[0] < 0 || n[0] > B3D_STATES || n[1] < 0 || n[1] > B3D_TRIS
+        || n[2] < 0 || n[2] > B3D_SPANS || n[3] < 0 || n[3] > B3D_REGIONS || (n[2] && (!n[0] || !n[1]))) {
         fprintf(stderr, "  %s: bad header\n", path);
         failures++;
+        fclose(f);
+        return;
+    }
+    if (!n[2]) {
         fclose(f);
         return;
     }
@@ -349,10 +368,13 @@ replay(const char *path)
 
         if (!eof)
             break;
-        if (kind == NV4_REC_VRAM) {
+        if (kind == NV4_REC_CELSIUS) {
+            has_ext = 1;
+            ok = fread(b->ext, sizeof(*b->ext), n[1], f) == (size_t) n[1];
+        } else if (kind == NV4_REC_VRAM) {
             uint32_t addr = get32(f, &ok), len = get32(f, &ok);
 
-            if (!ok || (addr + len > vsize) || (fread(init + addr, 1, len, f) != len))
+            if (!ok || addr > vsize || len > vsize - addr || (fread(init + addr, 1, len, f) != len))
                 ok = 0;
         } else if (kind == NV4_REC_TEX) {
             rpiece_t p;
@@ -395,7 +417,11 @@ replay(const char *path)
         failures++;
         goto done;
     }
-    (void) parallel;
+    for (int i = 0; i < n[0]; i++)
+        if (b->states[i].celsius && !has_ext) {
+            nother++; /* older Celsius captures omitted the extra planes and palettes */
+            goto done;
+        }
 
     /* the CPU */
     memcpy(nv4->svga.vram, init, vsize);
@@ -403,9 +429,13 @@ replay(const char *path)
     b->ntris    = n[1];
     b->nspans   = n[2];
     b->nregions = n[3];
-    b->serial   = serial;
+    b->serial   = serial || !parallel; /* a single-thread recording has no row regions */
     b->tex_lo   = tex_lo;
     b->tex_hi   = tex_hi;
+    if (!parallel)
+        for (int i = 0; i < b->nstates; i++)
+            for (int u = 0; u < 2; u++)
+                nv4_3d_tex_range(nv4, &b->states[i].tex[u], &b->tex_lo, &b->tex_hi, &b->bus_tex);
     nv4_3d_shade_serial(nv4, b);
     memcpy(cpu, nv4->svga.vram, vsize);
 

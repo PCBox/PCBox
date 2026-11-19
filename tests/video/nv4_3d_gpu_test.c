@@ -6,7 +6,7 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          Tests of the RIVA TNT's GPU lane (nv4_pgraph_3d_gpu.c) against
+ *          Tests of the TNT and GeForce GPU lane (nv4_pgraph_3d_gpu.c) against
  *          the CPU: every batch is shaded by the lane and again by the
  *          CPU (NV4_3D_VERIFY), and no byte may differ -- a batch of
  *          states running different kernel variants, ROP fills joining
@@ -99,8 +99,7 @@ agpgart_resolve(uint32_t addr, uint32_t *ram_addr)
 uint8_t
 mem_readb_phys(uint32_t addr)
 {
-    (void) addr;
-    return 0;
+    return addr < mem_size * 1024u ? ram[addr] : 0;
 }
 
 uint16_t
@@ -121,10 +120,21 @@ int
 nv4_dma_translate(nv4_t *nv4, uint32_t inst, uint32_t offset, int write, uint32_t *addr, int *target)
 {
     (void) write;
-    if (inst != 1 || offset > nv4->vram_mask)
+    if ((inst != 1 && inst != 2) || offset > nv4->vram_mask)
         return !NV4_DMA_OK;
-    *addr   = offset;
-    *target = 0; /* VRAM */
+    *target = inst == 2 ? 2 : 0; /* PCI memory or VRAM */
+    *addr   = offset + (inst == 2 ? VRAM_SIZE : 0);
+    return NV4_DMA_OK;
+}
+
+int
+nv4_dma_read(nv4_t *card, uint32_t inst, uint32_t offset, uint8_t *buf, uint32_t len)
+{
+    uint32_t addr;
+    int target;
+    if ((uint64_t) offset + len > card->vram_size || nv4_dma_translate(card, inst, offset, 0, &addr, &target) != NV4_DMA_OK)
+        return NV4_DMA_FAULT;
+    memcpy(buf, (target ? ram : card->svga.vram) + addr, len);
     return NV4_DMA_OK;
 }
 
@@ -161,13 +171,12 @@ nv4_ramin_read32(nv4_t *nv4, uint32_t off)
     return 0;
 }
 
-/* textures here are never in system memory */
 void
 dma_bm_read(uint32_t phys_addr, uint8_t *data, uint32_t total_size, int transfer_size)
 {
-    (void) phys_addr;
     (void) transfer_size;
-    memset(data, 0, total_size);
+    for (uint32_t i = 0; i < total_size; i++)
+        data[i] = mem_readb_phys(phys_addr + i);
 }
 
 /* nv_gpu_vk.c's telemetry file (NV_GPU_TELEMETRY, never set here) */
@@ -240,9 +249,12 @@ static monitor_t mon;
 
 /* the GPU lane is there (a Vulkan device); else every test is skipped */
 static int
-card_new(void)
+card_new(nv4_chip_t chip)
 {
     nv4                      = calloc(1, sizeof(nv4_t));
+    mem_size                 = 2 * VRAM_SIZE / 1024;
+    ram                      = calloc(1, mem_size * 1024u);
+    nv4->chip                = chip;
     nv4->vram_size           = VRAM_SIZE;
     nv4->vram_mask           = VRAM_SIZE - 1;
     nv4->svga.vram           = calloc(1, VRAM_SIZE + 4096); /* as svga_init: the lane moves it */
@@ -262,6 +274,7 @@ card_free(void)
     free(nv4->svga.vram);
     free(nv4->svga.changedvram);
     free(nv4);
+    free(ram);
 }
 
 /* After a flush: every flush verified and none differed; the GPU took
@@ -489,13 +502,200 @@ test_texture_cache(void)
     NV4_GR(nv4, NV4_PGRAPH_CTX_SWITCH3) = 0;
 }
 
+/* Use the screen-space submission entry points that follow hardware T&L.
+   Each flush compares the Vulkan result with the serial rasterizer and
+   requires a completed GPU batch. */
+static void
+celsius_tri(nv4_3d_state_t *s)
+{
+    const float xy[3][2] = { { 0, 0 }, { 32, 0 }, { 0, 24 } };
+    float a[3][AT_COUNT] = { { 0 } }, ax[3][AX_COUNT] = { { 0 } };
+    int si = nv4_3d_place(nv4, s);
+
+    for (int i = 0; i < 3; i++) {
+        a[i][AT_Q] = 0.5f + i;
+        a[i][AT_Z] = 8100 + i * 400;
+        a[i][AT_R] = 100 + i * 71;
+        a[i][AT_G] = 210 - i * 67;
+        a[i][AT_B] = 34 + i * 86;
+        a[i][AT_A] = 200;
+        a[i][AT_FOG] = 180 + i * 30;
+        a[i][AT_U0] = xy[i][0] * 0.35f - 1;
+        a[i][AT_V0] = xy[i][1] * 0.55f - 2;
+        a[i][AT_U1] = -a[i][AT_V0];
+        a[i][AT_V1] = a[i][AT_U0];
+        ax[i][AX_R0] = 3 - i;
+        ax[i][AX_R1] = -1 - i;
+        ax[i][AX_Q0] = 1 + i * 0.25f;
+        ax[i][AX_Q1] = 1 + i * 0.125f;
+        ax[i][AX_SA] = 43 + i * 60;
+    }
+    nv4_3d_raster(nv4, si, xy, a, ax);
+}
+
+static void
+test_celsius(void)
+{
+    nv4_3d_state_t s = { .celsius = 1, .col_base = COL_BASE, .z_base = Z_BASE,
+                         .col_pitch = 256, .z_pitch = 128, .col_lim = COL_BASE + 0xffff,
+                         .z_lim = Z_BASE + 0xffff, .col_fmt = 12, .bpp = 4, .z_bpp = 2,
+                         .cx1 = 64, .cy1 = 32, .z_on = 1, .zen = 1, .zfunc = 8,
+                         .zwrite = 1, .zclip1 = 65535, .wr_r = 1, .wr_g = 1, .wr_b = 1,
+                         .wr_a = 1, .rc_n = 1, .rc_f0 = 4, .rc_f1 = 0x1500 };
+
+    fill_vram();
+    celsius_tri(&s);
+    nv4_3d_flush(nv4);
+    check_gpu(1, "Celsius vertex color, specular alpha and Z16");
+    CHECK(nv4->svga.vram[COL_BASE + 2] == 100);
+    s.col_fmt = 5;
+    s.bpp = 2;
+    s.z_bpp = 4;
+    s.z_pitch = 256;
+    s.dither = 1;
+    s.sten = s.swrite = 1;
+    s.sfunc = 8;
+    s.smask_w = 255;
+    s.sop_zpass = 4;
+    s.ablend = 1;
+    s.bcolor = 0x9234b7c8;
+    s.rc_f0 = 0x03200405; /* fog factor/color via the final combiner below */
+    s.rc_f1 = 0x1300;
+    for (int i = 0; i < 16; i++) {
+        s.sblend = i;
+        s.dblend = 15 - i;
+        s.beq = i % 5;
+        s.fogmode = i % 4;
+        s.wbuf = i & 1;
+        celsius_tri(&s);
+        nv4_3d_flush(nv4);
+        check_gpu(1, "Celsius blend equation, fog and Z24S8");
+    }
+    s.ablend = 0;
+    s.wr_g = 0;
+    if (nv4->chip == NV4_CHIP_NV15) {
+        for (int op = 0; op < 16; op++) {
+            s.logic_op = 16 | op;
+            celsius_tri(&s);
+            nv4_3d_flush(nv4);
+            check_gpu(1, "NV15 masked logic operation");
+        }
+        s.logic_op = 0;
+    }
+    s.wr_g = 1;
+    s.tex[0] = (nv4_3d_tex_t) {
+        .on = 1, .dma = 1, .offset = 0x30000, .wlog = 3, .hlog = 3, .levels = 1,
+        .size = 512, .wrap_u = 1, .wrap_v = 2, .min = 2, .mag = 2, .center = 1, .lod_max = 3
+    };
+    s.rc_f0 = 8; /* texture 0 RGB and alpha */
+    s.rc_f1 = 0x1800;
+    memcpy(ram + VRAM_SIZE + 0x31000, nv4->svga.vram + 0x45000, 4096);
+    for (int f = 0; f <= 0x18; f++) {
+        nv4_3d_tex_t *t = &s.tex[0];
+        if (f == 0x0d)
+            continue;
+        t->cfmt = f;
+        t->pal = f >= 8 && f <= 11;
+        t->pal_dma = 2;
+        t->pal_off = 0x31000;
+        t->linear = f >= 0x10;
+        t->w = 7;
+        t->h = 5;
+        t->pitch = 32;
+        t->bpp = (t->pal || f < 2 || f == 0x13 || f == 0x14) ? 1 :
+                 ((f == 6 || f == 7 || f == 0x12) ? 4 : 2);
+        t->dxt = f == 12 ? 1 : (f == 14 ? 3 : (f == 15 ? 5 : 0));
+        celsius_tri(&s);
+        nv4_3d_flush(nv4);
+        check_gpu(1, "Celsius texture format");
+    }
+
+    /* One texel on a 32-bit surface gives exact readbacks for every
+       key operation, including keeping the old pixel on discard. */
+    s.bpp = 4;
+    s.col_fmt = 12;
+    s.dither = 0;
+    s.tex[0].cfmt = 0x12;
+    s.tex[0].bpp = 4;
+    s.tex[0].w = s.tex[0].h = 1;
+    s.tex[0].wrap_u = s.tex[0].wrap_v = 3;
+    s.ckey[0] = 0x123456;
+    for (int op = 0; op < 4; op++) {
+        uint32_t texel = 0xde123456u, old = 0xcafebabeu, pixel;
+        memcpy(nv4->svga.vram + s.tex[0].offset, &texel, sizeof(texel));
+        memcpy(nv4->svga.vram + COL_BASE, &old, sizeof(old));
+        s.tex[0].ckey_op = op;
+        celsius_tri(&s);
+        nv4_3d_flush(nv4);
+        check_gpu(1, "Celsius texture color key");
+        memcpy(&pixel, nv4->svga.vram + COL_BASE, sizeof(pixel));
+        CHECK(pixel == (op == 0 ? texel : op == 1 ? s.ckey[0] : op == 2 ? 0 : old));
+    }
+    s.tex[0].ckey_op = 0;
+    s.tex[0].cfmt = 6;
+    s.tex[0].bpp = 4;
+    s.tex[0].linear = 0;
+    s.tex[0].levels = 3;
+    s.tex[0].level_off[1] = 256;
+    s.tex[0].level_off[2] = 320;
+    s.tex[0].cube = 1;
+    s.tex[0].face = 384;
+    s.tex[0].size = 6 * 384;
+    s.tex[1] = s.tex[0];
+    s.tex[1].cube = 0;
+    s.tex[1].dma = 2;
+    s.tex[1].offset += 0x1000;
+    s.rc_ic[0] = 0x08090420; /* texture0 * texture1, primary * one */
+    s.rc_ia[0] = 0x18191420;
+    s.rc_oa[0] = s.rc_oc[0] = 0x0c00;
+    s.rc_f0 = 12;
+    s.rc_f1 = 0x1c00;
+    s.swz = 1;
+    s.swz_wl = 6;
+    s.swz_hl = 5;
+    for (int mode = 1; mode <= 6; mode++) {
+        s.tex[0].min = mode;
+        s.tex[1].min = 7 - mode;
+        s.tex[1].wrap_u = mode;
+        s.tex[1].akill = 1;
+        celsius_tri(&s);
+        nv4_3d_flush(nv4);
+        check_gpu(1, "Celsius dual-texture mip, cube and swizzled target");
+    }
+    s.rc_n = 2;
+    s.rc_ic[1] = 0x4c292185; /* signed inputs, both dot products and mux */
+    s.rc_ia[1] = 0x9c153c14;
+    s.rc_oc[1] = 0x08037ccd;
+    s.rc_oa[1] = 0x24c0c;
+    s.rc_k[0] = 0x3070e4c2;
+    s.rc_f0 = 0x010f0e00;
+    s.rc_f1 = 0x0c041c80;
+    celsius_tri(&s);
+    nv4_3d_flush(nv4);
+    check_gpu(1, "Celsius two combiner stages and final products");
+
+    /* The CPU must sample a palette that the same draw can write. */
+    s.swz = 0;
+    s.tex[0].cube = 0;
+    s.tex[0].pal = 1;
+    s.tex[0].cfmt = 11;
+    s.tex[0].bpp = 1;
+    s.tex[0].pal_dma = 1;
+    s.tex[0].pal_off = COL_BASE;
+    celsius_tri(&s);
+    CHECK(nv4->batch3d->serial);
+    nv4_3d_flush(nv4);
+    uint64_t batches, fallbacks;
+    nv4_gpu_counts(nv4->batch3d->gpu, &batches, &fallbacks);
+    CHECK(batches == seen_batches && fallbacks == 1 && !nv4->batch3d->vbad);
+}
+
 int
 main(void)
 {
     putenv("NV4_3D_VERIFY=1");
     putenv("NV4_GPU_RUN_MIN=1"); /* a run per state change: several variants in a batch */
-    /* one card for every scene: the variants compile once */
-    if (!card_new()) {
+    if (!card_new(NV4_CHIP_TNT)) {
         printf("no Vulkan device: GPU tests skipped\n");
         card_free();
         return 0;
@@ -506,6 +706,16 @@ main(void)
     test_adjacent_depth();
     test_texture_cache();
     test_deferred_gpu_copy();
+    card_free();
+    seen_batches = 0;
+    if (!card_new(NV4_CHIP_NV10))
+        return 1;
+    test_celsius();
+    card_free();
+    seen_batches = 0;
+    if (!card_new(NV4_CHIP_NV15))
+        return 1;
+    test_celsius();
     card_free();
     if (failures)
         fprintf(stderr, "%d failure(s)\n", failures);

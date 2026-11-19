@@ -32,8 +32,8 @@
  *          pixel. Primitives are assembled, clipped against w (and a guard
  *          band), culled, offset, and handed to the TNT's batch
  *          (nv4_pgraph_3d.c) as screen-space triangles under a draw state
- *          built from the bundle, which the CPU span shader then shades
- *          through the register combiners.
+ *          built from the bundle. The CPU or Vulkan span shader evaluates
+ *          the textures, register combiners and framebuffer operations.
  *
  *          Method semantics follow envytools' hardware tests (hwtest
  *          pgraph_class_celsius.cc; MIT licensed, by the envytools
@@ -491,7 +491,7 @@ nv10_tex_setup(nv4_t *nv4, nv4_3d_tex_t *t, int n)
         t->levels = 1;
         if (!t->w || !t->h)
             return;
-        t->size = t->pitch * (uint32_t) t->h;
+        t->size = t->pitch * (uint32_t) (t->h - 1) + (uint32_t) (t->w * t->bpp);
     } else {
         for (int l = 0; l < t->levels; l++) {
             int wl = (t->wlog - l > 0) ? t->wlog - l : 0;

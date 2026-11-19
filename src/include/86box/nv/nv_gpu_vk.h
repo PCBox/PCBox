@@ -127,10 +127,11 @@ enum {
     NV_GPU_FB_NOROWS,       /* no spans */
     NV_GPU_FB_SUBMIT,       /* vkQueueSubmit failed */
     NV_GPU_FB_TEXODD,       /* (NV3) a texture at an odd address */
-    NV_GPU_FB_ALIAS_WAIT,   /* (NV4) rows alias, the serial kernel not compiled yet */
+    NV_GPU_FB_KERNEL_WAIT,  /* (NV4) required specialization is still compiling */
     NV_GPU_FB_ALIAS_PIECES, /* (NV4) rows alias over too many pieces or past VRAM */
     NV_GPU_FB_ALIAS_TEX,    /* (NV4) rows alias and a texture reads bytes the batch writes */
     NV_GPU_FB_ALIAS_ZCOL,   /* (NV4) rows alias and a state's color and depth bytes meet */
+    NV_GPU_FB_TEX_DMA,      /* the texture extends beyond its DMA window */
     NV_GPU_FB_COUNT
 };
 

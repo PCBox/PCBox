@@ -6,7 +6,7 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          NVIDIA RIVA TNT / TNT2 -- GPU lane for the Direct3D classes.
+ *          NVIDIA RIVA TNT / TNT2 and GeForce / GeForce2 compute rasterizer.
  *
  *          Optional, off by default: the "Draw 3D on the host GPU"
  *          option, or NV4_GPU=1 in the environment. A flushed batch
@@ -111,8 +111,6 @@ nv4_gpu_counts(UNUSED(struct nv4_gpu_s *g), uint64_t *batches, uint64_t *fallbac
 #    include <86box/nv/nv_gpu_vk.h>
 #    include <86box/nv/nv4_3d_gpu_spv.h>
 
-#    define GPU_TEX_ARENA (32u << 20)
-
 /* Records as the kernel reads them (std430, every field 4 bytes). */
 typedef struct {
     int32_t  on, fmt, bpp, wlog, hlog, levels, wrap_u, wrap_v, min, mag;
@@ -120,6 +118,9 @@ typedef struct {
     int32_t  center, ckey;
     uint32_t base; /* level 0 in the texture arena */
     uint32_t level_off[12];
+    int32_t  cfmt, dxt, linear, w, h, cube, ckey_op, akill;
+    uint32_t pitch, face, palette;
+    float    lod_min, lod_max;
 } nv4_gpu_tex_t;
 
 typedef struct {
@@ -136,6 +137,10 @@ typedef struct {
     int32_t       sten, sfunc, sref, smask_r, smask_w, sop_fail, sop_zfail, sop_zpass, swrite;
     int32_t       fill;
     int32_t       swz, swz_wl, swz_hl;
+    uint32_t      rc_ia[2], rc_ic[2], rc_oa[2], rc_oc[2], rc_k[2], rc_f0, rc_f1;
+    int32_t       rc_n, beq, z_bpp, wbuf, fogmode;
+    uint32_t      bcolor, ckey[2];
+    float         zclip0, zclip1;
     nv4_gpu_tex_t tex[2];
 } nv4_gpu_state_t;
 
@@ -147,9 +152,11 @@ typedef struct {
     uint32_t first, count;
 } nv4_gpu_row_t;
 
-_Static_assert(sizeof(nv4_gpu_tex_t) == 26 * 4, "nv4_gpu_tex_t layout");
-_Static_assert(sizeof(nv4_gpu_state_t) == 103 * 4, "nv4_gpu_state_t layout");
+_Static_assert(sizeof(nv4_gpu_tex_t) == 39 * 4, "nv4_gpu_tex_t layout");
+_Static_assert(sizeof(nv4_gpu_state_t) == 151 * 4, "nv4_gpu_state_t layout");
 _Static_assert(sizeof(nv4_3d_tri_t) == (3 + 3 * AT_COUNT) * 4, "nv4_3d_tri_t layout");
+#    define GPU_EXT_OFFSET (sizeof(nv4_3d_tri_t) * B3D_TRIS)
+_Static_assert(B3D_TRIS == 16384 && AX_COUNT == 5 && sizeof(nv4_3d_tri_ext_t) == 15 * 4, "Celsius interpolant layout");
 _Static_assert(AT_COUNT == 14, "the kernel interpolates 14 attributes");
 
 /* The ranges of VRAM a batch reads and writes: its regions, or for rows
@@ -166,7 +173,7 @@ typedef struct {
     uint64_t          seq;
     VkBufferCopy      pdown[GPU_DOWNS]; /* its rows, to copy back */
     int               pndown;
-    VkBufferCopy      ptex[B3D_STATES * 2]; /* the texture staging it uploads from */
+    VkBufferCopy      ptex[B3D_STATES * 4]; /* the texture staging it uploads from */
     int               pntex;
     int               p_spans, p_chunks;
     uint32_t          p_rows;
@@ -193,6 +200,8 @@ typedef struct {
 #    define GPU_KEY_BITS(k)           ((k) &7)
 #    define GPU_VARIANTS              24
 #    define GPU_V_SERIAL              GPU_VARIANTS
+#    define GPU_V_CELSIUS_SERIAL      (GPU_VARIANTS + 1)
+#    define GPU_V_CELSIUS             (GPU_VARIANTS + 2)
 
 /* A batch is one dispatch per run (at most GPU_RUNS); a run shorter
    than GPU_RUN_MIN spans (NV4_GPU_RUN_MIN in the environment) takes in
@@ -220,9 +229,9 @@ typedef struct nv4_gpu_s {
     gpu_texent_t  cache[GPU_TEX_CACHE];
     int           ncache;
     uint32_t      tex_used;           /* arena bytes taken */
-    int           flush_tex[B3D_STATES * 2]; /* cache entries this batch checked */
+    int           flush_tex[B3D_STATES * 4]; /* cache entries this batch checked */
     int           nflush_tex;
-    VkBufferCopy  tcopy[B3D_STATES * 2];     /* arena regions to upload */
+    VkBufferCopy  tcopy[B3D_STATES * 4];     /* arena regions to upload */
     int           ntcopy;
     uint64_t      hash_bytes;
     uint32_t      row_count[4096];
@@ -237,9 +246,9 @@ typedef struct nv4_gpu_s {
     gpu_run_t     runs[GPU_RUNS];
     int           nruns;
     uint8_t       skey[B3D_STATES];
-    int           run_min;
-    VkPipeline    var[GPU_VARIANTS + 1];
-    atomic_int    var_ready[GPU_VARIANTS + 1];
+    int           run_min, celsius;
+    VkPipeline    var[GPU_V_CELSIUS + 1];
+    atomic_int    var_ready[GPU_V_CELSIUS + 1];
     atomic_int    stop;
     event_t      *compiled; /* set once the compiler thread is done: thread_wait cannot tell (on
                                Windows _beginthread closes a finished thread's handle) */
@@ -254,10 +263,10 @@ nv4_gpu_init(nv4_t *nv4)
     nv4_gpu_t             *g = calloc(1, sizeof(nv4_gpu_t));
     const nv_gpu_vk_desc_t d = {
         .tag       = "NV4 GPU",
-        .app_name  = "86Box RIVA TNT",
+        .app_name  = NV4_IS_CELSIUS(nv4) ? "86Box GeForce" : "86Box RIVA TNT",
         .vram_size = nv4->vram_size,
-        .tex_arena = GPU_TEX_ARENA,
-        .rec_size  = { sizeof(nv4_gpu_state_t) * B3D_STATES, sizeof(nv4_3d_tri_t) * B3D_TRIS,
+        .tex_arena = NV4_GPU_TEX_ARENA,
+        .rec_size  = { sizeof(nv4_gpu_state_t) * B3D_STATES, GPU_EXT_OFFSET + (NV4_IS_CELSIUS(nv4) ? sizeof(nv4_3d_tri_ext_t) * B3D_TRIS : 0),
                        sizeof(nv4_gpu_span_t) * B3D_SPANS, sizeof(nv4_gpu_row_t) * 4096 * GPU_RUNS },
         .spv       = (const uint32_t *) nv4_gpu_spv,
         .spv_size  = sizeof(nv4_gpu_spv),
@@ -267,6 +276,7 @@ nv4_gpu_init(nv4_t *nv4)
         .vram_alloc = nv4->vram_size + 4096 /* svga_init's */
     };
 
+    g->celsius = NV4_IS_CELSIUS(nv4);
     g->vram_size = nv4->vram_size;
     if (getenv("NV4_GPU_PROFILE"))
         g->prof_left = atoi(getenv("NV4_GPU_PROFILE"));
@@ -318,7 +328,7 @@ nv4_gpu_close(struct nv4_gpu_s *g)
         thread_wait_event(g->compiled, -1);
         thread_destroy_event(g->compiled);
     }
-    for (int i = 0; i <= GPU_V_SERIAL; i++)
+    for (int i = 0; i <= GPU_V_CELSIUS; i++)
         if (g->var[i])
             g->vk.vkDestroyPipeline(g->vk.dev, g->var[i], NULL);
     nv_gpu_vk_close(&g->vk);
@@ -502,7 +512,7 @@ gpu_tex_copy(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t base)
     }
     g->tcopy[g->ntcopy].srcOffset = base;
     g->tcopy[g->ntcopy].dstOffset = base;
-    g->tcopy[g->ntcopy].size      = t->size;
+    g->tcopy[g->ntcopy].size      = (t->size + 3u) & ~3u;
     g->ntcopy++;
     g->tex_bytes += t->size;
 }
@@ -511,7 +521,7 @@ gpu_tex_copy(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t base)
    its bytes have not changed, else copied in. UINT32_MAX when the arena
    is full. */
 static uint32_t
-gpu_gather_tex(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t)
+gpu_gather_tex(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t, int *why)
 {
     uint64_t      h    = 0;
     int           same = 0;
@@ -523,8 +533,18 @@ gpu_gather_tex(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t)
         if ((c->dma == t->dma) && (c->offset == t->offset) && (c->size == t->size))
             return c->base;
     }
-    if (!t->size)
+    if (!t->size || t->size > NV4_GPU_TEX_ARENA)
         return UINT32_MAX;
+    /* A page-sized upload must not turn a partially valid DMA window
+       into a fully readable texture or palette. Use the CPU's per-texel
+       fault behavior for those windows. */
+    uint32_t addr;
+    int target;
+    if (t->size - 1 > UINT32_MAX - t->offset
+        || nv4_dma_translate(nv4, t->dma, t->offset + t->size - 1, 0, &addr, &target) != NV4_DMA_OK) {
+        *why = NV_GPU_FB_TEX_DMA;
+        return UINT32_MAX;
+    }
     if (!g->vk.b[NV_GPU_B_TSTAGE].cached)
         h = gpu_tex_hash(g, nv4, t);
     for (int i = 0; i < g->ncache; i++)
@@ -535,7 +555,7 @@ gpu_gather_tex(nv4_gpu_t *g, nv4_t *nv4, const nv4_3d_tex_t *t)
     if (e)
         same = g->vk.b[NV_GPU_B_TSTAGE].cached ? gpu_tex_same(g, nv4, t, e->base) : e->hash == h;
     if (!e) {
-        if ((g->ncache >= GPU_TEX_CACHE) || (t->size > GPU_TEX_ARENA - g->tex_used))
+        if ((g->ncache >= GPU_TEX_CACHE) || (t->size > NV4_GPU_TEX_ARENA - g->tex_used))
             return UINT32_MAX;
         e         = &g->cache[g->ncache++];
         e->dma    = t->dma;
@@ -571,8 +591,19 @@ gpu_pack_tex(nv4_gpu_tex_t *o, const nv4_3d_tex_t *t, uint32_t base)
     o->center   = t->center;
     o->ckey     = t->ckey;
     o->base     = base;
-    for (int l = 0; l < 12; l++)
-        o->level_off[l] = t->level_off[l];
+    o->cfmt = t->cfmt;
+    o->dxt = t->dxt;
+    o->linear = t->linear;
+    o->w = t->w;
+    o->h = t->h;
+    o->cube = t->cube;
+    o->ckey_op = t->ckey_op;
+    o->akill = t->akill;
+    o->pitch = t->pitch;
+    o->face = t->face;
+    o->lod_min = t->lod_min;
+    o->lod_max = t->lod_max;
+    memcpy(o->level_off, t->level_off, sizeof(o->level_off));
 }
 
 static void
@@ -626,6 +657,22 @@ gpu_pack_state(nv4_gpu_state_t *o, const nv4_3d_state_t *s)
     o->sop_zfail = s->sop_zfail;
     o->sop_zpass = s->sop_zpass;
     o->swrite    = s->swrite;
+    memcpy(o->rc_ia, s->rc_ia, sizeof(o->rc_ia));
+    memcpy(o->rc_ic, s->rc_ic, sizeof(o->rc_ic));
+    memcpy(o->rc_oa, s->rc_oa, sizeof(o->rc_oa));
+    memcpy(o->rc_oc, s->rc_oc, sizeof(o->rc_oc));
+    memcpy(o->rc_k, s->rc_k, sizeof(o->rc_k));
+    memcpy(o->ckey, s->ckey, sizeof(o->ckey));
+    o->rc_f0 = s->rc_f0;
+    o->rc_f1 = s->rc_f1;
+    o->rc_n = s->rc_n;
+    o->beq = s->beq;
+    o->bcolor = s->bcolor;
+    o->z_bpp = s->z_bpp;
+    o->wbuf = s->wbuf;
+    o->fogmode = s->fogmode;
+    o->zclip0 = s->zclip0;
+    o->zclip1 = s->zclip1;
     o->fill      = s->fill;
     o->swz       = s->swz;
     o->swz_wl    = s->swz_wl;
@@ -807,24 +854,25 @@ gpu_compile_variants(void *priv)
     nv4_gpu_t *g  = (nv4_gpu_t *) priv;
     uint64_t   t0 = nv_gpu_now_us();
 
-    for (int i = GPU_V_SERIAL; (i >= 0) && !atomic_load(&g->stop); i--) {
-        int32_t spec[5] = { 2, 1, 1, 1, 1 }; /* the serial one: everything, in order */
+    int last = g->celsius ? GPU_V_CELSIUS : GPU_V_SERIAL;
+    for (int i = last; (i >= 0) && !atomic_load(&g->stop); i--) {
+        int32_t spec[6] = { 2, 1, 1, 1, i == GPU_V_SERIAL || i == GPU_V_CELSIUS_SERIAL, i > GPU_V_SERIAL };
 
-        if (i != GPU_V_SERIAL) {
+        if (i < GPU_V_SERIAL) {
             spec[0] = GPU_KEY_TEX(i);
             spec[1] = (i >> 2) & 1;
             spec[2] = (i >> 1) & 1;
             spec[3] = i & 1;
             spec[4] = 0;
         }
-        g->var[i] = nv_gpu_vk_pipeline(&g->vk, spec, 5);
+        g->var[i] = nv_gpu_vk_pipeline(&g->vk, spec, 6);
         if (g->var[i])
             atomic_store(&g->var_ready[i], 1);
         else
             nv_gpu_log("NV4 GPU: kernel variant %d failed to compile\n", i);
     }
     if (!atomic_load(&g->stop))
-        nv_gpu_log("NV4 GPU: %d kernel variants compiled in %llu ms\n", GPU_VARIANTS + 1,
+        nv_gpu_log("NV4 GPU: %d kernel variants compiled in %llu ms\n", last + 1,
                    (unsigned long long) ((nv_gpu_now_us() - t0) / 1000));
     if (g->compiled)
         thread_set_event(g->compiled);
@@ -869,26 +917,32 @@ gpu_serial_ranges(nv4_gpu_t *g, const nv4_3d_batch_t *b, uint32_t *lo, uint32_t 
         const nv4_3d_state_t *s = &b->states[i];
         uint32_t              clo, chi, zlo, zhi;
         int                   col, z;
+        int                   zb = s->celsius ? s->z_bpp : s->bpp;
 
         if ((ymin[i] > ymax[i]) || (ymin[i] < 0) || (xmin[i] < 0))
             continue;
+        z = !s->fill && (s->z_on || s->sten);
         if (s->swz) {
+            uint64_t pixels = UINT64_C(1) << (s->swz_wl + s->swz_hl);
+            if (s->col_base + pixels * s->bpp > UINT32_MAX || (z && s->z_base + pixels * zb > UINT32_MAX)) {
+                *why = NV_GPU_FB_ALIAS_PIECES;
+                return 0;
+            }
             clo = s->col_base;
             chi = clo + ((uint32_t) s->bpp << (s->swz_wl + s->swz_hl)) - 1;
             zlo = s->z_base;
-            zhi = zlo + ((uint32_t) s->bpp << (s->swz_wl + s->swz_hl)) - 1;
+            zhi = zlo + ((uint32_t) zb << (s->swz_wl + s->swz_hl)) - 1;
         } else {
             clo = s->col_base + (uint32_t) ymin[i] * s->col_pitch + (uint32_t) xmin[i] * s->bpp;
             chi = s->col_base + (uint32_t) ymax[i] * s->col_pitch + (uint32_t) xmax[i] * s->bpp - 1;
-            zlo = s->z_base + (uint32_t) ymin[i] * s->z_pitch + (uint32_t) xmin[i] * s->bpp;
-            zhi = s->z_base + (uint32_t) ymax[i] * s->z_pitch + (uint32_t) xmax[i] * s->bpp - 1;
+            zlo = s->z_base + (uint32_t) ymin[i] * s->z_pitch + (uint32_t) xmin[i] * zb;
+            zhi = s->z_base + (uint32_t) ymax[i] * s->z_pitch + (uint32_t) xmax[i] * zb - 1;
         }
         /* color past the limit is never written; depth and stencil are
            written without one */
         if (chi > s->col_lim)
             chi = s->col_lim;
         col = (clo <= chi);
-        z   = !s->fill && (s->z_on || s->sten);
         if (col && z && (clo <= zhi) && (zlo <= chi)) {
             *why = NV_GPU_FB_ALIAS_ZCOL;
             return 0;
@@ -958,6 +1012,16 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
     uint64_t         t0, t1, t2;
     int              why = NV_GPU_FB_NOREGION;
 
+    if (!b->nspans)
+        return 0;
+    int celsius = b->states[0].celsius;
+    int kernel = celsius ? (b->serial ? GPU_V_CELSIUS_SERIAL : GPU_V_CELSIUS) : GPU_V_SERIAL;
+    if ((celsius || b->serial) && !atomic_load(&g->var_ready[kernel])) {
+        nv_gpu_vk_fallback(&g->vk, NV_GPU_FB_KERNEL_WAIT);
+        g->fallbacks++;
+        return 0;
+    }
+
     /* this slot's last batch (and any older one) first */
     if (sl->pending)
         gpu_complete_upto(g, nv4, sl->seq);
@@ -969,10 +1033,6 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
     /* the bytes it touches: its regions, or for rows that alias what its
        spans reach */
     if (b->serial) {
-        if (!atomic_load(&g->var_ready[GPU_V_SERIAL])) {
-            why = NV_GPU_FB_ALIAS_WAIT;
-            goto fallback;
-        }
         if (!(ndown = gpu_serial_ranges(g, b, dlo, dhi, &why)))
             goto fallback;
     } else {
@@ -1005,15 +1065,25 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
             for (int n = 0; n < 2; n++) {
                 uint32_t base = 0;
 
-                if (s->tex[n].on && ((base = gpu_gather_tex(g, nv4, &s->tex[n])) == UINT32_MAX)) {
+                if (s->tex[n].on && ((base = gpu_gather_tex(g, nv4, &s->tex[n], &why)) == UINT32_MAX)) {
                     full = 1;
                     break;
                 }
                 gpu_pack_tex(&gs[i].tex[n], &s->tex[n], base);
+                if (s->tex[n].on && s->tex[n].pal) {
+                    nv4_3d_tex_t palette = nv10_palette_window(&s->tex[n]);
+                    gs[i].tex[n].palette = gpu_gather_tex(g, nv4, &palette, &why);
+                    if (gs[i].tex[n].palette == UINT32_MAX) {
+                        full = 1;
+                        break;
+                    }
+                }
             }
         }
         if (!full)
             break;
+        if (why == NV_GPU_FB_TEX_DMA)
+            goto fallback;
         g->ncache   = 0;
         g->tex_used = 0;
         why         = NV_GPU_FB_ARENA;
@@ -1023,6 +1093,8 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
     t1 = nv_gpu_now_us();
     g->us_gather += t1 - t0;
     memcpy(sl->vk->rech[NV_GPU_R_TRIS].map, b->tris, sizeof(nv4_3d_tri_t) * b->ntris);
+    if (celsius)
+        memcpy((uint8_t *) sl->vk->rech[NV_GPU_R_TRIS].map + GPU_EXT_OFFSET, b->ext, sizeof(*b->ext) * b->ntris);
 
     if (b->serial) {
         /* every span in submission order, one workgroup */
@@ -1033,7 +1105,7 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
             gsp[i].tri = b->spans[i].tri;
         }
         g->nruns           = 1;
-        g->runs[0].key     = GPU_V_SERIAL;
+        g->runs[0].key     = kernel;
         g->runs[0].first   = 0;
         g->runs[0].count   = b->nspans;
         g->runs[0].row0    = 0;
@@ -1044,7 +1116,11 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
     } else {
         /* runs, and in each the spans grouped by row, each row in
            submission order */
-        gpu_build_runs(g, b);
+        if (celsius) {
+            g->nruns = 1;
+            g->runs[0] = (gpu_run_t) { .key = kernel, .count = b->nspans };
+        } else
+            gpu_build_runs(g, b);
         for (int k = 0; k < g->nruns; k++) {
             gpu_run_t *r    = &g->runs[k];
             uint32_t   at   = r->first;
@@ -1120,6 +1196,10 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
                 if (rc[i].size)
                     g->vk.vkCmdCopyBuffer(cb, sl->vk->rech[i].buf, sl->vk->rec[i].buf, 1, &rc[i]);
         }
+        if (celsius) {
+            VkBufferCopy ext = { GPU_EXT_OFFSET, GPU_EXT_OFFSET, sizeof(*b->ext) * b->ntris };
+            g->vk.vkCmdCopyBuffer(cb, sl->vk->rech[NV_GPU_R_TRIS].buf, sl->vk->rec[NV_GPU_R_TRIS].buf, 1, &ext);
+        }
         if (g->ntcopy)
             g->vk.vkCmdCopyBuffer(cb, g->vk.b[NV_GPU_B_TSTAGE].buf, g->vk.b[NV_GPU_B_TEX].buf, g->ntcopy, g->tcopy);
         nv_gpu_vk_barrier(&g->vk, cb, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_HOST_BIT,
@@ -1134,9 +1214,7 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
 
             if (!r->nrows)
                 continue;
-            if (b->serial)
-                p = g->var[GPU_V_SERIAL];
-            else if (atomic_load(&g->var_ready[r->key])) {
+            if (atomic_load(&g->var_ready[r->key])) {
                 p = g->var[r->key];
                 g->var_runs++;
             } else
@@ -1200,6 +1278,9 @@ nv4_gpu_shade(struct nv4_gpu_s *g, nv4_t *nv4, const nv4_3d_batch_t *b)
     return 1;
 
 fallback:
+    /* A skipped submission may have staged new texture bytes without uploading them. */
+    g->ncache = 0;
+    g->tex_used = 0;
     g->fallbacks++;
     nv_gpu_vk_fallback(&g->vk, why);
     return 0;

@@ -6,7 +6,7 @@
  *
  *          This file is part of the 86Box distribution.
  *
- *          NVIDIA RIVA TNT / TNT2 -- GPU lane span shader.
+ *          NVIDIA RIVA TNT / TNT2 and GeForce / GeForce2 span shader.
  *
  *          The kernel side of nv4_pgraph_3d_gpu.c: the CPU span shader
  *          of nv4_pgraph_3d.c (nv4_3d_span and its helpers), ported
@@ -50,6 +50,8 @@ layout(constant_id = 2) const int V_DST    = 1; /* blending or write masks read 
 layout(constant_id = 3) const int V_Z      = 1; /* depth test, depth buffer or stencil */
 layout(constant_id = 4) const int V_SERIAL = 0; /* one workgroup, every span in order */
 
+layout(constant_id = 5) const int V_CELSIUS = 0; /* NV10/NV15 fragment pipeline */
+
 #include "../../../vid_ati_rage128_gpu_fdiv.glsl"
 
 /* Records: nv4_gpu_tex_t, nv4_gpu_state_t, nv4_3d_tri_t in
@@ -60,6 +62,9 @@ struct tex_t {
     int   center, ckey;
     uint  base;
     uint  level_off[12];
+    int   cfmt, dxt, linear, w, h, cube, ckey_op, akill;
+    uint  pitch, face, palette;
+    float lod_min, lod_max;
 };
 
 struct state_t {
@@ -76,6 +81,10 @@ struct state_t {
     int   sten, sfunc, sref, smask_r, smask_w, sop_fail, sop_zfail, sop_zpass, swrite;
     int   fill;     /* 2D rectangle fills: the triangle's c[] (nv4_3d_fill_words) */
     int   swz, swz_wl, swz_hl; /* a swizzled target, 2^wl by 2^hl */
+    uint  rc_ia[2], rc_ic[2], rc_oa[2], rc_oc[2], rc_k[2], rc_f0, rc_f1;
+    int   rc_n, beq, z_bpp, wbuf, fogmode;
+    uint  bcolor, ckey[2];
+    float zclip0, zclip1;
     tex_t tex[2];
 };
 
@@ -100,10 +109,14 @@ struct tri_t {
     float c[14], dx[14], dy[14];
 };
 
+struct tri_ext_t {
+    float c[5], dx[5], dy[5];
+};
+
 layout(std430, binding = 0) buffer Vram { uint vram[]; };
 layout(std430, binding = 1) readonly buffer Texm { uint texm[]; };
 layout(std430, binding = 2) readonly buffer States { state_t st[]; };
-layout(std430, binding = 3) readonly buffer Tris { tri_t tris[]; };
+layout(std430, binding = 3) readonly buffer Tris { tri_t tris[16384]; tri_ext_t extra[]; };
 layout(std430, binding = 4) readonly buffer Spans { ivec4 spans[]; }; /* y, x0, x1, tri */
 layout(std430, binding = 5) readonly buffer Rows { uvec2 rows[]; };   /* first span, count */
 
@@ -117,6 +130,7 @@ uint g_si; /* state of the span being shaded */
 uint g_ti; /* its triangle */
 #define S st[g_si]
 #define T tris[g_ti]
+#define E extra[g_ti]
 
 /* ---- memory ---- */
 uint
@@ -399,13 +413,13 @@ log2_bits(float r)
 
 /* nv4_lod; iq is 1/q, worked out once per pixel */
 float
-lod_of(int au, int av, float q, float iq, float uq, float vq, int wl, int hl)
+lod_of(int au, int av, float q, float iq, float uq, float vq, int wl, int hl, float dqdx, float dqdy)
 {
     precise float iq2  = iq * iq;
-    precise float dudx = (T.dx[au] * q - uq * T.dx[AT_Q]) * iq2 * float(1 << wl);
-    precise float dvdx = (T.dx[av] * q - vq * T.dx[AT_Q]) * iq2 * float(1 << hl);
-    precise float dudy = (T.dy[au] * q - uq * T.dy[AT_Q]) * iq2 * float(1 << wl);
-    precise float dvdy = (T.dy[av] * q - vq * T.dy[AT_Q]) * iq2 * float(1 << hl);
+    precise float dudx = (T.dx[au] * q - uq * dqdx) * iq2 * float(1 << wl);
+    precise float dvdx = (T.dx[av] * q - vq * dqdx) * iq2 * float(1 << hl);
+    precise float dudy = (T.dy[au] * q - uq * dqdy) * iq2 * float(1 << wl);
+    precise float dvdy = (T.dy[av] * q - vq * dqdy) * iq2 * float(1 << hl);
     precise float rx   = dudx * dudx + dvdx * dvdx;
     precise float ry   = dudy * dudy + dvdy * dvdy;
     precise float r    = (rx > ry) ? rx : ry;
@@ -597,17 +611,10 @@ stencil_op(int op, int s, int ref)
 const int dither4[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
 
 uint
-pack_color(ivec4 c, int x, int y)
+encode_color(ivec4 c)
 {
     int fmt = S.col_fmt;
 
-    if ((S.bpp == 2) && (S.dither != 0)) {
-        int d = dither4[(y & 3) * 4 + (x & 3)] >> 1;
-
-        c.r = clamp255(c.r + d - 4);
-        c.g = clamp255(c.g + ((fmt == 5) ? (d >> 1) - 2 : d - 4));
-        c.b = clamp255(c.b + d - 4);
-    }
     switch (fmt) {
         case 2:
         case 3:
@@ -626,6 +633,21 @@ pack_color(ivec4 c, int x, int y)
         default:
             return uint((c.r << 16) | (c.g << 8) | c.b);
     }
+}
+
+uint
+pack_color(ivec4 c, int x, int y)
+{
+    int fmt = S.col_fmt;
+
+    if ((S.bpp == 2) && (S.dither != 0)) {
+        int d = dither4[(y & 3) * 4 + (x & 3)] >> 1;
+
+        c.r = clamp255(c.r + d - 4);
+        c.g = clamp255(c.g + ((fmt == 5) ? (d >> 1) - 2 : d - 4));
+        c.b = clamp255(c.b + d - 4);
+    }
+    return encode_color(c);
 }
 
 ivec4
@@ -669,86 +691,28 @@ tex_stage(int n, int au, int av, float q, float iq, float uq, float vq, inout bo
     {
         precise float u   = uq * iq;
         precise float v   = vq * iq;
-        float         lod = lod_of(au, av, (S.persp != 0) ? q : 1.0, iq, uq, vq, S.tex[n].wlog, S.tex[n].hlog);
+        float         lod = lod_of(au, av, (S.persp != 0) ? q : 1.0, iq, uq, vq, S.tex[n].wlog, S.tex[n].hlog, T.dx[AT_Q], T.dy[AT_Q]);
 
         return rgba(sample_tex(n, u, v, lod, S.color_key, killed));
     }
 }
 
+#include "nv10_celsius_gpu.glsl"
+
 /* nv4_3d_pix: pixel x,y of a surface of <pitch>, or of the swizzled
    target (nv4_swizzle keeps the bits below wl and hl) */
 uint
-pix(uint pitch, int x, int y)
+pix(uint pitch, int x, int y, int bytes)
 {
     if (S.swz != 0)
-        return swizzle(uint(x) & ((1u << S.swz_wl) - 1u), uint(y) & ((1u << S.swz_hl) - 1u), S.swz_wl, S.swz_hl) * uint(S.bpp);
-    return uint(y) * pitch + uint(x) * uint(S.bpp);
+        return swizzle(uint(x) & ((1u << S.swz_wl) - 1u), uint(y) & ((1u << S.swz_hl) - 1u), S.swz_wl, S.swz_hl) * uint(bytes);
+    return uint(y) * pitch + uint(x) * uint(bytes);
 }
 
-/* ---- one pixel: nv4_3d_span's loop body ---- */
-void
-shade(int x, int y)
+ivec4
+legacy_shade(float at[14], ivec4 d, ivec4 spec, inout bool killed)
 {
-    precise float px = float(x) + S.origin - T.x0;
-    precise float py = float(y) + S.origin - T.y0;
-    precise float at[14];
-    int           bpp  = S.bpp;
-    uint          ca   = S.col_base + pix(S.col_pitch, x, y);
-    uint          za   = S.z_base + pix(S.z_pitch, x, y);
-    uint          zold = 0u, znew = 0u, depth = 0u;
-    int           sten = 0;
-    bool          killed = false;
-    ivec4         d, spec, outc, src[8];
-
-    if (ca + uint(bpp) - 1u > S.col_lim)
-        return;
-    if (S.fill != 0) {
-        uint fv = floatBitsToUint(T.c[0]);
-
-        /* NV4_FILL_ROP (c[13]): (d & A) | (~d & B), A and B by the
-           pattern bit (NV4_ROPFILL_*) */
-        if (floatBitsToUint(T.c[13]) == 1u) {
-            uint fl = floatBitsToUint(T.c[6]);
-            uint k  = 0u;
-            uint dv;
-
-            if ((fl & 0x10u) != 0u) {
-                uint sh = fl & 3u;
-                uint pi = (sh == 1u) ? (uint(x) & 63u) : ((sh == 2u) ? (uint(y) & 63u) : (((uint(y) & 7u) << 3) | (uint(x) & 7u)));
-
-                k = (floatBitsToUint(T.c[4u + (pi >> 5)]) >> (pi & 31u)) & 1u;
-                if ((fl & ((k != 0u) ? 0x08u : 0x04u)) != 0u)
-                    return;
-            }
-            dv = vread(ca, bpp);
-            fv = (dv & floatBitsToUint(T.c[k * 2u])) | (~dv & floatBitsToUint(T.c[k * 2u + 1u]));
-        }
-        vwrite(ca, bpp, fv);
-        return;
-    }
-    for (int i = 0; i < 14; i++)
-        at[i] = T.c[i] + T.dx[i] * px + T.dy[i] * py;
-    if (at[AT_Q] <= 0.0)
-        at[AT_Q] = 1e-6;
-
-    /* depth (none of it without V_Z: no depth buffer, test or stencil) */
-    if (V_Z != 0) {
-        precise float w = (S.zfloat != 0) ? (1.0 - at[AT_Q]) : at[AT_Z];
-        precise float sc;
-
-        w     = (w < 0.0) ? 0.0 : ((w > 1.0) ? 1.0 : w);
-        sc    = w * ((bpp == 2) ? 65535.0 : 16777215.0);
-        depth = uint(sc);
-    }
-    if ((V_Z != 0) && (S.z_on != 0) && (za + uint(bpp) - 1u <= S.z_lim))
-        zold = vread(za, bpp);
-    /* Z in bits 31:8, stencil in 7:0 (as on the CPU) */
-    sten = (bpp == 4) ? int(zold & 0xffu) : 0;
-
-    /* colors */
-    d    = ivec4(clamp255(f2i(at[AT_R])), clamp255(f2i(at[AT_G])), clamp255(f2i(at[AT_B])), clamp255(f2i(at[AT_A])));
-    spec = ivec4(clamp255(f2i(at[AT_SR])), clamp255(f2i(at[AT_SG])), clamp255(f2i(at[AT_SB])), clamp255(f2i(at[AT_FOG])));
-
+    ivec4 src[8], outc;
     /* textures, one call per stage so every index is a constant */
     {
         /* 1/q, which the CPU works out per stage and again per LOD: the
@@ -762,7 +726,7 @@ shade(int x, int y)
         src[6] = tex_stage(1, AT_U1, AT_V1, at[AT_Q], iq, at[AT_U1], at[AT_V1], killed);
     }
     if (killed)
-        return;
+        return ivec4(0);
 
     if ((V_DX6 != 0) && (S.dx6 != 0)) {
         ivec4 inp = d;
@@ -801,6 +765,88 @@ shade(int x, int y)
         outc.b = mul8(outc.b, f) + mul8(fc.b, 255 - f);
     }
 
+    return outc;
+}
+
+/* ---- one pixel: nv4_3d_span's loop body ---- */
+void
+shade(int x, int y)
+{
+    precise float px = float(x) + S.origin - T.x0;
+    precise float py = float(y) + S.origin - T.y0;
+    precise float at[14];
+    int           bpp  = S.bpp;
+    int           zb   = V_CELSIUS != 0 ? S.z_bpp : bpp;
+    uint          ca   = S.col_base + pix(S.col_pitch, x, y, bpp);
+    uint          za   = S.z_base + pix(S.z_pitch, x, y, zb);
+    uint          zold = 0u, znew = 0u, depth = 0u;
+    int           sten = 0;
+    bool          killed = false;
+    ivec4         d, spec, outc;
+
+    if (ca + uint(bpp) - 1u > S.col_lim)
+        return;
+    if (S.fill != 0) {
+        uint fv = floatBitsToUint(T.c[0]);
+
+        /* NV4_FILL_ROP (c[13]): (d & A) | (~d & B), A and B by the
+           pattern bit (NV4_ROPFILL_*) */
+        if (floatBitsToUint(T.c[13]) == 1u) {
+            uint fl = floatBitsToUint(T.c[6]);
+            uint k  = 0u;
+            uint dv;
+
+            if ((fl & 0x10u) != 0u) {
+                uint sh = fl & 3u;
+                uint pi = (sh == 1u) ? (uint(x) & 63u) : ((sh == 2u) ? (uint(y) & 63u) : (((uint(y) & 7u) << 3) | (uint(x) & 7u)));
+
+                k = (floatBitsToUint(T.c[4u + (pi >> 5)]) >> (pi & 31u)) & 1u;
+                if ((fl & ((k != 0u) ? 0x08u : 0x04u)) != 0u)
+                    return;
+            }
+            dv = vread(ca, bpp);
+            fv = (dv & floatBitsToUint(T.c[k * 2u])) | (~dv & floatBitsToUint(T.c[k * 2u + 1u]));
+        }
+        vwrite(ca, bpp, fv);
+        return;
+    }
+    for (int i = 0; i < 14; i++)
+        at[i] = T.c[i] + T.dx[i] * px + T.dy[i] * py;
+    if (at[AT_Q] <= 0.0)
+        at[AT_Q] = 1e-6;
+
+    /* depth (none of it without V_Z: no depth buffer, test or stencil) */
+    if (V_CELSIUS != 0) {
+        float z = at[AT_Z];
+        if (z < S.zclip0 || z > S.zclip1)
+            return;
+        if (S.wbuf != 0)
+            z = fdiv_cr(1.0, at[AT_Q]);
+        depth = uint(clamp(z, 0.0, zb == 2 ? 65535.0 : 16777215.0));
+    } else if (V_Z != 0) {
+        precise float w = (S.zfloat != 0) ? (1.0 - at[AT_Q]) : at[AT_Z];
+        precise float sc;
+
+        w     = (w < 0.0) ? 0.0 : ((w > 1.0) ? 1.0 : w);
+        sc    = w * ((bpp == 2) ? 65535.0 : 16777215.0);
+        depth = uint(sc);
+    }
+    if ((V_Z != 0) && (S.z_on != 0) && (za + uint(zb) - 1u <= S.z_lim))
+        zold = vread(za, zb);
+    /* Z in bits 31:8, stencil in 7:0 (as on the CPU) */
+    sten = (zb == 4) ? int(zold & 0xffu) : 0;
+
+    /* colors */
+    d    = ivec4(clamp255(f2i(at[AT_R])), clamp255(f2i(at[AT_G])), clamp255(f2i(at[AT_B])), clamp255(f2i(at[AT_A])));
+    spec = ivec4(clamp255(f2i(at[AT_SR])), clamp255(f2i(at[AT_SG])), clamp255(f2i(at[AT_SB])), clamp255(f2i(at[AT_FOG])));
+
+    if (V_CELSIUS != 0)
+        outc = celsius_shade(at, px, py, d, spec, killed);
+    else
+        outc = legacy_shade(at, d, spec, killed);
+    if (killed)
+        return;
+
     if ((S.atest != 0) && !cmpf(S.afunc, uint(outc.a), uint(S.aref)))
         return;
 
@@ -820,7 +866,7 @@ shade(int x, int y)
         }
     }
     if (V_Z != 0) {
-        uint zcur  = (bpp == 2) ? zold : (zold >> 8);
+        uint zcur  = (zb == 2) ? zold : (zold >> 8);
         bool zpass = (S.zen == 0) || cmpf(S.zfunc, depth, zcur);
 
         if ((S.sten != 0) && (S.swrite != 0)) {
@@ -828,16 +874,16 @@ shade(int x, int y)
 
             sten = (sten & ~S.smask_w) | (ns & S.smask_w);
         }
-        znew = (bpp == 2) ? depth : ((depth << 8) | uint(sten));
+        znew = (zb == 2) ? depth : ((depth << 8) | uint(sten));
         if (!zpass) {
             if ((S.sten != 0) && (S.swrite != 0))
                 vwrite(za, 4, (zold & 0xffffff00u) | uint(sten));
             return;
         }
-        if ((S.z_on != 0) && ((S.zwrite != 0) || ((S.sten != 0) && (S.swrite != 0))) && (za + uint(bpp) - 1u <= S.z_lim)) {
+        if ((S.z_on != 0) && ((S.zwrite != 0) || ((S.sten != 0) && (S.swrite != 0))) && (za + uint(zb) - 1u <= S.z_lim)) {
             if (S.zwrite == 0)
-                znew = (bpp == 2) ? zold : ((zold & 0xffffff00u) | uint(sten));
-            vwrite(za, bpp, znew);
+                znew = (zb == 2) ? zold : ((zold & 0xffffff00u) | uint(sten));
+            vwrite(za, zb, znew);
         }
     }
 
@@ -847,7 +893,20 @@ shade(int x, int y)
 
         if ((V_DST != 0) && ((S.ablend != 0) || !((S.wr_r != 0) && (S.wr_g != 0) && (S.wr_b != 0) && (S.wr_a != 0))))
             dst = unpack_color(vread(ca, bpp));
-        if ((V_DST != 0) && (S.ablend != 0)) {
+        if (V_CELSIUS != 0 && (S.texblend & 16) != 0) {
+            uint old = vread(ca, bpp), src = pack_color(outc, x, y);
+            uint mask = encode_color(255 * ivec4(S.wr_r, S.wr_g, S.wr_b, S.wr_a)) ^ encode_color(ivec4(0));
+            uint result = 0u;
+            if ((S.texblend & 1) != 0) result |= src & old;
+            if ((S.texblend & 2) != 0) result |= src & ~old;
+            if ((S.texblend & 4) != 0) result |= ~src & old;
+            if ((S.texblend & 8) != 0) result |= ~src & ~old;
+            vwrite(ca, bpp, (result & mask) | (old & ~mask));
+            return;
+        }
+        if (V_CELSIUS != 0 && S.ablend != 0)
+            outc = celsius_blend(outc, dst);
+        else if ((V_DST != 0) && (S.ablend != 0)) {
             int sfr = blend_factor(S.sblend, outc.a, dst.a, outc.r, dst.r, false);
             int sfg = blend_factor(S.sblend, outc.a, dst.a, outc.g, dst.g, false);
             int sfb = blend_factor(S.sblend, outc.a, dst.a, outc.b, dst.b, false);

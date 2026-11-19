@@ -211,11 +211,11 @@ nv4_3d_meets(uint32_t lo0, uint32_t hi0, uint32_t lo1, uint32_t hi1)
 
 /* Would texture <t> read VRAM the batch has written? */
 static int
-nv4_3d_tex_hazard(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_tex_t *t)
+nv4_3d_dma_hazard(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_tex_t *t)
 {
     if (!t->on || !t->size || !b->nregions)
         return 0;
-    if (t->size > 0x400000 || (uint64_t) t->offset + t->size > 0x100000000ull)
+    if (t->size > NV4_GPU_TEX_ARENA || (uint64_t) t->offset + t->size > 0x100000000ull)
         return 1;
     /* Walk only the texture's bytes, split at the DMA window's adjusted
        page boundaries. Offset-aligned pages can miss a noncontiguous PTE. */
@@ -244,11 +244,11 @@ nv4_3d_tex_hazard(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_tex_t *t)
 /* Widen lo..hi to the VRAM bytes texture <t> reads; set *bus when it
    reads (or may read) system memory. Keep mapping bounded to its mip chain. */
 static void
-nv4_3d_tex_range(nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t *lo, uint32_t *hi, int *bus)
+nv4_3d_dma_range(nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t *lo, uint32_t *hi, int *bus)
 {
     if (!t->on || !t->size)
         return;
-    if (t->size > 0x400000 || (uint64_t) t->offset + t->size > 0x100000000ull) {
+    if (t->size > NV4_GPU_TEX_ARENA || (uint64_t) t->offset + t->size > 0x100000000ull) {
         *lo = 0;
         *hi = 0xffffffff;
         *bus = 1;
@@ -281,17 +281,34 @@ nv4_3d_tex_range(nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t *lo, uint32_t *hi, 
     }
 }
 
-/* The bytes a state can reach through layout base/pitch: its clip's
-   rows, or at least one row's pixels. */
-static void
-nv4_3d_reach(const nv4_3d_state_t *s, uint32_t base, uint32_t pitch, uint32_t *lo, uint32_t *hi)
+static int
+nv4_3d_tex_hazard(nv4_t *nv4, const nv4_3d_batch_t *b, const nv4_3d_tex_t *t)
 {
-    uint32_t rows = (uint32_t) (s->cy1 - s->cy0) * pitch;
-    /* (a Celsius depth buffer can be wider than its colour buffer) */
-    uint32_t w    = (uint32_t) s->cx1 * ((s->z_bpp > s->bpp) ? s->z_bpp : s->bpp);
+    if (t->pal) {
+        nv4_3d_tex_t palette = nv10_palette_window(t);
+        if (nv4_3d_dma_hazard(nv4, b, &palette))
+            return 1;
+    }
+    return nv4_3d_dma_hazard(nv4, b, t);
+}
 
-    *lo = base + (uint32_t) s->cy0 * pitch;
-    *hi = *lo + ((rows > w) ? rows : w) - 1;
+static void
+nv4_3d_tex_range(nv4_t *nv4, const nv4_3d_tex_t *t, uint32_t *lo, uint32_t *hi, int *bus)
+{
+    if (t->pal) {
+        nv4_3d_tex_t palette = nv10_palette_window(t);
+        nv4_3d_dma_range(nv4, &palette, lo, hi, bus);
+    }
+    nv4_3d_dma_range(nv4, t, lo, hi, bus);
+}
+
+/* Inclusive byte bounds for rows [y0, y1), including the last row's
+   pixels when a short pitch makes consecutive rows overlap. */
+static void
+nv4_3d_reach(uint32_t base, uint32_t pitch, uint32_t rowbytes, int32_t y0, int32_t y1, uint32_t *lo, uint32_t *hi)
+{
+    *lo = base + (uint32_t) y0 * pitch;
+    *hi = base + (uint32_t) (y1 - 1) * pitch + ((pitch > rowbytes) ? pitch : rowbytes) - 1;
 }
 
 /* The batch region with layout base/pitch: its index, -1 when a new one
@@ -350,7 +367,12 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
 {
     int      flush = b->nstates >= B3D_STATES;
     uint32_t clo = 0, chi = 0, zlo = 0, zhi = 0;
+    uint32_t cw = (uint32_t) s->cx1 * s->bpp;
+    uint32_t zw = (uint32_t) s->cx1 * (s->celsius ? s->z_bpp : s->bpp);
 
+    /* Keep recorded batches replayable with the same Vulkan specialization. */
+    if ((b->gpu || b->rec_max) && b->nstates && (s->celsius != b->states[0].celsius))
+        flush = 1;
     s->rc = -1;
     s->rz = -1;
     /* a batch is either all swizzled targets or none, so the scene
@@ -369,13 +391,13 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
         b->serial = 1;
         nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi, &b->bus_tex);
         nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi, &b->bus_tex);
-        b->ncelsius += s->celsius;
         b->states[b->nstates] = *s;
         return b->nstates++;
     }
     if (b->parallel) {
-        nv4_3d_reach(s, s->col_base, s->col_pitch, &clo, &chi);
-        nv4_3d_reach(s, s->z_base, s->z_pitch, &zlo, &zhi);
+        nv4_3d_reach(s->col_base, s->col_pitch, cw, s->cy0, s->cy1, &clo, &chi);
+        if (s->z_on)
+            nv4_3d_reach(s->z_base, s->z_pitch, zw, s->cy0, s->cy1, &zlo, &zhi);
         if (nv4_3d_region_find(b, s->col_base, s->col_pitch, clo, chi) == -2)
             flush = 1;
         if (s->z_on && (nv4_3d_region_find(b, s->z_base, s->z_pitch, zlo, zhi) == -2))
@@ -387,8 +409,6 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
         nv4_3d_flush(nv4);
 
     if (b->parallel) {
-        uint32_t w = (uint32_t) s->cx1 * ((s->z_bpp > s->bpp) ? s->z_bpp : s->bpp);
-
         s->rc = nv4_3d_region_take(b, s->col_base, s->col_pitch, clo, chi);
         if (s->z_on) {
             /* depth meeting its own color rows: one thread, below */
@@ -398,10 +418,10 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
                 s->rz = nv4_3d_region_take(b, s->z_base, s->z_pitch, zlo, zhi);
         }
         /* rows that share bytes must stay on one thread */
-        if (!s->col_pitch || (s->col_pitch < w))
+        if (!s->col_pitch || (s->col_pitch < cw))
             b->serial = 1;
         if (s->z_on) {
-            if (!s->z_pitch || (s->z_pitch < w))
+            if (!s->z_pitch || (s->z_pitch < zw))
                 b->serial = 1;
             /* reach() returns inclusive bounds. Using base + height *
                pitch here includes the next surface's first byte when
@@ -409,12 +429,21 @@ nv4_3d_place_state(nv4_t *nv4, nv4_3d_batch_t *b, nv4_3d_state_t *s)
             else if (nv4_3d_meets(clo, chi, zlo, zhi))
                 b->serial = 1;
         }
+        /* A draw sampling its own target must see earlier pixel writes.
+           The parallel kernel samples a snapshot taken before dispatch. */
+        for (int i = 0; i < 2; i++) {
+            uint32_t lo = UINT32_MAX, hi = 0;
+            nv4_3d_tex_range(nv4, &s->tex[i], &lo, &hi, &b->bus_tex);
+            if (lo > hi)
+                continue;
+            if (nv4_3d_meets(lo, hi, clo, chi) || (s->z_on && nv4_3d_meets(lo, hi, zlo, zhi)))
+                b->serial = 1;
+            if (lo < b->tex_lo)
+                b->tex_lo = lo;
+            if (hi > b->tex_hi)
+                b->tex_hi = hi;
+        }
     }
-    if (b->parallel) {
-        nv4_3d_tex_range(nv4, &s->tex[0], &b->tex_lo, &b->tex_hi, &b->bus_tex);
-        nv4_3d_tex_range(nv4, &s->tex[1], &b->tex_lo, &b->tex_hi, &b->bus_tex);
-    }
-    b->ncelsius += s->celsius;
     b->states[b->nstates] = *s;
     return b->nstates++;
 }
@@ -433,19 +462,16 @@ nv4_3d_region_touch(nv4_3d_region_t *g, uint32_t lo, uint32_t hi)
 static void
 nv4_3d_written(nv4_3d_batch_t *b, const nv4_3d_state_t *s, int32_t y0, int32_t y1)
 {
-    uint32_t w = (uint32_t) s->cx1 * ((s->z_bpp > s->bpp) ? s->z_bpp : s->bpp);
+    uint32_t lo, hi;
 
     if (s->rc >= 0) {
-        uint32_t lo = s->col_base + (uint32_t) y0 * s->col_pitch;
-        uint32_t n  = (uint32_t) (y1 + 1 - y0) * s->col_pitch;
-
-        nv4_3d_region_touch(&b->regions[s->rc], lo, lo + ((n > w) ? n : w) - 1);
+        nv4_3d_reach(s->col_base, s->col_pitch, (uint32_t) s->cx1 * s->bpp, y0, y1 + 1, &lo, &hi);
+        nv4_3d_region_touch(&b->regions[s->rc], lo, hi);
     }
     if (s->rz >= 0) {
-        uint32_t lo = s->z_base + (uint32_t) y0 * s->z_pitch;
-        uint32_t n  = (uint32_t) (y1 + 1 - y0) * s->z_pitch;
-
-        nv4_3d_region_touch(&b->regions[s->rz], lo, lo + ((n > w) ? n : w) - 1);
+        int zb = s->celsius ? s->z_bpp : s->bpp;
+        nv4_3d_reach(s->z_base, s->z_pitch, (uint32_t) s->cx1 * zb, y0, y1 + 1, &lo, &hi);
+        nv4_3d_region_touch(&b->regions[s->rz], lo, hi);
     }
 }
 
@@ -2340,12 +2366,9 @@ nv4_3d_shade_serial(nv4_t *nv4, nv4_3d_batch_t *b)
 static int
 nv4_3d_shade_parallel(nv4_t *nv4, nv4_3d_batch_t *b)
 {
-    /* the GPU kernel knows the TNT's pixel pipeline only */
-    if (b->gpu && !b->ncelsius) {
+    if (b->gpu) {
         if (nv4_gpu_shade(b->gpu, nv4, b))
             return 1;
-    }
-    if (b->gpu) {
         /* the CPU draws it: the GPU's batches in flight first */
         nv4_gpu_wait(b->gpu, nv4);
     }
@@ -2436,7 +2459,7 @@ nv4_3d_record(nv4_t *nv4, nv4_3d_batch_t *b)
     char  path[600];
     FILE *f;
 
-    if ((b->rec_seen++ % b->rec_every) || (b->rec_done >= b->rec_max))
+    if (!b->nspans || (b->rec_seen++ % b->rec_every) || (b->rec_done >= b->rec_max))
         return;
     snprintf(path, sizeof(path), "%s/nv4-batch-%06u.bin", b->rec_dir, b->rec_done);
     if (!(f = fopen(path, "wb"))) {
@@ -2445,6 +2468,8 @@ nv4_3d_record(nv4_t *nv4, nv4_3d_batch_t *b)
         return;
     }
     b->rec_done++;
+    if (b->gpu)
+        nv4_gpu_wait(b->gpu, nv4); /* capture completed VRAM, including rendered textures */
     nv4_3d_rec_u32(f, NV4_REC_MAGIC);
     nv4_3d_rec_u32(f, NV4_REC_VERSION);
     nv4_3d_rec_u32(f, sizeof(nv4_3d_state_t));
@@ -2465,6 +2490,10 @@ nv4_3d_record(nv4_t *nv4, nv4_3d_batch_t *b)
     fwrite(b->tris, sizeof(nv4_3d_tri_t), b->ntris, f);
     fwrite(b->spans, sizeof(nv4_3d_span_t), b->nspans, f);
     fwrite(b->regions, sizeof(nv4_3d_region_t), b->nregions, f);
+    if (b->states[0].celsius) {
+        nv4_3d_rec_u32(f, NV4_REC_CELSIUS);
+        fwrite(b->ext, sizeof(*b->ext), b->ntris, f);
+    }
 
     /* VRAM */
     if (b->serial || !b->parallel) {
@@ -2486,8 +2515,15 @@ nv4_3d_record(nv4_t *nv4, nv4_3d_batch_t *b)
 
     /* textures, a page of their window at a time */
     for (int i = 0; i < b->nstates; i++)
-        for (int n = 0; n < 2; n++) {
-            const nv4_3d_tex_t *t = &b->states[i].tex[n];
+        for (int n = 0; n < 4; n++) {
+            const nv4_3d_tex_t *t = &b->states[i].tex[n % 2];
+            nv4_3d_tex_t palette;
+            if (n >= 2) {
+                if (!t->pal)
+                    continue;
+                palette = nv10_palette_window(t);
+                t = &palette;
+            }
 
             for (uint32_t done = 0; t->on && (done < t->size);) {
                 uint32_t off   = t->offset + done;
@@ -2680,7 +2716,6 @@ nv4_3d_flush(nv4_t *nv4)
     b->tex_lo   = 0xffffffff;
     b->tex_hi   = 0;
     b->bus_tex  = 0;
-    b->ncelsius = 0;
     for (int c = 0; c < NV4_MAX_CHANNELS; c++)
         nv4->d3d[c].state = -1;
     nv4->celsius_si = -1;
@@ -3098,7 +3133,7 @@ nv4_3d_fill_words(nv4_t *nv4, uint32_t base, uint32_t pitch, uint32_t lim, int b
     st.cy0       = y0;
     st.cx1       = x1;
     st.cy1       = y1;
-    nv4_3d_reach(&st, base, pitch, &lo, &hi);
+    nv4_3d_reach(base, pitch, (uint32_t) x1 * bpp, y0, y1, &lo, &hi);
 
     /* Stores must follow earlier texture reads before joining their batch. */
     if ((b->tex_lo <= b->tex_hi) && nv4_3d_meets(lo, hi, b->tex_lo, b->tex_hi))
@@ -3362,7 +3397,6 @@ nv4_3d_reset(nv4_t *nv4)
         nv4->batch3d->tex_lo   = 0xffffffff;
         nv4->batch3d->tex_hi   = 0;
         nv4->batch3d->bus_tex  = 0;
-        nv4->batch3d->ncelsius = 0;
     }
     memset(nv4->d3d, 0, sizeof(nv4->d3d));
     for (int c = 0; c < NV4_MAX_CHANNELS; c++)

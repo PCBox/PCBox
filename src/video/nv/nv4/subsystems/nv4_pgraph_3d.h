@@ -13,8 +13,7 @@
  *          (nv10_celsius.c) transforms and lights its vertices itself and
  *          hands the batch screen-space triangles under states of its
  *          own (celsius set: register combiners, the NV10 texture
- *          formats, blend equations); the CPU shades those, the GPU lane
- *          declines a batch holding any.
+ *          formats, blend equations). Both rasterizers consume those states.
  *
  * Authors: Marcos Alves, <xeon4d@gmail.com>
  *
@@ -30,6 +29,7 @@ struct nv4_gpu_s;
 #define B3D_STATES 64
 #define B3D_TRIS   16384
 #define B3D_SPANS  262144
+#define NV4_GPU_TEX_ARENA (32u << 20)
 
 /* Attributes interpolated across a triangle */
 enum {
@@ -79,6 +79,19 @@ typedef struct {
     int      akill;    /* texels of alpha 0 kill the pixel */
     float    lod_min, lod_max;
 } nv4_3d_tex_t;
+
+/* Palettes have their own DMA object and participate in the same texture
+   upload, synchronization and alias checks as the index image. */
+static inline nv4_3d_tex_t
+nv10_palette_window(const nv4_3d_tex_t *t)
+{
+    nv4_3d_tex_t palette = { 0 };
+    palette.on     = t->on && t->pal;
+    palette.dma    = t->pal_dma;
+    palette.offset = t->pal_off;
+    palette.size   = t->cfmt == 0x0b ? 1024 : 512;
+    return palette;
+}
 
 typedef struct {
     int      dx6;
@@ -204,7 +217,6 @@ typedef struct nv4_3d_batch_s {
     nv4_3d_tri_ext_t *ext;
     nv4_3d_span_t    *spans;
     int               nstates, ntris, nspans;
-    int               ncelsius; /* Celsius states in the batch: the GPU declines it */
     nv4_3d_state_t   *set_states[2];
     nv4_3d_tri_t     *set_tris[2];
     nv4_3d_tri_ext_t *set_ext[2];
@@ -272,6 +284,7 @@ typedef struct nv4_3d_batch_s {
      each), the four arrays, then chunks to the end of the file: a u32
      kind, then
        NV4_REC_VRAM: addr, len, the bytes -- VRAM before the batch
+       NV4_REC_CELSIUS: ntris extended triangle interpolants
        NV4_REC_TEX:  dma, offset, left, len, addr, target, the bytes -- a
                      piece of a texture's DMA window as nv4_dma_translate
                      gave it (left: nv4_dma_page_left there; len: the
@@ -281,6 +294,7 @@ typedef struct nv4_3d_batch_s {
 #define NV4_REC_VERSION 1
 #define NV4_REC_VRAM    0
 #define NV4_REC_TEX     1
+#define NV4_REC_CELSIUS 2
 
 /* The GPU lane (nv4_pgraph_3d_gpu.c). nv4_gpu_shade runs a whole batch
    and returns 1, or returns 0 and leaves VRAM untouched when it cannot
