@@ -248,6 +248,7 @@ video_cards[] = {
     { .device = &nv10_geforce256_agp_device,                    .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv10_geforce256_ddr_agp_device,                .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv10_quadro_agp_device,                        .flags = VIDEO_FLAG_TYPE_NONE      },
+    { .device = &nv11_geforce2_mx_agp_device,                   .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv15_geforce2_gts_agp_device,                  .flags = VIDEO_FLAG_TYPE_NONE      },
     { .device = &nv15_geforce2_pro_agp_device,                  .flags = VIDEO_FLAG_TYPE_NONE      },
 #ifdef USE_G100

@@ -53,7 +53,7 @@ nv4_pmc_boot_0(const nv4_t *nv4)
        resman's IsNV10MaskRevA0xorBetter() tests that byte. */
     if (nv4->chip == NV4_CHIP_NV15)
         return 0x015000a3;
-    if (nv4->chip == NV4_CHIP_NV10)
+    if (nv4->chip == NV4_CHIP_NV10 || nv4->chip == NV4_CHIP_NV11)
         return 0x01000000 | ((nv4->board->device_id & 3) << 16) | 0xb1;
 
     if (nv4->chip == NV4_CHIP_TNT2)
