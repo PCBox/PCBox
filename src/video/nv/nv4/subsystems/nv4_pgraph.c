@@ -562,9 +562,9 @@ nv4_pgraph_exec(nv4_t *nv4, int chid, int subc, uint32_t mthd, uint32_t data)
        (nv4_draw_begin): join the batch or wait for what reaches it. */
     if (mthd >= 0x180 && !nv4_pgraph_state_only(cls) && !nv4_pgraph_draws_only(cls))
         nv4_3d_sync(nv4, cls);
-    if ((cls == 0x96 || cls == 0x9f) && nv4->chip != NV4_CHIP_NV15)
+        if ((cls == 0x96 || cls == 0x9f) && nv4->chip != NV4_CHIP_NV11 && nv4->chip != NV4_CHIP_NV15)
         r = NV4_GR_ILLEGAL;
-    else if ((cls == 0x96 || cls == 0x9f) && mthd >= 0x120 && mthd <= 0x134)
+    else if ((cls == 0x96 || cls == 0x9f) && nv4->chip == NV4_CHIP_NV15 && mthd >= 0x120 && mthd <= 0x134)
         r = nv15_flip_method(nv4, cls, mthd, data);
     else
         r = nv4_pgraph_common_method(nv4, mthd, data);
