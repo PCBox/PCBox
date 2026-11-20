@@ -169,14 +169,18 @@ nv4_pmc_update_irq(nv4_t *nv4)
 /* The units whose registers are bytes: the VGA port windows, the VGA
    memory window, the ROM and the PCI configuration mirror. */
 static int
-nv4_mmio_byte_wide(uint32_t addr)
+nv4_mmio_byte_wide(const nv4_t *nv4, uint32_t addr)
 {
+    /* These windows exist only on the GeForce2 MX. */
+    int nv11_win = (nv4->chip == NV4_CHIP_NV11)
+        && (((addr >= 0x0c2300) && (addr <= 0x0c23ff))
+            || ((addr >= 0x603300) && (addr <= 0x6033ff))
+            || ((addr >= 0x683300) && (addr <= 0x6833ff)));
+
     return ((addr >= NV4_PRMVGA_START) && (addr <= NV4_PRMVIO_END))
         || ((addr >= NV4_PRMCIO_START) && (addr <= NV4_PRMCIO_END))
         || ((addr >= NV4_PRMDIO_START) && (addr <= NV4_PRMDIO_END))
-        || ((addr >= 0x0c2300) && (addr <= 0x0c23ff))
-        || ((addr >= 0x603300) && (addr <= 0x6033ff))
-        || ((addr >= 0x683300) && (addr <= 0x6833ff))
+        || nv11_win
         || ((addr >= NV4_PROM_START) && (addr <= NV4_PROM_END))
         || ((addr >= NV4_PBUS_PCI_START) && (addr <= NV4_PBUS_PCI_END));
 }
@@ -325,7 +329,7 @@ nv4_mmio_read(nv4_t *nv4, uint32_t addr, int len)
         }
     }
 
-    if (nv4_mmio_byte_wide(addr)) {
+        if (nv4_mmio_byte_wide(nv4, addr)) {
         uint32_t ret = 0;
         for (int i = 0; i < len; i++)
             ret |= (uint32_t) nv4_mmio_read8_bytewide(nv4, addr + i) << (i * 8);
@@ -362,7 +366,7 @@ nv4_mmio_write(nv4_t *nv4, uint32_t addr, uint32_t val, int len)
     if (nv4->dbg_regtrace && (addr < NV4_PRAMIN_START) && nv4->dbg_regtrace--)
         pclog("nv4 regs: mmio %06x = %08x (%d)\n", addr, val, len);
 
-    if (nv4_mmio_byte_wide(addr)) {
+        if (nv4_mmio_byte_wide(nv4, addr)) {
         for (int i = 0; i < len; i++)
             nv4_mmio_write8_bytewide(nv4, addr + i, (val >> (i * 8)) & 0xff);
         return;
