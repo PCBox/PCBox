@@ -8,7 +8,9 @@ opCVTPI2PS_xmm_mm_a16(uint32_t fetchdat)
         return opCVTPI2PD_xmm_mm_a16(fetchdat);
 
     SSE_ENTER();
-    MMX_CHECK();
+    if ((fetchdat & 0xc0) == 0xc0) {
+        MMX_CHECK();
+    }
     fetch_ea_16(fetchdat);
     MMX_GETSRC();
     SSE_REG result = cpu_state.XMM[cpu_reg];
@@ -18,7 +20,7 @@ opCVTPI2PS_xmm_mm_a16(uint32_t fetchdat)
     if (softfloat_status_word_to_mxcsr(status))
         return 1;
     if (cpu_mod == 3) {
-        MMX_ENTER();
+        MMX_COMMIT();
     }
     cpu_state.XMM[cpu_reg] = result;
 
@@ -34,7 +36,9 @@ opCVTPI2PS_xmm_mm_a32(uint32_t fetchdat)
         return opCVTPI2PD_xmm_mm_a32(fetchdat);
 
     SSE_ENTER();
-    MMX_CHECK();
+    if ((fetchdat & 0xc0) == 0xc0) {
+        MMX_CHECK();
+    }
     fetch_ea_32(fetchdat);
     MMX_GETSRC();
     SSE_REG result = cpu_state.XMM[cpu_reg];
@@ -44,7 +48,7 @@ opCVTPI2PS_xmm_mm_a32(uint32_t fetchdat)
     if (softfloat_status_word_to_mxcsr(status))
         return 1;
     if (cpu_mod == 3) {
-        MMX_ENTER();
+        MMX_COMMIT();
     }
     cpu_state.XMM[cpu_reg] = result;
 

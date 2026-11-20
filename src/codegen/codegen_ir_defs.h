@@ -706,7 +706,12 @@ _Static_assert(3 * UOP_NR_MAX + 1 < UINT16_MAX, "register read counts must fit a
 typedef struct ir_data_t {
     uop_t               uops[UOP_NR_MAX];
     int                 wr_pos;
+    int                 mmx_commit; /* Current guest instruction enters MMX on success. */
     struct codeblock_t *block;
+    /*Every uop allocated with UOP_TYPE_JUMP, in order. No uop gains the type
+      later*/
+    int                 jump_uops[UOP_NR_MAX];
+    int                 nr_jump_uops;
 } ir_data_t;
 
 /* What an exit taken before the block's end adds to cycles: the cycles
@@ -717,6 +722,16 @@ extern int  codegen_exit_cycles(int held);
 extern void codegen_exit_stamp(ir_data_t *ir, int held);
 extern void codegen_record_exit(int pos, int held);
 extern void codegen_record_route(int pos, void *p);
+
+/* The exits of the uops generated between codegen_exit_end_charge_begin and
+   _end leave where a C call of the last instruction would have raised the
+   fault and left at the block's end: they charge what the timing model
+   drains there in place of the held cycle (codegen_exit_end_charge_apply,
+   from the block's end). For an instruction that ends the block */
+extern void codegen_exit_end_charge_begin(ir_data_t *ir);
+extern void codegen_exit_end_charge_end(ir_data_t *ir);
+extern void codegen_exit_end_charge_apply(ir_data_t *ir, int drain);
+extern void codegen_exit_end_charge_clear(void);
 
 /* Whether the exits taken on a fault, or to run an instruction again,
    charge the timing model's held cycle too */
@@ -769,11 +784,15 @@ uop_alloc(ir_data_t *ir, uint32_t uop_type)
         fatal("Exceeded uOP max\n");
 
     uop = &ir->uops[ir->wr_pos++];
+    if (uop_type & UOP_TYPE_JUMP)
+        ir->jump_uops[ir->nr_jump_uops++] = ir->wr_pos - 1;
 
     uop->is_a16     = 0;
-    uop->imm_data2  = uop_type_can_fault(uop_type) ? codegen_exit_cycles(EXIT_FAULT_HELD) : 0;
-    if (uop_type_can_fault(uop_type))
+    if (uop_type_can_fault(uop_type)) {
+        uop->imm_data2 = codegen_exit_cycles(EXIT_FAULT_HELD);
         codegen_record_exit(ir->wr_pos - 1, EXIT_FAULT_HELD);
+    } else
+        uop->imm_data2 = 0;
 
     uop->dest_reg_a = invalid_ir_reg;
     uop->src_reg_a  = invalid_ir_reg;
@@ -800,6 +819,8 @@ uop_alloc_unroll(ir_data_t *ir, uint32_t uop_type)
         fatal("Exceeded uOP max\n");
 
     uop = &ir->uops[ir->wr_pos++];
+    if (uop_type & UOP_TYPE_JUMP)
+        ir->jump_uops[ir->nr_jump_uops++] = ir->wr_pos - 1;
 
     uop->is_a16     = 0;
 
@@ -1152,20 +1173,13 @@ uop_gen_reg_src3_imm_pointer(uint32_t uop_type, ir_data_t *ir, int src_reg_a, in
     uop->p         = p;
 }
 
-extern int codegen_mmx_enter(void);
+void uop_MMX_ENTER(ir_data_t *ir);
 extern int codegen_mmx_check(void);
 extern void codegen_mmx_commit(void);
 extern int codegen_sse_enter(void);
 extern int codegen_sse_check_align(uint32_t eaddr);
 extern int codegen_femms(void);
-extern int codegen_mmx_fpu_pending(void);
 extern int codegen_fp_enter(void);
-extern int codegen_fp_pending(void);
-/* A pending exception of the legacy FPU (ES set by an unmasked one) is
-   taken before an MMX instruction, as the interpreter takes it: ES tested
-   inline, the helper called only when it is set (codegen.c). A waiting x87
-   instruction's is in codegen_generate_call. */
-extern void codegen_fp_pending_check(ir_data_t *ir);
 /* The exit a helper's answer of 1 in reg takes (a fault, or the FERR# wait),
    charging the cycles accumulated so far on that path only (codegen.c) */
 extern void codegen_exit_on_one(ir_data_t *ir, int reg);
@@ -1307,7 +1321,6 @@ extern void codegen_fpu_record_pointers(ir_data_t *ir);
             uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);   \
             uop_gen_imm2(UOP_FP_ENTER_ORDERED, ir, cpu_state.oldpc, codegen_exit_cycles(EXIT_FAULT_HELD)); \
         }                                                   \
-        codegen_mmx_entered = 0;                            \
     } while (0)
 #define uop_FP_ENTER(ir)                                    \
     do {                                                    \
@@ -1316,7 +1329,6 @@ extern void codegen_fpu_record_pointers(ir_data_t *ir);
             uop_gen_imm2(UOP_FP_ENTER_ORDERED, ir, cpu_state.oldpc, codegen_exit_cycles(EXIT_FAULT_HELD)); \
         }                                                   \
         codegen_fpu_entered = 1;                            \
-        codegen_mmx_entered = 0;                            \
     } while (0)
 #else
 #define uop_FP_ENTER_NOWAIT(ir)                             \
@@ -1326,7 +1338,6 @@ extern void codegen_fpu_record_pointers(ir_data_t *ir);
             uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_fp_enter); \
             codegen_exit_on_one(ir, IREG_temp0);                    \
         }                                                   \
-        codegen_mmx_entered = 0;                            \
     } while (0)
 #define uop_FP_ENTER(ir)                                    \
     do {                                                    \
@@ -1336,20 +1347,8 @@ extern void codegen_fpu_record_pointers(ir_data_t *ir);
             codegen_exit_on_one(ir, IREG_temp0);                    \
         }                                                   \
         codegen_fpu_entered = 1;                            \
-        codegen_mmx_entered = 0;                            \
     } while (0)
 #endif
-#define uop_MMX_ENTER(ir)                                    \
-    do {                                                     \
-        if (!codegen_mmx_entered) {                         \
-            uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);            \
-            uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_mmx_enter); \
-            codegen_exit_on_one(ir, IREG_temp0);                     \
-        }                                                   \
-        if (!codegen_mmx_entered)                           \
-            codegen_mmx_entered = 2;                        \
-        codegen_fpu_entered = 0;                             \
-    } while (0)
 #define uop_SSE_ENTER(ir)                                    \
     do {                                                     \
             uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);            \
@@ -1363,30 +1362,13 @@ extern void codegen_fpu_record_pointers(ir_data_t *ir);
     do {                                                    \
         if (!codegen_fpu_entered)                           \
             uop_gen_imm2(UOP_FP_ENTER_ORDERED, ir, cpu_state.oldpc, codegen_exit_cycles(EXIT_FAULT_HELD)); \
-        codegen_mmx_entered = 0;                            \
     } while (0)
 #define uop_FP_ENTER(ir)                                    \
     do {                                                    \
         if (!codegen_fpu_entered)                           \
             uop_gen_imm2(UOP_FP_ENTER_ORDERED, ir, cpu_state.oldpc, codegen_exit_cycles(EXIT_FAULT_HELD)); \
         codegen_fpu_entered = 1;                            \
-        codegen_mmx_entered = 0;                            \
     } while (0)
-#define uop_MMX_ENTER(ir)                                                    \
-    do {                                                                     \
-        if (!codegen_mmx_entered) {                                          \
-            if (fpu_softfloat) {                                             \
-                uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);                \
-                uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_mmx_fpu_pending); \
-                codegen_exit_on_one(ir, IREG_temp0);                         \
-            } else                                                           \
-                codegen_fp_pending_check(ir);                                \
-            uop_gen_imm2(UOP_MMX_ENTER, ir, cpu_state.oldpc, codegen_exit_cycles(EXIT_FAULT_HELD)); \
-            codegen_mmx_entered = 2;                                             \
-        }                                                                    \
-        codegen_fpu_entered = 0;                                             \
-    } while(0)
-
 #define uop_SSE_ENTER(ir)                                    \
     do {                                                     \
         uop_gen_imm(UOP_SSE_ENTER, ir, cpu_state.oldpc);     \

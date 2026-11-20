@@ -92,6 +92,7 @@
 #include <86box/rdisk.h>
 #include <86box/mo.h>
 #include <86box/scsi_tape.h>
+#include <86box/md.h>
 #include <86box/scsi_disk.h>
 #include <86box/thread.h>
 #include <86box/network.h>
@@ -916,6 +917,7 @@ pc_init(int argc, char *argv[])
     char            *global = NULL;
     char            *p;
     char             temp[2048];
+    char             vm_path[1024];
     char            *fn[FDD_NUM] = { NULL };
     int              window_x_1 = 0;
     int              window_y_1 = 0;
@@ -1253,8 +1255,57 @@ usage:
             plat_dir_create(usr_path);
     }
 
+    /* The VM path given with --vmpath, if any. */
+    strcpy(vm_path, usr_path);
+
+    /* Grab the name of the configuration file. */
+    if (cfg == NULL)
+        cfg = CONFIG_FILE;
+
+    /*
+     * If the configuration file name has (part of)
+     * a pathname, consider that to be part of the
+     * actual working directory.
+     *
+     * This can happen when people load a config
+     * file using the UI, for example.
+     */
+    p = path_get_filename(cfg);
+    if (cfg != p) {
+        /*
+         * OK, the configuration file name has a
+         * path component. Separate the two, and
+         * add the path component to the cfg path.
+         */
+        *(p - 1) = '\0';
+
+        /*
+         * If this is an absolute path, keep it, as
+         * there is probably have a reason to do so.
+         * Otherwise, assume the pathname given is
+         * relative to whatever the usr_path is.
+         */
+        if (path_abs(cfg))
+            strcpy(usr_path, cfg);
+        else
+            strcat(usr_path, cfg);
+    }
+
+    /* Make sure we have a trailing backslash. */
+    path_slash(usr_path);
+
+    /* At this point, we can safely create the full path name. */
+    path_append_filename(cfg_path, usr_path, p);
+
+    /*
+     * Without --vmpath, the VM-local ROM and asset paths
+     * are in the directory of the configuration file.
+     */
+    if (ppath == NULL)
+        strcpy(vm_path, usr_path);
+
     // Add the VM-local ROM path.
-    path_append_filename(temp, usr_path, "roms");
+    path_append_filename(temp, vm_path, "roms");
     rom_add_path(temp);
 
     // Add the standard ROM path in the same directory as the executable.
@@ -1264,7 +1315,7 @@ usage:
     plat_init_rom_paths();
 
     // Add the VM-local asset path.
-    path_append_filename(temp, usr_path, "assets");
+    path_append_filename(temp, vm_path, "assets");
     asset_add_path(temp);
 
     // Add the standard asset path in the same directory as the executable.
@@ -1350,48 +1401,11 @@ usage:
     } else
         asset_path[0] = '\0';
 
-    /* Grab the name of the configuration file. */
-    if (cfg == NULL)
-        cfg = CONFIG_FILE;
-
-    /*
-     * If the configuration file name has (part of)
-     * a pathname, consider that to be part of the
-     * actual working directory.
-     *
-     * This can happen when people load a config
-     * file using the UI, for example.
-     */
-    p = path_get_filename(cfg);
-    if (cfg != p) {
-        /*
-         * OK, the configuration file name has a
-         * path component. Separate the two, and
-         * add the path component to the cfg path.
-         */
-        *(p - 1) = '\0';
-
-        /*
-         * If this is an absolute path, keep it, as
-         * there is probably have a reason to do so.
-         * Otherwise, assume the pathname given is
-         * relative to whatever the usr_path is.
-         */
-        if (path_abs(cfg))
-            strcpy(usr_path, cfg);
-        else
-            strcat(usr_path, cfg);
-    }
-
     /* Make sure we have a trailing backslash. */
-    path_slash(usr_path);
     if (rom_path[0] != '\0')
         path_slash(rom_path);
     if (asset_path[0] != '\0')
         path_slash(asset_path);
-
-    /* At this point, we can safely create the full path name. */
-    path_append_filename(cfg_path, usr_path, p);
 
     /* Build the global configuration file path. */
     if (global == NULL) {
@@ -1520,6 +1534,7 @@ usage:
         rdisk_global_init();
         mo_global_init();
         tape_global_init();
+        md_global_init();
 
         /*
            Set the ID of all the floppy drives so their configuration
@@ -1929,6 +1944,7 @@ pc_reset_hard_close(void)
     mo_close();
 
     tape_close();
+    md_close();
 
     scsi_disk_close();
 
@@ -2061,6 +2077,7 @@ pc_reset_hard_init(void)
     mo_hard_reset();
 
     tape_hard_reset();
+    md_hard_reset();
 
     rdisk_hard_reset();
 
@@ -2217,6 +2234,7 @@ pc_close(UNUSED(thread_t *ptr))
     mo_close();
 
     tape_close();
+    md_close();
 
     scsi_disk_close();
 

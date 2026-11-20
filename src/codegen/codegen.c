@@ -55,7 +55,6 @@ static struct {
     int      flags_op;
     int      fpu_entered;  /*codegen_fpu_entered as the instruction was compiled*/
     int      fpu_es_check; /*codegen_fpu_es_check as the instruction was compiled*/
-    int      mmx_entered;  /*codegen_mmx_entered as the instruction was compiled*/
     uint8_t  tag_valid;    /*codegen_fpu_tag_valid as the instruction was compiled*/
     uint8_t  tag_empty;    /*codegen_fpu_tag_empty as the instruction was compiled*/
 } codegen_instructions[MAX_INSTRUCTION_COUNT];
@@ -76,14 +75,13 @@ codegen_get_instruction_uop(codeblock_t *block, uint32_t pc, int *first_instruct
     return -1;
 }
 
-/*The x87 and MMX entry state instruction number ins of the block was
+/*The x87 entry state instruction number ins of the block was
   compiled with*/
 void
-codegen_get_instruction_entered(int ins, int *fpu_entered, int *fpu_es_check, int *mmx_entered)
+codegen_get_instruction_entered(int ins, int *fpu_entered, int *fpu_es_check)
 {
     *fpu_entered  = codegen_instructions[ins].fpu_entered;
     *fpu_es_check = codegen_instructions[ins].fpu_es_check;
-    *mmx_entered  = codegen_instructions[ins].mmx_entered;
 }
 
 /*The x87 tags known valid and empty as instruction number ins of the block
@@ -726,29 +724,21 @@ codegen_fpu_record_pointers(ir_data_t *ir)
 }
 
 
-/* ES set: an unmasked exception of the legacy FPU is pending, taken before
-   an MMX instruction, as the interpreter takes it
-   (x87_legacy_pending_entry). ES is tested inline; the helper is called
-   only when it is set. A waiting x87 instruction has the same test in
-   codegen_generate_call, so its entry does not repeat it. */
+/* Emit the guard for every guest MMX instruction. The IR coalesces guards
+   across straight-line register operations after considering calls, memory
+   callbacks and incoming branches. Commit TOP and tags after faultable work. */
 void
-codegen_fp_pending_check(ir_data_t *ir)
+uop_MMX_ENTER(ir_data_t *ir)
 {
-    int jump_uop;
-
-    /* The double-based FPU's status word: softfloat's, and the host-x87
-       FPU's, take a pending exception in their handlers (the compiled
-       host-x87 instructions go to the handler when ES is set). */
-    if (fpu_softfloat)
-        return;
-
-    uop_MOVZX(ir, IREG_temp0, IREG_NPXS);
-    uop_AND_IMM(ir, IREG_temp0, IREG_temp0, 0x80);
-    jump_uop = uop_CMP_IMM_JZ_DEST(ir, IREG_temp0, 0);
+#if defined __amd64__ || defined _M_X64
+    uop_gen_imm2(UOP_MMX_ENTER, ir, cpu_state.oldpc, codegen_exit_cycles(EXIT_FAULT_HELD));
+#else
     uop_MOV_IMM(ir, IREG_oldpc, cpu_state.oldpc);
-    uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_fp_pending);
+    uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_mmx_check);
     codegen_exit_on_one(ir, IREG_temp0);
-    uop_set_jump_dest(ir, jump_uop);
+#endif
+    ir->mmx_commit = 1;
+    codegen_fpu_entered = 0;
 }
 
 /* The exit taken when the helper just called answered 1 in reg (a fault, or
@@ -800,6 +790,44 @@ codegen_exit_cycles(int held)
         add -= codegen_timing_jump_cycles();
 
     return add;
+}
+
+static int exit_end_first = -1;
+static int exit_end_last;
+static int exit_end_held;
+
+void
+codegen_exit_end_charge_begin(ir_data_t *ir)
+{
+    exit_end_first = ir->wr_pos;
+    exit_end_last  = ir->wr_pos;
+    exit_end_held  = codegen_timing_jump_cycles ? codegen_timing_jump_cycles() : 0;
+}
+
+void
+codegen_exit_end_charge_end(ir_data_t *ir)
+{
+    exit_end_last = ir->wr_pos;
+}
+
+/* drain = the cycles the timing model's block end added */
+void
+codegen_exit_end_charge_apply(ir_data_t *ir, int drain)
+{
+    if (exit_end_first >= 0) {
+        for (int c = exit_end_first; c < exit_end_last; c++) {
+            if (uop_type_can_fault(ir->uops[c].type))
+                ir->uops[c].imm_data2 += exit_end_held - drain;
+        }
+    }
+    exit_end_first = -1;
+}
+
+/* At every block start (codegen_ir_init) */
+void
+codegen_exit_end_charge_clear(void)
+{
+    exit_end_first = -1;
 }
 
 void
@@ -1234,8 +1262,9 @@ codegen_peekb(uint32_t addr)
 
 /* The instructions whose interpreter op can end the block on success, with
    a nonzero answer that leaves the block right after its call: a taken Jcc,
-   LOOP or JCXZ, INT3, INT n, INTO and INT1, POP SS and MOV SS (they run the
-   next instruction too), SYSENTER, SYSEXIT, and SYSCALL and SYSRET (0F 05 and
+   LOOP or JCXZ, INT3, INT n, INTO and INT1, STI when it enables interrupts,
+   POP SS and MOV SS (they run the next instruction too), SYSENTER, SYSEXIT,
+   and SYSCALL and SYSRET (0F 05 and
    0F 07 in the K6 table; 0F 07 is LOADALL386 in the 386 and 486 ones), and the
    Cyrix SMINT (0F 7E on the Cyrix CPUs without MMX, 0F 3E on the 6x86MX). Ops
    that answer nonzero only on a fault are not here (LSS is compiled; its
@@ -1249,7 +1278,7 @@ static int
 codegen_op_ends_block(const OpFn *op_table, uint8_t opcode, uint32_t fetchdat)
 {
     if (op_table == x86_dynarec_opcodes)
-        return ((opcode & 0xf0) == 0x70) || ((opcode & 0xfc) == 0xe0) || ((opcode >= 0xcc) && (opcode <= 0xce)) || (opcode == 0xf1) ||
+        return ((opcode & 0xf0) == 0x70) || ((opcode & 0xfc) == 0xe0) || ((opcode >= 0xcc) && (opcode <= 0xce)) || (opcode == 0xf1) || (opcode == 0xfb) ||
                (opcode == 0x17) || ((opcode == 0x8e) && ((fetchdat & 0x38) == 0x10));
     if (op_table == x86_dynarec_opcodes_0f)
         return ((opcode & 0xf0) == 0x80) || (opcode == 0x34) || (opcode == 0x35) ||
@@ -1711,7 +1740,6 @@ generate_call:
     }
     codegen_instructions[block->ins].fpu_entered  = codegen_fpu_entered;
     codegen_instructions[block->ins].fpu_es_check = codegen_fpu_es_check;
-    codegen_instructions[block->ins].mmx_entered  = codegen_mmx_entered;
     codegen_instructions[block->ins].tag_valid    = codegen_fpu_tag_valid;
     codegen_instructions[block->ins].tag_empty    = codegen_fpu_tag_empty;
 
@@ -1908,6 +1936,7 @@ generate_call:
         codegen_fetch_walk_fpu        = is_fpu;
         const int first_uop           = ir->wr_pos;
         codegen_instr_first_uop       = first_uop;
+        ir->mmx_commit = 0;
         new_pc = recomp_op_table[(opcode | op_32) & recomp_opcode_mask](block, ir, opcode, fetchdat, op_32, op_pc);
         codegen_fetch_walk_fpu = 0;
         /* The FPU's pointers for a compiled instruction, unless its handler
@@ -1916,10 +1945,8 @@ generate_call:
         if (new_pc && is_fpu && !codegen_fpu_pointers_recorded)
             codegen_fpu_record_pointers(ir);
         if (new_pc) {
-            if (codegen_mmx_entered == 2) {
+            if (ir->mmx_commit)
                 uop_MMX_COMMIT(ir);
-                codegen_mmx_entered = 1;
-            }
             /*An instruction that sets pc itself (-1) is a jump or call,
               whose only store is to the stack, which nothing traps*/
             if ((new_pc != -1) && codegen_smi_exits() && codegen_ir_stores(ir, first_uop)) {
@@ -2082,13 +2109,10 @@ codegen_skip:
     codegen_fpu_tag_valid = 0;
     codegen_fpu_tag_empty = 0;
     uop_MOV_IMM(ir, IREG_sse_xmm, 0);
-    /*An interpreted x87 or 0F instruction can undo what the block took as
-      done (FNINIT, FRSTOR, FXRSTOR and FEMMS empty the tags and leave MMX
-      mode, CLTS changes CR0): the next compiled FPU or MMX instruction
-      checks and enters again. EMMS then MOVQ read a stale tag word before.*/
+    /* An interpreted x87 or 0F instruction can change the FPU state or
+       CR0. Check x87 entry again at the next compiled FPU instruction. */
     if (is_fpu || (op_table == x86_dynarec_opcodes_0f) || (op_table == x86_dynarec_opcodes_3DNOW)) {
         codegen_fpu_entered = 0;
-        codegen_mmx_entered = 0;
 
         /*It may have loaded another control word (FLDCW, FLDENV, FRSTOR,
           FNINIT, FXRSTOR): the next compiled instruction built for the

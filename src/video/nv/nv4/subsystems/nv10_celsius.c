@@ -2135,11 +2135,14 @@ nv10_celsius_method(nv4_t *nv4, int chid, int cls, uint32_t mthd, uint32_t data)
         case 0x10c: /* GET_STATE */
             return NV4_GR_MISSING;
         case 0x110: /* WAIT_FOR_IDLE */
+            nv4_3d_sync(nv4, cls);
+            return NV4_GR_OK;
         case 0x120: /* NV11_CELSIUS DMA/Notify context methods */
         case 0x124:
         case 0x128:
         case 0x12c:
         case 0x130:
+
         case 0x140: /* PM_TRIGGER */
         case 0x728: /* FLUSH */
             return NV4_GR_OK;

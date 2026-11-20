@@ -371,6 +371,7 @@ cpu_throttle_stall(int32_t ran)
     cycles -= stall;
 }
 
+#ifdef USE_DYNAREC
 /* Compiled blocks hold no debug-register checks. Data breakpoints can fire on
    any access, so they still disable the recompiler outright; an execution
    breakpoint only blocks the block covering it, and a block spans at most two
@@ -409,7 +410,6 @@ dr_blocks_cache(void)
 #define CACHE_ON_DBG(dbg) (!(cr0 & (1 << 30)) && !(cpu_state.flags & T_FLAG) && !((dbg) && cpu_dr_armed && dr_blocks_cache()))
 #define CACHE_ON()        CACHE_ON_DBG(cpu_debug_regs_486)
 
-#ifdef USE_DYNAREC
 int32_t         cycles_main = 0;
 int32_t  cycles_old  = 0;
 uint64_t tsc_old     = 0;
@@ -421,13 +421,6 @@ static codegen_link_slot_t *link_from = NULL;
 #    endif
 
 extern int codegen_record_faulted; /* 386_common.c */
-
-int
-codegen_mmx_enter(void)
-{
-    MMX_ENTER();
-    return 0;
-}
 
 int
 codegen_sse_enter(void)
@@ -474,7 +467,10 @@ codegen_femms(void)
 void
 codegen_mmx_unavailable(void)
 {
-    x86_int((cr0 & 0x4) ? 6 : 7);
+    if (cr0 & 0x4)
+        x86illegal();
+    else
+        x86_int(7);
 }
 
 void
@@ -486,36 +482,11 @@ codegen_sse_unavailable(void)
         x86_int(7);
 }
 
-/* Before the compiled MMX_ENTER: a pending x87 exception is taken ahead of
-   an MMX instruction (SDM 1999, 11.5.1). #UD and #NM come first, from
-   the MMX_ENTER uop. */
-int
-codegen_mmx_fpu_pending(void)
-{
-    if (cr0 & 0xc)
-        return 0;
-    if (fpu_softfloat) {
-        FPU_check_pending_exceptions();
-    } else
-        return x87_legacy_pending();
-    return 0;
-}
-
-
 int
 codegen_fp_enter(void)
 {
     FP_ENTER();
     return 0;
-}
-
-/* A waiting legacy x87 instruction, compiled: the pending exception the
-   interpreter takes before it (x87_legacy_pending_entry). Called only with
-   ES set (codegen_fp_pending_check). */
-int
-codegen_fp_pending(void)
-{
-    return x87_legacy_pending_entry();
 }
 
 /* x87_dyn_fdiv with an extended-denormal register operand (TAG_DENORMAL):
@@ -808,8 +779,6 @@ block_ended:
         cpu_state.oldpc = cpu_state.pc;
         x86_int(1);
     }
-
-    cpu_end_block_after_ins = 0;
 }
 
 /* The copy with the debug register handling is kept out of line, so that the
@@ -823,6 +792,9 @@ exec386_dynarec_int_dbg(void)
 void
 exec386_dynarec_int(void)
 {
+#    ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
+    link_from = NULL;
+#    endif
     if (UNLIKELY(cpu_debug_regs_486))
         exec386_dynarec_int_dbg();
     else
@@ -907,22 +879,13 @@ exec386_dynarec_dyn(const int dbg)
                     codeblock_hash_promote(hash, alternate_nr);
                 }
             }
-            page_t  *page = &pages[phys_addr >> 12];
-            uint64_t mask = (uint64_t) 1 << ((phys_addr >> PAGE_MASK_SHIFT) & PAGE_MASK_MASK);
-            int      byte_offset = (phys_addr >> PAGE_BYTE_MASK_SHIFT) & PAGE_BYTE_MASK_OFFSET_MASK;
-            uint64_t byte_mask   = 1ULL << (phys_addr & PAGE_BYTE_MASK_MASK);
-
-            if (!valid_block && ((page->code_present_mask & mask) ||
-                ((page->mem != page_ff) && (page->byte_code_present_mask[byte_offset] & byte_mask))))
-            {
-                /* Walk page tree to see if we find the correct block */
-                codeblock_t *new_block = codeblock_tree_find(phys_addr, cs, cs + cpu_state.pc);
-                if (new_block) {
-                    valid_block = (codeblock_pc_cs(new_block) == key) && (new_block->phys == phys_addr) && !((new_block->status ^ cpu_cur_status) & CPU_STATUS_FLAGS) && ((new_block->status & cpu_cur_status & CPU_STATUS_MASK) == (cpu_cur_status & CPU_STATUS_MASK));
-                    if (valid_block) {
-                        block = new_block;
-                        codeblock_hash_promote(hash, get_block_nr(block));
-                    }
+            /* Walk page tree to see if we find the correct block */
+            codeblock_t *new_block = codeblock_tree_find(phys_addr, cs, cs + cpu_state.pc);
+            if (new_block) {
+                valid_block = (codeblock_pc_cs(new_block) == key) && (new_block->phys == phys_addr) && !((new_block->status ^ cpu_cur_status) & CPU_STATUS_FLAGS) && ((new_block->status & cpu_cur_status & CPU_STATUS_MASK) == (cpu_cur_status & CPU_STATUS_MASK));
+                if (valid_block) {
+                    block = new_block;
+                    codeblock_hash_promote(hash, get_block_nr(block));
                 }
             }
         }
@@ -1201,11 +1164,9 @@ exec386_dynarec_dyn(const int dbg)
             }
 #    ifdef CODEGEN_CHAIN
             /* The end is a link when the instruction ended the block itself
-               (a branch), or ended it evenly: for its size, where STI's
-               shadow ends -- an interrupt waiting then broke the chain
-               (codegen_chain_sti), and the link's signal test sees it -- or
-               for INIT, SMI, NMI or an interrupt, which the link's signal
-               test sees each time one comes. An instruction that falls
+               (a branch), or ended it evenly: for its size, at the end of
+               STI's shadow, or for INIT, SMI, NMI or an interrupt, which
+               the link's signal test sees each time one comes. An instruction that falls
                through links only on an even end. An FPU error or a trap
                keeps the end for the loop. */
             if (codegen_end_link_ok == 3)
@@ -1216,8 +1177,6 @@ exec386_dynarec_dyn(const int dbg)
                 codegen_end_link_ok = 0;
 #    endif
         }
-
-        cpu_end_block_after_ins = 0;
 
         /* #MF can interrupt the interpret-while-compiling pass. The block
            was marked recompiled at entry, but its host code was never
@@ -1352,8 +1311,6 @@ exec386_dynarec_dyn(const int dbg)
             }
         }
 
-        cpu_end_block_after_ins = 0;
-
         if (new_ne && (!cpu_state.abrt || (cpu_state.abrt & ABRT_EXPECTED)) && !x86_was_reset && !cpu_fetch_device && !record_discarded)
             codegen_block_remove();
         else if ((!cpu_state.abrt || (cpu_state.abrt & ABRT_EXPECTED)) && !new_ne && !x86_was_reset && !record_discarded &&
@@ -1469,11 +1426,8 @@ exec386_dynarec_common(int32_t cycs, const int dbg)
             cycles_old       = cycles;
             oldtsc           = tsc;
             tsc_old          = tsc;
-            if (cpu_force_interpreter || cpu_override_dynarec || cpu_flush_pending || (!CACHE_ON_DBG(dbg))) /*Interpret block*/
+            if (cpu_force_interpreter || cpu_override_dynarec || cpu_end_block_after_ins || cpu_flush_pending || (!CACHE_ON_DBG(dbg))) /*Interpret block*/
             {
-#    ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
-                link_from = NULL;
-#    endif
                 exec386_dynarec_int();
             } else {
                 exec386_dynarec_dyn(dbg);
@@ -1577,7 +1531,7 @@ exec386_dynarec_common(int32_t cycs, const int dbg)
 #    else
                         nmi = 0;
 #    endif
-                    } else if ((cpu_state.flags & I_FLAG) && x86_external_interrupt_pending()) {
+                    } else if ((cpu_state.flags & I_FLAG) && !cpu_end_block_after_ins && x86_external_interrupt_pending()) {
                         vector = x86_external_interrupt_vector();
                         if (vector != -1) {
                             /* An interrupt that came after the HLT looked: past the

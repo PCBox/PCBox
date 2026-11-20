@@ -20,8 +20,9 @@ uint8_t *block_write_data;
 int block_pos;
 ir_reg_t invalid_ir_reg = { IREG_INVALID, 0 };
 uint8_t reg_last_version[IREG_COUNT_GROUPS];
+uint64_t reg_touched[(IREG_COUNT_GROUPS + 63) / 64];
 uint64_t dirty_ir_regs[2];
-reg_version_t reg_version[IREG_COUNT][256];
+reg_version_t reg_version[IREG_COUNT_GROUPS][256];
 uint16_t reg_dead_list;
 int max_version_refcount;
 
@@ -76,6 +77,7 @@ void *codegen_exit_rout = &exit_target, *codegen_gpf_rout = &gp_target, *codegen
 void codegen_reg_drop_cycles(void) { }
 void codegen_reg_flush_lazy(ir_data_t *ir, codeblock_t *block) { (void)ir; (void)block; }
 int codegen_exit_cycles(int held) { (void)held; return 0; }
+void codegen_exit_end_charge_clear(void) { }
 void codegen_record_exit(int pos, int held) { (void)pos; (void)held; }
 void codegen_record_route(int pos, void *p) { (void)pos; (void)p; }
 int codegen_get_loop_timing(int first) { (void)first; return 0; }
@@ -152,6 +154,7 @@ static ir_data_t *start_block(void)
     mmx_arithmetic = mmx_commits = mmx_entries = 0;
     nr_flag_reads = 0;
     memset(reg_last_version, 0, sizeof(reg_last_version));
+    memset(reg_touched, 0, sizeof(reg_touched));
     memset(reg_version, 0, sizeof(reg_version));
     dirty_ir_regs[0] = dirty_ir_regs[1] = 0;
     reg_dead_list = max_version_refcount = cpu_block_end = 0;

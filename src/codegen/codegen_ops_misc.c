@@ -488,6 +488,8 @@ ropFF_16(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
         case 0x18: /*CALL far*/
             uop_MOVZX(ir, IREG_pc, src_reg);
             uop_MEM_LOAD_REG_OFFSET(ir, IREG_temp1_W, ireg_seg_base(target_seg), IREG_eaaddr, 2);
+            if (call_far_rm(block, ir, 0, IREG_temp1_W, 0, op_pc + 1))
+                return -1;
             uop_LOAD_FUNC_ARG_REG(ir, 0, IREG_temp1_W);
             uop_LOAD_FUNC_ARG_IMM(ir, 1, op_pc + 1);
             uop_CALL_FUNC(ir, dynarec_call_far_w);
@@ -612,6 +614,8 @@ ropFF_32(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fet
         case 0x18: /*CALL far*/
             uop_MOV(ir, IREG_pc, src_reg);
             uop_MEM_LOAD_REG_OFFSET(ir, IREG_temp1_W, ireg_seg_base(target_seg), IREG_eaaddr, 4);
+            if (call_far_rm(block, ir, 1, IREG_temp1_W, 0, op_pc + 1))
+                return -1;
             uop_LOAD_FUNC_ARG_REG(ir, 0, IREG_temp1_W);
             uop_LOAD_FUNC_ARG_IMM(ir, 1, op_pc + 1);
             uop_CALL_FUNC(ir, dynarec_call_far_l);
@@ -795,7 +799,6 @@ ropEMMS(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUSE
     uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_femms);
     uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_exit_rout);
 
-    codegen_mmx_entered = 0;
     codegen_fpu_entered = 0;
     return op_pc;
 }
@@ -807,17 +810,16 @@ ropFEMMS(UNUSED(codeblock_t *block), ir_data_t *ir, UNUSED(uint8_t opcode), UNUS
     uop_CALL_FUNC_RESULT(ir, IREG_temp0, codegen_femms);
     uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_exit_rout);
 
-    codegen_mmx_entered = 0;
     codegen_fpu_entered = 0;
     return op_pc;
 }
 
 /* Blocks are keyed on protected mode but not on CPL or IOPL, so outside
    real mode the privilege check has to run with the block. CPL > IOPL takes
-   the interpreter's CLI/STI, which raises #GP(0) or updates VIF under
+   the interpreter's CLI, which raises #GP(0) or updates VIF under
    VME/PVI; Windows relies on that fault to virtualize IF. */
-static uint32_t
-ropCLI_STI(ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc, int set)
+uint32_t
+ropCLI(UNUSED(codeblock_t *block), ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
 {
     if (cpu_cur_status & CPU_STATUS_PMODE) {
         int jump_uop;
@@ -841,23 +843,8 @@ ropCLI_STI(ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uin
         uop_set_jump_dest(ir, jump_uop);
     }
 
-    if (set)
-        uop_OR_IMM(ir, IREG_flags, IREG_flags, I_FLAG);
-    else
-        uop_AND_IMM(ir, IREG_flags, IREG_flags, ~I_FLAG);
-
+    uop_AND_IMM(ir, IREG_flags, IREG_flags, ~I_FLAG);
     return op_pc;
-}
-
-uint32_t
-ropCLI(UNUSED(codeblock_t *block), ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
-{
-    return ropCLI_STI(ir, opcode, fetchdat, op_32, op_pc, 0);
-}
-uint32_t
-ropSTI(UNUSED(codeblock_t *block), ir_data_t *ir, uint8_t opcode, uint32_t fetchdat, uint32_t op_32, uint32_t op_pc)
-{
-    return ropCLI_STI(ir, opcode, fetchdat, op_32, op_pc, 1);
 }
 
 uint32_t
@@ -1420,7 +1407,6 @@ rop0F01_common(codeblock_t *block, ir_data_t *ir, uint32_t fetchdat, uint32_t op
         }
         uop_CALL_FUNC(ir, dynarec_lmsw);
         codegen_fpu_entered = 0;
-        codegen_mmx_entered = 0;
         if (!(cr0 & 1))
             CPU_BLOCK_END();
         return op_pc + 1;
@@ -1569,7 +1555,6 @@ rop0F22(codeblock_t *block, ir_data_t *ir, UNUSED(uint8_t opcode), uint32_t fetc
             uop_CALL_FUNC_RESULT(ir, IREG_temp0, dynarec_mov_cr0);
             uop_CMP_IMM_JZ(ir, IREG_temp0, 1, codegen_gpf_rout);
             codegen_fpu_entered = 0;
-            codegen_mmx_entered = 0;
             CPU_BLOCK_END();
             break;
         case 0x10:

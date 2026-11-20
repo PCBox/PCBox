@@ -7,6 +7,7 @@
 #undef main
 #undef outl
 #undef timer_process
+#include <86box/pic.h>
 #include "x87_sf.h"
 #include "x87.h"
 
@@ -18,7 +19,8 @@ typedef struct {
 } opcode_case;
 enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP_ALL_WRAP, UNPACK_SS, SSE_CALLBACK, SSE2_MOVD, SSE2_MOVQ, SSE2_MOVDQ, SSE2_MOVDQA_FAULT,
        PSHUFD_REG, PSHUFD_SELF, PSHUFD_MEM, SHUFPD_REG, SHUFPD_SELF, SHUFPD_MEM, MOVMSKPD, MOVQ2DQ, MOVDQ2Q, SHIFT_LEFT, SHIFT_RIGHT, SHIFT_ARITH, PACKED_ARITH, MMX_PMULUDQ,
-       XMM_LANES, EXTRACT_WORD, BYTE_MASK, STREAM_DQ, STREAM_DWORD, MASK_PAGE, CMOV_REG };
+       XMM_LANES, EXTRACT_WORD, BYTE_MASK, STREAM_DQ, STREAM_DWORD, MASK_PAGE, CMOV_REG,
+       SSE_MMX_CONVERT, MMX_CALLBACK };
 /* Each lane shift takes an imm8, XMM register or aligned memory count. */
 #define SHIFT_CASES(name, kind, width, group, ext, opcode) \
     {#name " packed shift imm", {0x66,0x0f,group,0xc0 | ((ext) << 3),5},5,0,0,6,0,kind,1,width}, \
@@ -33,6 +35,18 @@ enum { BIT_WRITE = 28, POP_SP, PUSH_ALL_LIMIT, PUSH_ALL_WRAP, POP_ALL_LIMIT, POP
     {#name " register", {0x39,0xca,0x9c,0x5d, 0x39,0xca, 0x0f,op,0xc3, \
                          0x66,0x0f,(op)^1,0xfb, 0x9c,0x5e},15,0,0,0,0,CMOV_REG}
 static const opcode_case opcases[] = {
+    {"CVTPI2PS OSFXSR register", {0x0f,0x2a,0xc1},3,0,0,0,0,SSE_MMX_CONVERT},
+    {"CVTPI2PS OSFXSR memory", {0x0f,0x2a,0x07},3,0,0,0,0,SSE_MMX_CONVERT},
+    {"CVTTPS2PI OSFXSR register", {0x0f,0x2c,0xc1},3,0,0,0,0,SSE_MMX_CONVERT},
+    {"CVTTPS2PI OSFXSR memory", {0x0f,0x2c,0x07},3,0,0,0,0,SSE_MMX_CONVERT},
+    {"CVTPS2PI OSFXSR register", {0x0f,0x2d,0xc1},3,0,0,0,0,SSE_MMX_CONVERT},
+    {"CVTPS2PI OSFXSR memory", {0x0f,0x2d,0x07},3,0,0,0,0,SSE_MMX_CONVERT},
+    {"CVTPI2PD pending x87 register", {0x66,0x0f,0x2a,0xc1},4,0,0,0,0,SSE_MMX_CONVERT,1},
+    {"CVTPI2PD pending x87 memory", {0x66,0x0f,0x2a,0x07},4,0,0,0,0,SSE_MMX_CONVERT,1},
+    {"CVTPI2PD pending x87 memory a16", {0x67,0x66,0x0f,0x2a,0x07},5,0,0,0,0,SSE_MMX_CONVERT,1},
+    {"CVTPI2PS pending x87 memory a16", {0x67,0x0f,0x2a,0x07},4,0,0,0,0,SSE_MMX_CONVERT},
+    {"MMX after scalar read callback", {0x0f,0x6f,0xd0,0x8b,0x17,0x0f,0x6f,0xd1},8,0,0,0,0,MMX_CALLBACK},
+    {"MMX PMAXUB after scalar write callback", {0x0f,0x6f,0xd0,0x89,0x17,0x0f,0xde,0xd1},8,0,0,0,0,MMX_CALLBACK},
     ARITH_CASES(PMINUB,  0xda),
     ARITH_CASES(PMAXUB,  0xde),
     ARITH_CASES(PAVGB,   0xe0),
@@ -489,8 +503,14 @@ static uint32_t sse_read(uint32_t addr, void *priv)
     callback_count++;
     if (callback_trap == 7)
         cr0 |= 8;
+    else if (callback_trap == 6 && probe->setup == MMX_CALLBACK)
+        cr0 |= 4;
     else if (callback_trap == 6)
         cr4 &= ~CR4_OSFXSR;
+    else if (callback_trap == 16) {
+        cpu_state.npxc = fpu_state.cwd = 0x37e;
+        cpu_state.npxs = fpu_state.swd = 0x8081;
+    }
     return 0x12345678;
 }
 
@@ -512,7 +532,7 @@ void timer_process(void) {
     if (tsc > 100000000 || x86_was_reset || cpu_state.abrt)
         fatal("Audit watchdog: %s", probe ? probe->name : "setup");
 }
-static void initialize(void) {
+static void initialize_cpu(void) {
     resetx86();
     cr0 = 1; cr4 = CR4_OSFXSR | CR4_OSXMMEXCPT;
     flat_segment(&cpu_state.seg_cs,8,0x9b);
@@ -524,6 +544,9 @@ static void initialize(void) {
     cycles=cycles_main=0; tsc=0; timer_target=1000; x86_was_reset=0;
     mem_a20_alt=1; mem_a20_recalc(); flushmmucache();
     memset(ram+DATA,0,0x2000);
+}
+static void initialize(void) {
+    initialize_cpu();
     guest_body=probe->setup==24 ? 0x11ff1 : BODY;
     emit_pos=DRIVER; b(0xe8); d(guest_body-(DRIVER+5)); b(0xe7); b(0xec); b(0xeb); b(0xfe);
     emit_pos=guest_body;
@@ -632,13 +655,75 @@ static int run_codegen_test(int (*test)(codeblock_t *))
     return failed;
 }
 
+/* XP returns to ring 3 with STI; SYSEXIT. Place STI at both the last
+   instruction of a full compiled block and the last byte of a page. */
+static int test_sti_sysexit(int repeat_sti)
+{
+    const unsigned vector = 0x20;
+    const unsigned start = BODY + 4096 - MAX_INSTRUCTION_COUNT;
+    const unsigned user_pc = BODY + 0x2000;
+    const unsigned kernel_stack = 0x700000;
+    const unsigned user_stack = 0x600000;
+    const uint64_t gate = UINT64_C(0x00008e0000080000) | HANDLERS;
+
+    initialize_cpu();
+    exception_tables();
+    memcpy(ram + IDT_ADDR + vector * 8, &gate, sizeof(gate));
+    msr.sysenter_cs = 8;
+    tr.base = 0x30000;
+    tr.limit = 0x67;
+    tr.access = 0x8b;
+    put32(tr.base + 4, kernel_stack);
+    put32(tr.base + 8, 16);
+    memset(ram + start, 0x90, MAX_INSTRUCTION_COUNT - 1);
+    emit_pos = BODY + 4095;
+    b(0xfb);
+    if (repeat_sti)
+        b(0xfb);                      /* IF is already set. */
+    b(0x0f); b(0x35);                 /* SYSEXIT */
+    emit_pos = user_pc;
+    b(0xeb); b(0xfe);                /* Wait for the interrupt. */
+    emit_pos = HANDLERS;
+    b(0xe7); b(0xec);                /* Stop the fixture inside the ISR. */
+    b(0xeb); b(0xfe);
+    cascade = 1;
+    pic.icw2 = vector;
+
+    for (unsigned pass = 0; pass < 8; pass++) {
+        cpu_state.pc = start;
+        cpu_state.flags = 2;
+        ESP = kernel_stack;
+        EDX = user_pc;
+        ECX = user_stack;
+        pic.int_pending = 1;
+        cpu_events.irq = 1;
+        cycles = cycles_main = 0;
+        done = 0;
+        while (!done)
+            cpu_exec(10000);
+        unsigned expected_pc = repeat_sti ? BODY + 4097 : user_pc;
+        unsigned expected_cs = repeat_sti ? 8 : 0x1b;
+        if (pic.int_pending || ESP != kernel_stack - (repeat_sti ? 12 : 20) ||
+            get32(ESP) != expected_pc || get32(ESP + 4) != expected_cs ||
+            !(get32(ESP + 8) & I_FLAG) ||
+            (!repeat_sti && (get32(ESP + 12) != user_stack || get32(ESP + 16) != 0x23)))
+            fatal("STI pass %u: IRQ saved %04x:%08x on stack %08x",
+                  pass, get32(ESP + 4), get32(ESP), ESP);
+    }
+    return 0;
+}
+
 int main(int argc,char **argv) {
     int p3=argc>1&&!strcmp(argv[1],"p3");
     engine=argc>2?atoi(argv[2]):0; fpu_softfloat=argc>3?atoi(argv[3]):0;
     cpu_dyn_accurate_fpu_env=argc>5?atoi(argv[5]):0;
     cpu_f=cpu_get_family(p3?"pentium3_katmai":"pentium4w"); cpu=p3?0:4;
-    fpu_type=FPU_INTERNAL; cpu_use_dynarec=engine;
+    fpu_type=FPU_INTERNAL; cpu_use_dynarec=!!engine; cpu_use_dynarec_fast=(engine == 2);
     cpu_set(); codegen_init(); mem_size=16*1024; mem_init(); mem_reset();
+    if (argc == 4 && !strcmp(argv[3], "sti"))
+        return test_sti_sysexit(0);
+    if (argc == 4 && !strcmp(argv[3], "sti-sti"))
+        return test_sti_sysexit(1);
     if (argc == 2 && !strcmp(argv[1], "allocator"))
         return run_codegen_test(test_register_allocation);
     if (argc == 2 && !strcmp(argv[1], "ir"))
@@ -864,11 +949,36 @@ int main(int argc,char **argv) {
                 for (unsigned n = 0; n < 64; ++n)
                     ram[EDI + n] = (uint8_t)(n + call);
             }
-            if (probe->setup == SSE_CALLBACK) {
+            if (probe->setup == SSE_MMX_CONVERT) {
+                unsigned phase = (call / 8) % 4;
+                if (phase & 1)
+                    cr4 &= ~CR4_OSFXSR;
+                if (phase >= 2) {
+                    cr0 |= 0x20; /* Report a pending x87 exception as #MF. */
+                    cpu_state.npxc = fpu_state.cwd = 0x37e;
+                    cpu_state.npxs = fpu_state.swd = 0x8081;
+                }
+                if (phase == 3)
+                    cr0 |= 8;
+                EBX = EDI = 0x4800;
+                MMP[1]->q = UINT64_C(0xfffffffe00000003);
+                cpu_state.XMM[1].q[0] = UINT64_C(0xc000000040400000); /* 3, -2 */
+                uint64_t input = probe->bytes[probe->length - 2] == 0x2a ? MMP[1]->q : cpu_state.XMM[1].q[0];
+                memcpy(ram + EDI, &input, sizeof(input));
+            }
+            if (probe->setup == SSE_CALLBACK || probe->setup == MMX_CALLBACK) {
                 EDI = 0xd0000;
                 callback_count = 0;
                 callback_trap = (call / 8) % 3 == 0 ? 0 : (call / 8) % 3 == 1 ? 7 : 6;
                 memset(&cpu_state.XMM[2], 0x33, 16);
+                if (probe->setup == MMX_CALLBACK) {
+                    /* Start in MMX mode so the two operations share a block. */
+                    static const unsigned traps[] = {0, 7, 6, 16};
+                    callback_trap = traps[(call / 8) % 4];
+                    cr0 |= 0x20;
+                    x87_set_mmx();
+                    MMP[2]->q = 0;
+                }
             }
             int wrapped_stack = probe->setup == POP_ALL_WRAP || probe->setup == PUSH_ALL_WRAP;
             int push_all = probe->setup == PUSH_ALL_LIMIT || probe->setup == PUSH_ALL_WRAP;
@@ -911,6 +1021,34 @@ int main(int argc,char **argv) {
                 if(engine) exec386_dynarec(10000); else exec386(10000);
             }
             unsigned expected = p3 ? probe->trap_p3 : probe->trap_p4;
+            if (probe->setup == SSE_MMX_CONVERT) {
+                unsigned phase = (call / 8) % 4;
+                int to_xmm = probe->bytes[probe->length - 2] == 0x2a;
+                int uses_mmx = !to_xmm || probe->bytes[probe->length - 1] == 0xc1;
+                expected = (phase & 1) ? 6 : (phase == 2 && uses_mmx ? 16 : 0);
+                int entered_mmx = !expected && uses_mmx;
+                int packed_double = probe->length >= 4 && probe->bytes[probe->length - 4] == 0x66;
+                uint64_t initial = UINT64_C(0x1111111111111111);
+                uint64_t low = packed_double ? UINT64_C(0x4008000000000000) : UINT64_C(0xc000000040400000);
+                uint64_t high = packed_double ? UINT64_C(0xc000000000000000) : initial;
+                unsigned top = fpu_softfloat ? fpu_state.tos : cpu_state.TOP;
+                unsigned tag = fpu_softfloat ? fpu_state.tag : x87_gettag();
+                if (get32(TRAP) == expected &&
+                    (cpu_state.XMM[0].q[0] != (!expected && to_xmm ? low : initial) ||
+                     cpu_state.XMM[0].q[1] != (!expected && to_xmm ? high : initial) ||
+                     MMP[0]->q != (!expected && !to_xmm ? MMP[1]->q : initial) ||
+                     !!cpu_state.ismmx != entered_mmx || top != (entered_mmx ? 0 : 3) ||
+                     tag != (entered_mmx ? 0 : 0xffff) ||
+                     (expected && get32(FAULT_PC) != BODY)))
+                    fatal("%s call %u: incorrect conversion state", probe->name, call);
+            }
+            if (probe->setup == MMX_CALLBACK) {
+                expected = callback_trap;
+                if (callback_count != 1 || MMP[2]->q != MMP[expected ? 0 : 1]->q ||
+                    (expected && get32(FAULT_PC) != BODY + 5))
+                    fatal("%s call %u: callbacks %u, trap %u, EIP %x", probe->name, call,
+                          callback_count, get32(TRAP), get32(FAULT_PC));
+            }
             if (probe->setup == SSE_CALLBACK) {
                 expected = callback_trap;
                 if (callback_count != 1 || (expected && get32(FAULT_PC) != BODY + 5) ||

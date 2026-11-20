@@ -346,6 +346,9 @@ ireg_seg_limit_high(x86seg *seg)
 #define IREG_COUNT_GROUPS ((IREG_COUNT + 7) & ~7)
 
 extern uint8_t reg_last_version[IREG_COUNT_GROUPS];
+/*The registers a read or a write has used since codegen_reg_reset(), one
+  bit each: only theirs have version state for it to clear*/
+extern uint64_t reg_touched[(IREG_COUNT_GROUPS + 63) / 64];
 extern uint64_t dirty_ir_regs[2];
 extern uint64_t ireg_permanent_mask[2];
 
@@ -381,7 +384,7 @@ typedef struct {
     uint16_t next;
 } reg_version_t;
 
-extern reg_version_t reg_version[IREG_COUNT][256];
+extern reg_version_t reg_version[IREG_COUNT_GROUPS][256];
 
 /*Head of dead register list; a list of register versions that are not used and
   can be optimised out*/
@@ -418,6 +421,7 @@ codegen_reg_read(int reg)
     if (IREG_GET_REG(reg) == IREG_INVALID)
         fatal("codegen_reg_read - IREG_INVALID\n");
 #endif
+    reg_touched[IREG_GET_REG(reg) >> 6] |= 1ull << (IREG_GET_REG(reg) & 0x3f);
     ireg.reg       = reg;
     ireg.version   = reg_last_version[IREG_GET_REG(reg)];
     version        = &reg_version[IREG_GET_REG(ireg.reg)][ireg.version];
@@ -442,6 +446,7 @@ codegen_reg_read(int reg)
 static inline void
 codegen_reg_read_uncounted(int reg)
 {
+    reg_touched[IREG_GET_REG(reg) >> 6] |= 1ull << (IREG_GET_REG(reg) & 0x3f);
     reg_version[IREG_GET_REG(reg)][reg_last_version[IREG_GET_REG(reg)]].uncounted++;
 }
 
@@ -462,6 +467,7 @@ codegen_reg_write(int reg, int uop_nr)
     int            last_version = reg_last_version[IREG_GET_REG(reg)];
     reg_version_t *version;
 
+    reg_touched[IREG_GET_REG(reg) >> 6] |= 1ull << (IREG_GET_REG(reg) & 0x3f);
     if ((unsigned) (IREG_GET_REG(reg) - IREG_tag0) < 8) {
         codegen_fpu_tag_valid &= ~(1 << (IREG_GET_REG(reg) - IREG_tag0));
         codegen_fpu_tag_empty &= ~(1 << (IREG_GET_REG(reg) - IREG_tag0));

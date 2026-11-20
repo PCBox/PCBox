@@ -62,8 +62,8 @@ machine_at_vect486n_init(const machine_t *model)
     return 0;
 }
 
-/* No motherboard or external interrupts. CPU-generated exceptions still go
- * through the real IDT/segment/stack delivery paths. */
+/* No motherboard. Fixtures can assert the master PIC's interrupt input
+ * to exercise the production IDT, segment, and stack delivery paths. */
 void *
 device_add(const device_t *dev)
 {
@@ -105,6 +105,10 @@ pic_pending_int(void)
 int
 picinterrupt(void)
 {
+    if (pic.int_pending) {
+        pic.int_pending = 0;
+        return pic.icw2 + pic.interrupt;
+    }
     fatal("Unexpected external interrupt");
     return 0;
 }

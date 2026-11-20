@@ -6,9 +6,6 @@
 #include <QWidget>
 #include <QStandardItemModel>
 
-class QAbstractItemView;
-class QComboBox;
-
 namespace Ui {
 class SettingsOtherRemovable;
 }
@@ -24,19 +21,7 @@ public:
     void reloadBusChannels_MO();
     void reloadBusChannels_RDisk();
     void reloadBusChannels_Tape();
-    void refreshChannelNames();
-
-    /* The kinds of drive on this page, as the new layout puts them on a
-       bus and channel: the first drive of the kind that is off is set to
-       it, a drive there is selected, or turned off. */
-    enum Kind {
-        KIND_MO = 0,
-        KIND_RDISK,
-        KIND_TAPE
-    };
-    bool addDrive(int kind, int bus, int channel);
-    bool selectDrive(int kind, int bus, int channel);
-    void removeDrive(int kind, int bus, int channel);
+    void reloadBusChannels_MD();
 
     int  changed();
 
@@ -50,6 +35,7 @@ signals:
     void moChannelChanged();
     void rdiskChannelChanged();
     void tapeChannelChanged();
+    void mdChannelChanged();
 
 private slots:
     void onMORowChanged(const QModelIndex &current);
@@ -70,6 +56,12 @@ private slots:
     void on_comboBoxTapeChannel_activated(int index);
     void on_comboBoxTapeType_activated(int index);
 
+    void onMDRowChanged(const QModelIndex &current);
+    void on_comboBoxMDBus_currentIndexChanged(int index);
+    void on_comboBoxMDBus_activated(int index);
+    void on_comboBoxMDChannel_activated(int index);
+    void on_comboBoxMDType_activated(int index);
+
 private:
     Ui::SettingsOtherRemovable *ui;
 
@@ -77,21 +69,14 @@ private:
     void setRDiskBus(QAbstractItemModel *model, const QModelIndex &idx, uint8_t bus, uint32_t type, uint8_t channel);
     void setRDiskType(QAbstractItemModel *model, const QModelIndex &idx, uint8_t bus, uint32_t type);
     void setTapeBus(QAbstractItemModel *model, const QModelIndex &idx, uint8_t bus, uint8_t channel);
+    void setMDBus(QAbstractItemModel *model, const QModelIndex &idx, uint8_t bus, uint8_t channel);
     void updateRDiskTypeCombo();
     QIcon rdiskIconForType(uint32_t type) const;
     void updateTapeTypeCombo();
     void enableCurrentlySelectedChannel_MO();
     void enableCurrentlySelectedChannel_RDisk();
     void enableCurrentlySelectedChannel_Tape();
-
-    struct KindControls {
-        QAbstractItemView *view;
-        QComboBox         *bus;
-        QComboBox         *channel;
-        void (SettingsOtherRemovable::*busActivated)(int);
-        void (SettingsOtherRemovable::*channelActivated)(int);
-    };
-    KindControls controlsOf(int kind) const;
+    void enableCurrentlySelectedChannel_MD();
 
     QIcon mo_disabled_icon;
     QIcon mo_icon;
@@ -102,6 +87,8 @@ private:
     QIcon syquest_icon;
     QIcon tape_disabled_icon;
     QIcon tape_icon;
+    QIcon md_disabled_icon;
+    QIcon md_icon;
 
     SettingsCompleter *scMOType;
     SettingsCompleter *scRDiskType;

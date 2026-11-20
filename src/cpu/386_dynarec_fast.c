@@ -93,7 +93,7 @@ exec386_dynarec_fast(int32_t cycs)
             oldcs  = CS;
             oldcpl = CPL;
 
-            if (cpu_force_interpreter || cpu_override_dynarec || !CACHE_ON()) {
+            if (cpu_force_interpreter || cpu_override_dynarec || cpu_end_block_after_ins || !CACHE_ON()) {
                 exec386_dynarec_int();
             } else {
                 exec386_dynarec_dyn(0);
@@ -143,7 +143,7 @@ exec386_dynarec_fast(int32_t cycs)
 #else
                 nmi = 0;
 #endif
-            } else if ((cpu_state.flags & I_FLAG) && x86_external_interrupt_pending()) {
+            } else if ((cpu_state.flags & I_FLAG) && !cpu_end_block_after_ins && x86_external_interrupt_pending()) {
                 vector = picinterrupt();
                 if (vector != -1) {
                     oldcs           = CS;

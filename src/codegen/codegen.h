@@ -548,7 +548,6 @@ extern int codegen_fpu_entered;
   again although the block has entered the FPU*/
 extern int codegen_fpu_es_check;
 /* 0: unchecked, 2: entry checked, 1: MMX state committed. */
-extern int codegen_mmx_entered;
 
 extern int codegen_fpu_loaded_iq[8];
 extern int codegen_reg_loaded[8];
@@ -558,7 +557,7 @@ extern int codegen_in_recompile;
 void codegen_generate_reset(void);
 
 int  codegen_get_instruction_uop(codeblock_t *block, uint32_t pc, int *first_instruction, int *TOP, int *flags_op);
-void codegen_get_instruction_entered(int ins, int *fpu_entered, int *fpu_es_check, int *mmx_entered);
+void codegen_get_instruction_entered(int ins, int *fpu_entered, int *fpu_es_check);
 void codegen_get_instruction_tags(int ins, uint8_t *tag_valid, uint8_t *tag_empty);
 void codegen_set_loop_start(struct ir_data_t *ir, int first_instruction);
 
