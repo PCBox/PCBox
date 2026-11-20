@@ -72,6 +72,7 @@
 #include <86box/gameport.h>
 #include <86box/keyboard.h>
 #include <86box/machine.h>
+#include <86box/weitek.h>
 #include <86box/mouse.h>
 #include <86box/mem.h>
 #include <86box/usb.h>
@@ -399,6 +400,7 @@ load_general(void)
 
     rctrl_is_lalt = ini_section_get_int(cat, "rctrl_is_lalt", 0);
     update_icons  = ini_section_get_int(cat, "update_icons", 1);
+    usb_activity  = !!ini_section_get_int(cat, "usb_activity", 1);
 
     start_in_fullscreen |= ini_section_get_int(cat, "start_in_fullscreen", 0);
 
@@ -651,6 +653,8 @@ load_machine(void)
     cpu_override             = ini_section_get_int(cat, "cpu_override", 0);
     cpu_override_interpreter = ini_section_get_int(cat, "cpu_override_interpreter", 0);
     cpu_debug_regs_486       = !!ini_section_get_int(cat, "cpu_debug_regs_486", 0);
+    weitek_3167              = !!ini_section_get_int(cat, "weitek_3167", 0);
+    weitek_4167              = !!ini_section_get_int(cat, "weitek_4167", 0);
     cpu_f                    = NULL;
     p                        = ini_section_get_string(cat, "cpu_family", NULL);
     if (p) {
@@ -3328,6 +3332,8 @@ config_load(void)
 
         cpu_override_interpreter = 0;
         cpu_debug_regs_486       = 0;
+        weitek_3167              = 0;
+        weitek_4167              = 0;
 
         fpu_type               = fpu_get_type(cpu_f, cpu, "none");
         gfxcard[0]             = video_get_video_from_internal_name("cga");
@@ -3758,6 +3764,11 @@ save_general(void)
     else
         ini_section_set_int(cat, "update_icons", update_icons);
 
+    if (usb_activity == 1)
+        ini_section_delete_var(cat, "usb_activity");
+    else
+        ini_section_set_int(cat, "usb_activity", usb_activity);
+
     if (window_remember)
         ini_section_set_int(cat, "window_remember", window_remember);
     else
@@ -3918,6 +3929,16 @@ save_machine(void)
         ini_section_set_int(cat, "cpu_debug_regs_486", cpu_debug_regs_486);
     else
         ini_section_delete_var(cat, "cpu_debug_regs_486");
+
+    if (weitek_3167)
+        ini_section_set_int(cat, "weitek_3167", weitek_3167);
+    else
+        ini_section_delete_var(cat, "weitek_3167");
+
+    if (weitek_4167)
+        ini_section_set_int(cat, "weitek_4167", weitek_4167);
+    else
+        ini_section_delete_var(cat, "weitek_4167");
 
     /* Downgrade compatibility with the previous CPU model system. */
     ini_section_delete_var(cat, "cpu_manufacturer");

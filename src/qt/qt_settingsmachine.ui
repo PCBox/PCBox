@@ -510,6 +510,34 @@
         </layout>
        </item>
 
+       <item>
+        <widget class="QCheckBox" name="checkBoxWeitek">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="toolTip">
+          <string>Memory-mapped floating-point coprocessor at C0000000h. Compatible programs can use it alongside or in place of a 387.</string>
+         </property>
+         <property name="text">
+          <string>Weitek WTL 3167 coprocessor</string>
+         </property>
+        </widget>
+       </item>
+
+       <item>
+        <widget class="QCheckBox" name="checkBoxWeitek4167">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+         <property name="toolTip">
+          <string>Memory-mapped floating-point coprocessor at C0000000h for compatible 486 software.</string>
+         </property>
+         <property name="text">
+          <string>Weitek WTL 4167 coprocessor</string>
+         </property>
+        </widget>
+       </item>
+
        <item row="2" column="1">
         <spacer name="verticalSpacerProcessor">
          <property name="orientation">
@@ -803,9 +831,10 @@
   <tabstop>checkBoxFastRecompiler</tabstop>
   <tabstop>comboBoxFPUMode</tabstop>
   <tabstop>checkBoxDebugRegs486</tabstop>
-  <tabstop>radioButtonLocalTime</tabstop>
-  <tabstop>radioButtonUTC</tabstop>
- </tabstops>
+  <tabstop>checkBoxFPUSoftfloat</tabstop>
+  <tabstop>checkBoxWeitek</tabstop>
+  <tabstop>checkBoxWeitek4167</tabstop>
+       </tabstops>
  <resources/>
  <connections/>
  <buttongroups>

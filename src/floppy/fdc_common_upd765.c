@@ -280,6 +280,7 @@ fdc_ctrl_reset(void *priv, int reset_power_down)
     fdc->head             = 0;
     fdc->step             = 0;
     fdc->ras_b            = 0;
+    fdc->find_index       = 0;
     if (reset_power_down)
         fdc->power_down       = 0;
 
@@ -927,6 +928,7 @@ fdc_io_command_phase1(fdc_t *fdc, int out)
     fdc->gap             = fdc->params[6];
     fdc->dtl             = fdc->params[7];
     fdc->rw_track        = fdc->params[1];
+    fdc->find_index      = 1;
 
     int implied_seek = 0;
     /* Treat as an implied seek, unless it's a tape drive, which will treat it as a QIC-117 command. */
@@ -1247,6 +1249,17 @@ fdc_write(uint16_t addr, uint8_t val, void *priv)
             case 5: /*Command register*/
                 if (fdc->flags & FDC_FLAG_5550)
                     fdc_irq(fdc, 0);
+                /*
+                   Abort with no ID address mark found when writing during the
+                   search for the index hole, like the real controller does,
+                   this is used to unhang the controller if it has stalled during
+                   the index pulse watch when there is no disk in the drive.
+                 */
+                if (fdc->find_index) {
+                    fdc_log("Write to command register during index find, command %02X\n",
+                            fdc->command);
+                    fdc_noidam(fdc);
+                }
                 /* The uPD765 does not accept a command until every result byte
                    has been read out, so writes arriving before that is neither
                    a command byte nor one of its parameters. */
@@ -2119,14 +2132,24 @@ fdc_read(uint16_t addr, void *priv)
                     } else
                         ret = 0xf9;
                 } else {
-                    /* The change line is gated by drive select, not by the
-                       motor: a disk swapped in while the motor is off must
-                       still read as changed, or the guest keeps its cached
-                       media state and never sees the swap. */
-                    if ((drive == 1) && (fdc->flags & FDC_FLAG_TOSHIBA))
+                    /*
+                       The drive only drives DSKCHG while it is selected,
+                       and on IBM-compatible adapters the select line sent
+                       to the drive is the DOR drive select ANDed with that
+                       drive's motor enable bit (IBM 5160 Technical
+                       Reference: the motor must be on for the drive to be
+                       selected). With the motor off no drive is selected,
+                       so the line reads inactive regardless of the media
+                       state. OS/2 2.11 and later depend on this.
+                    */
+                    if (fdc->dor & (0x10 << drive)) {
+                        if ((drive == 1) && (fdc->flags & FDC_FLAG_TOSHIBA))
+                            ret = 0x00;
+                        else
+                            ret = (drv->changed || drv->empty) ? 0x80 : 0x00;
+                    } else
                         ret = 0x00;
-                    else
-                        ret = (drv->changed || drv->empty) ? 0x80 : 0x00;
+
                     if (fdc->flags & FDC_FLAG_DISKCHG_ACTLOW) /*PC2086/3086 seem to reverse this bit*/
                         ret ^= 0x80;
 
@@ -2151,6 +2174,9 @@ fdc_read(uint16_t addr, void *priv)
 static void
 fdc_poll_common_finish(fdc_t *fdc, int compare, int st5)
 {
+    if (fdc->find_index)
+        fdc->find_index = 0;
+
     fdc_int(fdc, 1);
     if (!(fdc->flags & FDC_FLAG_FINTR))
         fdc->fintr = 0;
@@ -2603,6 +2629,9 @@ fdc_error(fdc_t *fdc, int st5, int st6)
         fdc_dma_drq(fdc, 0);
     timer_disable(&fdc->timer);
 
+    if (fdc->find_index)
+        fdc->find_index = 0;
+
     fdc_int(fdc, 1);
     if (!(fdc->flags & FDC_FLAG_FINTR))
         fdc->fintr = 0;
@@ -2648,6 +2677,13 @@ fdc_error(fdc_t *fdc, int st5, int st6)
 }
 
 void
+fdc_index_pulse(fdc_t *fdc)
+{
+    fdc_log("FDC: Index pulse\n");
+    fdc->find_index = 0;
+}
+
+void
 fdc_overrun(fdc_t *fdc)
 {
     fdd_stop(fdc->fdd[fdc->drive]);
@@ -2666,6 +2702,9 @@ int
 fdc_data(fdc_t *fdc, uint8_t data, int last)
 {
     int result = 0;
+
+    if (fdc->find_index)
+        fdc->find_index = 0;
 
     if ((fdc->deleted & 2) && (fdc->processed_cmd == 0x16)) {
         /* A native FDC VERIFY command has no host data transfer. */
@@ -2842,6 +2881,9 @@ int
 fdc_getdata(fdc_t *fdc, int last)
 {
     int data = 0;
+
+    if (fdc->find_index)
+        fdc->find_index = 0;
 
     if ((fdc->flags & (FDC_FLAG_PCJR | FDC_FLAG_PCJX)) || !fdc->dma) {
         if ((fdc->flags & (FDC_FLAG_PCJR | FDC_FLAG_PCJX)) || !fdc->fifo || (fdc->tfifo < 1)) {
@@ -3152,6 +3194,7 @@ fdc_reset(void *priv)
     fdc->pretrk = 0;
 
     fdc->lock          = 0;
+    fdc->find_index    = 0;
 
     fdc->swwp          = 0;
     fdc->disable_write = 0;
