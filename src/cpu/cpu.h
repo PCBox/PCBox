@@ -1298,12 +1298,6 @@ extern void (*fpu_int_line)(int level);
 extern void fpu_int_set(int level);
 
 extern int in_lock;
-<<<<<<< HEAD
-extern int cpu_override_interpreter;
-
-extern int cpu_dyn_accurate_fpu_env;
-=======
->>>>>>> fbf5b94739cada5758f5921656ef7cb5778a773f
 
 extern int is_lock_legal(uint32_t fetchdat);
 extern int is_lock_legal_at(uint32_t fetchdat, uint32_t opcode_pc);
