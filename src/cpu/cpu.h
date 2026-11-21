@@ -18,118 +18,10 @@
  *          Copyright 2016-2018 leilei.
  *          Copyright 2016-2020 Miran Grca.
  */
-#ifndef EMU_CPU_H
-#define EMU_CPU_H
+#ifndef EMU_CPU_TABLE_H
+#define EMU_CPU_TABLE_H
 
-enum {
-    FPU_NONE,
-    FPU_8087,
-    FPU_80187,
-    FPU_287,
-    FPU_287XL,
-    FPU_387,
-    FPU_487SX,
-    FPU_INTERNAL
-};
-
-enum {
-    CPU_8088 = 1, /* 808x class CPUs */
-    CPU_80C88,
-    CPU_8086,
-    CPU_8086_MAZOVIA,
-    CPU_V20, /* NEC 808x class CPUs */
-    CPU_V30,
-    CPU_188, /* 18x class CPUs */
-    CPU_186,
-    CPU_286,   /* 286 class CPUs */
-    CPU_386SX, /* 386 class CPUs */
-    CPU_IBM386SLC,
-    CPU_IBM486SLC,
-    CPU_386DX,
-    CPU_IBM486BL,
-    CPU_RAPIDCAD,
-    CPU_486SLC,
-    CPU_486DLC,
-    CPU_i486SX, /* 486 class CPUs */
-    CPU_Am486SX,
-    CPU_Cx486S,
-    CPU_i486DX,
-    CPU_Am486DX,
-    CPU_Am486DXL,
-    CPU_Cx486DX,
-    CPU_STPC,
-    CPU_i486SX_SLENH,
-    CPU_i486DX_SLENH,
-    CPU_ENH_Am486DX,
-    CPU_Cx5x86,
-    CPU_P24T,
-    CPU_WINCHIP, /* 586 class CPUs */
-    CPU_WINCHIP2,
-    CPU_PENTIUM,
-    CPU_PENTIUMMMX,
-    CPU_Cx6x86,
-    CPU_Cx6x86MX,
-    CPU_Cx6x86L,
-    CPU_CxGX1,
-    CPU_K5,
-    CPU_5K86,
-    CPU_K6,
-    CPU_K6_2,
-    CPU_K6_2C,
-    CPU_K6_3,
-    CPU_K6_2P,
-    CPU_K6_3P,
-    CPU_CYRIX3S,
-    CPU_CYRIX3N,
-    CPU_PENTIUMPRO, /* 686 class CPUs */
-    CPU_PENTIUM2,
-    CPU_PENTIUM2D,
-    CPU_ATHLON,
-    CPU_PENTIUM3,
-    CPU_PENTIUM4W,
-    CPU_GENERICINTEL,
-};
-
-/* CPU package bitmask (machine_cpu_t.package / cpu_family_t.package): 64-bit. */
-#define CPU_PKG_8088                 (1ULL << 0)
-#define CPU_PKG_80C88                (1ULL << 28)
-#define CPU_PKG_8088_EUROPC          (1ULL << 1)
-#define CPU_PKG_8088_VTECH           (1ULL << 2)
-#define CPU_PKG_8086                 (1ULL << 3)
-#define CPU_PKG_8086_MAZOVIA         (1ULL << 4)
-#define CPU_PKG_8086_VTECH           (1ULL << 5)
-#define CPU_PKG_188                  (1ULL << 6)
-#define CPU_PKG_186                  (1ULL << 7)
-#define CPU_PKG_286                  (1ULL << 8)
-#define CPU_PKG_386SX                (1ULL << 9)
-#define CPU_PKG_386DX                (1ULL << 10)
-#define CPU_PKG_386DX_DESKPRO386     (1ULL << 11)
-#define CPU_PKG_M6117                (1ULL << 12)
-#define CPU_PKG_386SLC_IBM           (1ULL << 13)
-#define CPU_PKG_486SLC               (1ULL << 14)
-#define CPU_PKG_486SLC_IBM           (1ULL << 15)
-#define CPU_PKG_486BL                (1ULL << 16)
-#define CPU_PKG_486DLC               (1ULL << 17)
-#define CPU_PKG_SOCKET1              (1ULL << 18)
-#define CPU_PKG_SOCKET3              (1ULL << 19)
-#define CPU_PKG_SOCKET3_PC330        (1ULL << 20)
-#define CPU_PKG_STPC                 (1ULL << 21)
-#define CPU_PKG_SOCKET4              (1ULL << 22)
-#define CPU_PKG_SOCKET5_7            (1ULL << 23)
-#define CPU_PKG_SOCKET8              (1ULL << 24)
-#define CPU_PKG_SLOT1                (1ULL << 25)
-#define CPU_PKG_SLOT2                (1ULL << 26)
-#define CPU_PKG_SOCKET370            (1ULL << 27)
-#define CPU_PKG_GXM                  (1ULL << 29)
-#define CPU_PKG_386EX                (1ULL << 30)
-#define CPU_PKG_SLOTA                (1ULL << 31)
-#define CPU_PKG_SOCKET423            (1ULL << 32)
-#define CPU_PKG_SOCKET478            (1ULL << 33)
-
-#define CPU_SUPPORTS_DYNAREC 1
-#define CPU_REQUIRES_DYNAREC 2
-#define CPU_ALTERNATE_XTAL   4
-#define CPU_FIXED_MULTIPLIER 8
+#include "cpu_table.h"
 
 #define EFER_NXE (1 << 11)
 
@@ -148,38 +40,6 @@ enum {
 #else
 #    define LOOKUP_INV -1
 #endif
-
-typedef struct fpu_t {
-    const char *name;
-    const char *internal_name;
-    const int   type;
-} FPU;
-
-typedef struct cpu_t {
-    const char *name;
-    uint64_t    cpu_type;
-    const FPU  *fpus;
-    uint64_t    rspeed;
-    double      multi;
-    uint16_t    voltage;
-    uint32_t    edx_reset;
-    uint32_t    cpuid_model;
-    uint16_t    cyrix_id;
-    uint8_t     cpu_flags;
-    uint16_t    mem_read_cycles;
-    uint16_t    mem_write_cycles;
-    uint16_t    cache_read_cycles;
-    uint16_t    cache_write_cycles;
-    uint16_t    atclk_div;
-} CPU;
-
-typedef struct {
-    const uint64_t package;
-    const char    *manufacturer;
-    const char    *name;
-    const char    *internal_name;
-    const CPU     *cpus;
-} cpu_family_t;
 
 #define C_FLAG     0x0001
 #define P_FLAG     0x0004
@@ -654,11 +514,6 @@ COMPILE_TIME_ASSERT(sizeof(cpu_state_t) <= 128)
 /* Global variables. */
 extern cpu_state_t cpu_state;
 
-extern const cpu_family_t         cpu_families[];
-extern cpu_family_t              *cpu_f;
-extern CPU                       *cpu_s;
-extern int                        cpu_override;
-
 extern int    cpu_isintel;
 extern int    cpu_iscyrix;
 extern int    cpu_16bitbus;
@@ -889,11 +744,6 @@ extern uint32_t cr4;
 extern uint32_t dr[8];
 extern uint32_t _tr[8];
 
-/* Debug register operation (breakpoints, single-step DR6 status, RF) on the
-   processors run by the 486 interpreter and the recompiler; the 386
-   interpreter always has it. Set from the configuration, a change takes
-   effect on a hard reset. */
-extern int cpu_debug_regs_486;
 /* cpu_debug_regs_486 and an enabled breakpoint in DR7: the per-access checks
    are made only while cpu_dr_armed (cpu_events) is set, an execution or data
    breakpoint, or cpu_dr_io_armed, an I/O breakpoint. */
@@ -946,7 +796,6 @@ extern int cpu_rom_prefetch_cycles;
 /* The machine has an MCA bus: set by cpu_set(), which every machine change
    reaches before an instruction runs. */
 extern int cpu_mca_bus;
-extern int cpu_waitstates;
 extern int io_waitstates;
 extern int reg_op_waitstates;
 extern int cpu_old_paging;
@@ -1091,14 +940,6 @@ extern int sysenter(uint32_t fetchdat);
 extern int sysexit(uint32_t fetchdat);
 extern int syscall_op(uint32_t fetchdat);
 extern int sysret(uint32_t fetchdat);
-
-extern cpu_family_t *cpu_get_family(const char *internal_name);
-extern uint8_t       cpu_is_eligible(const cpu_family_t *cpu_family, int cpu, int machine);
-extern uint8_t       cpu_family_is_eligible(const cpu_family_t *cpu_family, int machine);
-extern int           fpu_get_type(const cpu_family_t *cpu_family, int cpu, const char *internal_name);
-extern const char   *fpu_get_internal_name(const cpu_family_t *cpu_family, int cpu, int type);
-extern const char   *fpu_get_name_from_index(const cpu_family_t *cpu_family, int cpu, int c);
-extern int           fpu_get_type_from_index(const cpu_family_t *cpu_family, int cpu, int c);
 
 void cyrix_load_seg_descriptor(uint32_t addr, x86seg *seg);
 void cyrix_write_seg_descriptor(uint32_t addr, x86seg *seg);
@@ -1457,9 +1298,12 @@ extern void (*fpu_int_line)(int level);
 extern void fpu_int_set(int level);
 
 extern int in_lock;
+<<<<<<< HEAD
 extern int cpu_override_interpreter;
 
 extern int cpu_dyn_accurate_fpu_env;
+=======
+>>>>>>> fbf5b94739cada5758f5921656ef7cb5778a773f
 
 extern int is_lock_legal(uint32_t fetchdat);
 extern int is_lock_legal_at(uint32_t fetchdat, uint32_t opcode_pc);
@@ -1490,4 +1334,4 @@ extern void    wait_cycs(int c, int bus);
 
 extern void    fpu_postamble(void);
 
-#endif /*EMU_CPU_H*/
+#endif /*EMU_CPU_TABLE_H*/
