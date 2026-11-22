@@ -38,11 +38,14 @@ add_library(snd OBJECT
     snd_ac97_intel.c
     snd_ac97_via.c
     snd_ps1.c
+    snd_acpa.c
     snd_adlib.c
     snd_adlibgold.c
     snd_ad1816.c
     snd_ad1848.c
     snd_audiopci.c
+    snd_vortex2.c
+    snd_vortex2_core.c
     snd_azt2316a.c
     snd_azt2320.c
     snd_cms.c
@@ -65,6 +68,7 @@ add_library(snd OBJECT
     snd_saaym.c
     snd_sn76489.c
     snd_ssi2001.c
+    snd_tms320c25.c
     snd_wss.c
     snd_ym7128.c
     snd_ymz263b.c

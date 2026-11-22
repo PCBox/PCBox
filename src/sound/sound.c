@@ -255,6 +255,7 @@ static const SOUND_CARD sound_cards[] = {
     /* MCA */
     { &adlib_mca_device             },
     { &ess_chipchat_16_mca_device   },
+    { &acpa_mca_device              },
     { &ncr_business_audio_device    },
     { &sb_mcv_device                },
     { &sb_pro_mcv_device            },
@@ -262,6 +263,7 @@ static const SOUND_CARD sound_cards[] = {
     { &ess_soundpiper_16_mca_device },
     { &ess_soundpiper_32_mca_device },
     /* PCI */
+    { &vortex2_device               },
     { &cmi8338_device               },
     { &cmi8738_device               },
     { &es1370_device                },
