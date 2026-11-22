@@ -203,8 +203,15 @@ pic_t pic, pic2;
 int cascade;
 uint8_t ioapic_irq_path_active;
 uint8_t pic_any_pending(void) { return 0; }
-int ioapic_external_interrupt_pending(void) { return 0; }
-int ioapic_external_interrupt_vector(void) { fatal("Unexpected external interrupt"); return 0; }
+int ioapic_external_interrupt_pending(void) { return cpu_lapic_highest_deliverable_irr_index(0, 1) >= 0; }
+int
+ioapic_external_interrupt_vector(void)
+{
+    int vector = cpu_lapic_highest_deliverable_irr_index(0, 1);
+    if (vector >= 0)
+        cpu_lapic_promote_irr_index(0, vector);
+    return vector;
+}
 int ioapic_pic_fallback_allowed(void) { return 1; }
 int ioapic_lint1_raise(void) { return 0; }
 void ioapic_processor_reset(void) { }

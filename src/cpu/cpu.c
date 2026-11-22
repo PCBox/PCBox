@@ -373,10 +373,25 @@ uint64_t tsc = 0;
    and every stall after was as many times too long. */
 int64_t cpu_tsc_offset = 0;
 
+/* Account for the current block before sampling the counter or setting
+   its offset. A due timer can reset the CPU during the update. */
+static int
+tsc_msr_sync(void)
+{
+#ifdef USE_DYNAREC
+    if (cpu_use_dynarec) {
+        update_tsc();
+        return x86_was_reset;
+    }
+#endif
+    return 0;
+}
+
 void
 cpu_tsc_write(uint64_t val)
 {
-    cpu_tsc_offset = (int64_t) (val - tsc);
+    if (!tsc_msr_sync())
+        cpu_tsc_offset = (int64_t) (val - tsc);
 }
 
 double cpu_dmulti;
@@ -2959,25 +2974,16 @@ cpu_set(void)
             x87_concurrency = x87_concurrency_486;
     }
 
-    /* Fast dynarec: optionally override accurate timing with fast timing
-       that sacrifices accuracy for speed. */
-#if defined(USE_DYNAREC) && defined(USE_FAST_DYNAREC)
-    if (cpu_use_dynarec_fast) {
-        /* Use zero-cycle timing for maximum speed - no cycle accounting
-           code emitted, TSC advanced coarsely by fast exec loop. */
-        codegen_timing_set(&codegen_timing_fast_zero);
-    }
-#endif
-
     cpu_use_exec = 0;
 
     if (is386) {
 #if defined(USE_DYNAREC) && !defined(USE_GDBSTUB)
-        if (cpu_use_dynarec || cpu_use_dynarec_fast) {
+        if (cpu_use_dynarec && (cpu_s->cpu_flags & CPU_SUPPORTS_DYNAREC)) {
+#    ifdef USE_FAST_DYNAREC
             if (cpu_use_dynarec_fast)
-                cpu_exec = exec386_dynarec_fast;
-            else
-                cpu_exec = exec386_dynarec;
+                codegen_timing_set(&codegen_timing_fast);
+#    endif
+            cpu_exec = exec386_dynarec;
             cpu_use_exec = 1;
         } else
 #endif /* defined(USE_DYNAREC) && !defined(USE_GDBSTUB) */
@@ -4301,20 +4307,14 @@ cpu_ven_reset(void)
     }
 }
 
-/* A read of the TSC through an MSR counts the compiled block's cycles so
-   far, as RDTSC does: they reach the counter only through update_tsc().
-   A due timer run there can reset the CPU; the registers then hold the
-   reset state and the read returns nothing (nonzero). */
-static int
-tsc_msr_sync(void)
+static void
+tsc_msr_read(uint32_t high_mask)
 {
-#ifdef USE_DYNAREC
-    if (cpu_use_dynarec) {
-        update_tsc();
-        return x86_was_reset;
+    if (!tsc_msr_sync()) {
+        const uint64_t value = cpu_tsc_read();
+        EAX = (uint32_t) value;
+        EDX = (value >> 32) & high_mask;
     }
-#endif
-    return 0;
 }
 
 void
@@ -4373,10 +4373,7 @@ cpu_RDMSR(void)
                     break;
                 /* Time Stamp Counter */
                 case 0x10:
-                    if (tsc_msr_sync())
-                        break;
-                    EAX = tsc & 0xffffffff;
-                    EDX = tsc >> 32;
+                    tsc_msr_read(UINT32_MAX);
                     break;
                 /* Performance Monitor - Control and Event Select */
                 case 0x11:
@@ -4430,10 +4427,7 @@ cpu_RDMSR(void)
                     break;
                 /* Time Stamp Counter */
                 case 0x10:
-                    if (tsc_msr_sync())
-                        break;
-                    EAX = tsc & 0xffffffff;
-                    EDX = tsc >> 32;
+                    tsc_msr_read(UINT32_MAX);
                     break;
                 /* EBL_CR_POWERON - Processor Hard Power-On Configuration */
                 case 0x2a:
@@ -4502,10 +4496,7 @@ cpu_RDMSR(void)
                     break;
                 /* PERFCTR0 - Performance Counter Register 0 - aliased to TSC */
                 case 0xc1:
-                    if (tsc_msr_sync())
-                        break;
-                    EAX = tsc & 0xffffffff;
-                    EDX = (tsc >> 32) & 0xff;
+                    tsc_msr_read(0xff);
                     break;
                 /* PERFCTR1 - Performance Counter Register 1 */
                 case 0xc2:
@@ -4634,10 +4625,7 @@ cpu_RDMSR(void)
                     break;
                 /* Time Stamp Counter */
                 case 0x00000010:
-                    if (tsc_msr_sync())
-                        break;
-                    EAX = tsc & 0xffffffff;
-                    EDX = tsc >> 32;
+                    tsc_msr_read(UINT32_MAX);
                     break;
                 case 0x1b:
                     EAX = msr.apic_base & 0xffffffff;
@@ -5014,10 +5002,7 @@ amd_k_invalid_rdmsr:
                 /* Time Stamp Counter */
                 case 0x00000010:
                 case 0x80000010:
-                    if (tsc_msr_sync())
-                        break;
-                    EAX = tsc & 0xffffffff;
-                    EDX = tsc >> 32;
+                    tsc_msr_read(UINT32_MAX);
                     break;
                 /* Performance Monitor - Control and Event Select */
                 case 0x00000011:
@@ -5101,8 +5086,7 @@ pentium_invalid_rdmsr:
                vendor string in 70000001h-70000003h, and the BIOS then writes
                "CyrixInstead" there. Other MSRs do not fault. */
             if (ECX == 0x10) {
-                EAX = tsc & 0xffffffff;
-                EDX = tsc >> 32;
+                tsc_msr_read(UINT32_MAX);
             } else if ((ECX >= 0x70000001) && (ECX <= 0x70000003)) {
                 EAX = gxm.vendor_msr[ECX - 0x70000001];
                 EDX = 0x00000000;
@@ -5128,10 +5112,7 @@ pentium_invalid_rdmsr:
                     break;
                 /* Time Stamp Counter */
                 case 0x10:
-                    if (tsc_msr_sync())
-                        break;
-                    EAX = tsc & 0xffffffff;
-                    EDX = tsc >> 32;
+                    tsc_msr_read(UINT32_MAX);
                     break;
                 /* Performance Monitor - Control and Event Select */
                 case 0x11:
@@ -5169,10 +5150,7 @@ pentium_invalid_rdmsr:
                     break;
                 /* Time Stamp Counter */
                 case 0x10:
-                    if (tsc_msr_sync())
-                        break;
-                    EAX = tsc & 0xffffffff;
-                    EDX = tsc >> 32;
+                    tsc_msr_read(UINT32_MAX);
                     break;
                 /* IA32_PLATFORM_ID - Platform ID */
                 case 0x17:
@@ -5559,10 +5537,7 @@ i686_invalid_rdmsr:
                     break;
                 /* Time Stamp Counter */
                 case 0x10:
-                    if (tsc_msr_sync())
-                        break;
-                    EAX = tsc & 0xffffffff;
-                    EDX = tsc >> 32;
+                    tsc_msr_read(UINT32_MAX);
                     break;
                 case 0x17:
                 /* Unknown */
@@ -6532,7 +6507,7 @@ pentium_invalid_wrmsr:
         case CPU_CxGX1:
             cpu_log("WRMSR: ECX = %08X, val = %08X%08X\n", ECX, EDX, EAX);
             if (ECX == 0x10)
-                timer_set_new_tsc(EAX | ((uint64_t) EDX << 32));
+                cpu_tsc_write(EAX | ((uint64_t) EDX << 32));
             else if ((ECX >= 0x70000001) && (ECX <= 0x70000003))
                 gxm.vendor_msr[ECX - 0x70000001] = EAX;
             break;
@@ -6874,7 +6849,7 @@ i686_invalid_wrmsr:
                     break;
                 /* Time Stamp Counter */
                 case 0x10:
-                    timer_set_new_tsc(EAX | ((uint64_t) EDX << 32));
+                    cpu_tsc_write(EAX | ((uint64_t) EDX << 32));
                     break;
                 /* Unknown */
                 case 0x18:

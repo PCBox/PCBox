@@ -651,7 +651,7 @@ update_tsc_write(uint64_t new_tsc)
 /* dbg is a constant, cpu_debug_regs_486 as the block starts: each caller below
    gets a copy of the loop, and with the option off the debug register
    handling is not compiled in at all. */
-__attribute__((always_inline)) inline void
+__attribute__((always_inline)) static inline void
 exec386_dynarec_int_common(const int dbg)
 {
     cpu_block_end = 0;
@@ -789,7 +789,7 @@ exec386_dynarec_int_dbg(void)
     exec386_dynarec_int_common(1);
 }
 
-void
+static void
 exec386_dynarec_int(void)
 {
 #    ifdef CODEGEN_BACKEND_HAS_BLOCK_LINK
@@ -819,10 +819,10 @@ codeblock_pc_cs(const codeblock_t *block)
    op keeps it (rf_flag_no_clear), as the interpreted loop does; compiled
    code clears it after the first opcode fetch (codegen_generate_call()). */
 #if defined(__linux__) && !defined(__clang__)
-void __attribute__((optimize("O2")))
+static void __attribute__((optimize("O2")))
 #else
 /* Inlined into the dispatch loop, which now comes in two copies. */
-__attribute__((always_inline)) inline void
+__attribute__((always_inline)) static inline void
 #endif
 exec386_dynarec_dyn(const int dbg)
 {
@@ -1401,6 +1401,8 @@ exec386_dynarec_common(int32_t cycs, const int dbg)
     uint64_t delta;
 
     int64_t cyc_period = cycs / (force_10ms ? 2000 : 200); /*5us*/
+    if (cyc_period < 1)
+        cyc_period = 1;
 
     cycles_main += cycs;
     while (cycles_main > 0) {
@@ -1610,11 +1612,7 @@ is_dynarec_active(void)
     if (debugger_attached)
         return false;
 
-#ifdef USE_FAST_DYNAREC
-    return (cpu_exec == exec386_dynarec || cpu_exec == exec386_dynarec_fast) && (cpu_use_dynarec || cpu_use_dynarec_fast) && !(cpu_force_interpreter || cpu_override_dynarec || (!CACHE_ON()));
-#else
     return cpu_exec == exec386_dynarec && cpu_use_dynarec && !(cpu_force_interpreter || cpu_override_dynarec || (!CACHE_ON()));
-#endif
 #endif
 }
 

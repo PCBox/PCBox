@@ -62,12 +62,6 @@ if(DYNAREC)
         386_dynarec_ops.c
     )
 
-    if(FAST_DYNAREC)
-        target_sources(cpu PRIVATE
-            386_dynarec_fast.c
-        )
-    endif()
-
     add_library(cgt OBJECT
         codegen_timing_486.c
         codegen_timing_686.c

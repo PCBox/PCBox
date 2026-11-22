@@ -96,7 +96,7 @@ if(DYNAREC)
     add_compile_definitions(USE_DYNAREC)
 endif()
 
-if(FAST_DYNAREC)
+if(DYNAREC AND FAST_DYNAREC)
     add_compile_definitions(USE_FAST_DYNAREC)
 endif()
 

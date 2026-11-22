@@ -726,7 +726,7 @@ load_machine(void)
     if (mem_size > machine_get_max_ram(machine))
         mem_size = machine_get_max_ram(machine);
 
-    cpu_use_dynarec = !!ini_section_get_int(cat, "cpu_use_dynarec", 0);
+    cpu_use_dynarec = (cpu_s->cpu_flags & CPU_SUPPORTS_DYNAREC) && ini_section_get_int(cat, "cpu_use_dynarec", 0);
     cpu_use_dynarec_fast = !!ini_section_get_int(cat, "cpu_use_dynarec_fast", 0);
     fpu_softfloat = !!ini_section_get_int(cat, "fpu_softfloat", 0);
     /* The host-x87 FPU runs on softfloat's state and handlers, so it turns

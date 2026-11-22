@@ -1248,24 +1248,6 @@ extern uint16_t *MMEP[8];
 
 extern int  cpu_block_end;
 
-extern int  cpu_use_dynarec_fast;
-
-/* Fast dynarec timing */
-#if defined(USE_DYNAREC) && defined(USE_FAST_DYNAREC)
-extern struct codegen_timing_t codegen_timing_fast;
-extern struct codegen_timing_t codegen_timing_fast_zero;
-#endif
-
-#if defined(USE_DYNAREC) && defined(USE_FAST_DYNAREC)
-extern void exec386_dynarec_fast(int32_t cycs);
-extern void exec386_dynarec_int(void);
-extern void exec386_dynarec_dyn(const int dbg);
-#else
-/* Fallback: define as regular dynarec if fast not compiled */
-#define exec386_dynarec_fast exec386_dynarec
-#endif
-
-
 extern int  inrecomp;
 
 extern void mmx_init(void);

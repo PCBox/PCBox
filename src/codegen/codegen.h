@@ -491,6 +491,9 @@ extern codegen_timing_t codegen_timing_k5;
 extern codegen_timing_t codegen_timing_k6;
 extern codegen_timing_t codegen_timing_p6;
 extern codegen_timing_t codegen_timing_p4;
+#ifdef USE_FAST_DYNAREC
+extern codegen_timing_t codegen_timing_fast;
+#endif
 
 void codegen_timing_set(codegen_timing_t *timing);
 

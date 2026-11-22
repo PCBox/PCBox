@@ -7,7 +7,8 @@
 #undef main
 #undef outl
 #undef timer_process
-#include <86box/pic.h>
+#include <86box/nmi.h>
+#include "x86_interrupt.h"
 #include "x87_sf.h"
 #include "x87.h"
 
@@ -657,7 +658,7 @@ static int run_codegen_test(int (*test)(codeblock_t *))
 
 /* XP returns to ring 3 with STI; SYSEXIT. Place STI at both the last
    instruction of a full compiled block and the last byte of a page. */
-static int test_sti_sysexit(int repeat_sti)
+static int test_sti_sysexit(int repeat_sti, int apic)
 {
     const unsigned vector = 0x20;
     const unsigned start = BODY + 4096 - MAX_INSTRUCTION_COUNT;
@@ -688,6 +689,10 @@ static int test_sti_sysexit(int repeat_sti)
     b(0xeb); b(0xfe);
     cascade = 1;
     pic.icw2 = vector;
+    if (apic) {
+        ioapic_irq_path_active = 1;
+        cpu_lapic_svr_load_index(0, 0x1ff);
+    }
 
     for (unsigned pass = 0; pass < 8; pass++) {
         cpu_state.pc = start;
@@ -695,14 +700,21 @@ static int test_sti_sysexit(int repeat_sti)
         ESP = kernel_stack;
         EDX = user_pc;
         ECX = user_stack;
-        pic.int_pending = 1;
-        cpu_events.irq = 1;
+        if (apic) {
+            cpu_lapic_isr_reset_index(0);
+            cpu_lapic_accept_interrupt_index(0, vector, 0);
+        } else {
+            pic.int_pending = 1;
+            cpu_events.irq = 1;
+        }
         cycles = cycles_main = 0;
         done = 0;
         while (!done)
             cpu_exec(10000);
         unsigned expected_pc = repeat_sti ? BODY + 4097 : user_pc;
         unsigned expected_cs = repeat_sti ? 8 : 0x1b;
+        if (apic && !(cpu_lapic_isr_words_index(0)[vector / 32] & (1u << (vector % 32))))
+            fatal("Local APIC vector was not acknowledged on pass %u", pass);
         if (pic.int_pending || ESP != kernel_stack - (repeat_sti ? 12 : 20) ||
             get32(ESP) != expected_pc || get32(ESP + 4) != expected_cs ||
             !(get32(ESP + 8) & I_FLAG) ||
@@ -713,6 +725,104 @@ static int test_sti_sysexit(int repeat_sti)
     return 0;
 }
 
+static int test_stopped_clock(void)
+{
+    initialize_cpu();
+    emit_pos = BODY;
+    b(0x43);                         /* INC EBX */
+    b(0xeb); b(0xfd);                /* JMP BODY */
+    cpu_state.pc = BODY;
+    EBX = 0;
+    cpu_stpclk = 1;
+    cpu_exec(2000);
+    if (EBX || cpu_state.pc != BODY || tsc != 2000 || timer_target <= tsc)
+        fatal("Stopped clock retired an instruction or failed to advance timers");
+
+    cpu_stpclk = 0;
+    /* Even a single-cycle request must return. Subsequent requests pay
+       for the overshoot of the last block before running more code. */
+    for (unsigned i = 0; i < 4096; i++)
+        cpu_exec(1);
+    if (!EBX || tsc + cycles_main != 6096)
+        fatal("Resumed CPU lost cycle budget");
+    return 0;
+}
+
+static int test_hlt_nmi(void)
+{
+    initialize_cpu();
+    exception_tables();
+    ram[BODY] = 0xf4;                 /* HLT with IF clear */
+    emit_pos = HANDLERS + 2 * 64;
+    b(0xe7); b(0xec);                 /* Report from the NMI handler. */
+    cpu_state.pc = BODY;
+    ESP = 0x700000;
+    nmi_mask = 0;                     /* Port 70h masks the board's NMI line. */
+    nmi_enable = 1;
+    cpu_nmi_raise_core(1);            /* The local APIC's NMI is independent. */
+    cpu_exec(10000);
+    if (!done || cpu_halted || ESP != 0x700000 - 12 || get32(ESP) != BODY + 1)
+        fatal("NMI failed to wake HLT with the next instruction on the stack");
+    return 0;
+}
+
+static int test_fast_tsc(void)
+{
+    initialize_cpu();
+    /* RDTSC updates time inside the block. Count that time just once in
+       both the interpreted fallback and a warmed-up compiled loop. */
+    memset(ram + BODY, 0x43, 512);    /* INC EBX */
+    emit_pos = BODY + 512;
+    b(0x0f); b(0x31);                /* RDTSC */
+    b(0xe9); d(BODY - (emit_pos + 4));
+    cpu_state.pc = BODY;
+    EBX = 0;
+    for (unsigned pass = 0; pass < 12; pass++) {
+        cpu_force_interpreter = pass < 2;
+        uint64_t before = tsc;
+        cpu_exec(8192);
+        if (tsc <= before || tsc + cycles_main != (pass + 1) * 8192 ||
+            EDX || EAX < before || EAX > tsc || !EBX)
+            fatal("RDTSC or cycle budget out of sync on pass %u", pass);
+    }
+    return 0;
+}
+
+static int test_tsc_write(int p3)
+{
+    initialize_cpu();
+    emit_pos = BODY;
+    b(0x0f); b(0x30);                /* WRMSR 10h */
+    b(0x0f); b(0x31);                /* RDTSC */
+    b(0x89); b(0xc6);                /* MOV ESI,EAX */
+    b(0x89); b(0xd7);                /* MOV EDI,EDX */
+    b(0x0f); b(0x32);                /* RDMSR 10h */
+    b(0xe7); b(0xec);
+    b(0xeb); b(0xfe);
+    for (unsigned pass = 0; pass < 8; pass++) {
+        cpu_state.pc = BODY;
+        cycles = cycles_main = done = 0;
+        ECX = 0x10;
+        EDX = 0x1234;
+        EAX = (pass & 1) ? 0 : 0x80000000u;
+        uint64_t written = EAX | ((uint64_t)(p3 ? 0 : EDX) << 32);
+        uint64_t start = tsc;
+        cpu_exec(10000);
+        uint64_t rdtsc = ESI | ((uint64_t)EDI << 32);
+        uint64_t rdmsr = EAX | ((uint64_t)EDX << 32);
+        /* The report port consumes the interpreter's remaining slice and
+           the OUT itself can overshoot it by a few cycles. */
+        if (!done || tsc - start > 20000 || rdtsc < written ||
+            rdmsr < rdtsc || rdmsr - written > tsc - start)
+            fatal("TSC pass %u: wrote %llx, RDTSC %llx, RDMSR %llx, machine clock advanced %llu",
+                  pass, (unsigned long long) written, (unsigned long long) rdtsc,
+                  (unsigned long long) rdmsr, (unsigned long long) (tsc - start));
+    }
+    if (engine && !finished_compiled)
+        fatal("TSC write fixture did not reach compiled code");
+    return 0;
+}
+
 int main(int argc,char **argv) {
     int p3=argc>1&&!strcmp(argv[1],"p3");
     engine=argc>2?atoi(argv[2]):0; fpu_softfloat=argc>3?atoi(argv[3]):0;
@@ -720,10 +830,39 @@ int main(int argc,char **argv) {
     cpu_f=cpu_get_family(p3?"pentium3_katmai":"pentium4w"); cpu=p3?0:4;
     fpu_type=FPU_INTERNAL; cpu_use_dynarec=!!engine; cpu_use_dynarec_fast=(engine == 2);
     cpu_set(); codegen_init(); mem_size=16*1024; mem_init(); mem_reset();
+    if (argc == 4 && !strcmp(argv[3], "stpclk"))
+        return test_stopped_clock();
+    if (argc == 4 && !strcmp(argv[3], "hlt-nmi"))
+        return test_hlt_nmi();
+    if (argc == 4 && !strcmp(argv[3], "tsc"))
+        return test_fast_tsc();
+    if (argc == 4 && !strcmp(argv[3], "tsc-write"))
+        return test_tsc_write(p3);
+    if (argc == 4 && !strcmp(argv[3], "fast-selection")) {
+        if (cpu_exec != exec386_dynarec || codegen_timing_block_start != codegen_timing_fast.block_start)
+            fatal("Fast timing was not selected");
+        cpu_use_dynarec_fast = 0;
+        cpu_set();
+        if (cpu_exec != exec386_dynarec || codegen_timing_block_start != codegen_timing_p6.block_start)
+            fatal("Regular Pentium III timing was not restored");
+        cpu_use_dynarec = 0;
+        cpu_use_dynarec_fast = 1;
+        cpu_set();
+        if (cpu_exec != exec386)
+            fatal("Fast timing overrode the disabled recompiler");
+        cpu_f = cpu_get_family("i386dx");
+        cpu_use_dynarec = 1;
+        cpu_set();
+        if (cpu_exec != exec386_2386)
+            fatal("Recompiler selected on an unsupported CPU");
+        return 0;
+    }
     if (argc == 4 && !strcmp(argv[3], "sti"))
-        return test_sti_sysexit(0);
+        return test_sti_sysexit(0, 0);
     if (argc == 4 && !strcmp(argv[3], "sti-sti"))
-        return test_sti_sysexit(1);
+        return test_sti_sysexit(1, 0);
+    if (argc == 4 && !strcmp(argv[3], "sti-apic"))
+        return test_sti_sysexit(0, 1);
     if (argc == 2 && !strcmp(argv[1], "allocator"))
         return run_codegen_test(test_register_allocation);
     if (argc == 2 && !strcmp(argv[1], "ir"))
@@ -1018,7 +1157,7 @@ int main(int argc,char **argv) {
             cpu_state.pc = (probe->setup >= POP_SP && probe->setup <= POP_ALL_WRAP) ? BODY : DRIVER; done=0; cycles=cycles_main=0;
             for(unsigned n=0;!done;n++) {
                 if(n>10000)fatal("Audit did not stop");
-                if(engine) exec386_dynarec(10000); else exec386(10000);
+                cpu_exec(10000);
             }
             unsigned expected = p3 ? probe->trap_p3 : probe->trap_p4;
             if (probe->setup == SSE_MMX_CONVERT) {

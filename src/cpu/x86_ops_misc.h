@@ -1191,6 +1191,10 @@ opWRMSR(UNUSED(uint32_t fetchdat))
 {
     if (cpu_has_feature(CPU_FEATURE_MSR)) {
         cpu_WRMSR();
+#ifdef USE_DYNAREC
+        if (cpu_use_dynarec && x86_was_reset)
+            return 1;
+#endif
         CLOCK_CYCLES(9);
         return 0;
     }

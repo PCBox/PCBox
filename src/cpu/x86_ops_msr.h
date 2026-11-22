@@ -25,8 +25,9 @@ opRDTSC(UNUSED(uint32_t fetchdat))
             return 1;
     }
 #endif
-    EAX = tsc & 0xffffffff;
-    EDX = tsc >> 32;
+    const uint64_t value = cpu_tsc_read();
+    EAX = (uint32_t) value;
+    EDX = value >> 32;
     CLOCK_CYCLES(1);
     return 0;
 }
@@ -54,7 +55,7 @@ opRDPMC(UNUSED(uint32_t fetchdat))
                 return 1;
         }
 #endif
-        uint64_t v = ECX ? msr.perfctr[1] : tsc;
+        uint64_t v = ECX ? msr.perfctr[1] : cpu_tsc_read();
         EAX = v & 0xffffffff;
         EDX = (v >> 32) & 0xff;
     } else if (is_p6) {
