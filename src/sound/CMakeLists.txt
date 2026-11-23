@@ -32,6 +32,7 @@ add_library(snd OBJECT
     snd_lpt_cms.c
     snd_lpt_dac.c
     snd_lpt_dss.c
+    snd_lpt_msound.c
     snd_lpt_tndlpt.c
     snd_pssj.c
     snd_ac97_codec.c
@@ -67,6 +68,11 @@ add_library(snd OBJECT
     snd_jazz16.c
     snd_saaym.c
     snd_sn76489.c
+    snd_sscape.c
+    snd_es5506.c
+    musashi/m68kcpu.c
+    musashi/m68kops.c
+    musashi/softfloat/softfloat.c
     snd_ssi2001.c
     snd_tms320c25.c
     snd_wss.c
@@ -79,6 +85,14 @@ add_library(snd OBJECT
     snd_ymf701.c
     snd_ymf71x.c
     sound_util.c
+)
+
+# Vendored Musashi 68000 core (Ensoniq Soundscape on-board processor)
+set_source_files_properties(
+    musashi/m68kcpu.c
+    musashi/m68kops.c
+    musashi/softfloat/softfloat.c
+    PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>"
 )
 
 # TODO: Should platform-specific audio driver be here?
@@ -239,6 +253,10 @@ if(SOUNDCANVAS)
     if(NOT WIN32)
         target_link_libraries(PCBox dl)
     endif()
+endif()
+
+if(ENABLE_VORTEX2_LOG)
+    target_compile_definitions(snd PRIVATE ENABLE_VORTEX2_LOG)
 endif()
 
 if(SOFTMODEM)
