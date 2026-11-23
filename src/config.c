@@ -164,6 +164,12 @@ load_global_general(void)
         lang_id = plat_language_code(DEFAULT_LANGUAGE);
 
     color_scheme = ini_section_get_int(moved_setting_section(cat, "color_scheme"), "color_scheme", 0);
+
+    p = ini_section_get_string(cat, "ui_style", NULL);
+    if (p != NULL)
+        snprintf(ui_style, sizeof(ui_style), "%s", p);
+    else
+        ui_style[0] = '\0';
 }
 
 static void
@@ -458,6 +464,7 @@ load_general(void)
 
     force_constant_mouse = ini_section_get_int(cat, "force_constant_mouse", 0);
     fast_forward_on_start = !!ini_section_get_int(cat, "fast_forward_on_start", 0);
+    pause_on_sleep        = !!ini_section_get_int(cat, "pause_on_sleep", 1);
     fdd_sounds_enabled = ini_section_get_int(cat, "fdd_sounds_enabled", 1);
 
     p = ini_section_get_string(cat, "uuid", NULL);
@@ -3329,6 +3336,7 @@ config_load(void)
         dpi_scale            = 1;
         force_constant_mouse = 0;
         fast_forward_on_start = fast_forward_new_machines;
+        pause_on_sleep        = 1;
 
         cpu_override_interpreter = 0;
         cpu_debug_regs_486       = 0;
@@ -3487,6 +3495,11 @@ save_global_general(void)
         ini_section_set_int(cat, "color_scheme", color_scheme);
     else
         ini_section_delete_var(cat, "color_scheme");
+
+    if (ui_style[0] != '\0')
+        ini_section_set_string(cat, "ui_style", ui_style);
+    else
+        ini_section_delete_var(cat, "ui_style");
 
     ini_delete_section_if_empty(global, cat);
 }
@@ -3840,6 +3853,11 @@ save_general(void)
         ini_section_set_int(cat, "fast_forward_on_start", fast_forward_on_start);
     else
         ini_section_delete_var(cat, "fast_forward_on_start");
+
+    if (pause_on_sleep)
+        ini_section_delete_var(cat, "pause_on_sleep");
+    else
+        ini_section_set_int(cat, "pause_on_sleep", pause_on_sleep);
 
     if (fdd_sounds_enabled == 1)
         ini_section_delete_var(cat, "fdd_sounds_enabled");

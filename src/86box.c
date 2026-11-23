@@ -238,6 +238,8 @@ int      do_auto_pause                          = 0;              /* (G) Auto-pa
 int      do_auto_dialog_pause                   = 0;              /* (G) Auto-pause the emulator on dialog boxes */
 int      force_constant_mouse                   = 0;              /* (C) Force constant updating of the mouse */
 int      fast_forward_on_start                  = 0;              /* (C) Start the machine in fast forward */
+int      pause_on_sleep                         = 1;              /* (C) Pause the emulator while the guest
+                                                                         is in an ACPI sleeping state */
 int      hook_enabled                           = 1;              /* (C) Keyboard hook is enabled */
 int      test_mode                              = 0;              /* (C) Test mode */
 char     uuid[MAX_UUID_LEN]                     = { '\0' };       /* (C) UUID or machine identifier */
@@ -272,7 +274,8 @@ vfio_device_conf_t vfio_device_conf[VFIO_DEVICE_MAX] = { 0 };    /* (C) VFIO pas
 
 double   video_gl_input_scale = 1.0;                              /* (C) OpenGL 3.x input scale */
 int      video_gl_input_scale_mode = FULLSCR_SCALE_FULL;          /* (C) OpenGL 3.x input stretch mode */
-int      color_scheme = 0;                                        /* (C) Color scheme of UI (Windows-only) */
+int      color_scheme = 0;                                        /* (C) Color scheme of UI */
+char     ui_style[64] = { 0 };                                    /* (C) Qt style of UI, empty for the default */
 int      fdd_sounds_enabled = 1;                                  /* (C) Floppy drive sounds enabled */
 int      is_new_808x = 0;                                         /* (C) Use the new 808x code. */
 
