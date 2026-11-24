@@ -116,6 +116,7 @@ codegen_check_sse_align(ir_data_t *ir, x86seg *seg)
 int codegen_addr_bound(ir_data_t *ir, int addr_reg, uint32_t *bound, int *is_const);
 
 int call_far_rm(codeblock_t *block, ir_data_t *ir, int is32, int sel_reg, uint16_t sel, uint32_t ret_pc);
+void *call_far_func(codeblock_t *block, int is32);
 
 static inline void
 CHECK_SEG_LIMITS(UNUSED(codeblock_t *block), ir_data_t *ir, x86seg *seg, int addr_reg, int end_offset)

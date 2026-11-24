@@ -125,13 +125,12 @@ row_allocate(uint8_t row_id, uint8_t set)
     for (uint32_t c = (rows[row_id].host_base >> 12); c < ((rows[row_id].host_base + rows[row_id].host_size) >> 12); c++) {
         offset = c - (rows[row_id].host_base >> 12);
 
+        mem_set_page_byte_masks(&pages[c], offset);
         pages[c].mem = set ? (rows[row_id].buf + rows[row_id].ram_base + ((offset << 12) & rows[row_id].ram_mask)) : page_ff;
         pages[c].write_b = set ? mem_write_ramb_page : NULL;
         pages[c].write_w = set ? mem_write_ramw_page : NULL;
         pages[c].write_l = set ? mem_write_raml_page : NULL;
         pages[c].evict_prev = EVICT_NOT_IN_LIST;
-        /* The RAM page behind it, as mem_remap_top() keys them. */
-        mem_page_set_byte_masks(&pages[c], (rows[row_id].ram_base + ((offset << 12) & rows[row_id].ram_mask)) >> 12);
     }
 
     if (rows[row_id].host_base >= 0x00100000) {
@@ -259,12 +258,12 @@ row_init(const device_t *info)
     mem_mapping_disable(&ram_high_mapping);
 
     for (uint32_t c = 0; c < pages_sz; c++) {
+        mem_set_page_byte_masks(&pages[c], c);
         pages[c].mem = page_ff;
         pages[c].write_b = NULL;
         pages[c].write_w = NULL;
         pages[c].write_l = NULL;
         pages[c].evict_prev = EVICT_NOT_IN_LIST;
-        mem_page_set_byte_masks(&pages[c], c);
     }
 
     /* Set all memory space above the default allocated area to external. */
