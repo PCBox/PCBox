@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"PO-Revision-Date: 2026-11-22 22:41+0000\n"
+"PO-Revision-Date: 2026-11-23 18:32+0000\n"
 "Last-Translator: DimMan88 <dimman88@hotmail.com>\n"
 "Language-Team: Greek <https://weblate.86box.net/projects/86box/86box/el/>\n"
 "Language: el-GR\n"
@@ -1165,29 +1165,6 @@ msgstr "Socket %1"
 msgid "Socket %1: %2"
 msgstr "Socket %1: %2"
 
-msgid "The PC Card controller is an ISA card, and this machine has no ISA slot."
-msgstr ""
-"Ο ελεγκτής PC Card είναι κάρτα ISA και αυτή η μηχανή δεν διαθέτει υποδοχή "
-"ISA."
-
-msgid "Choose a machine with ISA slots on the Machine page to fit one."
-msgstr ""
-
-msgid "The sockets are unavailable while the controller is not fitted."
-msgstr ""
-
-msgid "Tick the box above to fit it."
-msgstr ""
-
-msgid "Configure is unavailable because the socket is empty.\nSelect a card first."
-msgstr ""
-
-msgid "Configure the %1."
-msgstr ""
-
-msgid "This card has no settings to configure."
-msgstr ""
-
 msgid "Other devices"
 msgstr "Άλλες συσκευές"
 
@@ -1358,13 +1335,13 @@ msgid "MO images"
 msgstr "Εικόνες MO"
 
 msgid "MD DATA images"
-msgstr ""
+msgstr "Εικόνες MD DATA"
 
 msgid "&MD DATA %1 (%2): %3"
-msgstr ""
+msgstr "&MD DATA %1 (%2): %3"
 
 msgid "MD DATA %1 (%2): %3"
-msgstr ""
+msgstr "MD DATA %1 (%2): %3"
 
 msgid "Welcome to PCBox!"
 msgstr "Καλως ορίσατε στο PCBox!"
@@ -1373,7 +1350,7 @@ msgid "Internal device"
 msgstr "Εσωτερική συσκευή"
 
 msgid "External"
-msgstr ""
+msgstr "Εξωτερικός"
 
 msgid "&File"
 msgstr "&Αρχείο"
@@ -1397,94 +1374,106 @@ msgid "No ROMs found"
 msgstr "Δεν βρέθηκαν ROMs"
 
 msgid "Unsupported Hardware"
-msgstr ""
+msgstr "Μη υποστηριζόμενο υλικό"
 
 msgid "Hardware in this machine profile is not supported by this current build of 86Box."
 msgstr ""
+"Το υλικό σε αυτό το προφίλ μηχανής δεν υποστηρίζεται από την τρέχουσα έκδοση "
+"του 86Box."
 
 msgid "(and %i others)"
-msgstr ""
+msgstr "(και %i ακόμη)"
 
 msgid "Loading the configuration anyway will replace the machine and overwrite the existing configuration."
 msgstr ""
+"Η φόρτωση της διαμόρφωσης ούτως ή άλλως θα αντικαταστήσει την μηχανή και θα "
+"εγγράψει πάνω από την υπάρχουσα διαμόρφωση."
 
 msgid "Loading the configuration anyway will remove these components and overwrite the existing configuration."
 msgstr ""
+"Η φόρτωση της διαμόρφωσης ούτως ή άλλως θα αφαιρέσει αυτά τα στοιχεία και θα "
+"εγγράψει πάνω από την υπάρχουσα διαμόρφωση."
 
 msgid "Loading the configuration anyway will replace the machine, remove the other components and overwrite the existing configuration."
 msgstr ""
+"Η φόρτωση της διαμόρφωσης ούτως ή άλλως θα αντικαταστήσει την μηχανή, θα "
+"αφαιρέσει αυτά τα στοιχεία και θα εγγράψει πάνω από την υπάρχουσα διαμόρφωση."
 
 msgid "Do you want to continue?"
-msgstr ""
+msgstr "Επιθυμείτε να συνεχίσετε?"
 
 msgid "Machine type \"%s\""
-msgstr ""
+msgstr "Τύπος μηχανής \"%s\""
 
 msgid "Video card \"%s\""
-msgstr ""
+msgstr "Κάρτα γραφικών \"%s\""
 
 msgid "Keyboard \"%s\""
-msgstr ""
+msgstr "Πληκτρολόγιο \"%s\""
 
 msgid "Mouse \"%s\""
-msgstr ""
+msgstr "Ποντίκι \"%s\""
 
 msgid "Tablet \"%s\""
-msgstr ""
+msgstr "Ταμπλέτα \"%s\""
 
 msgid "Joystick \"%s\""
-msgstr ""
+msgstr "Χειριστήριο \"%s\""
 
 msgid "Sound card \"%s\""
-msgstr ""
+msgstr "Κάρτα ήχου \"%s\""
 
 msgid "MIDI output device \"%s\""
-msgstr ""
+msgstr "Συσκευή εξόδου MIDI \"%s\""
 
 msgid "MIDI input device \"%s\""
-msgstr ""
+msgstr "Συσκευή εισόδου MIDI \"%s\""
 
 msgid "Network card \"%s\""
-msgstr ""
+msgstr "Κάρτα δικτύου \"%s\""
 
 msgid "Serial port device \"%s\""
-msgstr ""
+msgstr "Συσκευή σειριακής θύρας \"%s\""
 
 msgid "Parallel port device \"%s\""
-msgstr ""
+msgstr "Συσκευή παράλληλης θύρας \"%s\""
 
 msgid "Game port \"%s\""
-msgstr ""
+msgstr "Θύρα παιχνιδιών \"%s\""
 
 msgid "SCSI card \"%s\""
-msgstr ""
+msgstr "Κάρτα SCSI \"%s\""
 
 msgid "Floppy controller \"%s\""
-msgstr ""
+msgstr "Ελεγκτής δισκέτας \"%s\""
 
 msgid "Disk controller \"%s\""
-msgstr ""
+msgstr "Ελεγκτής δίσκου \"%s\""
 
 msgid "CD-ROM interface \"%s\""
-msgstr ""
+msgstr "Διεπαφή CD-ROM \"%s\""
 
 msgid "Memory expansion card \"%s\""
-msgstr ""
+msgstr "Κάρτα επέκτασης μνήμης \"%s\""
 
 msgid "ROM expansion card \"%s\""
-msgstr ""
+msgstr "Κάρτα επέκτασης ROM \"%s\""
 
 msgid "RTC card \"%s\""
-msgstr ""
+msgstr "Κάρτα RTC \"%s\""
 
 msgid "The image \"%s\" exceeds the maximum capacity of this drive and will be ignored."
 msgstr ""
+"Η εικόνα \"%s\" υπερβαίνει τη μέγιστη χωρητικότητα αυτής της μονάδας δίσκου "
+"και θα αγνοηθεί."
 
 msgid "%s was not connected: every USB port of this machine is in use."
-msgstr ""
+msgstr "%s δεν συνδέθηκε: όλες οι θύρες USB αυτής της μηχανής είναι σε χρήση."
 
 msgid "%s was not connected: this machine has no USB controller that can take devices."
 msgstr ""
+"%s δεν συνδέθηκε: αυτό το μηχάνημα δεν διαθέτει ελεγκτή USB που να μπορεί να "
+"δεχθεί συσκευές."
 
 msgid "Do you want to save the settings?"
 msgstr "Επιθυμείτε να αποθηκεύσετε τις ρυθμίσεις;"
@@ -1511,22 +1500,22 @@ msgid "CD-ROM images"
 msgstr "Εικόνες CD-ROM"
 
 msgid "&New CD-R image…"
-msgstr ""
+msgstr "&Δημιουργία εικόνας CD-R…"
 
 msgid "New CD-R&W image…"
-msgstr ""
+msgstr "Δημιουργία εικόνας CD-R&W…"
 
 msgid "CD-RW image"
-msgstr ""
+msgstr "Εικόνα CD-RW"
 
 msgid "CD-R image"
-msgstr ""
+msgstr "Εικόνα CD-R"
 
 msgid "Aaru images"
-msgstr ""
+msgstr "Εικόνες Aaru"
 
 msgid "Unable to create image"
-msgstr ""
+msgstr "Αδυναμία δημιουργίας εικόνας"
 
 msgid "%1 Device Configuration"
 msgstr "%1 Προσαρμογή Συσκευής"
@@ -1909,23 +1898,20 @@ msgstr "Ήχος:"
 msgid "ACPI shutdown"
 msgstr "Τερματισμός ACPI"
 
-msgid "ACP&I shutdown"
-msgstr "Τερματισμός ACP&I"
+msgid "&ACPI shutdown"
+msgstr "Τερματισμός &ACPI"
 
 msgid "Power off"
 msgstr "Απενεργοποίηση"
 
-msgid "Power &off…"
-msgstr "&Απενεργοποίηση…"
-
 msgid "Power &off"
 msgstr "&Απενεργοποίηση"
 
-msgid "Power &off (soft)"
-msgstr ""
+msgid "Softw&are shutdown"
+msgstr "Τερματισμός λειτουργίας μέσω &λογισμικού"
 
-msgid "Power off (soft)"
-msgstr ""
+msgid "Software shutdown"
+msgstr "Τερματισμός λειτουργίας μέσω λογισμικού"
 
 msgid "Powering off the emulated machine may cause data loss. Are you sure you want to continue?"
 msgstr ""
@@ -2428,7 +2414,7 @@ msgid "PS/55 Keyboard"
 msgstr "Πληκτρολόγιο PS/55"
 
 msgid "USB Keyboard"
-msgstr ""
+msgstr "Πληκτρολόγιο USB"
 
 msgid "Keys"
 msgstr "Πλήκτρα"
@@ -2461,13 +2447,13 @@ msgid "PS/2 QuickPort Mouse"
 msgstr "Ποντίκι PS/2 QuickPort"
 
 msgid "USB Mouse"
-msgstr ""
+msgstr "Ποντίκι USB"
 
 msgid "3M MicroTouch (Serial)"
 msgstr "3M MicroTouch (Σειριακό)"
 
 msgid "USB Tablet"
-msgstr ""
+msgstr "Ταμπλέτα USB"
 
 msgid "Default Baud rate"
 msgstr "Προεπιλεγμένος ρυθμός Baud"
@@ -2494,7 +2480,7 @@ msgid "System MIDI"
 msgstr "MIDI συστήματος"
 
 msgid "USB Speaker"
-msgstr ""
+msgstr "Ηχείο USB"
 
 msgid "MIDI Input Device"
 msgstr "Συσκευή Εισαγωγής MIDI"
@@ -3809,16 +3795,16 @@ msgid "Dark"
 msgstr "Σκοτεινό"
 
 msgid "Style:"
-msgstr ""
+msgstr "Στυλ:"
 
 msgid "Windows 11"
-msgstr ""
+msgstr "Windows 11"
 
 msgid "Windows Native"
-msgstr ""
+msgstr "Εγγενές Windows"
 
 msgid "Windows Classic"
-msgstr ""
+msgstr "Κλασικό Windows"
 
 msgid "Force interpretation"
 msgstr "Εξαναγκασμός ερμηνείας"
@@ -4920,16 +4906,16 @@ msgid "USB port"
 msgstr "Θύρα USB"
 
 msgid "%1 (write-protected)"
-msgstr ""
+msgstr "%1 (προστασία εγγραφής)"
 
 msgid "USB flash drive"
-msgstr ""
+msgstr "Μονάδα USB flash"
 
 msgid "%1 is not a disk image."
-msgstr ""
+msgstr "%1 δεν είναι εικόνα δίσκου."
 
 msgid "Flash drive images"
-msgstr ""
+msgstr "Εικόνες μονάδων flash"
 
 msgid "PCI card"
 msgstr "Κάρτα PCI"

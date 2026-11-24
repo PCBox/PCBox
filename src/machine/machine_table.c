@@ -25281,7 +25281,7 @@ const machine_t machines[] = {
             .max_bus     = 100000000,
             .min_voltage = 1300,
             .max_voltage = 3500,
-            .min_multi   = 2.0,
+            .min_multi   = 1.5,
             .max_multi   = 6.0
         },
         .bus_flags = MACHINE_PS2_AGP | MACHINE_BUS_USB,
@@ -27224,7 +27224,7 @@ const machine_t machines[] = {
     /* Has a National Semiconductor PC87307 Super I/O with on-chip KBC, which has one of these
        firmwares: AMI '5' MegaKey, Phoenix MultiKey/42 1.37, or Phoenix MultiKey/42i 4.16. */
     {
-        .name              = "[i440LX] AST Bravo MS-T 6233",
+        .name              = "[i440LX] AST Bravo MS 6xxx",
         .internal_name     = "bravomst6233",
         .type              = MACHINE_TYPE_SLOT1,
         .chipset           = MACHINE_CHIPSET_INTEL_440LX,
@@ -27280,7 +27280,7 @@ const machine_t machines[] = {
             MSLOT_BRIDGE(0x01, PCI_CARD_AGPBRIDGE, 1, 2, 3, 4, machine_bus_agp),
             MSLOT_END
         },
-        .aliases                  = { "AST Bravo MS-T 6300", "AST 440LX", "" }
+        .aliases                  = { "AST Bravo MS 6233", "AST Bravo MS 6266", "AST Bravo MS 6300", "AST Bravo MS 6333", "Samsung BA41-10019V", "" }
     },
     /* Has a National Semiconductor PC87307 Super I/O with on-chip KBC, which has one of these
        firmwares: AMI '5' MegaKey, Phoenix MultiKey/42 1.37, or Phoenix MultiKey/42i 4.16. */
