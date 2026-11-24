@@ -250,9 +250,6 @@ extern void  device_debug_hex(void (*out)(const char *fmt, ...), const char *tit
 extern int   device_available(const device_t *dev);
 extern void  device_speed_changed(void);
 extern void  device_force_redraw(void);
-extern int   device_has_power_button(void);
-/* Call with the CPU paused before dispatching to device state. */
-extern void  device_power_button(void);
 extern const char *device_get_bus_name(const device_t *dev);
 extern void  device_get_name(const device_t *dev, int bus, char *name);
 extern int   device_has_config(const device_t *dev);

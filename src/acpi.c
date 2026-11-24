@@ -3176,6 +3176,12 @@ acpi_pwrbut_press(void)
     acpi_pwrbut_pressed = 1;
 }
 
+static void
+acpi_power_button(UNUSED(void *priv))
+{
+    acpi_pwrbut_pressed = 1;
+}
+
 void
 acpi_pwrbut_hold(void)
 {
@@ -3907,6 +3913,8 @@ acpi_init(const device_t *info)
     acpi_enabled  = 1;
     dev->power_on = 1;
     acpi_active   = dev;
+
+    machine_set_power_button(POWER_BUTTON_ACPI, acpi_power_button, NULL);
 
     return dev;
 }

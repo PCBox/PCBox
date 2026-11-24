@@ -75,11 +75,12 @@ startup), `frames` (frames rendered) and `held`.
 
 | Request | Effect |
 |---|---|
-| `status` | Protocol and emulator version, `ms`, `frames`, `held`, `paused` (UI pause), `ff` (fast forward), last frame size `w`/`h`, `bios_mode` (BIOS data area 0x449), `quantum_ms`. |
-| `hold` | Stop running the CPU between requests. |
-| `release` | Resume normal real-time execution. |
-| `ff [on\|off]` | Fast forward on or off, as the UI's (no pacing to real time when the machine runs); with no argument, what it is. Reply has `ff`. |
-| `step <ms>` | Run exactly `ms` of emulated time, then reply. If held, runs without real-time pacing (as fast as the host allows), then holds again. |
+| `status` | Protocol and emulator version, `ms`, `frames`, `held`, `paused` (UI pause), `ff` (fast forward), last frame size `w`/`h`, `bios_mode` (BIOS data area 0x449), `quantum_ms`, `reasons_back` (as for `release`, the last time the hold ended). |
+| `hold` | Stop running the CPU between requests. While held, automation has the controls: the UI's Pause and Fast forward are locked, and pauses by the user, an inactive window, a dialog, a warning or a VNC renderer without a client are ignored until `release`. A guest that enters ACPI sleep, a fatal error or a debugger stop still pause it. |
+| `release` | Stop holding and hand the controls back. Reply has `reasons_back`: the pauses that were ignored while held and are in effect now (`user`, `focus`, `dialog`, `message`, `remote`). Disconnecting doesn't release: a held machine stays held, and the UI's controls stay locked, until a client sends `release`. A command still running when the client disconnects is aborted. |
+| `wake` | Wake a guest that is paused in an ACPI sleeping state, as the UI's Resume does. |
+| `ff [on\|off]` | Fast forward on or off, the same setting as the UI's (no pacing to real time when the machine runs); with no argument, what it is. Reply has `ff`. |
+| `step <ms> [paced]` | Run exactly `ms` of emulated time, then reply. If held, runs without real-time pacing (as fast as the host allows), then holds again; with `paced`, it follows `ff` instead, for example to record sound in real time. |
 | `wait text <timeout_ms> <text>` | Run until `<text>` (rest of line, matched against raw screen bytes) appears in a single row of the text screen, or until the timeout. Reply has `matched`. |
 | `wait mem <timeout_ms> <addr> <hex>` | Run until physical memory at `addr` equals the hex bytes, or until the timeout. |
 | `wait sound <timeout_ms> <dBFS>` | Run until any sound stream reaches the level (peak, dBFS), or until the timeout. Adds `stream` and `onset_ms`, the emulated time of the first sample at the level (sound arrives in blocks of about 20 ms, so the run stops up to a block later). |
@@ -119,7 +120,7 @@ startup), `frames` (frames rendered) and `held`.
 | `media remove <name>` | Delete a file received with `media put`. |
 | `log [<from> [<max>]]` | What 86Box has written to its log, from position `from` (bytes logged since startup; default 0) on, at most `max` bytes (default and limit 65536), as `text`: the last 64 KB are kept. With `from`, `next` (the `from` for the next read), `pos` (bytes logged so far) and `lost` (bytes asked for that were no longer kept). Includes warnings, which 86Box logs instead of showing them (see [Warnings](#warnings)); a release build logs little else. |
 | `reset hard` / `reset cad` | Hard reset, or send Ctrl+Alt+Del. |
-| `quit soft` | Soft power-off, like the GUI "Power off (soft)" button. Machine must not be held. |
+| `quit soft` | Press the machine's power button, like the GUI "ACPI shutdown" / "Suspend" action; a hard power-off on machines without one. Machine must not be held. |
 | `quit` | Power off and exit 86Box. |
 
 Numbers accept C syntax (`0x` hex, decimal).
@@ -249,6 +250,18 @@ and an automation client can share a machine:
 - While the machine is held, the stub still answers GDB: registers, memory,
   breakpoints and monitor commands work. A GDB `continue` or `step` takes
   effect when the CPU next runs, for example during an automation `step`.
+
+## ACPI sleep
+
+When the guest enters an ACPI sleeping state and pause on sleep is on (the
+default), the machine stays paused, also while held, until something wakes
+it: the `wake` command, or the UI's Resume when automation doesn't hold it.
+
+- A `step`, `wait` or `key` command that is running when the guest goes to
+  sleep ends at once, with `"stopped":"sleep"` in its reply. A `wait` that
+  ends this way has `"matched":false`.
+- While the guest sleeps, `step`, `wait` and `key` fail with an error that
+  says to send `wake` first.
 
 ## Determinism notes
 
