@@ -558,43 +558,73 @@ build_store_tracked(codeblock_t *block, int size, uint32_t **to_c)
     return nr_to_c;
 }
 
-/*EDI is the linear address, RSI its write lookup, and ECX or XMM_TEMP
-  still holds the value. An in-page RAM hit can use the aligned store after
-  reproducing writemem*l's bookkeeping. Misses (including tracked pages),
-  crossings and data breakpoints need the full memory helper.*/
+/*A misaligned store that stays inside its page and has a write lookup: what
+  writememwl(), writememll() and writememql() do on their in-page branch,
+  high_page cleared, the timing_misaligned charge under the same Cyrix
+  alignment rule and the store through the lookup. The C functions store
+  through a valid write lookup on this branch before any page_lookup test
+  (a ring-3 held carry can have both), so nothing is marked dirty. A page
+  crossing or a missing lookup jumps back to the C path at c_path with EDI and
+  ECX unchanged; the lookup entry is loaded again, as the tracked entry is
+  called without it.
+  In - EDI = address, ECX or XMM_TEMP = data
+  Out - ESI = 0
+  Corrupts RSI, R8*/
 static void
-build_store_misaligned(codeblock_t *block, int size, void *store, void *c_path)
+build_store_misaligned(codeblock_t *block, int size, int is_float, uint8_t *c_path)
 {
-    uint32_t *skip_charge = NULL;
+    uint32_t *to_c[2];
+    uint8_t  *charge = NULL;
+    uint8_t  *skip   = NULL;
 
-    host_x86_CMP64_REG_IMM(block, REG_RSI, (uint32_t) -1);
-    host_x86_JZ(block, c_path);
     host_x86_MOV32_REG_REG(block, REG_R8, REG_EDI);
     host_x86_AND32_REG_IMM(block, REG_R8, 0xfff);
     host_x86_CMP32_REG_IMM(block, REG_R8, 0x1000 - size);
-    uint32_t *cross = host_x86_JA_long(block);
-    *cross = (uintptr_t) c_path - ((uintptr_t) cross + 4);
-    host_x86_MOV32_REG_ABS(block, REG_R8, &cpu_dr_armed);
-    host_x86_TEST32_REG(block, REG_R8, REG_R8);
-    host_x86_JNZ(block, c_path);
+    to_c[0] = host_x86_JNBE_long(block);
+    host_x86_MOV32_REG_REG(block, REG_ESI, REG_EDI);
+    host_x86_SHR32_IMM(block, REG_ESI, 12);
+    host_x86_MOV64_REG_IMM(block, REG_R8, (uint64_t) (uintptr_t) writelookup2);
+    host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RSI, REG_R8, REG_RSI, 3);
+    host_x86_CMP64_REG_IMM(block, REG_RSI, (uint32_t) -1);
+    to_c[1] = host_x86_JZ_long(block);
 
-    host_x86_MOV32_ABS_REG(block, &mem_logical_addr, REG_EDI);
     host_x86_MOV8_ABS_IMM(block, &high_page, 0);
-    if (size < 8) {
-        host_x86_MOV32_REG_ABS(block, REG_R8, &cpu_cyrix_alignment);
+
+    if (size != 8) {
+        host_x86_MOV64_REG_IMM(block, REG_R8, (uint64_t) (uintptr_t) &cpu_cyrix_alignment);
+        host_x86_MOV32_REG_BASE_OFFSET(block, REG_R8, REG_R8, 0);
         host_x86_TEST32_REG(block, REG_R8, REG_R8);
-        uint32_t *charge = host_x86_JZ_long(block);
+        charge = host_x86_JZ_short(block);
         host_x86_MOV32_REG_REG(block, REG_R8, REG_EDI);
         host_x86_AND32_REG_IMM(block, REG_R8, 7);
-        host_x86_CMP32_REG_IMM(block, REG_R8, 8 - size);
-        skip_charge = host_x86_JBE_long(block);
-        jump_long_here(charge);
+        if (size == 2) {
+            host_x86_CMP32_REG_IMM(block, REG_R8, 7);
+            skip = host_x86_JNZ_short(block);
+        } else {
+            host_x86_CMP32_REG_IMM(block, REG_R8, 4);
+            skip = host_x86_JBE_short(block);
+        }
+        *charge = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) charge) - 1;
     }
-    host_x86_MOV32_REG_ABS(block, REG_R8, &timing_misaligned);
+    host_x86_MOV64_REG_IMM(block, REG_R8, (uint64_t) (uintptr_t) &timing_misaligned);
+    host_x86_MOV32_REG_BASE_OFFSET(block, REG_R8, REG_R8, 0);
     host_x86_SUB32_ABS_REG(block, &cpu_state._cycles, REG_R8);
-    if (skip_charge)
-        jump_long_here(skip_charge);
-    host_x86_JMP(block, store);
+    if (skip)
+        *skip = (uint8_t) ((uintptr_t) &block_write_data[block_pos] - (uintptr_t) skip) - 1;
+
+    if (size == 2)
+        host_x86_MOV16_BASE_INDEX_REG(block, REG_RSI, REG_RDI, REG_ECX);
+    else if (size == 4 && !is_float)
+        host_x86_MOV32_BASE_INDEX_REG(block, REG_RSI, REG_RDI, REG_ECX);
+    else if (size == 4 && is_float)
+        host_x86_MOVD_BASE_INDEX_XREG(block, REG_RSI, REG_RDI, REG_XMM_TEMP);
+    else
+        host_x86_MOVQ_BASE_INDEX_XREG(block, REG_RSI, REG_RDI, REG_XMM_TEMP);
+    host_x86_XOR32_REG_REG(block, REG_ESI, REG_ESI);
+    host_x86_RET(block);
+
+    for (int c = 0; c < 2; c++)
+        *to_c[c] = (uintptr_t) c_path - ((uintptr_t) to_c[c] + 4);
 }
 #    endif
 
@@ -634,16 +664,18 @@ build_store_routine(codeblock_t *block, int size, int is_float)
     host_x86_SHR32_IMM(block, REG_ESI, 12);
     host_x86_MOV64_REG_IMM(block, REG_R8, (uint64_t) (uintptr_t) writelookup2);
     host_x86_MOV64_REG_BASE_INDEX_SHIFT(block, REG_RSI, REG_R8, REG_RSI, 3);
-    void *after_lookup = &block_write_data[block_pos];
     if (size != 1) {
         host_x86_TEST32_REG_IMM(block, REG_EDI, size - 1);
-        misaligned = host_x86_JNZ_long(block);
+#    if !defined(USE_GDBSTUB)
+        /*The tracked path lies between this jump and the C path*/
+        if (size <= 4 && !is_float)
+            misaligned_long = host_x86_JNZ_long(block);
+        else
+#    endif
+            misaligned_offset = host_x86_JNZ_short(block);
     }
     host_x86_CMP64_REG_IMM(block, REG_RSI, (uint32_t) -1);
     branch_offset = host_x86_JZ_short(block);
-#    if !defined(USE_GDBSTUB)
-    uint8_t *store = &block_write_data[block_pos];
-#    endif
     if (size == 1 && !is_float)
         host_x86_MOV8_BASE_INDEX_REG(block, REG_RSI, REG_RDI, REG_ECX);
     else if (size == 2 && !is_float)
