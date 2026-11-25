@@ -24,11 +24,8 @@
 #include "codegen_allocator.h"
 #include "codegen_backend.h"
 #include "codegen_link.h"
-<<<<<<< HEAD
 #include "codegen_ir.h"
-=======
 #include "codegen_public.h"
->>>>>>> 141ae59ca07f63267384ea12024bc51e2371b49b
 #include "codegen_reg.h"
 #include "codegen_ops.h"
 #include "codegen_ops_x87h.h"
@@ -806,16 +803,10 @@ codegen_reset(void)
 {
     int c;
 
-<<<<<<< HEAD
-#ifdef CODEGEN_CHAIN
-    codegen_links_drop_all(1);
-#endif
-=======
     /*The page table may already have been replaced. Drop its entry numbers
       before unlinking the old blocks, then reset the chunk table at once.*/
     if (block_chunk_page)
         memset(block_chunk_page, 0, block_chunk_page_nr * sizeof(uint32_t));
->>>>>>> 141ae59ca07f63267384ea12024bc51e2371b49b
     for (c = 1; c < BLOCK_SIZE; c++) {
         codeblock_t *block = &codeblock[c];
 
@@ -847,20 +838,9 @@ codegen_reset(void)
 #endif
     memset(codeblock_hash, 0, (size_t)(HASH_SIZE * CODEBLOCK_HASH_WAYS * sizeof(uint32_t)));
     mem_reset_page_blocks();
-<<<<<<< HEAD
-#ifdef CODEGEN_CHAIN
-    /* Every link went with its block's code. */
-    codegen_ind_reset();
-    memset(codegen_link_targets, 0, sizeof(codegen_link_targets));
-    memset(codegen_link_phys_count, 0, sizeof(codegen_link_phys_count));
-    codegen_lg_init();
-    mem_link_large_forget();
-#endif
-=======
     block_chunk_lists_nr   = 0;
     block_chunk_lists_free = 0;
     block_list_stamp       = 0;
->>>>>>> 141ae59ca07f63267384ea12024bc51e2371b49b
 
     block_free_list = 0;
     for (c = 0; c < BLOCK_SIZE; c++) {
@@ -1507,15 +1487,11 @@ codegen_block_init(uint32_t phys_addr)
     block_current = get_block_nr(block);
 
     block_num                 = HASH(phys_addr);
-<<<<<<< HEAD
     codeblock_hash_promote(block_num, block_current);
-=======
-    codeblock_hash[block_num] = block_current;
 #ifdef CODEGEN_BACKEND_HAS_ENTRY_CHECK
     if (block == block_checked_cooldown_block)
         block_checked_cooldown_block = NULL;
 #endif
->>>>>>> 141ae59ca07f63267384ea12024bc51e2371b49b
 
     block->valid             = 1;
     block->ins               = 0;
