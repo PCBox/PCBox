@@ -354,6 +354,7 @@
 #define DMA_MODE_REG                  0
 #define DMA_MODE_BLIT                 1
 #define DMA_MODE_VECTOR               2
+#define DMA_MODE_RESERVED             3
 
 #define STATUS_SOFTRAPEN              (1 << 0)
 #define STATUS_VSYNCPEN               (1 << 4)
@@ -3139,59 +3140,16 @@ run_dma(mystique_t *mystique)
                         }
                         break;
 
-                    case DMA_MODE_VECTOR:
-                        {
-                            uint32_t val;
-                            if ((mystique->dma.secaddress & DMA_ADDR_MASK) >= (mystique->dma.secend & DMA_ADDR_MASK)) {
-                                if ((mystique->dma.primaddress & DMA_ADDR_MASK) == (mystique->dma.primend & DMA_ADDR_MASK)) {
-                                    mystique->endprdmasts_pending = 1;
-                                    mystique->dma.state           = MGA_DMA_STATE_IDLE;
-                                    mystique->dma.words_expected = 0;
-                                    mystique->dma.pri_state = 0;
-                                } else {
-                                    mystique->dma.state = MGA_DMA_STATE_PRI;
-                                    mystique->dma.words_expected = 0;
-                                    mystique->dma.pri_state = 0;
-                                }
-                            }
-
-                            if (mystique->dma.sec_state == 0) {
-                                dma_bm_read(mystique->dma.secaddress & DMA_ADDR_MASK, (uint8_t *) &mystique->dma.sec_header, 4, 4);
-                                mystique->dma.secaddress += 4;
-                                //pclog("DMA header (secondary): 0x%08X\n", mystique->dma.sec_header);
-                                words_transferred++;
-                            }
-
-                            for(int i = 0; i < 32; i++)
-                            {
-                                dma_bm_read(mystique->dma.secaddress & DMA_ADDR_MASK, (uint8_t *) &val, 4, 4);
-                                mystique->dma.secaddress += 4;
-                                
-                                if (!(mystique->dma.sec_header & (1 << i))) {
-                                    mystique->dwgreg.ar[5] = val & 0xffff;
-                                    mystique->dwgreg.ar[6] = (val >> 16) & 0xffff;
-                                }
-                                else {
-                                    mystique->dwgreg.ar[0] = val & 0xffff;
-                                    mystique->dwgreg.ar[2] = (val >> 16) & 0xffff;
-                                    int autoline = !!(mystique->dwgreg.dwgctrl & 0x1);
-                                    int closed = !!(mystique->dwgreg.dwgctrl & 0x2);
-                                    blit_line_start(mystique, closed, autoline);
-                                }
-                                words_transferred++;
-                            }
-                            if ((mystique->dma.secaddress & DMA_ADDR_MASK) >= (mystique->dma.secend & DMA_ADDR_MASK)) {
-                                if ((mystique->dma.primaddress & DMA_ADDR_MASK) == (mystique->dma.primend & DMA_ADDR_MASK)) {
-                                    mystique->endprdmasts_pending = 1;
-                                    mystique->dma.state           = MGA_DMA_STATE_IDLE;
-                                    mystique->dma.words_expected = 0;
-                                    mystique->dma.pri_state = 0;
-                                } else {
-                                    mystique->dma.state = MGA_DMA_STATE_PRI;
-                                    mystique->dma.words_expected = 0;
-                                    mystique->dma.pri_state = 0;
-                                }
-                            }
+                    case DMA_MODE_RESERVED:
+                        /* The reserved mode cannot supply a secondary DMA payload. */
+                        mystique->dma.secaddress     = (mystique->dma.secend & DMA_ADDR_MASK) | DMA_MODE_RESERVED;
+                        mystique->dma.pri_state      = 0;
+                        mystique->dma.words_expected = 0;
+                        if ((mystique->dma.primaddress & DMA_ADDR_MASK) == (mystique->dma.primend & DMA_ADDR_MASK)) {
+                            mystique->endprdmasts_pending = 1;
+                            mystique->dma.state           = MGA_DMA_STATE_IDLE;
+                        } else {
+                            mystique->dma.state = MGA_DMA_STATE_PRI;
                         }
                         break;
 
@@ -3601,10 +3559,9 @@ blit_fbitblt(mystique_t *mystique)
     int16_t  x_start = mystique->dwgreg.sgn.scanleft ? mystique->dwgreg.fxright : mystique->dwgreg.fxleft;
     int16_t  x_end   = mystique->dwgreg.sgn.scanleft ? mystique->dwgreg.fxleft : mystique->dwgreg.fxright;
 
-    src_addr = mystique->dwgreg.ar[3];
-
     for (uint16_t y = 0; y < mystique->dwgreg.length; y++) {
         int16_t x = x_start;
+        src_addr  = mystique->dwgreg.ar[3];
         while (1) {
             if (x >= mystique->dwgreg.cxleft && x <= mystique->dwgreg.cxright && mystique->dwgreg.ydst_lin >= mystique->dwgreg.ytop && mystique->dwgreg.ydst_lin <= mystique->dwgreg.ybot) {
                 uint32_t src;
@@ -3645,19 +3602,15 @@ blit_fbitblt(mystique_t *mystique)
                 }
             }
 
-            if (src_addr == mystique->dwgreg.ar[0]) {
-                mystique->dwgreg.ar[0] += mystique->dwgreg.ar[5];
-                mystique->dwgreg.ar[3] += mystique->dwgreg.ar[5];
-                src_addr = mystique->dwgreg.ar[3];
+            if (src_addr == mystique->dwgreg.ar[0] || x == x_end)
                 break;
-            } else
-                src_addr += x_dir;
-
-            if (x != x_end)
-                x += x_dir;
-            else
-                break;
+            src_addr += x_dir;
+            x += x_dir;
         }
+
+        /* The destination can reach its boundary before the source reaches AR0. */
+        mystique->dwgreg.ar[0] += mystique->dwgreg.ar[5];
+        mystique->dwgreg.ar[3] += mystique->dwgreg.ar[5];
 
         if (mystique->dwgreg.sgn.sdy)
             mystique->dwgreg.ydst_lin -= (mystique->dwgreg.pitch & PITCH_MASK);
