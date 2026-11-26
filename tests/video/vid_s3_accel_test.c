@@ -862,6 +862,52 @@ test_xfer_across_11b(void)
         xfer_across(4, 1, 3);
 }
 
+/* Where an image transfer leaves the drawing position: with bus size 10b "one pixel below the
+   lower left hand corner of the image rectangle", with 11b "one pixel to the right of the top
+   right corner" (Trio32/64 p. 18-12, Trio64V+ p. 20-9, Vision868 and Vision968 p. 2-3). The books
+   don't say it for 8 and 16 bits; a real Trio64V+ ends 16-bit transfers like 10b ones. */
+static void
+check_xfer_end(int width, int bus, const char *what, int mmio)
+{
+    int x = (bus == 3) ? (XX + width) : XX;
+    int y = (bus == 3) ? XY : (XY + XH);
+
+    check((port_r(0x86e8) == x) && (port_r(0x82e8) == y), "%s %s: CUR_X/CUR_Y end at %u,%u, not %d,%d", what,
+          mmio ? "MMIO" : "port", port_r(0x86e8), port_r(0x82e8), x, y);
+}
+
+static void
+xfer_end(int unit, int bus)
+{
+    for (int mmio = 0; mmio <= !!(cur_chip->bit & C_MMIO); mmio++) {
+        if (bus != 3) {
+            xfer_through(unit, mmio);
+            check_xfer_end(5, bus, "through", mmio);
+        }
+        xfer_across(unit, mmio, bus);
+        check_xfer_end(13, bus, "across", mmio);
+    }
+}
+
+static void
+test_xfer_end_16(void)
+{
+    xfer_end(2, 1);
+}
+
+static void
+test_xfer_end_10b(void)
+{
+    if (cur_chip->bit & C_BUS32)
+        xfer_end(4, 2);
+}
+
+static void
+test_xfer_end_11b(void)
+{
+    xfer_end(4, 3);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -878,6 +924,9 @@ main(int argc, char **argv)
     run("xfer_through", test_xfer_through, C_ALL);
     run("xfer_across", test_xfer_across, C_ALL);
     run("xfer_across_11b", test_xfer_across_11b, C_TRIO32 | C_868 | C_968 | C_TRIO64V | C_TRIO64V2);
+    run("xfer_end_16", test_xfer_end_16, C_TRIO64V);
+    run("xfer_end_10b", test_xfer_end_10b, C_TRIO32 | C_TRIO64 | C_868 | C_968 | C_TRIO64V | C_TRIO64V2);
+    run("xfer_end_11b", test_xfer_end_11b, C_TRIO32 | C_868 | C_968 | C_TRIO64V | C_TRIO64V2);
 
     if (verbose)
         print_matrix();
