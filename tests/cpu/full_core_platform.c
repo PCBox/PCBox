@@ -219,6 +219,7 @@ int debugger_instruction(int partial) { (void)partial; fatal("Unexpected debugge
 int machine_has_bus(int m, uintptr_t flags) { return !!(machines[m].bus_flags & flags); }
 int machine_xt_ibm5535_init(const machine_t *model) { (void)model; fatal("Unexpected IBM 5535 initialization"); return 0; }
 int machine_xt_ibm5550_init(const machine_t *model) { (void)model; fatal("Unexpected IBM 5550 initialization"); return 0; }
+int agpgart_is_aperture(const mem_mapping_t *map) { (void)map; return 0; }
 const uint32_t *agpgart_cpu_entry(const mem_mapping_t *map, uint32_t addr,
                                    _Atomic uint32_t **gen, uint32_t *val, uint32_t *ra)
 {

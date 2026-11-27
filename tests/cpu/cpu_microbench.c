@@ -143,6 +143,12 @@ uint8_t readmembl(uint32_t addr) { return access_memory(addr, 0, 1, 0); }
 uint16_t readmemwl(uint32_t addr) { return access_memory(addr, 0, 2, 0); }
 uint32_t readmemll(uint32_t addr) { return access_memory(addr, 0, 4, 0); }
 uint64_t readmemql(uint32_t addr) { return access_memory(addr, 0, 8, 0); }
+/* The synthetic RAM has no held MMU entries or separate fetch mapping. */
+uint8_t readmembl_nh(uint32_t addr) { return readmembl(addr); }
+uint16_t readmemwl_nh(uint32_t addr) { return readmemwl(addr); }
+uint32_t readmemll_nh(uint32_t addr) { return readmemll(addr); }
+uint16_t readmemwl_eam(uint32_t addr) { return readmemwl(addr); }
+uint32_t readmemll_eam(uint32_t addr) { return readmemll(addr); }
 void writemembl(uint32_t addr, uint8_t value) { access_memory(addr, value, 1, 1); }
 void writememwl(uint32_t addr, uint16_t value) { access_memory(addr, value, 2, 1); }
 void writememll(uint32_t addr, uint32_t value) { access_memory(addr, value, 4, 1); }
