@@ -42,7 +42,6 @@
 #include <86box/pic.h>
 #include <86box/timer.h>
 #include <86box/pit.h>
-#include <86box/pit_fast.h>
 #include <86box/ppi.h>
 #include <86box/sound.h>
 #include <86box/snd_tms5220.h>
@@ -75,7 +74,7 @@ ibm_speech_log(const char *fmt, ...)
 
 typedef struct ibm_speech_t {
     i8255_t   *ppi;
-    pitf_t    *pit;
+    pit_t     *pit;
     tms5220_t *lpc;
     mc3417_t   cvsd;
 
@@ -216,10 +215,10 @@ ibm_speech_lpc_irq(int state, void *priv)
         if (dev->lpc_interrupt && !state) {
             ibm_speech_log("IBM Speech: raising IRQ %i\n", IBM_SPEECH_IRQ);
             picint(1 << IBM_SPEECH_IRQ);
-            pitf_ctr_set_gate(dev->pit, 2, 1);
+            pit_ctr_set_gate(dev->pit, 2, 1);
         } else if (state) {
             picintc(1 << IBM_SPEECH_IRQ);
-            pitf_ctr_set_gate(dev->pit, 2, 0);
+            pit_ctr_set_gate(dev->pit, 2, 0);
         }
     }
 
@@ -231,15 +230,6 @@ ibm_speech_lpc_irq(int state, void *priv)
 
     The host sees the parallel side, the CVSD the serial side.
 ******************************************************************************/
-static void
-ibm_speech_cvsd_frame_w(ibm_speech_t *dev, int state)
-{
-    if (state && (dev->cvsd_sr_bits_remaining == 0))
-        dev->cvsd_sr_serial = dev->cvsd_sr_parallel;
-
-    dev->cvsd_frame = state;
-}
-
 static void
 ibm_speech_cvsd_shiftreg_clk_w(ibm_speech_t *dev, int state)
 {
@@ -268,8 +258,8 @@ ibm_speech_shift_register_w(UNUSED(uint16_t port), uint8_t val, void *priv)
 
     if (dev->cvsd_sr_bits_remaining == 0) {
         dev->cvsd_sr_parallel       = val;
+        dev->cvsd_sr_serial         = val;
         dev->cvsd_sr_bits_remaining = 8;
-        ibm_speech_cvsd_frame_w(dev, 1);
     } else
         ibm_speech_log("IBM Speech: CVSD shift register write %02X while busy\n", val);
 }
@@ -284,7 +274,7 @@ ibm_speech_shift_register_w(UNUSED(uint16_t port), uint8_t val, void *priv)
 static void
 ibm_speech_pit_out0(int new_out, UNUSED(int old_out), void *priv)
 {
-    ibm_speech_t *dev = (ibm_speech_t *) ((pitf_t *) priv)->dev_priv;
+    ibm_speech_t *dev = (ibm_speech_t *) ((pit_t *) priv)->dev_priv;
 
     dev->cvsd_clock = !!new_out;
 
@@ -296,15 +286,15 @@ ibm_speech_pit_out0(int new_out, UNUSED(int old_out), void *priv)
 static void
 ibm_speech_pit_out1(int new_out, UNUSED(int old_out), void *priv)
 {
-    ibm_speech_t *dev = (ibm_speech_t *) ((pitf_t *) priv)->dev_priv;
+    ibm_speech_t *dev = (ibm_speech_t *) ((pit_t *) priv)->dev_priv;
 
-    ibm_speech_cvsd_frame_w(dev, !!new_out);
+    dev->cvsd_frame = !!new_out;
 }
 
 static void
 ibm_speech_pit_out2(int new_out, UNUSED(int old_out), void *priv)
 {
-    ibm_speech_t *dev = (ibm_speech_t *) ((pitf_t *) priv)->dev_priv;
+    ibm_speech_t *dev = (ibm_speech_t *) ((pit_t *) priv)->dev_priv;
 
     if (!dev->acl_int_ena && (dev->beeper_level != !!new_out)) {
         ibm_speech_update(dev);
@@ -315,7 +305,7 @@ ibm_speech_pit_out2(int new_out, UNUSED(int old_out), void *priv)
 static void
 ibm_speech_set_pit_clock(ibm_speech_t *dev)
 {
-    pitf_set_pit_const(dev->pit, (uint64_t) ((cpuclock / IBM_SPEECH_XTAL) * (double) (1ULL << 32)));
+    pit_set_pit_const(dev->pit, (uint64_t) ((cpuclock / IBM_SPEECH_XTAL) * (double) (1ULL << 32)));
 }
 
 /******************************************************************************
@@ -340,7 +330,7 @@ ibm_speech_acl_w(UNUSED(uint16_t port), uint8_t val, void *priv)
 
     /* With interrupts enabled, channel 2 is a one-shot whose gate the 5220
        opens; otherwise it is a beeper with its gate held open. */
-    pitf_ctr_set_gate(dev->pit, 2, !dev->acl_int_ena);
+    pit_ctr_set_gate(dev->pit, 2, !dev->acl_int_ena);
 }
 
 /******************************************************************************
@@ -478,7 +468,7 @@ ibm_speech_reset(void *priv)
 
     /* Gates 0 and 1 are pulled high; gate 2 is open in beeper mode. */
     for (int i = 0; i < 3; i++)
-        pitf_ctr_set_gate(dev->pit, i, 1);
+        pit_ctr_set_gate(dev->pit, i, 1);
 }
 
 static void *
@@ -496,7 +486,7 @@ ibm_speech_init(UNUSED(const device_t *info))
                             ibm_speech_lpc_sample, ibm_speech_lpc_irq, dev);
     mc3417_init(&dev->cvsd, CVSD_MC3418);
 
-    dev->ppi = device_add(&i8255_device);
+    dev->ppi = device_add_inst(&i8255_device, -1);
     i8255_set_priv(dev->ppi, dev);
     i8255_set_in(dev->ppi, I8255_PORT_A, ibm_speech_ppi_in_pa);
     i8255_set_in(dev->ppi, I8255_PORT_B, ibm_speech_ppi_in_pb);
@@ -509,20 +499,21 @@ ibm_speech_init(UNUSED(const device_t *info))
     i8255_set_tri(dev->ppi, I8255_PORT_A, ibm_speech_ppi_tri);
     i8255_set_tri(dev->ppi, I8255_PORT_C, ibm_speech_ppi_tri);
 
-    /* All three timer channels are clocked by the 4 MHz crystal. */
-    dev->pit           = device_add(&i8254_ext_io_fast_device);
+    /* POST polls for the one-clock low pulse on the CVSD frame output.
+       The fast PIT emits both edges at the same instant in mode 2. */
+    dev->pit          = device_add_inst(&i8254_ext_io_device, -1);
     dev->pit->dev_priv = dev;
     ibm_speech_set_pit_clock(dev);
-    pitf_ctr_set_out_func(dev->pit, 0, ibm_speech_pit_out0);
-    pitf_ctr_set_out_func(dev->pit, 1, ibm_speech_pit_out1);
-    pitf_ctr_set_out_func(dev->pit, 2, ibm_speech_pit_out2);
+    pit_ctr_set_out_func(dev->pit, 0, ibm_speech_pit_out0);
+    pit_ctr_set_out_func(dev->pit, 1, ibm_speech_pit_out1);
+    pit_ctr_set_out_func(dev->pit, 2, ibm_speech_pit_out2);
     for (int i = 0; i < 3; i++)
-        pitf_ctr_set_using_timer(dev->pit, i, 1);
+        pit_ctr_set_using_timer(dev->pit, i, 1);
 
     /* None of the addresses are configurable. */
     io_sethandler(0xfb98, 0x0004,
                   ibm_speech_ppi_read, NULL, NULL, ibm_speech_ppi_write, NULL, NULL, dev);
-    pitf_handler(1, 0xfb9c, 0x0004, dev->pit);
+    pit_handler(1, 0xfb9c, 0x0004, dev->pit);
     io_sethandler(0xff98, 0x0001,
                   ibm_speech_shift_register_r, NULL, NULL, ibm_speech_shift_register_w, NULL, NULL, dev);
     io_sethandler(0xff9f, 0x0001,
