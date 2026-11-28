@@ -377,7 +377,7 @@ struct accelKey def_acc_keys[NUM_ACCELS] = {
 
 char vmm_path[1024] = { '\0' }; /* VM manager path to scan for VMs */
 int  start_vmm = 1;
-static int start_fast_forward = 0;
+static int cmdline_fast_forward = 0;
 static int start_paused       = 0;
 
 /* Statistics. */
@@ -1057,7 +1057,7 @@ usage:
             automation_insecure = 1;
 #endif
         } else if (!strcasecmp(argv[c], "--fast-forward")) {
-            start_fast_forward = 1;
+            cmdline_fast_forward = 1;
         } else if (!strcasecmp(argv[c], "--paused")) {
             start_paused = 1;
         } else if (!strcasecmp(argv[c], "--fullscreen") || !strcasecmp(argv[c], "-F")) {
@@ -1236,7 +1236,7 @@ usage:
 
     /* Set before the CPU thread exists, so they apply from the first quantum;
        the frontends pick the state up from runctl when the thread starts. */
-    if (start_fast_forward)
+    if (cmdline_fast_forward)
         runctl_set_mode(RUN_MODE_FAST);
     if (start_paused)
         runctl_pause(RUN_PAUSE_USER);
