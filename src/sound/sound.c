@@ -655,6 +655,48 @@ sound_init(void)
 }
 
 void
+sound_give(const void *buf, const uint8_t src, const int size)
+{
+    automation_audio(src, buf, size, sound_is_float);
+    givealbuffer_common(buf, src, size);
+}
+
+/* Frames a stream has ticked since its last block: the start of its next
+   block that is already in the past. 0 for streams fed by their own threads. */
+int
+sound_pending_frames(const uint8_t src)
+{
+    switch (src) {
+        case I_NORMAL:
+            return sound_pos_global;
+        case I_MUSIC:
+            return music_pos_global;
+        case I_YM2151:
+            return ym2151_pos_global;
+        case I_WT:
+            return wavetable_pos_global;
+        default:
+            return 0;
+    }
+}
+
+/* The sample rate a stream is generated at. */
+int
+sound_stream_rate(const uint8_t src)
+{
+    switch (src) {
+        case I_NORMAL:
+        case I_FDD:
+        case I_HDD:
+            return sound_sample_rate;
+        case I_MIDI:
+            return src_freqs[I_MIDI] ? (int) src_freqs[I_MIDI] : midi_freq;
+        default:
+            return (int) src_freqs[src];
+    }
+}
+
+void
 sound_add_handler(void (*get_buffer)(int32_t *buffer, uint16_t len, void *priv), void *priv)
 {
     if (sound_handlers_num >= NUM_SOUND_HANDLERS) {

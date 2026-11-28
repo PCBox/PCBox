@@ -1001,7 +1001,7 @@ automation_audio(int src, const void *buf, int size, int is_float)
 
     if (!enabled || (src < 0) || (src >= I_MAX) || (n <= 0) || !aud_mutex)
         return;
-    rate = 48000;//sound_stream_rate(src);
+    rate = sound_stream_rate(src);
     if (rate <= 0)
         return;
 
@@ -1131,8 +1131,8 @@ aud_stop(strbuf_t *sb)
                 /* Frames written plus frames ticked but not yet handed over,
                    against the emulated time elapsed: 0 means no gap. */
                 double want = (double) (emu_ms - aud_start_ms) * a->segs[k].rate / 1000.0;
-                //sb_printf(sb, ",\"drift_frames\":%.1f",
-                //          (double) (a->segs[k].frames + sound_pending_frames(i)) - want);
+                sb_printf(sb, ",\"drift_frames\":%.1f",
+                          (double) (a->segs[k].frames + sound_pending_frames(i)) - want);
             }
             sb_printf(sb, "}");
             first = 0;
@@ -1163,7 +1163,7 @@ handle_audio(int argc, char **argv, char **rest)
             aud[i].rec    = 1;
             aud[i].frames = 0;
             aud[i].nsegs  = 0;
-            aud[i].skip   = 0;//(uint32_t) sound_pending_frames(i);
+            aud[i].skip   = (uint32_t) sound_pending_frames(i);
         }
         aud_start_ms  = emu_ms;
         aud_recording = 1;
@@ -1393,8 +1393,8 @@ rec_stamp(strbuf_t *sb)
 
         if (!a->rec || !aud_exact(i) || a->nsegs)
             continue;
-        //sb_printf(sb, "%s\"%s\":%lld", first ? "" : ",", aud_names[i],
-        //          (long long) a->frames + sound_pending_frames(i) - (long long) a->skip);
+        sb_printf(sb, "%s\"%s\":%lld", first ? "" : ",", aud_names[i],
+                  (long long) a->frames + sound_pending_frames(i) - (long long) a->skip);
         first = 0;
     }
     thread_release_mutex(aud_mutex);
