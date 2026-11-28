@@ -12908,7 +12908,7 @@ const machine_t machines[] = {
        and 0xCB if command 0xA1 returns a letter in the 0x5x or 0x7x ranges, so I'm
        going to give it an AMI 'U' KBC. */
     {
-        .name              = "[ALi M1489] Kentech Computers PCI486 V1-HJ3",
+        .name              = "[ALi M1489] Kentech Computer PCI486 V1-HJ3",
         .internal_name     = "win486pci",
         .type              = MACHINE_TYPE_SOCKET3_PCI,
         .chipset           = MACHINE_CHIPSET_ALI_M1489,
