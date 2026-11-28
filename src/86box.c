@@ -1054,13 +1054,11 @@ usage:
             automation_insecure = 1;
 #endif
         } else if (!strcasecmp(argv[c], "--fast-forward")) {
-            cmdline_fast_forward = 1;
+            start_fast_forward = 1;
         } else if (!strcasecmp(argv[c], "--paused")) {
             start_paused = 1;
         } else if (!strcasecmp(argv[c], "--fullscreen") || !strcasecmp(argv[c], "-F")) {
             start_in_fullscreen = 1;
-        } else if (!strcasecmp(argv[c], "--fast-forward")) {
-            start_in_fast_forward = 1;
         } else if (!strcasecmp(argv[c], "--logfile") || !strcasecmp(argv[c], "-L")) {
             if ((c + 1) == argc)
                 goto usage;
