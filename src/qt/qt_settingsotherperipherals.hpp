@@ -71,7 +71,7 @@ private slots:
 
 private:
     Ui::SettingsOtherPeripherals *ui;
-    int                           machineId { 0 };
+    int                           machineId { -1 };
     SettingsPcmcia               *pcmcia; /* the PCMCIA tab */
 
     int                           memexp_cfg_changed[4]      = { 0, 0, 0, 0 };
@@ -82,6 +82,9 @@ private:
     int                           novell_keycard_cfg_changed = 0;
     int                           softpower_cfg_changed      = 0;
     bool                          softpower_card_enabled     = false;
+
+    int                           isaMemoryCards[4] = {};
+    int                           mcaMemoryCards[4] = {};
 
     SettingsCompleter            *scRTC;
 

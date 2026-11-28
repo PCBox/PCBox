@@ -30168,7 +30168,6 @@ const machine_t machines[] = {
         .vid_device               = NULL,
         .snd_device               = NULL,
         .net_device               = NULL,
-<<<<<<< HEAD
         .pci_flags                = PCI_CONFIG_TYPE_1,
         .slot_layout              = (const machine_slot_t[]) {
             MSLOT_PCI(0x00, PCI_CARD_NORTHBRIDGE, 0, 0, 0, 0),
@@ -30181,9 +30180,6 @@ const machine_t machines[] = {
             MSLOT_BRIDGE(0x01, PCI_CARD_AGPBRIDGE, 1, 2, 3, 4, machine_bus_agp),
             MSLOT_END
         },
-#ifdef USE_AIC7890
-=======
->>>>>>> 859b65c562140a75e7992c772fb78379aaa61735
         .scsi_device              = &aic7890_pci_device,
         .aliases                  = { "" }
     },

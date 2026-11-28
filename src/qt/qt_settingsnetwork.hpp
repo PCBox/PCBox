@@ -2,8 +2,10 @@
 #define QT_SETTINGSNETWORK_HPP
 
 #include <QWidget>
-#include <QHash>
-#include <QPointer>
+
+#include <vector>
+
+#include "qt_slirpforwardingdialog.hpp"
 
 namespace Ui {
 class SettingsNetwork;
@@ -31,23 +33,26 @@ private slots:
     void on_pushButtonConf2_clicked();
     void on_pushButtonConf3_clicked();
     void on_pushButtonConf4_clicked();
+    void on_pushButtonSlirpFwd1_clicked();
+    void on_pushButtonSlirpFwd2_clicked();
+    void on_pushButtonSlirpFwd3_clicked();
+    void on_pushButtonSlirpFwd4_clicked();
     void on_comboIndexChanged(int index);
 
     void enableElements(Ui::SettingsNetwork *ui);
 
 private:
-    /* The page's controls by name, kept from when it is built: a control
-       moved under another widget is still found, as findChild() would not. */
-    QHash<QString, QPointer<QWidget>> controls;
-    template <typename T>
-    T networkControl(const QString &name) const
-    {
-        return qobject_cast<T>(controls.value(name).data());
-    }
+    void initializeHostOptions();
+
     Ui::SettingsNetwork *ui;
     int                  machineId = 0;
 
     int                  net_card_cfg_changed[4] = { 0, 0, 0, 0 };
+
+    /* SLiRP port forwarding rules accepted from the dialog, written to
+       the configuration only when the settings are saved. */
+    bool                          slirp_fwd_changed[4] = { false, false, false, false };
+    std::vector<SlirpForwardingDialog::Rule> slirp_fwd_new[4];
 
     SettingsCompleter   *sc[4];
     SettingsCompleter   *scDevice[4];
