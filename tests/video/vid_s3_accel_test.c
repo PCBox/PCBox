@@ -177,6 +177,24 @@ static struct {
     void (*outl)(uint16_t port, uint32_t val, void *priv);
 } io[0x10000];
 
+/* B2E8h's handlers as io.c keeps them: a list per port, from which io_removehandler() takes
+   only a match (io.c compares all six handlers; the write handlers and priv tell vid_s3.c's
+   sets apart). */
+#define B2E8_MAX 4
+static struct {
+    void (*outb)(uint16_t port, uint8_t val, void *priv);
+    void (*outw)(uint16_t port, uint16_t val, void *priv);
+    void (*outl)(uint16_t port, uint32_t val, void *priv);
+    void *priv;
+} b2e8[B2E8_MAX];
+static int b2e8_num;
+
+static int
+is_b2e8(uint16_t base, uint16_t size)
+{
+    return (base <= 0xb2e8) && ((base + size) > 0xb2e8);
+}
+
 void
 io_sethandler(uint16_t base, uint16_t size, uint8_t (*inb)(uint16_t port, void *priv),
               uint16_t (*inw)(uint16_t port, void *priv), uint32_t (*inl)(uint16_t port, void *priv),
@@ -191,6 +209,12 @@ io_sethandler(uint16_t base, uint16_t size, uint8_t (*inb)(uint16_t port, void *
         io[base + i].outw = outw;
         io[base + i].outl = outl;
     }
+    if (is_b2e8(base, size) && (b2e8_num < B2E8_MAX)) {
+        b2e8[b2e8_num].outb   = outb;
+        b2e8[b2e8_num].outw   = outw;
+        b2e8[b2e8_num].outl   = outl;
+        b2e8[b2e8_num++].priv = priv;
+    }
 }
 
 void
@@ -201,6 +225,14 @@ io_removehandler(uint16_t base, uint16_t size, uint8_t (*inb)(uint16_t port, voi
                  void (*outl)(uint16_t port, uint32_t val, void *priv), void *priv)
 {
     memset(&io[base], 0, size * sizeof(io[0]));
+    if (is_b2e8(base, size)) {
+        for (int i = 0; i < b2e8_num; i++) {
+            if ((b2e8[i].outb == outb) && (b2e8[i].outw == outw) && (b2e8[i].outl == outl) && (b2e8[i].priv == priv)) {
+                b2e8[i] = b2e8[--b2e8_num];
+                break;
+            }
+        }
+    }
 }
 
 static float
@@ -467,6 +499,34 @@ print_matrix(void)
         printf("\n");
     }
     printf("o = passes, F = fails, x = fails on a chip the test isn't asserted on\n");
+}
+
+/* After the card's init and the BIOS enabling I/O in the PCI command register, a word write to
+   B2E8h (COLOR_CMP) reaches the card once. As io.c's outw() dispatches it: once per handler with
+   a word handler, and once as two byte writes if a handler has only byte handlers. A leftover
+   set of handlers made it twice, which in 32 bpp swapped the RSF halves. Run once, on the
+   Trio64V+ without ROM, outside the per-chip matrix. */
+static void
+test_init_io(void)
+{
+    s3_t *dev;
+    int   n     = 0;
+    int   bytes = 0;
+
+    cur_chip = &chips[13];
+    cur_bpp  = 8;
+    asserted = 1;
+    b2e8_num = 0;
+    dev      = s3_trio64vplus_onboard_pci_device.init(&s3_trio64vplus_onboard_pci_device);
+    s3_pci_write(0, PCI_REG_COMMAND, 1, PCI_COMMAND_IO | PCI_COMMAND_MEM, dev);
+    for (int i = 0; i < b2e8_num; i++) {
+        if (b2e8[i].outw)
+            n++;
+        else if (b2e8[i].outb)
+            bytes = 1;
+    }
+    check(dev->chip == S3_TRIO64V, "init set chip %d", dev->chip);
+    check((n + bytes) == 1, "a word write to B2E8h runs %d times (%d word handlers)", n + bytes, n);
 }
 
 /* CUR_X and CUR_Y (86E8h, 82E8h) are read/write: 86C928 p. 10-5, Vision864 p. 18-4,
@@ -862,10 +922,58 @@ test_xfer_across_11b(void)
         xfer_across(4, 1, 3);
 }
 
+/* Where an image transfer leaves the drawing position: with bus size 10b "one pixel below the
+   lower left hand corner of the image rectangle", with 11b "one pixel to the right of the top
+   right corner" (Trio32/64 p. 18-12, Trio64V+ p. 20-9, Vision868 and Vision968 p. 2-3). The books
+   don't say it for 8 and 16 bits; a real Trio64V+ ends 16-bit transfers like 10b ones. */
+static void
+check_xfer_end(int width, int bus, const char *what, int mmio)
+{
+    int x = (bus == 3) ? (XX + width) : XX;
+    int y = (bus == 3) ? XY : (XY + XH);
+
+    check((port_r(0x86e8) == x) && (port_r(0x82e8) == y), "%s %s: CUR_X/CUR_Y end at %u,%u, not %d,%d", what,
+          mmio ? "MMIO" : "port", port_r(0x86e8), port_r(0x82e8), x, y);
+}
+
+static void
+xfer_end(int unit, int bus)
+{
+    for (int mmio = 0; mmio <= !!(cur_chip->bit & C_MMIO); mmio++) {
+        if (bus != 3) {
+            xfer_through(unit, mmio);
+            check_xfer_end(5, bus, "through", mmio);
+        }
+        xfer_across(unit, mmio, bus);
+        check_xfer_end(13, bus, "across", mmio);
+    }
+}
+
+static void
+test_xfer_end_16(void)
+{
+    xfer_end(2, 1);
+}
+
+static void
+test_xfer_end_10b(void)
+{
+    if (cur_chip->bit & C_BUS32)
+        xfer_end(4, 2);
+}
+
+static void
+test_xfer_end_11b(void)
+{
+    xfer_end(4, 3);
+}
+
 int
 main(int argc, char **argv)
 {
     verbose = (argc > 1) && !strcmp(argv[1], "-v");
+
+    test_init_io();
 
     run("cur_xy", test_cur_xy, C_ALL);
     run("bee8_port", test_bee8_port, C_ALL);
@@ -878,6 +986,9 @@ main(int argc, char **argv)
     run("xfer_through", test_xfer_through, C_ALL);
     run("xfer_across", test_xfer_across, C_ALL);
     run("xfer_across_11b", test_xfer_across_11b, C_TRIO32 | C_868 | C_968 | C_TRIO64V | C_TRIO64V2);
+    run("xfer_end_16", test_xfer_end_16, C_TRIO64V);
+    run("xfer_end_10b", test_xfer_end_10b, C_TRIO32 | C_TRIO64 | C_868 | C_968 | C_TRIO64V | C_TRIO64V2);
+    run("xfer_end_11b", test_xfer_end_11b, C_TRIO32 | C_868 | C_968 | C_TRIO64V | C_TRIO64V2);
 
     if (verbose)
         print_matrix();

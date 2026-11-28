@@ -20,6 +20,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <86box/86box.h>
 #include <86box/device.h>
 #include <86box/timer.h>
@@ -59,9 +60,12 @@ void *device_add_inst_params(const device_t *dev, int inst, void *params) { abor
 uint64_t device_get_bios_flags(const device_t *dev, const char *internal_name) { abort(); }
 uint32_t device_get_bios_local(const device_t *dev, const char *internal_name) { abort(); }
 const char *device_get_config_bios(const char *name) { abort(); }
-int device_get_config_int(const char *name) { abort(); }
 int device_get_instance(void) { abort(); }
 
+/* Enough for s3_init() of a card with no ROM and no external RAMDAC (S3.Accel's init_io test):
+   2 MB of VRAM, everything else off. */
+static event_t *dummy;
+int device_get_config_int(const char *name) { return strcmp(name, "memory") ? 0 : 2; }
 void mem_mapping_add(mem_mapping_t *map, uint32_t base, uint32_t size,
                      uint8_t (*read_b)(uint32_t addr, void *priv),
                      uint16_t (*read_w)(uint32_t addr, void *priv),
@@ -69,36 +73,43 @@ void mem_mapping_add(mem_mapping_t *map, uint32_t base, uint32_t size,
                      void (*write_b)(uint32_t addr, uint8_t val, void *priv),
                      void (*write_w)(uint32_t addr, uint16_t val, void *priv),
                      void (*write_l)(uint32_t addr, uint32_t val, void *priv),
-                     uint8_t *exec, uint32_t flags, void *priv) { abort(); }
-void mem_mapping_set_p(mem_mapping_t *map, void *priv) { abort(); }
+                     uint8_t *exec, uint32_t flags, void *priv) { map->base = base; map->size = size; map->priv = priv; }
+void mem_mapping_set_p(mem_mapping_t *map, void *priv) { map->priv = priv; }
 void mem_debug_add(uint8_t (*read_b)(uint32_t addr, void *priv),
                    void (*write_b)(uint32_t addr, uint8_t val, void *priv),
-                   mem_debug_ptr_t debug_ptr) { abort(); }
+                   mem_debug_ptr_t debug_ptr) { }
 void pci_add_card(uint8_t add_type, uint8_t (*read)(int func, int addr, int len, void *priv),
-                  void (*write)(int func, int addr, int len, uint8_t val, void *priv), void *priv, uint8_t *slot) { abort(); }
-int rom_init(rom_t *rom, const char *fn, uint32_t address, int size, int mask, int file_offset, uint32_t flags) { abort(); }
-
-event_t *thread_create_event(void) { abort(); }
-void thread_destroy_event(event_t *arg) { abort(); }
-thread_t *thread_create_named(void (*thread_func)(void *param), void *param, const char *name) { abort(); }
-int thread_wait(thread_t *arg) { abort(); }
-
-void *i2c_gpio_init(char *bus_name) { abort(); }
-void i2c_gpio_close(void *dev_handle) { abort(); }
-void *i2c_gpio_get_bus(void *dev_handle) { abort(); }
-void *ddc_init(void *i2c) { abort(); }
-void ddc_close(void *eeprom) { abort(); }
-
+                  void (*write)(int func, int addr, int len, uint8_t val, void *priv), void *priv, uint8_t *slot) { *slot = 0; }
+event_t *thread_create_event(void) { return (event_t *) &dummy; }
+thread_t *thread_create_named(void (*thread_func)(void *param), void *param, const char *name) { return (thread_t *) &dummy; }
+void *i2c_gpio_init(char *bus_name) { return &dummy; }
+void *i2c_gpio_get_bus(void *dev_handle) { return &dummy; }
+void *ddc_init(void *i2c) { return &dummy; }
 int svga_init(const device_t *info, svga_t *svga, void *priv, int memsize,
               void (*recalctimings_ex)(struct svga_t *svga),
               uint8_t (*video_in)(uint16_t addr, void *priv),
               void (*video_out)(uint16_t addr, uint8_t val, void *priv),
               void (*hwcursor_draw)(struct svga_t *svga, int displine),
-              void (*overlay_draw)(struct svga_t *svga, int displine)) { abort(); }
+              void (*overlay_draw)(struct svga_t *svga, int displine))
+{
+    svga->priv        = priv;
+    svga->vram        = calloc(1, memsize);
+    svga->changedvram = calloc(1, memsize >> 12);
+    svga->vram_max    = memsize;
+    svga->vram_mask   = memsize - 1;
+    svga->decode_mask = memsize - 1;
+    return 0;
+}
+void video_clamp_vram(uint64_t bios_flags, int *vram) { }
+void video_inform_monitor(int type, const video_timings_t *ptr, int monitor_index) { }
+
+int rom_init(rom_t *rom, const char *fn, uint32_t address, int size, int mask, int file_offset, uint32_t flags) { abort(); }
+void thread_destroy_event(event_t *arg) { abort(); }
+int thread_wait(thread_t *arg) { abort(); }
+void i2c_gpio_close(void *dev_handle) { abort(); }
+void ddc_close(void *eeprom) { abort(); }
 void svga_close(svga_t *svga) { abort(); }
 uint8_t *svga_debug_ptr_common(uint32_t addr, uint8_t linear, int write, svga_t *svga) { abort(); }
-void video_clamp_vram(uint64_t bios_flags, int *vram) { abort(); }
-void video_inform_monitor(int type, const video_timings_t *ptr, int monitor_index) { abort(); }
 
 float ch9204_getclock(int clock, void *priv) { abort(); }
 float ibm_rgb528_getclock(int clock, void *priv) { abort(); }
