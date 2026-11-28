@@ -9166,6 +9166,18 @@ s3_accel_start(int count, int cpu_input, uint32_t mix_dat, uint32_t cpu_data, vo
                         if (s3->accel.b2e8_pix) {
                             s3->accel.cur_x = s3->accel.cx;
                             s3->accel.cur_y = s3->accel.cy;
+                        } else if ((s3->accel.sy < 0) && s3_cpu_src(s3)) {
+                            /* After an image transfer, BUS SIZE (CMD bits 10-9) 11b leaves the
+                               position one pixel past the end of the first line, in the X direction
+                               of DRWG-DIR (bit 5, 1 = +X); the other bus sizes one line past the
+                               last line (Trio32/64 p. 18-12, Trio64V+ p. 20-9). */
+                            if ((s3->accel.cmd & 0x600) == 0x600) {
+                                if (s3->accel.cmd & 0x20)
+                                    s3->accel.cur_x = (s3->accel.cur_x + s3->accel.maj_axis_pcnt + 1) & 0xfff;
+                                else
+                                    s3->accel.cur_x = (s3->accel.cur_x - s3->accel.maj_axis_pcnt - 1) & 0xfff;
+                            } else
+                                s3->accel.cur_y = s3->accel.cy;
                         }
                         return;
                     }
