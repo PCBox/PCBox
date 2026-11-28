@@ -11074,6 +11074,8 @@ s3_init(const device_t *info)
     svga->vblank_start = s3_vblank_start;
     svga->vert_int_update = s3_vert_int_update;
 
+    s3->chip = chip;
+
     s3_io_set(s3);
 
     s3->pci_regs[PCI_REG_COMMAND] = 7;
@@ -11081,8 +11083,6 @@ s3_init(const device_t *info)
     s3->pci_regs[0x30] = 0x00;
     s3->pci_regs[0x32] = 0x0c;
     s3->pci_regs[0x33] = 0x00;
-
-    s3->chip = chip;
 
     s3->int_line = 0;
 
