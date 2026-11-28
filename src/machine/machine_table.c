@@ -12904,6 +12904,58 @@ const machine_t machines[] = {
     },
     /* Has the ALi M1487/9's on-chip keyboard controller which clones a standard AT
        KBC.
+       The BIOS string always ends in -U, but the BIOS will send AMIKey commands 0xCA
+       and 0xCB if command 0xA1 returns a letter in the 0x5x or 0x7x ranges, so I'm
+       going to give it an AMI 'U' KBC. */
+    {
+        .name              = "[ALi M1489] Kentech Computers PCI486 V1-HJ3",
+        .internal_name     = "win486pci",
+        .type              = MACHINE_TYPE_SOCKET3_PCI,
+        .chipset           = MACHINE_CHIPSET_ALI_M1489,
+        .init              = machine_at_win486pci_init,
+        .p1_handler        = machine_generic_p1_handler,
+        .gpio_handler      = NULL,
+        .available_flag    = MACHINE_AVAILABLE,
+        .gpio_acpi_handler = NULL,
+        .cpu               = {
+            .package     = CPU_PKG_SOCKET3,
+            .block       = CPU_BLOCK_NONE,
+            .min_bus     = 20000000,
+            .max_bus     = 50000000,
+            .min_voltage = 3300,
+            .max_voltage = 5000,
+            .min_multi   = 0,
+            .max_multi   = 0
+        },
+        .bus_flags = MACHINE_PCI,
+        .flags     = MACHINE_IDE_DUAL | MACHINE_APM,
+        .ram       = {
+            .min  = 1024,
+            .max  = 65536,
+            .step = 1024
+        },
+        .nvrmask                  = 255,
+        .jumpered_ecp_dma         = MACHINE_DMA_DISABLED | MACHINE_DMA_1 | MACHINE_DMA_3,
+        .default_jumpered_ecp_dma = 3,
+        .kbc_device               = NULL,
+        .kbc_params               = 0x00005500,
+        .nvr_device               = &nvr_at_device,
+        .nvr_params               = NVR_AT,
+        .sio_device               = NULL,
+        .sio_params               = 0x00000000,
+        .kbc_p1                   = 0x000004f0,
+        .gpio                     = 0xffffffff,
+        .gpio_acpi                = 0xffffffff,
+        .device                   = NULL,
+        .kbd_device               = NULL,
+        .fdc_device               = NULL,
+        .vid_device               = NULL,
+        .snd_device               = NULL,
+        .net_device               = NULL,
+        .aliases                  = { "" }
+    },
+    /* Has the ALi M1487/9's on-chip keyboard controller which clones a standard AT
+       KBC.
        The known BIOS string ends in -E, and the BIOS returns whatever command 0xA1
        returns (but only if command 0xA1 is instant response), so said ALi keyboard
        controller likely returns 'E'. */
@@ -12939,58 +12991,6 @@ const machine_t machines[] = {
         .default_jumpered_ecp_dma = 3,
         .kbc_device               = &kbc_at_device,
         .kbc_params               = KBC_VEN_ALI | 0x00004600,
-        .nvr_device               = &nvr_at_device,
-        .nvr_params               = NVR_AT,
-        .sio_device               = NULL,
-        .sio_params               = 0x00000000,
-        .kbc_p1                   = 0x000004f0,
-        .gpio                     = 0xffffffff,
-        .gpio_acpi                = 0xffffffff,
-        .device                   = NULL,
-        .kbd_device               = NULL,
-        .fdc_device               = NULL,
-        .vid_device               = NULL,
-        .snd_device               = NULL,
-        .net_device               = NULL,
-        .aliases                  = { "" }
-    },
-    /* Has the ALi M1487/9's on-chip keyboard controller which clones a standard AT
-       KBC.
-       The BIOS string always ends in -U, but the BIOS will send AMIKey commands 0xCA
-       and 0xCB if command 0xA1 returns a letter in the 0x5x or 0x7x ranges, so I'm
-       going to give it an AMI 'U' KBC. */
-    {
-        .name              = "[ALi M1489] Unknown PCI486 V1-HJ3",
-        .internal_name     = "win486pci",
-        .type              = MACHINE_TYPE_SOCKET3_PCI,
-        .chipset           = MACHINE_CHIPSET_ALI_M1489,
-        .init              = machine_at_win486pci_init,
-        .p1_handler        = machine_generic_p1_handler,
-        .gpio_handler      = NULL,
-        .available_flag    = MACHINE_AVAILABLE,
-        .gpio_acpi_handler = NULL,
-        .cpu               = {
-            .package     = CPU_PKG_SOCKET3,
-            .block       = CPU_BLOCK_NONE,
-            .min_bus     = 20000000,
-            .max_bus     = 50000000,
-            .min_voltage = 3300,
-            .max_voltage = 5000,
-            .min_multi   = 0,
-            .max_multi   = 0
-        },
-        .bus_flags = MACHINE_PCI,
-        .flags     = MACHINE_IDE_DUAL | MACHINE_APM,
-        .ram       = {
-            .min  = 1024,
-            .max  = 65536,
-            .step = 1024
-        },
-        .nvrmask                  = 255,
-        .jumpered_ecp_dma         = MACHINE_DMA_DISABLED | MACHINE_DMA_1 | MACHINE_DMA_3,
-        .default_jumpered_ecp_dma = 3,
-        .kbc_device               = NULL,
-        .kbc_params               = 0x00005500,
         .nvr_device               = &nvr_at_device,
         .nvr_params               = NVR_AT,
         .sio_device               = NULL,
